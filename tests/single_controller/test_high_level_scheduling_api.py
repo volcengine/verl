@@ -17,7 +17,7 @@ import time
 import ray
 
 from verl.single_controller.base.worker import Worker
-from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, merge_resource_pool
+from verl.single_controller.ray.base import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, split_resource_pool
 from verl.utils.device import get_device_name
 
 
@@ -68,15 +68,14 @@ def test():
     del ref_wg
     gc.collect()  # make sure ray actors are deleted
 
-    [ray.util.remove_placement_group(pg) for pg in resource_pool.get_placement_groups()]
+    ray.util.remove_placement_group(resource_pool.get_placement_group())
     print("wait 5s to remove placemeng_group")
     time.sleep(5)
     # test single-node-multi-partition
 
     print("test single-node-multi-partition")
-    rm_resource_pool = RayResourcePool([4], use_gpu=True, name_prefix="rm")
-    ref_resource_pool = RayResourcePool([4], use_gpu=True, name_prefix="ref")
-    total_resource_pool = merge_resource_pool(rm_resource_pool, ref_resource_pool)
+    total_resource_pool = RayResourcePool([8], use_gpu=True, name_prefix="ref")
+    rm_resource_pool, ref_resource_pool = split_resource_pool(total_resource_pool, split_size=4)
 
     assert rm_resource_pool.world_size == 4
     assert ref_resource_pool.world_size == 4
@@ -99,5 +98,27 @@ def test():
     assert critic_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(8)]
     assert rm_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4)]
     assert ref_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(4, 8)]
+
+    ray.shutdown()
+
+
+def test_multi_nodes():
+    ray.init()
+    class_with_args = RayClassWithInitArgs(cls=TestActor)
+    resource_pool = RayResourcePool([4, 4])
+    assert resource_pool.world_size == 8
+
+    # actor worker group
+    actor_wg = RayWorkerGroup(resource_pool, class_with_args)
+    assert actor_wg.execute_all_sync("get_cuda_visible_devices") == [str(i) for i in range(8)]
+
+    # split resource pool for rollout (world_size=2)
+    rollout_pools = split_resource_pool(resource_pool, split_size=2)
+    assert len(rollout_pools) == 4
+    for idx, rollout_pool in enumerate(rollout_pools):
+        assert rollout_pool.world_size == 2
+        assert rollout_pool.start_bundle_index == idx * 2
+        rollout_wg = RayWorkerGroup(rollout_pool, class_with_args)
+        assert rollout_wg.execute_all_sync("get_cuda_visible_devices") == [str(idx * 2 + i) for i in range(2)]
 
     ray.shutdown()

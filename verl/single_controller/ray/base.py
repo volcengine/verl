@@ -108,13 +108,22 @@ class RayResourcePool(ResourcePool):
         self.use_gpu = use_gpu
         # print(f"in RayProcessDispatchConfiguration: name_prefix = {name_prefix}")
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
-        self.pgs = None
+        self.pg = None
         self.detached = detached
         self.accelerator_type = accelerator_type
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
-        if self.pgs is not None:
-            return self.pgs
+    def get_placement_group(self, name=None, device_name="cuda") -> PlacementGroup:
+        """Create a placement group across all nodes.
+
+        Args:
+            name: The name of the placement group. If None, a random name will be generated.
+            device_name: The device type to be used in the placement group. Defaults to "cuda".
+
+        Returns:
+            The created placement group.
+        """
+        if self.pg is not None:
+            return self.pg
 
         pg_name_prefix = (
             name if name else f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
@@ -130,39 +139,42 @@ class RayResourcePool(ResourcePool):
             bundle[device_name] = 1
             if self.accelerator_type is not None:
                 bundle[self.accelerator_type] = 1e-4
-        pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
+        bundles = [bundle.copy() for process_count in self._store for _ in range(process_count)]
         lifetime = "detached" if self.detached else None
+        self.pg = placement_group(bundles=bundles, name=pg_name_prefix, lifetime=lifetime)
+        ray.get(self.pg.ready())
+        return self.pg
 
-        pgs = [
-            placement_group(bundles=bundles, strategy=strategy, name=pg_name_prefix + str(idx), lifetime=lifetime)
-            for idx, bundles in enumerate(pg_scheme)
-        ]
-
-        ray.get([pg.ready() for pg in pgs])
-
-        self.pgs = sort_placement_group_by_node_ip(pgs)
-        return pgs
+    @property
+    def start_bundle_index(self):
+        """The start bundle index of the placement group."""
+        return 0
 
 
 class SubRayResourcePool(RayResourcePool):
     def __init__(
         self,
-        placement_groups: list[PlacementGroup],
+        placement_group: PlacementGroup,
         start_bundle_index: int,
         subgroup_world_size: int,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self.pgs = placement_groups
-        self.start_bundle_index = start_bundle_index
-        self.subgroup_world_size = subgroup_world_size
+        self.pg = placement_group
+        self._start_bundle_index = start_bundle_index
+        self._subgroup_world_size = subgroup_world_size
 
     @property
     def world_size(self):
-        return self.subgroup_world_size
+        return self._subgroup_world_size
+
+    @property
+    def start_bundle_index(self):
+        return self._start_bundle_index
 
 
+# TODO: not used?
 def extract_pg_from_exist(
     resource_pools: dict[str, RayResourcePool], src_role_names: list[str], resource_pool: RayResourcePool
 ) -> list:
@@ -222,14 +234,14 @@ def split_resource_pool(
         start_bundle_idx_list = np.cumsum([0] + split_size_list[:-1])
 
     # ensure resource_pool.pgs has been initialized
-    placement_groups = resource_pool.get_placement_groups()
+    placement_group = resource_pool.get_placement_group()
     split_resource_pools = [
         SubRayResourcePool(
             process_on_nodes=resource_pool.store,
             use_gpu=resource_pool.use_gpu,
             name_prefix=f"{resource_pool.name_prefix}_split_{split_idx}",
             max_colocate_count=resource_pool.max_colocate_count,
-            placement_groups=placement_groups,
+            placement_group=placement_group,
             start_bundle_index=start_bundle_idx_list[split_idx],
             subgroup_world_size=split_size_list[split_idx],
         )
@@ -238,6 +250,7 @@ def split_resource_pool(
     return split_resource_pools
 
 
+# TODO: not used?
 def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResourcePool:
     assert rp1.use_gpu == rp2.use_gpu, "Both RayResourcePool must either use_gpu or not"
     assert rp1.max_colocate_count == rp2.max_colocate_count, "Both RayResourcePool must has the same max_colocate_count"
@@ -346,7 +359,7 @@ class RayWorkerGroup(WorkerGroup):
         self,
         resource_pool: RayResourcePool = None,
         ray_cls_with_init: RayClassWithInitArgs = None,
-        bin_pack: bool = True,
+        bin_pack: bool = False,
         name_prefix: str = None,
         detached=False,
         worker_names=None,
@@ -390,14 +403,6 @@ class RayWorkerGroup(WorkerGroup):
 
         if self._is_init_with_detached_workers:
             self._init_with_detached_workers(worker_names=worker_names, worker_handles=worker_handles)
-        elif isinstance(resource_pool, SubRayResourcePool):
-            self._init_with_subresource_pool(
-                resource_pool=resource_pool,
-                ray_cls_with_init=ray_cls_with_init,
-                bin_pack=bin_pack,
-                detached=detached,
-                worker_env=self.customized_worker_env,
-            )
         else:
             self._init_with_resource_pool(
                 resource_pool=resource_pool,
@@ -434,13 +439,13 @@ class RayWorkerGroup(WorkerGroup):
         self._workers = workers
         self._world_size = len(worker_names)
 
-    def _get_master_addr_port(self, pg):
+    def _get_master_addr_port(self, pg, bundle_index):
         """Get master addr and port for this worker group"""
         if self._master_addr is None and self._master_port is None:
             self._master_addr, self._master_port = ray.get(
                 get_master_addr_port.options(
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
-                        placement_group=pg, placement_group_bundle_index=0
+                        placement_group=pg, placement_group_bundle_index=bundle_index
                     ),
                 ).remote()
             )
@@ -462,64 +467,21 @@ class RayWorkerGroup(WorkerGroup):
             detached: Whether workers should be detached
         """
         self.resource_pool = resource_pool
-
-        strategy = "PACK"
-        if bin_pack:
-            strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
+        pg = resource_pool.get_placement_group(device_name=self.device_name)
         world_size = resource_pool.world_size
         self._world_size = world_size
-        # cia.add_kwarg("_world_size", world_size)
-
-        rank = -1
         local_world_size = resource_pool.store[0]
-        for pg_idx, pg in enumerate(sort_placement_group_by_node_ip(pgs)):
-            assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
-            if pg_idx == 0:
-                self._get_master_addr_port(pg)
+        start_bundle_index = resource_pool.start_bundle_index
 
-            for local_rank in range(local_world_size):
-                rank += 1
-                self._create_worker(
-                    rank=rank,
-                    pg_idx=pg_idx,
-                    pg=pg,
-                    local_rank=local_rank,
-                    resource_pool=resource_pool,
-                    ray_cls_with_init=ray_cls_with_init,
-                    worker_env=worker_env,
-                    detached=detached,
-                )
+        for rank in range(world_size):
+            if rank == 0:
+                self._get_master_addr_port(pg, bundle_index=start_bundle_index)
 
-    def _init_with_subresource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
-        """Initialize the worker group by creating new workers from a resource pool or sub resource pool.
-        Args:
-            resource_pool: Resource pool for worker allocation
-            ray_cls_with_init: Class with initialization arguments for workers
-            bin_pack: Whether to use strict bin packing for resource allocation
-            detached: Whether workers should be detached
-        """
-        strategy = "PACK"
-        if bin_pack:
-            strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
-        world_size = resource_pool.world_size
-        self._world_size = world_size
-
-        rank = -1
-        local_world_size = resource_pool.store[0]
-        self._get_master_addr_port(pgs[0])
-        for curr_rank in range(resource_pool.start_bundle_index, resource_pool.start_bundle_index + world_size):
-            pg_idx = curr_rank // local_world_size
-            pg = pgs[pg_idx]
-            local_rank = curr_rank % local_world_size
-            assert local_world_size <= pg.bundle_count, f"when generating for {self.name_prefix}, for the "
-
-            rank += 1
+            local_rank = rank % local_world_size
             self._create_worker(
-                rank=rank,
-                pg_idx=pg_idx,
                 pg=pg,
+                bundle_index=start_bundle_index + rank,
+                rank=rank,
                 local_rank=local_rank,
                 resource_pool=resource_pool,
                 ray_cls_with_init=ray_cls_with_init,
@@ -527,7 +489,9 @@ class RayWorkerGroup(WorkerGroup):
                 detached=detached,
             )
 
-    def _create_worker(self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached):
+    def _create_worker(
+        self, pg, bundle_index, rank, local_rank, resource_pool, ray_cls_with_init, worker_env, detached
+    ):
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
         local_world_size = resource_pool.store[0]
@@ -558,6 +522,7 @@ class RayWorkerGroup(WorkerGroup):
         cia_name = type(ray_cls_with_init.cls).__name__
         match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
         cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
+        pg_idx = rank // local_world_size
         name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
         if self.profile_steps and self.device_name == "cuda":
@@ -579,7 +544,7 @@ class RayWorkerGroup(WorkerGroup):
         # create a worker
         worker = ray_cls_with_init(
             placement_group=pg,
-            placement_group_bundle_idx=local_rank,
+            placement_group_bundle_idx=bundle_index,
             use_gpu=use_gpu,
             num_gpus=num_gpus,
             device_name=self.device_name,
