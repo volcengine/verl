@@ -54,7 +54,8 @@ checkpoint:
   load_contents: ${checkpoint.save_contents}
   # Mbridge config extension.
   mbridge_config:
-    memory_efficient: False
+    memory_efficient: true
+    distributed_filesystem: true
 
 trainer:
   default_local_dir: checkpoints/${trainer.project_name}/${trainer.experiment_name}

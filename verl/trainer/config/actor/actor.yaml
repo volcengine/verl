@@ -125,7 +125,8 @@ checkpoint:
   
   # Mbridge config extension.
   mbridge_config:
-    memory_efficient: False
+    memory_efficient: true
+    distributed_filesystem: true
 
 # optimizer configs
 optim:

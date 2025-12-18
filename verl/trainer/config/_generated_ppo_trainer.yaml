@@ -86,6 +86,7 @@ actor_rollout_ref:
       async_save: false
       mbridge_config:
         memory_efficient: false
+        distributed_filesystem: true
     use_fused_kernels: ${oc.select:actor_rollout_ref.model.use_fused_kernels,false}
     profiler:
       _target_: verl.utils.profiler.ProfilerConfig
@@ -429,6 +430,7 @@ critic:
     async_save: false
     mbridge_config:
       memory_efficient: false
+      distributed_filesystem: true
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
     tool: ${oc.select:global_profiler.tool,null}

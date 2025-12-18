@@ -100,7 +100,8 @@ checkpoint:
 
   # Mbridge config extension.
   mbridge_config:
-    memory_efficient: False
+    memory_efficient: true
+    distributed_filesystem: true
 
 # profile the critic model in `update_critic`
 profiler:
