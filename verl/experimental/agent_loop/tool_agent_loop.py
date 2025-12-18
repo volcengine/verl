@@ -166,6 +166,11 @@ class ToolAgentLoop(AgentLoopBase):
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
         prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]
         multi_modal_data = {"image": agent_data.image_data} if agent_data.image_data is not None else {}
+        # for computing format reward score
+        # NOTE: In previous implementation, the returned `response` was a concatenation of all subsequent assistant/tool messages.
+        # To compute the assistant's format reward for each turn, it's better to extract assistant message info directly from `messages`.
+        # Therefore, we record full message information here for post-analysis.
+        messages = agent_data.messages
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
@@ -176,7 +181,7 @@ class ToolAgentLoop(AgentLoopBase):
             else None,
             num_turns=agent_data.user_turns + agent_data.assistant_turns + 1,
             metrics=agent_data.metrics,
-            extra_fields={},
+            extra_fields={"messages": messages},
         )
         output.extra_fields.update({"turn_scores": agent_data.turn_scores, "tool_rewards": agent_data.tool_rewards})
         return output
@@ -242,12 +247,15 @@ class ToolAgentLoop(AgentLoopBase):
         _, agent_data.tool_calls = await self.tool_parser.extract_tool_calls(agent_data.response_ids)
 
         # Handle interaction if needed
-        if self.interaction_config_file:
-            assistant_message = await self.loop.run_in_executor(
-                None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
-            )
-            add_messages.append({"role": "assistant", "content": assistant_message})
-            agent_data.messages.extend(add_messages)
+        # NOTE: when interaction_config_file is not enabled, the assistant messages are not recorded in the messages list.
+        # we should always append the full assistant messages regardless of whether interaction_config_file is enabled,
+        # so that assistant messages can be fully recorded for per-turn format reward computation.
+        # if self.interaction_config_file:
+        assistant_message = await self.loop.run_in_executor(
+            None, lambda: self.tokenizer.decode(agent_data.response_ids, skip_special_tokens=True)
+        )
+        add_messages.append({"role": "assistant", "content": assistant_message})
+        agent_data.messages.extend(add_messages)
 
         # Determine next state
         if agent_data.tool_calls:
