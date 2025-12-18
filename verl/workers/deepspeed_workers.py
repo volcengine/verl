@@ -309,20 +309,6 @@ class ActorRolloutRefWorker(Worker):
         else:
             self.ref_ulysses_sequence_parallel_size = 1
 
-        # Normalize batch-related configs to per-rank values (align with FSDP behavior)
-        dp_size = (
-            self.actor_layout.dp_size
-            if self.actor_layout is not None
-            else (self.ref_layout.dp_size if self.ref_layout is not None else torch.distributed.get_world_size())
-        )
-        if self._is_rollout and getattr(self.config.rollout, "log_prob_micro_batch_size", None) is not None:
-            self.config.rollout.log_prob_micro_batch_size //= max(1, dp_size)
-            self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
-
-        if self._is_ref and getattr(self.config.ref, "log_prob_micro_batch_size", None) is not None:
-            self.config.ref.log_prob_micro_batch_size //= max(1, dp_size)
-            self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
-
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self._lora_rank > 0
 
@@ -510,10 +496,11 @@ class ActorRolloutRefWorker(Worker):
                 torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
             )
             sp_size = layout.sp_size if layout is not None else 1
+            # per-rank mini batch 按 dp*sp 归一，避免重复按 sp 缩小
+            per_rank_mini = max(1, self.config.actor.ppo_mini_batch_size // max(1, dp_size * sp_size))
             micro_bsz = self.config.actor.get("ppo_micro_batch_size_per_gpu", 1) or 1
-            # ppo_mini_batch_size 已按 DP 归一；保持与实际 micro_batches 数一致，不再按 SP 额外缩小
-            ds_grad_accum = max(1, self.config.actor.ppo_mini_batch_size // micro_bsz)
-            # DeepSpeed 需要 global train_batch_size；这里乘以 dp*sp 以通过其内部校验，同时等价于真实总样本数
+            # GAS 与 micro_batches 对齐；DS 校验使用 world_size=dp*sp
+            ds_grad_accum = max(1, per_rank_mini // micro_bsz)
             ds_train_batch_size = max(1, micro_bsz * ds_grad_accum * dp_size * sp_size)
 
             ds_config = get_deepspeed_config(
@@ -1880,10 +1867,9 @@ class CriticWorker(Worker):
             torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
         )
         sp_size = self.layout.sp_size if self.layout is not None else 1
+        per_rank_mini = max(1, self.config.ppo_mini_batch_size // max(1, dp_size * sp_size))
         micro_bsz = self.config.get("ppo_micro_batch_size_per_gpu", 1) or 1
-        # ppo_mini_batch_size 已按 DP 归一；与实际 micro_batches 数保持一致，不再按 SP 额外缩小
-        ds_grad_accum = max(1, self.config.ppo_mini_batch_size // micro_bsz)
-        # DeepSpeed 需要 global train_batch_size；乘以 dp*sp 通过校验，同时等价于真实总样本数
+        ds_grad_accum = max(1, per_rank_mini // micro_bsz)
         ds_train_batch_size = max(1, micro_bsz * ds_grad_accum * dp_size * sp_size)
 
         ds_config = get_deepspeed_config(
