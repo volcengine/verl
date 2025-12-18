@@ -125,11 +125,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 # Optional offload helpers (no-op if absent)
 try:
-    from verl.workers.engine.deepspeed.offload_utils import (  # hypothetical existing util
+    from verl.utils.deepspeed_utils import (
         load_deepspeed_model_to_gpu,
         offload_deepspeed_model_to_cpu,
     )
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
 
     def load_deepspeed_model_to_gpu(engine):  # type: ignore
         return
