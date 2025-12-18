@@ -76,7 +76,7 @@ class ResourcePoolManager:
     mapping: dict[Role, str]
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
-    def create_resource_pool(self):
+    def create_resource_pool(self, additional: Optional[dict[str, dict]] = None):
         """Create Ray resource pools for distributed training.
 
         Initializes resource pools based on the resource pool specification,
@@ -89,11 +89,17 @@ class ResourcePoolManager:
             # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
             # For Megatron backend, we recommend using max_colocate_count>1
             # that can utilize different WorkerGroup for differnt models
+            bundle = additional.get(resource_pool_name, None) if additional is not None else None
             resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
+                process_on_nodes=process_on_nodes,
+                use_gpu=True,
+                max_colocate_count=3,
+                name_prefix=resource_pool_name,
+                custom_bundle=bundle,
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
+        # todo fix it when using ckpt-engine
         self._check_resource_available()
 
     def get_resource_pool(self, role: Role) -> RayResourcePool:

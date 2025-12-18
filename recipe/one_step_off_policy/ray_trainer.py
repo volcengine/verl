@@ -127,6 +127,9 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         if config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(config.algorithm.kl_ctrl)
 
+        self.rank_offset = config.trainer.n_gpus_per_node * config.trainer.nnodes
+        self.ps_world_size = self.rank_offset + config.rollout.n_gpus_per_node * config.rollout.nnodes
+
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate(self):
@@ -149,7 +152,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._init_async_rollout_manager()
 
     def _init_resource_pools(self):
-        self.resource_pool_manager.create_resource_pool()
+        additional = {"ckpt_engine_pool": {"CPU": 1, "NPU": 0.2}, "rollout_pool": {"CPU": 1, "NPU": 0.8}}
+        self.resource_pool_manager.create_resource_pool(additional=additional)
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
@@ -158,6 +162,19 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._create_critic_class()
         self._create_reference_policy_class()
         self._create_reward_model_class()
+        self._create_ckpt_engine_class()
+
+    def _create_ckpt_engine_class(self):
+        # create ckpt engine
+        if True:
+            resource_pool = self.resource_pool_manager.get_resource_pool(Role.CkptEngine)
+            ckpt_engine_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.CkptEngine],
+                rank_offset=self.rank_offset,
+                ps_world_size=self.ps_world_size,
+                inference_parallel_size=self.config.actor_rollout_ref.rollout.tensor_model_parallel_size,
+            )
+            self.resource_pool_to_cls[resource_pool][str(Role.CkptEngine)] = ckpt_engine_cls
 
     def _create_actor_rollout_classes(self):
         for role in [Role.Actor, Role.Rollout]:
@@ -166,6 +183,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 cls=self.role_worker_mapping[role],
                 config=self.config.actor_rollout_ref,
                 role=str(role),
+                rank_offset=self.rank_offset,
+                ps_world_size=self.ps_world_size,
             )
             self.resource_pool_to_cls[resource_pool][str(role)] = role_cls
 
@@ -249,26 +268,15 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.rollout_wg = self.all_wg[str(Role.Rollout)]
         self.actor_wg.init_model()
         self.rollout_wg.init_model()
+        self.ckpt_engine_wg = self.all_wg[str(Role.CkptEngine)]
         self.actor_rollout_wg = self.actor_wg
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
         self._create_weight_sync_group()
 
     def _create_weight_sync_group(self):
-        # TODO: NPU support
-        from verl.utils.device import get_nccl_backend
-
-        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-        n_workers = len(actor_rollout_workers)
-
-        # Create Ray collective group for fallback communication
-        collective.create_collective_group(
-            actor_rollout_workers,
-            n_workers,
-            list(range(0, n_workers)),
-            backend=get_nccl_backend(),
-            group_name="actor_rollout",
-        )
+        self.actor_wg.init_process_group()
+        ray.get(self.ckpt_engine_wg.init_process_group())
 
     def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler
@@ -286,9 +294,11 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             config=self.config, worker_group=self.rollout_wg, rm_resource_pool=rm_resource_pool
         )
 
+        ray.get(self.ckpt_engine_wg.set_server_addresses(self.async_rollout_manager.server_addresses))
+
     def sync_rollout_weights(self):
-        self.actor_wg.sync_rollout_weights()
-        ray.get(self.rollout_wg.sync_rollout_weights())
+        self.actor_wg.sync_rollout_weights_by_ckpt_engine()
+        ray.get(self.ckpt_engine_wg.sync_rollout_weights_by_ckpt_engine())
 
     def _create_continuous_iterator(self):
         """

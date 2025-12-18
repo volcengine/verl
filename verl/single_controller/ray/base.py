@@ -102,6 +102,7 @@ class RayResourcePool(ResourcePool):
         max_colocate_count: int = 10,
         detached=False,
         accelerator_type: Optional[str] = None,
+        custom_bundle: Optional[dict] = None,
     ) -> None:
         super().__init__(process_on_nodes, max_colocate_count)
         self.use_gpu = use_gpu
@@ -110,6 +111,7 @@ class RayResourcePool(ResourcePool):
         self.pgs = None
         self.detached = detached
         self.accelerator_type = accelerator_type
+        self.custom_bundle = custom_bundle
 
     def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
         if self.pgs is not None:
@@ -124,11 +126,14 @@ class RayResourcePool(ResourcePool):
         elif device_name == "cuda":
             device_name = "GPU"
 
-        bundle = {"CPU": self.max_colocate_count}
-        if self.use_gpu:
-            bundle[device_name] = 1
-            if self.accelerator_type is not None:
-                bundle[self.accelerator_type] = 1e-4
+        if self.custom_bundle is not None:
+            bundle = self.custom_bundle
+        else:
+            bundle = {"CPU": self.max_colocate_count}
+            if self.use_gpu:
+                bundle[device_name] = 1
+                if self.accelerator_type is not None:
+                    bundle[self.accelerator_type] = 1e-4
         pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
 
         lifetime = "detached" if self.detached else None
@@ -528,8 +533,8 @@ class RayWorkerGroup(WorkerGroup):
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
         local_world_size = resource_pool.store[0]
-        num_gpus = 1 / resource_pool.max_colocate_count
-
+        custom_bundle = resource_pool.custom_bundle
+        num_gpus = custom_bundle.get("NPU", 1.0) if custom_bundle is not None else 1 / resource_pool.max_colocate_count
         # we pass in environment variable at option so that Worker can use environment variable to set
         env_vars = {
             "WORLD_SIZE": str(world_size),

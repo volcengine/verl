@@ -78,7 +78,9 @@ def get_nccl_backend() -> str:
     Returns:
         nccl backend type string.
     """
-    if is_npu_available:
+    # is_npu_available is False because envrionment variables ASCEND_RT_VISABLE_DEVICES is empty
+    # if is_npu_available:
+    if is_torch_npu_available():
         return "hccl"
     else:
         # default to nccl
