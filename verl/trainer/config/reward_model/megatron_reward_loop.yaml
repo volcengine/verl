@@ -8,7 +8,8 @@ enable: False
 
 # Whether to deploy the model to a separate resource pool.
 enable_resource_pool: False
-n_gpus_per_node: 0
+n_gpus_per_node: 8
+num_workers: 1
 nnodes: 0
 
 model:
@@ -36,7 +37,7 @@ rollout:
   enable_chunked_prefill: true
   enable_prefix_caching: true
   disable_log_stats: true
-  skip_tokenizer_init: true
+  skip_tokenizer_init: false
 
-  prompt_length: 512
-  response_length: 512
+  prompt_length: 2048
+  response_length: 2048

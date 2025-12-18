@@ -30,7 +30,7 @@ from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 
-from .reward_loop import get_reward_loop_manager_cls
+from .reward_manager import get_reward_loop_manager_cls
 from .reward_model import RewardModelManager
 
 logger = logging.getLogger(__file__)
@@ -136,6 +136,14 @@ class RewardLoopWorker:
             add_generation_prompt=False,
             tokenize=False,
         )
+
+        # llama tokenizer will add bos token by default
+        # will be removed in vllm >= 0.11.2, where we can add "add_special_tokens" = False
+        if self.reward_model_tokenizer.bos_token is not None and rm_prompt.startswith(
+            self.reward_model_tokenizer.bos_token
+        ):
+            rm_prompt = rm_prompt[len(self.reward_model_tokenizer.bos_token) :]
+
         return rm_prompt
 
     async def compute_score_disrm(self, data: DataProto) -> dict:
@@ -148,7 +156,7 @@ class RewardLoopWorker:
                 "model": model_name,
                 "input": disrm_prompt,
                 "activation": False,
-                "add_special_tokens": False,
+                # "add_special_tokens": False,  # vllm >= 0.11.2
             }
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]
@@ -187,7 +195,7 @@ class RewardLoopManager:
 
     def _init_reward_loop_workers(self):
         self.reward_loop_workers = []
-        num_workers = self.config.reward_model.get("num_workers", 1)
+        num_workers = self.config.reward_model.num_workers
         node_ids = [node["NodeID"] for node in ray.nodes() if node["Alive"] and node["Resources"].get("CPU", 0) > 0]
 
         for i in range(num_workers):

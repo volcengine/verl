@@ -24,3 +24,19 @@ def initialize_system_prompt(tokenizer, **apply_chat_template_kwargs) -> list[in
     except TemplateError as e:
         logger.warning(f"Chat template does not support system prompt: {e}")
         return []
+
+
+def extract_system_prompt_and_generation(tokenizer):
+    token1 = tokenizer.apply_chat_template(
+        [{"role": "user", "content": ""}], add_generation_prompt=False, tokenize=True
+    )
+    token2 = tokenizer.apply_chat_template(
+        [{"role": "user", "content": ""}] * 2, add_generation_prompt=False, tokenize=True
+    )
+    # get system prompt tokens
+    system_prompt = token1[: -(len(token2) - len(token1))]
+    # get generate prompt tokens
+    token3 = tokenizer.apply_chat_template([{"role": "user", "content": ""}], add_generation_prompt=True, tokenize=True)
+    generate_prompt = token3[len(token1) :]
+
+    return system_prompt, generate_prompt

@@ -71,6 +71,9 @@ class AgentLoopConfig(BaseConfig):
     default_agent_loop: str = "single_turn_agent"
     agent_loop_config_path: Optional[str] = None
     custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
+    # Fully qualified class name for custom AgentLoopManager (e.g., "mypackage.module.MyManager").
+    # Security: This class will be dynamically imported via importlib. Only use trusted class paths.
+    agent_loop_manager_class: Optional[str] = None
 
 
 @dataclass
@@ -179,6 +182,9 @@ class RolloutConfig(BaseConfig):
     # Use Prometheus to collect and monitor rollout statistics
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
+    # Extension point for custom configurations
+    custom: Optional[dict] = None
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False
@@ -206,6 +212,8 @@ class RolloutConfig(BaseConfig):
     quantization: Optional[str] = None
 
     enable_rollout_routing_replay: bool = False
+
+    enable_sleep_mode: bool = True
 
     def __post_init__(self):
         """Validate the rollout config"""

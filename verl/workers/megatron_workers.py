@@ -667,6 +667,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
+        set_expandable_segments(False)
 
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
@@ -685,8 +686,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 self.tf_config,
                 self.layer_name_mapping,
             )
-
-        set_expandable_segments(False)
 
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])

@@ -37,7 +37,7 @@ enable_gradient_checkpointing: True
 enable_activation_offload: False
 
 # whether to use remove padding. Only valid when we use hf model definition
-use_remove_padding: False
+use_remove_padding: True
 
 # Set to positive value to enable LoRA (e.g., 32)
 lora_rank: 0
