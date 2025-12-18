@@ -499,7 +499,9 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
-                    self.bridge.save_weights(self.model, hf_ckpt_path, **(getattr(self.checkpoint_config, "mbridge_config", None) or {}))
+                    self.bridge.save_weights(
+                        self.model, hf_ckpt_path, **(getattr(self.checkpoint_config, "mbridge_config", None) or {})
+                    )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
 
@@ -569,7 +571,11 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.bridge is not None:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
-                    self.bridge.save_weights(self.model, hf_model_ckpt_path, **(getattr(self.checkpoint_config, "mbridge_config", None) or {}))
+                    self.bridge.save_weights(
+                        self.model,
+                        hf_model_ckpt_path,
+                        **(getattr(self.checkpoint_config, "mbridge_config", None) or {}),
+                    )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)
             else:
