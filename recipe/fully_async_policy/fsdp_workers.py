@@ -144,23 +144,67 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
         from ray.util.collective import collective
 
-        for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if self._is_actor:
-                assert key in params
-                origin_data = params[key]
-                if hasattr(origin_data, "full_tensor"):
-                    origin_data = origin_data.full_tensor()
-                if torch.distributed.get_rank() == 0:
-                    tensor.copy_(origin_data)
+        BATCH_SIZE = 20
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+        if rollout_name == "sglang" and self._is_rollout:
 
-            if self._is_rollout:
-                if rollout_name == "vllm":
-                    inference_model.load_weights([(key, tensor)])
-                elif rollout_name == "sglang":
-                    self._run_async_safely(self.update_weights(inference_model, [(key, tensor)]))
+            current_batch = []
+            batch_count = 0
+
+            for key, shape, dtype in self._weights_info:
+                tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+                if self._is_actor:
+                    assert key in params
+                    origin_data = params[key]
+                    if hasattr(origin_data, "full_tensor"):
+                        origin_data = origin_data.full_tensor()
+                    if torch.distributed.get_rank() == 0:
+                        tensor.copy_(origin_data)
+
+                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+
+                current_batch.append((key, tensor))
+
+                # Process batch when it reaches BATCH_SIZE or at the end
+                if len(current_batch) >= BATCH_SIZE:
+                    def batch_generator():
+                        for item in current_batch:
+                            yield item
+                    self._run_async_safely(self.update_weights(inference_model, batch_generator()))
+                    # Clear batch to free memory
+                    current_batch.clear()
+                    batch_count += 1
+                    # Clear cache periodically to help with memory fragmentation
+                    if batch_count % 5 == 0:
+                        get_torch_device().empty_cache()
+                
+            # Process remaining tensors in the last batch
+            if current_batch:
+                def batch_generator():
+                    for item in current_batch:
+                        yield item
+                self._run_async_safely(self.update_weights(inference_model, batch_generator()))
+                current_batch.clear()
+
+        else:
+            # Original implementation for VLLM or actor workers
+            for key, shape, dtype in self._weights_info:
+                tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+                if self._is_actor:
+                    assert key in params
+                    origin_data = params[key]
+                    if hasattr(origin_data, "full_tensor"):
+                        origin_data = origin_data.full_tensor()
+                    if torch.distributed.get_rank() == 0:
+                        tensor.copy_(origin_data)
+
+                # Critical: All workers (actor + rollout) must participate in broadcast
+                # This is a synchronous collective operation
+                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+
+                if self._is_rollout:
+                    if rollout_name == "vllm":
+                        inference_model.load_weights([(key, tensor)])
 
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)

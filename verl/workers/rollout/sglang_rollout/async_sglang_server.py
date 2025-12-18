@@ -118,6 +118,9 @@ class SGLangHttpServerBase:
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
 
+    def _get_enable_memory_saver(self) -> bool:
+        return True
+
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
@@ -150,7 +153,7 @@ class SGLangHttpServerBase:
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
-            "enable_memory_saver": False,
+            "enable_memory_saver": self._get_enable_memory_saver(),
             "base_gpu_id": 0,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,
