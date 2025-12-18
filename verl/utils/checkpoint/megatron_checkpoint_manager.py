@@ -500,7 +500,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
                     self.bridge.save_weights(
-                        self.model, hf_ckpt_path, distributed_filesystem=True, memory_efficient=True
+                        self.model, hf_ckpt_path, **self.checkpoint_config.mbridge_config
                     )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
@@ -572,7 +572,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
                     self.bridge.save_weights(
-                        self.model, hf_model_ckpt_path, distributed_filesystem=True, memory_efficient=True
+                        self.model, hf_model_ckpt_path, **self.checkpoint_config.mbridge_config
                     )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)
