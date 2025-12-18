@@ -319,7 +319,7 @@ def compute_grpo_outcome_advantage(
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            if torch.isclose(scores[i], id2mean[index[i]], atol=epsilon):
+            if torch.all(torch.isclose(torch.stack(id2score[index[i]]), id2mean[index[i]], atol=epsilon)): 
                 scores[i] = 0
             elif norm_adv_by_std_in_grpo:
                 scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
