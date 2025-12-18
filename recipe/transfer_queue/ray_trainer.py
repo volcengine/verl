@@ -663,7 +663,6 @@ class RayPPOTrainer:
         sample_turns = []
         sample_uids = []
         val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
-
         for local_step, batch_meta in self.val_dataloader:
             data = asyncio.run(self.tq_client.async_get_data(batch_meta))
 
@@ -685,7 +684,7 @@ class RayPPOTrainer:
                 self.tq_client.async_get_meta(
                     data_fields=list(data.keys()),  # TODO: (TQ) Get metadata by specified fields
                     batch_size=val_data_size,
-                    partition_id=f"val_{local_step}",  # self.global_steps start from 1
+                    partition_id=f"val_{local_step}",
                     task_name="generate_sequences",
                 )
             )
@@ -714,7 +713,7 @@ class RayPPOTrainer:
                 self.tq_client.async_get_meta(
                     data_fields=["responses"],
                     batch_size=val_data_size,
-                    partition_id=f"val_{local_step}",  # self.global_steps start from 1
+                    partition_id=f"val_{local_step}",
                     task_name="get_response",
                 )
             )
@@ -765,7 +764,7 @@ class RayPPOTrainer:
                     self.tq_client.async_get_meta(
                         data_fields=["__num_turns__"],
                         batch_size=val_data_size,
-                        partition_id=f"val_{local_step}",  # self.global_steps start from 1
+                        partition_id=f"val_{local_step}",
                         task_name="get_num_turns",
                     )
                 )
@@ -778,7 +777,7 @@ class RayPPOTrainer:
                     self.tq_client.async_get_meta(
                         data_fields=["data_source"],
                         batch_size=val_data_size,
-                        partition_id=f"val_{local_step}",  # self.global_steps start from 1
+                        partition_id=f"val_{local_step}",
                         task_name="get_data_source",
                     )
                 )
@@ -1265,7 +1264,7 @@ class RayPPOTrainer:
                 timing_raw = {}
                 base_get_meta_kwargs = dict(
                     batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                    partition_id=f"train_{local_step}",  # self.global_steps starts from 1
+                    partition_id=f"train_{local_step}",
                 )
 
                 with marked_timer("start_profile", timing_raw):

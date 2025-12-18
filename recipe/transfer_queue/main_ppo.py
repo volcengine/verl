@@ -240,10 +240,7 @@ def tq_collate_fn(batch, cls, config, is_train=True):
     import uuid
 
     from verl.utils.dataset.rl_dataset import collate_fn
-    from verl.utils.transferqueue_utils import (
-        create_transferqueue_client,
-        get_transferqueue_client,
-    )
+    from verl.utils.transferqueue_utils import create_transferqueue_client
 
     if is_train:
         prefix = "train_"
@@ -252,8 +249,7 @@ def tq_collate_fn(batch, cls, config, is_train=True):
         prefix = "val_"
         repeat_times = config.actor_rollout_ref.rollout.val_kwargs.n
 
-    create_transferqueue_client(client_id="data_process", config=config.transfer_queue, enforce=True)
-    tq_client = get_transferqueue_client()
+    tq_client = create_transferqueue_client(client_id="data_process", config=config.transfer_queue, enforce=True)
 
     batch_dict = collate_fn(batch)
     partition_id = batch_dict.pop("batch_id")[0]
