@@ -1,7 +1,7 @@
-Data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(zh)
+Performance data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(zh)
 ====================================
 
-在昇腾设备上基于FSDP或MindSpeed(Megatron)后端进行数据采集
+在昇腾设备上基于FSDP或MindSpeed(Megatron)后端进行性能数据采集
 
 Last updated: 08/14/2025.
 

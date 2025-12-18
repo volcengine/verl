@@ -1,4 +1,4 @@
-Data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(en)
+Performance data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(en)
 ==========================================================================================
 
 Last updated: 08/14/2025.
