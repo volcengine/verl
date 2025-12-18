@@ -495,7 +495,7 @@ critic:
     load_contents: ${.save_contents}
     async_save: false
     mbridge_config:
-      memory_efficient: false
+      memory_efficient: true
       distributed_filesystem: true
   profiler:
     _target_: verl.utils.profiler.ProfilerConfig
