@@ -38,16 +38,18 @@ from dataclasses import dataclass
 import torch
 import torch.distributed as dist
 
+from verl.utils.device import (
+    get_device_capability,
+    get_device_name,
+    is_cuda_available,
+)
+
 try:
     import triton
     import triton.language as tl
 
     HAVE_TRITON = True
-    SUPPORT_CUDA_TMA = (
-        triton.runtime.driver.active.get_current_target().backend == "cuda"
-        and torch.cuda.get_device_capability()[0] >= 9
-        and hasattr(tl, "make_tensor_descriptor")
-    )
+    SUPPORT_CUDA_TMA = is_cuda_available and get_device_capability()[0] >= 9 and hasattr(tl, "make_tensor_descriptor")
 
 except ImportError:
     HAVE_TRITON = False
@@ -78,7 +80,7 @@ if not HAVE_TRITON:
 elif SUPPORT_CUDA_TMA:
     # TMA descriptors require a global memory allocation
     def alloc_fn(size: int, alignment: int, stream: typing.Optional[int]):
-        return torch.empty(size, device="cuda", dtype=torch.int8)
+        return torch.empty(size, device=get_device_name(), dtype=torch.int8)
 
     triton.set_allocator(alloc_fn)
 
