@@ -26,7 +26,13 @@ from .engine import FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "FSDPCriticModelCfg"]
+__all__ = [
+    "CriticConfig",
+    "FSDPCriticConfig",
+    "McoreCriticConfig",
+    "DeepSpeedCriticConfig",
+    "FSDPCriticModelCfg",
+]
 
 
 @dataclass
@@ -248,3 +254,36 @@ class FSDPCriticModelCfg(BaseModelConfig):
     lora_rank: int = 0
     lora_alpha: int = 16
     target_modules: str | list[str] = "all-linear"
+
+
+def _default_deepspeed_engine_config():
+    from verl.workers.config.engine import DeepSpeedEngineConfig
+
+    return DeepSpeedEngineConfig()
+
+
+@dataclass
+class DeepSpeedCriticConfig(CriticConfig):
+    """Configuration for DeepSpeed-based critic model training."""
+
+    _mutable_fields = CriticConfig._mutable_fields | {
+        "forward_micro_batch_size",
+        "forward_micro_batch_size_per_gpu",
+    }
+
+    strategy: str = "deepspeed"
+    zero_stage: int = 2
+    gradient_accumulation_steps: int = 1
+    train_batch_size: Optional[int] = None
+    train_micro_batch_size_per_gpu: Optional[int] = None
+    forward_micro_batch_size: int = 1
+    forward_micro_batch_size_per_gpu: int = 1
+    ulysses_sequence_parallel_size: int = 1
+    grad_clip: float = 1.0
+    deepspeed_config: BaseConfig = field(default_factory=_default_deepspeed_engine_config)
+
+    def __post_init__(self):
+        """Validate DeepSpeed critic configuration parameters."""
+        super().__post_init__()
+        if self.zero_stage not in [0, 1, 2, 3]:
+            raise ValueError(f"zero_stage must be 0, 1, 2, or 3, got {self.zero_stage}")

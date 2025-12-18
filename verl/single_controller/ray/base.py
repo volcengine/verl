@@ -795,6 +795,25 @@ class RayWorkerGroup(WorkerGroup):
 
         return [self._execute_remote_single_worker(worker, method_name, *args, **kwargs) for worker in self._workers]
 
+    def save_checkpoint(self, local_path, remote_path, global_step, max_ckpt_to_keep=None):
+        """Save checkpoint by calling save_checkpoint on all workers.
+
+        Args:
+            local_path: Local path to save checkpoint
+            remote_path: Remote path to save checkpoint (HDFS, etc.)
+            global_step: Global training step
+            max_ckpt_to_keep: Maximum number of checkpoints to keep
+        """
+        return ray.get(
+            self.execute_rank_zero_async(
+                "save_checkpoint",
+                local_path=local_path,
+                hdfs_path=remote_path,
+                global_step=global_step,
+                max_ckpt_to_keep=max_ckpt_to_keep,
+            )
+        )
+
     @property
     def master_address(self):
         return self._master_addr
