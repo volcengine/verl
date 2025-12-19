@@ -1,0 +1,52 @@
+tools:
+  - class_name: verl.tools.janv2_tool.web_search_tool.WebSearchTool
+    config:
+      type: native
+      rag_server_url: "http://localhost:3030"
+      num_results: 10
+      topk_retrieval: 30
+      num_workers: 64
+      rate_limit: 100
+      timeout: 600
+      enable_global_rate_limit: true
+    tool_schema:
+      type: function
+      function:
+        name: web_search
+        description: |
+          Search for information using a query string. Returns a list of results 
+          with titles, URLs (document IDs), and preview snippets. Use the visit 
+          tool to retrieve full content of specific documents.
+        parameters:
+          type: object
+          properties:
+            query:
+              type: string
+              description: "The search query to find relevant documents"
+          required:
+            - query
+
+  - class_name: verl.tools.janv2_tool.scrape_tool.ScrapeTool
+    config:
+      type: native
+      rag_server_url: "http://localhost:3030"
+      num_workers: 50
+      rate_limit: 50
+      timeout: 600
+      enable_global_rate_limit: true
+    tool_schema:
+      type: function
+      function:
+        name: scrape
+        description: |
+          Visit a URL to retrieve the full content of a document. Use this after 
+          web_search to get complete document content. The URL should be in the 
+          format 'doc_<id>' as returned by web_search.
+        parameters:
+          type: object
+          properties:
+            url:
+              type: string
+              description: "The URL/document ID to visit (e.g., 'doc_123')"
+          required:
+            - url
