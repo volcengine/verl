@@ -1,71 +1,43 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-################################################### document for gptoss ###################################################
+
+################################################### document for qwen3next ###################################################
 
 ####################### running environment: #######################
-# option 1: use pre-built images verlai/verl:vll012.exp or verlai/verl:sgl056.exp
-#
-# option 2: self build TE>=2.8 with CUDNN>=9.13.1, megatron with branch `core_dev_r0.15.0`, latest vllm or sglang
-#           you can modify the dockerfile to build the image, see Dockerfile at https://github.com/volcengine/verl/blob/main/docker/Dockerfile.stable.vllm or https://github.com/volcengine/verl/blob/main/docker/Dockerfile.stable.sglang
+
+# option 1: use pre-built docker images verlai/verl:vll012.exp or verlai/verl:sgl056.exp 
+
+# option 2: self build TE>=2.8, megatron with dev branch and megatron-bridge with main branch
+
+####################### how we support qwen3next? #######################
+# we support qwen3next with megatron-bridge, which is enabled by set `vanilla_mbridge=False`
+
+####################### limitations: #######################
+# 1. context parallel(CP) is not supported until this PR is merged: https://github.com/NVIDIA/Megatron-LM/pull/2614
+# 2. sequence packing(aka thd) is not supported, we must set `actor_rollout_ref.actor.megatron.use_remove_padding=False`, until this PR is merged: https://github.com/NVIDIA/Megatron-LM/pull/2644
+
+## if sequence packing is disabled, we recommend to set `use_dynamic_bsz=False` and set micro batchsize to 1, 
+## otherwise the data will be padded to the max length of the batch, which is not efficient. But it's not mandatory
 
 
-####################### before training: #######################
-# # install matched mbridge version
-# pip uninstall -y mbridge && pip install git+https://github.com/ISEEKYAN/mbridge@gpt-oss
 
-# # convert gptoss to bf16
-cat > get_model.py << EOF
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, Mxfp4Config
-
-model_id = "openai/gpt-oss-20b"
-output_dir = "$HOME/models/gpt-oss-20b-bf16"
-
-quantization_config = Mxfp4Config(dequantize=True)
-model_kwargs = dict(
-    attn_implementation="eager",
-    torch_dtype=torch.bfloat16,
-    quantization_config=quantization_config,
-    use_cache=False,
-    device_map="auto",
-)
-
-model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
-
-# Patch config with custom attribute before saving
-model.config.attn_implementation = "eager"
-
-model.save_pretrained(output_dir)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
-tokenizer.save_pretrained(output_dir)
-EOF
-
-python get_model.py
-
-####################### specific training config: #######################
-
-GPT_OSS_CONFIG=(
-    # only support mbridge for gptoss
-    actor_rollout_ref.actor.megatron.use_mbridge=True
-    # for now (latest TE=2.10), gptoss's optimized attn kernel is not supported for thd format, so we use bshd format here
-    # when bshd format is used, we need to pad the input_ids to the longest sequence length
-    # so we recommend to disable dynamic batch size and set micro batch size to 1 to avoid paddings
-    # but it is ok to try with micro_batch_size>1
-    actor_rollout_ref.actor.megatron.use_remove_padding=False
-)
-use_dynamic_bsz=False # recommended but not necessary
 
 ################################################### quick config ###################################################
 
-rollout_mode="async"
-rollout_name="vllm" # sglang or vllm
-export VLLM_USE_V1=1
-return_raw_chat="True"
-dtype="bfloat16" # ["bfloat16", "float16"]
+# pip install --no-deps --no-cache-dir git+https://github.com/NVIDIA/Megatron-LM.git@dev # install megatron from dev branch
+# pip install --no-deps git+https://github.com/NVIDIA-Nemo/Megatron-Bridge.git # install megatron-bridge from main branch
 
-project_name='DAPO'
-exp_name='gptoss'
+
+rollout_mode="async"
+return_raw_chat="True"
+export VLLM_USE_V1=1
+rollout_name="vllm" # sglang or vllm
+dtype="bfloat16"
+
+
+project_name='DAPO-test'
+exp_name='qwen3next'
 
 adv_estimator=grpo
 
@@ -93,10 +65,9 @@ train_prompt_mini_bsz=32
 RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/verl/trainer/runtime_env.yaml"}
-NNODES=${NNODES:-1}
+NNODES=${NNODES:-4}
 # Paths
-RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/gpt-oss-20b"}
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/Qwen3-Next-80B-A3B-Instruct"}
 CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
 TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
 TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
@@ -108,19 +79,29 @@ top_k=-1 # 0 for HF rollout, -1 for vLLM rollout
 val_top_p=0.7
 
 # Performance Related Parameter
-actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
+use_dynamic_bsz=False
+actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 10 / 10))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 1))
 offload=True
-gen_tp=4
-train_tp=4
-EP=8
+gen_tp=16
+train_tp=2
+EP=32
 ETP=1
 train_pp=1
 
 ################################################### start of config ###################################################
 
+FP8=(
+    # # train
+    # +actor_rollout_ref.actor.megatron.override_transformer_config.fp8="e4m3" # e4m3 or hybrid
+    # +actor_rollout_ref.actor.megatron.override_transformer_config.fp8_recipe="blockwise"
+    # +actor_rollout_ref.actor.optim.override_optimizer_config.fp8_recipe="blockwise"
+    # # rollout
+    # +actor_rollout_ref.rollout.quantization="fp8"
+)
 
 DATA=(
+    #  dddd
     data.train_files="${TRAIN_FILE}"
     data.val_files="${TEST_FILE}"
     data.prompt_key=prompt
@@ -142,7 +123,7 @@ REWARD_MODEL=(
 
 PERF_OPT=(
     +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=True
-    actor_rollout_ref.model.use_fused_kernels=False
+    actor_rollout_ref.actor.megatron.use_remove_padding=False
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1
@@ -176,13 +157,16 @@ ACTOR=(
     actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=${ETP}
     actor_rollout_ref.actor.entropy_coeff=0
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode}
+    actor_rollout_ref.actor.megatron.use_mbridge=True
+    actor_rollout_ref.actor.megatron.vanilla_mbridge=False
+    actor_rollout_ref.model.use_remove_padding=False
 )
 
 ROLLOUT=(
     actor_rollout_ref.rollout.name=${rollout_name}
     actor_rollout_ref.rollout.mode=${rollout_mode}
     actor_rollout_ref.rollout.dtype=${dtype}
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.70
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7
     actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp}
     actor_rollout_ref.rollout.enable_chunked_prefill=True
     actor_rollout_ref.rollout.max_num_batched_tokens=$((max_prompt_length + max_response_length))
@@ -205,7 +189,7 @@ TRAINER=(
     trainer.n_gpus_per_node=8
     trainer.nnodes="${NNODES}"
     trainer.val_before_train=False
-    trainer.test_freq=10
+    trainer.test_freq=5
     trainer.save_freq=-1
     trainer.total_epochs=10
     trainer.default_local_dir="${CKPTS_DIR}"
@@ -232,8 +216,8 @@ ALGORITHM=(
     algorithm.kl_ctrl.kl_coef=${kl_coef}
 )
 ################################################### start script ###################################################
-ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
-    -- python3 -m verl.trainer.main_ppo \
+
+python3 -m verl.trainer.main_ppo \
     --config-path=config \
     --config-name='ppo_megatron_trainer.yaml' \
     "${DATA[@]}" \
@@ -242,7 +226,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     "${ROLLOUT[@]}" \
     "${ACTOR[@]}" \
     "${REWARD_MODEL[@]}" \
+    "${FP8[@]}" \
     "${PERF_OPT[@]}" \
     "${TRAINER[@]}" \
-    "${GPT_OSS_CONFIG[@]}" \
     "${FORWARD_ONLY_SETS[@]}" \
