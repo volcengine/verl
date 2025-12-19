@@ -501,10 +501,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
                     extended_args = getattr(self.checkpoint_config, "mbridge_config", None) or {}
-                    if "distributed_filesystem" in inspect.signature(self.bridge.save_weights):
+                    if "distributed_filesystem" in str(inspect.signature(self.bridge.save_weights)):
                         if "distributed_filesystem" not in extended_args:
                             extended_args["distributed_filesystem"] = True
-                    if "memory_efficient" in inspect.signature(self.bridge.save_weights):
+                    if "memory_efficient" in str(inspect.signature(self.bridge.save_weights)):
                         if "memory_efficient" not in extended_args:
                             extended_args["memory_efficient"] = True
                     self.bridge.save_weights(
@@ -580,10 +580,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
                     extended_args = getattr(self.checkpoint_config, "mbridge_config", None) or {}
-                    if "distributed_filesystem" in inspect.signature(self.bridge.save_weights):
+                    if "distributed_filesystem" in str(inspect.signature(self.bridge.save_weights)):
                         if "distributed_filesystem" not in extended_args:
                             extended_args["distributed_filesystem"] = True
-                    if "memory_efficient" in inspect.signature(self.bridge.save_weights):
+                    if "memory_efficient" in str(inspect.signature(self.bridge.save_weights)):
                         if "memory_efficient" not in extended_args:
                             extended_args["memory_efficient"] = True
                     self.bridge.save_weights(
