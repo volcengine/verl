@@ -300,7 +300,7 @@ class MultiTurnSFTDataset(Dataset):
                 first_shape = v[0].shape
                 if not all(tensor.shape == first_shape for tensor in v):
                     keys_to_remove.append(k)
-        
+
         for k in keys_to_remove:
             del multi_modal_inputs[k]
 
