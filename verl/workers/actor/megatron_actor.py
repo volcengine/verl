@@ -588,8 +588,6 @@ class MegatronPPOActor(BasePPOActor):
             else:
                 vp_rank = 0
 
-            breakpoint()
-
             multi_modal_inputs = {}
             if "multi_modal_inputs" in batch:
                 from verl.utils.model import extract_multi_modal_inputs
@@ -782,7 +780,6 @@ class MegatronPPOActor(BasePPOActor):
                 micro_batch_size=micro_batch_size,
                 max_token_len=max_token_len,
                 mini_batch_size=self.config.ppo_mini_batch_size,
-                enable_mtp = enable_mtp,
             )
             metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:

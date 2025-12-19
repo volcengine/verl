@@ -87,7 +87,7 @@ def _megatron_gptmodel_postprocess(
     if self.share_embeddings_and_output_weights:
         output_weight = self.shared_embedding_or_output_weight()
 
-    if mtp_in_postprocess and labels:
+    if mtp_in_postprocess and labels is not None:
         hidden_states = self.mtp(
             input_ids=input_ids,
             position_ids=position_ids,
@@ -106,14 +106,13 @@ def _megatron_gptmodel_postprocess(
     print(f"hzg hidden_states: {hidden_states.shape}")
     if not self.post_process:
         return hidden_states
+    
+    # if mtp_in_postprocess and labels is not None:
+        # breakpoint()
 
     # Skip when mtp_num_layers is None or 0
-    if self.config.mtp_num_layers and labels:
+    if self.config.mtp_num_layers and labels is not None:
         mtp_labels = labels.clone()
-
-        # Roll labels to the right by one position to align with the last layer of MTP
-        mtp_labels, _ = roll_tensor(mtp_labels, shifts=-1, dims=-1, cp_group=self.cp_group,
-                                    packed_seq_params=packed_seq_params)
 
         hidden_states_list = torch.chunk(hidden_states, 1 + self.config.mtp_num_layers, dim=0)
         hidden_states = hidden_states_list[0]
