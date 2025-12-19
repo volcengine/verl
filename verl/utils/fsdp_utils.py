@@ -49,7 +49,7 @@ else:
     fully_shard, MixedPrecisionPolicy, FSDPModule, CPUOffloadPolicy, fully_shard_module = None, None, None, None, None
 
 logger = logging.getLogger(__name__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL"), logging.WARNING)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", logging.WARNING))
 
 
 def init_fn(x: torch.nn.Module):
