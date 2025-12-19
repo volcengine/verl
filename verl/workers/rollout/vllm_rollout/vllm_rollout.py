@@ -235,12 +235,13 @@ class vLLMAsyncRollout(BaseRollout):
         if peft_config and base_sync_done:
             # In async mode, make sure the old lora is removed before adding the new one
             self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
+            weights = dict(weights)
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
                 peft_config=asdict(peft_config),
-                lora_tensors=dict(weights),
+                lora_tensors=weights,
             )
             self.inference_engine.worker.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
