@@ -393,16 +393,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 fused_kernel_options.get("impl_backend", None) if fused_kernel_options is not None else None
             )
 
-            # TiledMLP configuration for memory-efficient MLP computation
-            tiled_mlp_num_tiles = self.config.model.get("tiled_mlp_num_tiles", 0)
-
             apply_monkey_patch(
                 model=actor_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
-                tiled_mlp_num_tiles=tiled_mlp_num_tiles,
             )
 
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2

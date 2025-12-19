@@ -251,7 +251,6 @@ def apply_monkey_patch(
     use_remove_padding: bool = True,
     use_fused_kernels: bool = False,
     fused_kernels_backend: str = None,
-    tiled_mlp_num_tiles: int = 0,
 ):
     """
     Apply monkey patch to the models for ulysses sequence parallel and fused kernel.
@@ -432,9 +431,3 @@ def apply_monkey_patch(
             print(f"Monkey patch _flash_attention_forward in {flash_attention.__name__}")
 
     patch_forward_with_backends(model, use_fused_kernels=use_fused_kernels, fused_kernels_backend=fused_kernels_backend)
-
-    # Apply TiledMLP for memory-efficient MLP computation
-    if tiled_mlp_num_tiles > 1:
-        from verl.utils.experimental.tiled_mlp import patch_mlp_for_model
-
-        patch_mlp_for_model(model, num_tiles=tiled_mlp_num_tiles)

@@ -11,19 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from verl.utils.experimental.tiled_mlp import (
-    get_tiled_mlp_config,
-    patch_mlp_for_model,
-    patch_mlp_for_tiling,
-    tiled_mlp_forward,
-    unpatch_mlp,
-)
-
-__all__ = [
-    "patch_mlp_for_tiling",
-    "patch_mlp_for_model",
-    "unpatch_mlp",
-    "get_tiled_mlp_config",
-    "tiled_mlp_forward",
-]
