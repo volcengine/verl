@@ -515,15 +515,15 @@ $$
 
 where $\mathcal{A}_{\text{geo}} = \{ \text{seq} : C_{\text{RS-lower}} \leq \rho_{\text{geo}} \leq C_{\text{RS-upper}} \}$ is the acceptance set (rejection mask). No IS weights are used, so no stopgrad needed. This formulation can also be combined with PPO clipping.
 
-**Combined Estimator (Geo-RS-Seq-TIS):**
+**Combined Estimator (Geo-RS-Token-TIS):**
 
-For best results, combine the **Geometric Filter** (length-invariant validity check) with **Clipped Sequence Weight** (debiasing):
+For best results, combine the **Geometric Filter** (length-invariant validity check) with **Token-level IS weights** (lower variance):
 
 $$
-\hat{g}_{\text{geo-rs-seq-tis}}(y) = \underbrace{\mathbb{I}\left( C_{\text{low}} \le \rho(y)^{1/T} \le C_{\text{high}} \right)}_{\text{Geometric Filter}} \cdot \min(\rho(y), C) \cdot f(y)
+\hat{g}_{\text{geo-rs-token-tis}}(y) = \underbrace{\mathbb{I}\left( C_{\text{low}} \le \rho(y)^{1/T} \le C_{\text{high}} \right)}_{\text{Geometric Filter}} \cdot \prod_t \min(\rho_t, C) \cdot f(y)
 $$
 
-This is implemented by combining `rollout_rs="geometric"` with `rollout_is="sequence"`.
+This is implemented by combining `rollout_rs="geometric"` with `rollout_is="token"`.
 
 #### 3.3.4 K3 Divergence Aggregation
 
@@ -558,15 +558,15 @@ rollout_rs = "k3"  # K3 rejection sampling
 - Both estimate the same quantity: KL(π_rollout || π_old)
 - For small divergences, K3 ≈ 0.5 × Var(log_ratio)
 
-**Combined Estimator (K3-RS-Seq-TIS):**
+**Combined Estimator (K3-RS-Token-TIS):**
 
-For best results, combine K3 filter with clipped sequence weight:
+For best results, combine K3 filter with token-level IS weights:
 
 $$
-\hat{g}_{\text{k3-rs-seq-tis}}(y) = \underbrace{\mathbb{I}\left( K3_{\text{seq}} \le C_{\text{k3}} \right)}_{\text{K3 Filter}} \cdot \min(\rho(y), C) \cdot f(y)
+\hat{g}_{\text{k3-rs-token-tis}}(y) = \underbrace{\mathbb{I}\left( K3_{\text{seq}} \le C_{\text{k3}} \right)}_{\text{K3 Filter}} \cdot \prod_t \min(\rho_t, C) \cdot f(y)
 $$
 
-This is implemented by combining `rollout_rs="k3"` with `rollout_is="sequence"`.
+This is implemented by combining `rollout_rs="k3"` with `rollout_is="token"`.
 
 #### 3.3.5 Group-Level Aggregation
 
@@ -610,8 +610,8 @@ rollout_rs = "group_k3"  # Group-level K3 RS
   - Comparative evaluations (paired responses to same prompt)
 
 **Combined Estimators:**
-- `group_k1_rs_seq_tis`: Group K1 filter + sequence-level IS weights
-- `group_k3_rs_seq_tis`: Group K3 filter + sequence-level IS weights
+- `group_k1_rs_token_tis`: Group K1 filter + token-level IS weights
+- `group_k3_rs_token_tis`: Group K3 filter + token-level IS weights
 
 ---
 
@@ -718,19 +718,14 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | **Seq-TIS** | `rollout_is="sequence"` | Decoupled PPO, Bypass PG |
 | **Seq-MIS** | `rollout_is="sequence"` + `rollout_rs="sequence"` | Decoupled PPO, Bypass PG |
 | **K1-RS** | `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
-| **K1-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
 | **K1-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k1"` | Decoupled PPO, Bypass PG |
 | **Geo-RS** | `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
-| **Geo-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
 | **Geo-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
 | **K3-RS** | `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
-| **K3-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
 | **K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
 | **Group-K1-RS** | `rollout_rs="group_k1"` | Decoupled PPO, Bypass PG |
-| **Group-K1-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="group_k1"` | Decoupled PPO, Bypass PG |
 | **Group-K1-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="group_k1"` | Decoupled PPO, Bypass PG |
 | **Group-K3-RS** | `rollout_rs="group_k3"` | Decoupled PPO, Bypass PG |
-| **Group-K3-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="group_k3"` | Decoupled PPO, Bypass PG |
 | **Group-K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="group_k3"` | Decoupled PPO, Bypass PG |
 
 **Note:** In bypass mode, `loss_type` controls the loss function. Use "ppo_clip" (default) or "reinforce".
@@ -745,10 +740,16 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled PPO | Sequence IS + sequence RS |
 | `decoupled_k1_rs()` | K1-RS | Decoupled PPO | K1 RS + veto (divergence mode) |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled PPO | Geometric RS + veto (ratio mode) |
-| `decoupled_k1_rs_seq_tis()` | K1-RS-Seq-TIS | Decoupled PPO | K1 filter + seq IS |
 | `decoupled_k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled PPO | K1 filter + token IS |
-| `decoupled_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled PPO | Geometric filter + seq IS |
 | `decoupled_geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled PPO | Geometric filter + token IS |
+| **K3 KL Estimator** (more stable for small KL values) |
+| `decoupled_k3_rs()` | K3-RS | Decoupled PPO | K3 rejection, no IS weights |
+| `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled PPO | K3 filter + token clipped weight |
+| **Group-level** (reject entire groups together; requires group_indices) |
+| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled PPO | Group K1 RS |
+| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled PPO | Group K1 filter + token clipped weight |
+| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled PPO | Group K3 RS |
+| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled PPO | Group K3 filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | PPO-clip only |
 | `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | PPO-clip + K1-RS (divergence) |
@@ -760,21 +761,8 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | REINFORCE + Seq IS |
 | `bypass_pg_k1_rs()` | K1-RS | Bypass (REINFORCE) | REINFORCE + K1-RS (divergence) |
 | `bypass_pg_geo_rs()` | Geo-RS | Bypass (REINFORCE) | REINFORCE + Geo-RS (ratio) |
-| `bypass_pg_k1_rs_seq_tis()` | K1-RS-Seq-TIS | Bypass (REINFORCE) | REINFORCE + K1 filter + seq IS |
 | `bypass_pg_k1_rs_token_tis()` | K1-RS-Token-TIS | Bypass (REINFORCE) | REINFORCE + K1 filter + token IS |
-| `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | REINFORCE + Geo filter + seq IS |
 | `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | REINFORCE + Geo filter + token IS |
-| **K3 KL Estimator** (more stable for small KL values) |
-| `decoupled_k3_rs()` | K3-RS | Decoupled PPO | K3 rejection, no IS weights |
-| `decoupled_k3_rs_seq_tis()` | K3-RS-Seq-TIS | Decoupled PPO | K3 filter + seq clipped weight |
-| `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled PPO | K3 filter + token clipped weight |
-| **Group-level** (reject entire groups together; requires group_indices) |
-| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled PPO | Group K1 RS |
-| `decoupled_group_k1_rs_seq_tis()` | Group-K1-RS-Seq-TIS | Decoupled PPO | Group K1 filter + seq clipped weight |
-| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled PPO | Group K1 filter + token clipped weight |
-| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled PPO | Group K3 RS |
-| `decoupled_group_k3_rs_seq_tis()` | Group-K3-RS-Seq-TIS | Decoupled PPO | Group K3 filter + seq clipped weight |
-| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled PPO | Group K3 filter + token clipped weight |
 | **Other** |
 | `disabled()` | - | - | Metrics only |
 
@@ -940,16 +928,16 @@ $$
 | `bypass_pg_is` | REINFORCE + Seq-TIS | 2 (rollout, θ) | ❌ | ✅ Seq-TIS | ✅ Correct | **Fast** |
 | `bypass_pg_k1_rs` | REINFORCE + K1-RS | 2 (rollout, θ) | ❌ | K1-RS only (divergence) | ✅ Correct | **Fast** |
 | `bypass_pg_geo_rs` | REINFORCE + Geo-RS | 2 (rollout, θ) | ❌ | Geo-RS only (ratio) | ✅ Correct | **Fast** |
-| `bypass_pg_k1_rs_seq_tis` | REINFORCE + K1-RS + Seq IS | 2 (rollout, θ) | ❌ | ✅ K1-RS-Seq-TIS | ✅ Correct | **Fast** |
-| `bypass_pg_geo_rs_seq_tis` | REINFORCE + Geo RS + Seq IS | 2 (rollout, θ) | ❌ | ✅ Geo-RS-Seq-TIS | ✅ Correct | **Fast** |
+| `bypass_pg_k1_rs_token_tis` | REINFORCE + K1-RS + Token IS | 2 (rollout, θ) | ❌ | ✅ K1-RS-Token-TIS | ✅ Correct | **Fast** |
+| `bypass_pg_geo_rs_token_tis` | REINFORCE + Geo RS + Token IS | 2 (rollout, θ) | ❌ | ✅ Geo-RS-Token-TIS | ✅ Correct | **Fast** |
 | **Decoupled PPO Mode** (IS weights = π_old / π_rollout) |
 | `decoupled_token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-TIS | ✅ Correct | Standard |
 | `decoupled_seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-TIS | ✅ Correct | Standard |
 | `decoupled_seq_is_rs` | Decoupled PPO + RS | 3 (rollout, old, θ) | ✅ | ✅ Seq-MIS | ✅ Correct | Standard |
 | `decoupled_k1_rs` | Decoupled PPO + K1-RS | 3 (rollout, old, θ) | ✅ | K1-RS only (divergence) | ✅ Correct | Standard |
 | `decoupled_geo_rs` | Decoupled PPO + Geo-RS | 3 (rollout, old, θ) | ✅ | Geo-RS only (ratio) | ✅ Correct | Standard |
-| `decoupled_k1_rs_seq_tis` | Decoupled PPO + K1-RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ K1-RS-Seq-TIS | ✅ Correct | Standard |
-| `decoupled_geo_rs_seq_tis` | Decoupled PPO + Geo RS + Seq IS | 3 (rollout, old, θ) | ✅ | ✅ Geo-RS-Seq-TIS | ✅ Correct | Standard |
+| `decoupled_k1_rs_token_tis` | Decoupled PPO + K1-RS + Token IS | 3 (rollout, old, θ) | ✅ | ✅ K1-RS-Token-TIS | ✅ Correct | Standard |
+| `decoupled_geo_rs_token_tis` | Decoupled PPO + Geo RS + Token IS | 3 (rollout, old, θ) | ✅ | ✅ Geo-RS-Token-TIS | ✅ Correct | Standard |
 | **Incorrect (for reference)** |
 | Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
 
@@ -965,15 +953,15 @@ These estimators define **how IS weights and rejection masks are computed**. The
 
 | Estimator | Configuration | Mechanism | Best For |
 |-----------|---------------|-----------|----------|
-| **Token-TIS** | `rollout_is="token"` | Clips per-token ratios | Legacy; stable but biased ($O(T^2\Delta_{\max})$) |
-| **Seq-TIS** | `rollout_is="sequence"` | Clips sequence ratio $\rho(\tau) \to \min(\rho(\tau), C)$ | Clean data with moderate mismatch; optimal bias/variance |
+| **Token-TIS** | `rollout_is="token"` | Clips per-token ratios | Lower variance IS with acceptable bias |
+| **Seq-TIS** | `rollout_is="sequence"` | Clips sequence ratio $\rho(\tau) \to \min(\rho(\tau), C)$ | Clean data with moderate mismatch; unbiased |
 | **Seq-MIS** | `rollout_is="sequence"` + `rollout_rs="sequence"` | Rejects sequences with $\rho(\tau) > C$ | Severe mismatch; filters "toxic tail" (garbage data) |
 | **K1-RS** | `rollout_rs="k1"` | Rejects on K1 divergence \|E[log(r)]\| | Long sequences (CoT, agents); solves Length Trap |
-| **K1-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k1"` | K1 filter + clipped weight | Length-invariant safety + correct debiasing |
+| **K1-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k1"` | K1 filter + token IS weights | Length-invariant safety + lower variance IS |
 | **Geo-RS** | `rollout_rs="geometric"` | Rejects on geometric mean ratio exp(E[log(r)]) | Alternative to K1; ratio-based (ideal=1.0) |
-| **Geo-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="geometric"` | Geometric filter + clipped weight | Ratio-based length normalization + debiasing |
+| **Geo-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="geometric"` | Geometric filter + token IS weights | Ratio-based length normalization + lower variance IS |
 | **K3-RS** | `rollout_rs="k3"` | Rejects on K3 KL divergence | Small KL values; more stable than K1 |
-| **K3-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="k3"` | K3 filter + clipped weight | Small KL + correct debiasing |
+| **K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k3"` | K3 filter + token IS weights | Small KL + lower variance IS |
 | **Group-K1-RS** | `rollout_rs="group_k1"` | Rejects entire groups on K1 divergence | Best-of-N sampling; multi-response scenarios |
 | **Group-K3-RS** | `rollout_rs="group_k3"` | Rejects entire groups on K3 divergence | Best-of-N with small KL; multi-response scenarios |
 
@@ -992,7 +980,7 @@ These estimators define **how IS weights and rejection masks are computed**. The
 
 **Choosing estimator by sequence length:**
 - **Short sequences** (standard chat): Seq-TIS is optimal
-- **Long sequences** (CoT, agents): Geo-RS or Geo-RS-Seq-TIS to avoid Length Trap
+- **Long sequences** (CoT, agents): K1-RS or K1-RS-Token-TIS to avoid Length Trap
 
 **Choosing operating mode:**
 - **Batch size invariance needed**: Use decoupled mode (`bypass_mode=false`)
