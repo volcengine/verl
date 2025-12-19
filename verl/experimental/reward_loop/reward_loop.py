@@ -30,7 +30,7 @@ from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.utils import hf_tokenizer
 from verl.utils.fs import copy_to_local
 
-from .reward_manager import get_reward_loop_manager_cls
+from .reward_manager import get_reward_manager_cls
 from .reward_model import RewardModelManager
 
 logger = logging.getLogger(__file__)
@@ -70,8 +70,8 @@ class RewardLoopWorker:
             reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
             self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
         self.reward_fn = get_custom_reward_fn(self.config)
-        reward_loop_manager_cls = get_reward_loop_manager_cls(self.config.reward_model.reward_manager)
-        self.reward_loop = reward_loop_manager_cls(
+        reward_manager_cls = get_reward_manager_cls(self.config.reward_model.reward_manager)
+        self.reward_loop = reward_manager_cls(
             self.config, self.input_tokenizer, self.reward_fn, self.reward_router_address, self.reward_model_tokenizer
         )
 

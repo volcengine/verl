@@ -17,7 +17,7 @@ import ray
 import torch
 from hydra import compose, initialize_config_dir
 
-from verl.experimental.reward import RewardLoopManager
+from verl.experimental.reward_loop import RewardLoopManager
 from verl.protocol import DataProto
 from verl.utils import hf_tokenizer
 from verl.utils.model import compute_position_id_with_mask

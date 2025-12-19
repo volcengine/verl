@@ -837,7 +837,7 @@ class RayPPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward import RewardLoopManager
+                from verl.experimental.reward_loop import RewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)

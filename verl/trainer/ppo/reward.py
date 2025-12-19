@@ -32,14 +32,14 @@ if TYPE_CHECKING:
     from omegaconf import DictConfig
 
     from verl import DataProto
-    from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
+    from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
     from verl.trainer.config.config import ModuleConfig, RewardManagerConfig
     from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 else:
     try:
-        from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
+        from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
     except ImportError:
-        RewardLoopManagerBase = None  # type: ignore[assignment,misc]
+        RewardManagerBase = None  # type: ignore[assignment,misc]
 
 
 def _call_with_kwargs(raw_fn, extra_kwargs, *args, **kwargs):
@@ -175,10 +175,10 @@ def load_reward_manager(
             final_compute_score = default_compute_score
 
     # Instantiate and return the reward manager with the specified parameters
-    # RewardLoopManagerBase subclasses (like RateLimitedRewardLoopManager) don't accept num_examine
+    # RewardManagerBase subclasses (like RateLimitedRewardLoopManager) don't accept num_examine
     # while AbstractRewardManager subclasses (like NaiveRewardManager) do
-    if RewardLoopManagerBase is not None and issubclass(reward_manager_cls, RewardLoopManagerBase):
-        # RewardLoopManagerBase-based managers use a different signature
+    if RewardManagerBase is not None and issubclass(reward_manager_cls, RewardManagerBase):
+        # RewardManagerBase-based managers use a different signature
         return reward_manager_cls(
             config=config,
             tokenizer=tokenizer,
