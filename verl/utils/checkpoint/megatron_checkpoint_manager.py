@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import json
 import logging
 import os
 import random
-import inspect
 from collections.abc import Callable
 from dataclasses import asdict
 
@@ -507,9 +507,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     if "memory_efficient" in str(inspect.signature(self.bridge.save_weights)):
                         if "memory_efficient" not in extended_args:
                             extended_args["memory_efficient"] = True
-                    self.bridge.save_weights(
-                        self.model, hf_ckpt_path, **extended_args
-                    )
+                    self.bridge.save_weights(self.model, hf_ckpt_path, **extended_args)
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
 
@@ -586,9 +584,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     if "memory_efficient" in str(inspect.signature(self.bridge.save_weights)):
                         if "memory_efficient" not in extended_args:
                             extended_args["memory_efficient"] = True
-                    self.bridge.save_weights(
-                        self.model, hf_ckpt_path, **extended_args
-                    )
+                    self.bridge.save_weights(self.model, hf_ckpt_path, **extended_args)
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)
             else:
