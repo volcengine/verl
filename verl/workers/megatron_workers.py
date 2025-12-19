@@ -162,6 +162,8 @@ class MegatronWorker(Worker):
             if hasattr(hf_config, "num_nextn_predict_layers"):
                 hf_config.num_nextn_predict_layers = 0
 
+        self.enable_mtp = enable_mtp
+
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
@@ -612,6 +614,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 model_config=self.actor_model_config,
                 hf_config=self.hf_config,
                 tf_config=self.tf_config,
+                mtp_config=self.config.model.mtp,
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )
@@ -740,6 +743,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
+
+        print("hzg update actor", "#" * 200)
+
+
         assert self._is_actor
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)

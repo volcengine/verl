@@ -27,6 +27,7 @@ from .util import (
     preprocess_packed_seqs,
     preprocess_thd_no_padding,
 )
+from ...workers.config import MtpConfig
 
 
 def model_forward_gen(vision_model: bool = False):
@@ -40,6 +41,7 @@ def model_forward_gen(vision_model: bool = False):
         logits_processor_args: dict = None,
         value_model=False,
         data_format: str = "thd",
+        mtp_config: MtpConfig =None
     ):
         """Forward pass for models with sequence packing."""
         assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
@@ -68,6 +70,12 @@ def model_forward_gen(vision_model: bool = False):
             )
             input_ids_rmpad = input_ids_rmpad.contiguous()
 
+            print(f"input_ids {input_ids.shape} input_ids_rmpad: {input_ids_rmpad.shape}")
+
+            if mtp_config and mtp_config.enable_train:
+                model_kwargs["labels"] = input_ids_rmpad
+                # model_kwargs['loss_mask'] = loss_mask
+
             input_args = dict(
                 input_ids=input_ids_rmpad,
                 attention_mask=None,
@@ -85,6 +93,11 @@ def model_forward_gen(vision_model: bool = False):
                 input_args["attention_mask"] = attention_mask
 
             output_orig = model(**input_args)
+
+            for k, v in logits_processor_args.items():
+                print(f"logits_processor_args {k}: {v.shape}")
+
+
             if post_process and logits_processor is not None:
                 args = {
                     k: preprocess_packed_seqs(v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding)[0]
