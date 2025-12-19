@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import random
+import inspect
 from collections.abc import Callable
 from dataclasses import asdict
 
@@ -499,8 +500,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
+                    extended_args = getattr(self.checkpoint_config, "mbridge_config", None) or {}
+                    if "distributed_filesystem" in inspect.signature(self.bridge.save_weights):
+                        if "distributed_filesystem" not in extended_args:
+                            extended_args["distributed_filesystem"] = True
+                    if "memory_efficient" in inspect.signature(self.bridge.save_weights):
+                        if "memory_efficient" not in extended_args:
+                            extended_args["memory_efficient"] = True
                     self.bridge.save_weights(
-                        self.model, hf_ckpt_path, **(getattr(self.checkpoint_config, "mbridge_config", None) or {})
+                        self.model, hf_ckpt_path, **extended_args
                     )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_ckpt_path)
@@ -571,10 +579,15 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             if self.bridge is not None:
                 hf_model_ckpt_path = get_hf_model_checkpoint_path(local_path)
                 if self.vanilla_bridge:
+                    extended_args = getattr(self.checkpoint_config, "mbridge_config", None) or {}
+                    if "distributed_filesystem" in inspect.signature(self.bridge.save_weights):
+                        if "distributed_filesystem" not in extended_args:
+                            extended_args["distributed_filesystem"] = True
+                    if "memory_efficient" in inspect.signature(self.bridge.save_weights):
+                        if "memory_efficient" not in extended_args:
+                            extended_args["memory_efficient"] = True
                     self.bridge.save_weights(
-                        self.model,
-                        hf_model_ckpt_path,
-                        **(getattr(self.checkpoint_config, "mbridge_config", None) or {}),
+                        self.model, hf_ckpt_path, **extended_args
                     )
                 else:
                     self.bridge.save_hf_weights(self.model, hf_model_ckpt_path)

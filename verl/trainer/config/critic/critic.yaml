@@ -99,9 +99,7 @@ checkpoint:
   async_save: False
 
   # Mbridge config extension.
-  mbridge_config:
-    memory_efficient: true
-    distributed_filesystem: true
+  mbridge_config: {}
 
 # profile the critic model in `update_critic`
 profiler:
