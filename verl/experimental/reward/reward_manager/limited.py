@@ -20,8 +20,9 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_loop import register as register_loop
-from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+from verl.experimental.reward.reward_manager import register as register_loop
+from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
+from verl.utils.ray_utils import get_event_loop
 from verl.utils.reward_score import default_compute_score
 from verl.workers.reward_manager import register as register_manager
 
@@ -123,7 +124,7 @@ class AsyncTokenBucket:
         if num_tokens > self.max_tokens:
             wait_time = 0.0
             async with self.lock:
-                loop = asyncio.get_running_loop()
+                loop = get_event_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now
@@ -147,7 +148,7 @@ class AsyncTokenBucket:
         while True:
             wait_time = 0.0
             async with self.lock:
-                loop = asyncio.get_running_loop()
+                loop = get_event_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now

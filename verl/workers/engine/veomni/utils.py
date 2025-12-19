@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .reward_loop import RewardLoopManager, RewardLoopWorker
-from .reward_model import RewardModelManager
-
-__all__ = ["RewardModelManager", "RewardLoopWorker", "RewardLoopManager"]
+VL_TYPE2INDEX = {
+    "qwen2_5_vl": {
+        "IMAGE_INPUT_INDEX": 151655,
+        "VIDEO_INPUT_INDEX": 151656,
+    },
+    "qwen3_vl": {
+        "IMAGE_INPUT_INDEX": 151655,
+        "VIDEO_INPUT_INDEX": 151656,
+    },
+}

@@ -32,12 +32,12 @@ if TYPE_CHECKING:
     from omegaconf import DictConfig
 
     from verl import DataProto
-    from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+    from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
     from verl.trainer.config.config import ModuleConfig, RewardManagerConfig
     from verl.workers.reward_manager.abstract import AbstractRewardManager, RawRewardFn
 else:
     try:
-        from verl.experimental.reward.reward_loop.base import RewardLoopManagerBase
+        from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
     except ImportError:
         RewardLoopManagerBase = None  # type: ignore[assignment,misc]
 
@@ -153,7 +153,7 @@ def load_reward_manager(
         )
         reward_manager_cls_name = reward_manager_cfg.name
         reward_manager_cls = cast(
-            type[AbstractRewardManager],
+            "type[AbstractRewardManager]",
             load_extern_object(module_path=module_cfg.path, object_name=reward_manager_cls_name),
         )
 

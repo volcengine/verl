@@ -38,6 +38,7 @@ from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.ray_utils import get_event_loop
 from verl.utils.rollout_trace import (
     RolloutTraceConfig,
     rollout_trace_attr,
@@ -206,7 +207,7 @@ class AgentLoopBase(ABC):
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
-        self.loop = asyncio.get_running_loop()
+        self.loop = get_event_loop()
 
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -283,7 +284,7 @@ class AgentLoopWorkerBase:
 
         use_reward_loop = True if self.config.reward_model.use_reward_loop else None
         self.use_reward_loop = use_reward_loop
-        if use_reward_loop and not hasattr(self, "reward_manager_worker"):
+        if use_reward_loop and not hasattr(self, "reward_loop_worker"):
             self.reward_loop_worker = RewardLoopWorker.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=ray.get_runtime_context().get_node_id(),

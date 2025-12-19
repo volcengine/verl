@@ -1,11 +1,11 @@
-Data collection based on FSDP backend on Ascend devices(zh)
+Performance data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(zh)
 ====================================
 
-在昇腾设备上基于FSDP后端进行数据采集
+在昇腾设备上基于FSDP或MindSpeed(Megatron)后端进行性能数据采集
 
 Last updated: 08/14/2025.
 
-这是一份在昇腾设备上基于FSDP后端使用GRPO或DAPO算法进行数据采集的教程。
+这是一份在昇腾设备上基于FSDP或MindSpeed(Megatron)后端，使用GRPO或DAPO算法进行数据采集的教程。
 
 配置
 ----
@@ -41,7 +41,7 @@ Last updated: 08/14/2025.
 -  level: 采集级别—选项有 level_none、level0、level1 和 level2
 
    -  level_none: 禁用所有基于级别的数据采集（关闭 profiler_level）。
-   -  level0: 采集高级应用数据、底层NPU数据和NPU上的算子执行详情。
+   -  level0: 采集高级应用数据、底层NPU数据和NPU上的算子执行详情。在权衡数据量和分析能力后，level0是推荐的默认配置。
    -  level1: 在level0基础上增加CANN层AscendCL数据和NPU上的AI Core性能指标。
    -  level2: 在level1基础上增加CANN层Runtime数据和AI CPU指标。
 
@@ -52,7 +52,7 @@ Last updated: 08/14/2025.
    -  cpu: 是否采集主机端性能数据。
    -  memory: 是否启用内存分析。
    -  shapes: 是否记录张量形状。
-   -  module: 是否记录框架层Python调用栈信息。
+   -  module: 是否记录框架层Python调用栈信息。相较于stack，更推荐使用module记录调用栈信息，因其产生的性能膨胀更低。
    -  stack: 是否记录算子调用栈信息。
 
 -  analysis: 启用自动数据解析。
@@ -109,6 +109,13 @@ Last updated: 08/14/2025.
 ------
 
 采集后的数据存放在用户设置的save_path下，可通过 `MindStudio Insight <https://www.hiascend.com/document/detail/zh/mindstudio/80RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html>`_ 工具进行可视化。
+
+另外在Linux环境下，MindStudio Insight工具提供了 `JupyterLab插件 <https://www.hiascend.com/document/detail/zh/mindstudio/82RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0130.html>`_ 形态，提供更直观和交互式强的操作界面。JupyterLab插件优势如下：
+
+- 无缝集成：支持在Jupyter环境中直接运行MindStudio Insight工具，无需切换平台，无需拷贝服务器上的数据，实现数据即采即用。
+- 快速启动：通过JupyterLab的命令行或图形界面，可快速启动MindStudio Insight工具。
+- 运行流畅：在Linux环境下，通过JupyterLab环境启动MindStudio Insight，相较于整包通信，有效解决了运行卡顿问题，操作体验显著提升。
+- 远程访问：支持远程启动MindStudio Insight，可通过本地浏览器远程连接服务直接进行可视化分析，缓解了大模型训练或推理数据上传和下载的困难。
 
 如果analysis参数设置为False，采集之后需要进行离线解析：
 
