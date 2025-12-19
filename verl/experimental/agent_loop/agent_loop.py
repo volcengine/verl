@@ -34,7 +34,7 @@ from verl.experimental.agent_loop.prometheus_utils import update_prometheus_conf
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward import RewardLoopWorker
 from verl.protocol import DataProto
-from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup, split_resource_pool
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
@@ -327,6 +327,7 @@ class AgentLoopWorkerBase:
         sampling_params = dict(
             temperature=config.temperature,
             top_p=config.top_p,
+            top_k=config.top_k,
             repetition_penalty=1.0,
             logprobs=config.calculate_log_probs,
         )
@@ -334,6 +335,7 @@ class AgentLoopWorkerBase:
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
+            sampling_params["top_k"] = config.val_kwargs.top_k
             sampling_params["temperature"] = config.val_kwargs.temperature
 
         # by default, we assume it's a single turn agent
@@ -706,13 +708,18 @@ class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
     def __init__(
-        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+        self,
+        config: DictConfig,
+        worker_group: RayWorkerGroup = None,
+        rollout_resource_pool: RayResourcePool = None,
+        rm_resource_pool: RayResourcePool = None,
     ):
         """Initialize agent loop manager.
 
         Args:
             config (DictConfig): trainer config.
             worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
+            rollout_resource_pool (RayResourcePool): Resource pool for actor rollout (Colocate or Standalone mode).
             rm_resource_pool (RayResourcePool): Resource pool for reward model (Standalone mode).
         """
         self.config = config
@@ -733,26 +740,41 @@ class AgentLoopManager:
         if not hasattr(self, "agent_loop_workers_class"):
             self.agent_loop_workers_class = AgentLoopWorker
 
-        self._initialize_llm_servers()
+        self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
 
-    def _initialize_llm_servers(self):
+    def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
+        placement = "hybrid"
+        if (
+            self.config.actor_rollout_ref.actor.resource_pool_id
+            == self.config.actor_rollout_ref.rollout.resource_pool_id
+        ):
+            if self.config.actor_rollout_ref.actor.colocate_slot == self.config.actor_rollout_ref.rollout.colocate_slot:
+                placement = "hybrid"
+            else:
+                placement = "colocate"
+        else:
+            placement = "standalone"
+
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
             * self.config.actor_rollout_ref.rollout.data_parallel_size
             * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
         )
-        world_size = (
-            self.worker_group.world_size
-            if self.worker_group
-            else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
-        )
-        num_replicas = world_size // rollout_world_size
+        if placement == "standalone":
+            world_size = rollout_resource_pool.world_size
+        else:
+            world_size = (
+                self.worker_group.world_size
+                if self.worker_group
+                else self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
+            )
 
+        num_replicas = world_size // rollout_world_size
         rollout_config = self.config.actor_rollout_ref.rollout
         model_config = self.config.actor_rollout_ref.model
         self.rollout_replicas = [
@@ -764,10 +786,25 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if self.worker_group:
+
+        if placement == "hybrid":
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
-        else:
-            self._run_all([server.init_standalone() for server in self.rollout_replicas])
+        elif placement == "colocate" and rollout_config.name == "trtllm":
+            self._run_all(
+                [
+                    server.init_hybrid_colocated(self.worker_group, rollout_resource_pool)
+                    for server in self.rollout_replicas
+                ]
+            )
+        elif placement == "standalone":
+            resource_pool_replicas = split_resource_pool(rollout_resource_pool, split_size=rollout_world_size)
+            self._run_all(
+                [
+                    server.init_standalone(self.worker_group, resource_pool_replicas[idx])
+                    for idx, server in enumerate(self.rollout_replicas)
+                ]
+            )
+
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 

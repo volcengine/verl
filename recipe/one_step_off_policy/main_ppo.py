@@ -33,7 +33,7 @@ from verl.utils.config import validate_config
 from verl.utils.device import auto_set_ascend_device_name
 
 
-def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
+def create_resource_pool_manager(config, roles: list, resource_mapping: dict) -> ResourcePoolManager:
     """
     Create resource pool manager
 
@@ -45,31 +45,19 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         ResourcePoolManager: Resource pool manager
     """
     resource_pool_spec = {}
-    mapping = {}
+    for spec in config.resource_pool_specs:
+        resource_pool_spec[spec.id] = (spec.max_colocate_count, [spec.n_gpus_per_node] * spec.nnodes)
 
     # Actor/Critic resource pool
     if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
         assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
         assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
 
-        trainer_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
-        resource_pool_spec["trainer_pool"] = trainer_pool
-
-        # Map training-related roles to the same resource pool
-        for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
-            if role in roles:
-                mapping[role] = "trainer_pool"
-
     # Rollout resource pool
     if Role.Rollout in roles:
         assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
         assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
-
-        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
-        resource_pool_spec["rollout_pool"] = rollout_pool
-        mapping[Role.Rollout] = "rollout_pool"
-
-    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=resource_mapping)
 
 
 def create_role_worker_mapping(config):
@@ -113,6 +101,12 @@ def create_role_worker_mapping(config):
         Role.Critic: ray.remote(CriticWorker),
     }
 
+    resource_mapping = {
+        Role.Actor: config.actor_rollout_ref.actor.resource_pool_id,
+        Role.Rollout: config.actor_rollout_ref.rollout.resource_pool_id,
+        Role.Critic: config.critic.resource_pool_id,
+    }
+
     if config.reward_model.enable:
         if config.reward_model.strategy in ["fsdp", "fsdp2"]:
             from verl.workers.fsdp_workers import RewardModelWorker
@@ -122,12 +116,13 @@ def create_role_worker_mapping(config):
             raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
 
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-
+        resource_mapping[Role.RewardModel] = config.reward_model.resource_pool_id
     # Add reference policy (if KL loss or reward is required)
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
         role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
+        resource_mapping[Role.RefPolicy] = config.actor_rollout_ref.ref.resource_pool_id
 
-    return role_worker_mapping, ray_worker_group_cls
+    return role_worker_mapping, ray_worker_group_cls, resource_mapping
 
 
 @ray.remote(num_cpus=10, max_concurrency=100)  # please make sure main_task is not scheduled on head
@@ -146,7 +141,7 @@ class OneStepTaskRunner:
 
         OmegaConf.resolve(config)
 
-        role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
+        role_worker_mapping, ray_worker_group_cls, resource_mapping = create_role_worker_mapping(config)
 
         # validate config
         validate_config(
@@ -177,7 +172,7 @@ class OneStepTaskRunner:
             config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
         )
 
-        resource_pool_manager = create_resource_pool_manager(config, role_worker_mapping.keys())
+        resource_pool_manager = create_resource_pool_manager(config, role_worker_mapping.keys(), resource_mapping)
 
         from verl.utils.dataset.rl_dataset import collate_fn
 

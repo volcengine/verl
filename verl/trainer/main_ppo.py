@@ -140,7 +140,7 @@ class TaskRunner:
             else:
                 role = Role.ActorRollout
             self.role_worker_mapping[role] = ray.remote(actor_rollout_cls)
-            self.mapping[role] = "global_pool"
+            self.mapping[role] = config.actor_rollout_ref.actor.resource_pool_id
             return actor_rollout_cls, ray_worker_group_cls
 
         if config.actor_rollout_ref.rollout.mode == "sync":
@@ -173,7 +173,7 @@ class TaskRunner:
             raise NotImplementedError
 
         self.role_worker_mapping[Role.ActorRollout] = ray.remote(actor_rollout_cls)
-        self.mapping[Role.ActorRollout] = "global_pool"
+        self.mapping[Role.ActorRollout] = config.actor_rollout_ref.actor.resource_pool_id
         return actor_rollout_cls, ray_worker_group_cls
 
     def add_critic_worker(self, config):
@@ -201,26 +201,16 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         self.role_worker_mapping[Role.Critic] = ray.remote(CriticWorker)
-        self.mapping[Role.Critic] = "global_pool"
+        self.mapping[Role.Critic] = config.critic.resource_pool_id
 
     def init_resource_pool_mgr(self, config):
         """Initialize resource pool manager."""
 
-        global_pool_id = "global_pool"
-        resource_pool_spec = {
-            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-        }
-        # TODO Here you can use the new registration method to support dynamic registration of roles
-        if config.reward_model.enable_resource_pool:
-            if config.reward_model.n_gpus_per_node <= 0:
-                raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
-            if config.reward_model.nnodes <= 0:
-                raise ValueError("config.reward_model.nnodes must be greater than 0")
-
-            reward_pool = [config.reward_model.n_gpus_per_node] * config.reward_model.nnodes
-            resource_pool_spec["reward_pool"] = reward_pool
-
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+
+        resource_pool_spec = {}
+        for spec in config.resource_pool_specs:
+            resource_pool_spec[spec.id] = (spec.max_colocate_count, [spec.n_gpus_per_node] * spec.nnodes)
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=self.mapping)
         return resource_pool_manager
@@ -246,10 +236,7 @@ class TaskRunner:
                 raise ValueError(f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}")
 
             self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
-            if config.reward_model.enable_resource_pool:
-                self.mapping[Role.RewardModel] = "reward_pool"
-            else:
-                self.mapping[Role.RewardModel] = "global_pool"
+            self.mapping[Role.RewardModel] = config.reward_model.resource_pool_id
 
     def add_ref_policy_worker(self, config, ref_policy_cls):
         """Add reference policy worker if KL loss or KL reward is used."""
@@ -263,7 +250,7 @@ class TaskRunner:
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy_cls)
-            self.mapping[Role.RefPolicy] = "global_pool"
+            self.mapping[Role.RefPolicy] = config.actor_rollout_ref.ref.resource_pool_id
 
     def run(self, config):
         """Execute the main PPO training workflow.

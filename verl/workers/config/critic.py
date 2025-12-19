@@ -62,6 +62,8 @@ class CriticConfig(BaseConfig):
         "model_config",
     }
 
+    resource_pool_id: Optional[str] = None
+    colocate_slot: int = 0
     strategy: str = MISSING
     ppo_micro_batch_size_per_gpu: Optional[int] = None
     enable: Optional[bool] = None

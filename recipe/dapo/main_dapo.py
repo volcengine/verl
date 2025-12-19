@@ -120,9 +120,10 @@ class TaskRunner:
         }
 
         global_pool_id = "global_pool"
-        resource_pool_spec = {
-            global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
-        }
+        resource_pool_spec = {}
+        for spec in config.resource_pool_specs:
+            resource_pool_spec[spec.id] = (spec.max_colocate_count, [spec.n_gpus_per_node] * spec.nnodes)
+
         mapping = {
             Role.ActorRollout: global_pool_id,
             Role.Critic: global_pool_id,

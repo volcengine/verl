@@ -72,7 +72,7 @@ class ResourcePoolManager:
     Define a resource pool specification. Resource pool will be initialized first.
     """
 
-    resource_pool_spec: dict[str, list[int]]
+    resource_pool_spec: dict[str, tuple[int, list[int]]]
     mapping: dict[Role, str]
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
@@ -84,13 +84,16 @@ class ResourcePoolManager:
         For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
         For Megatron backend, uses max_colocate_count>1 for different models.
         """
-        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
+        for resource_pool_name, (max_colocate_count, process_on_nodes) in self.resource_pool_spec.items():
             # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
             # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
             # For Megatron backend, we recommend using max_colocate_count>1
             # that can utilize different WorkerGroup for differnt models
             resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
+                process_on_nodes=process_on_nodes,
+                use_gpu=True,
+                max_colocate_count=max_colocate_count,
+                name_prefix=resource_pool_name,
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
@@ -102,7 +105,9 @@ class ResourcePoolManager:
 
     def get_n_gpus(self) -> int:
         """Get the number of gpus in this cluster."""
-        return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
+        return sum(
+            [n_gpus for (_, process_on_nodes) in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
+        )
 
     def _check_resource_available(self):
         """Check if the resource pool can be satisfied in this ray cluster."""
@@ -115,7 +120,7 @@ class ResourcePoolManager:
         # check total required gpus can be satisfied
         total_available_gpus = sum(node_available_gpus.values())
         total_required_gpus = sum(
-            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
+            [n_gpus for (_, process_on_nodes) in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
         )
         if total_available_gpus < total_required_gpus:
             raise ValueError(
@@ -317,8 +322,10 @@ class RayPPOTrainer:
         self.reward_fn = reward_fn
         self.val_reward_fn = val_reward_fn
 
-        self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
-        assert self.hybrid_engine, "Currently, only support hybrid engine"
+        self.hybrid_engine = (
+            config.actor_rollout_ref.actor.resource_pool_id == config.actor_rollout_ref.rollout.resource_pool_id
+        )
+        assert self.hybrid_engine, "Currently, only support hybrid engine, or collocated placement"
 
         if self.hybrid_engine:
             assert Role.ActorRollout in role_worker_mapping or Role.ActorRolloutRef in role_worker_mapping, (
@@ -692,14 +699,17 @@ class RayPPOTrainer:
 
         # create actor and rollout
         actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
-        if self.hybrid_engine:
-            resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
+        if (
+            self.config.actor_rollout_ref.actor.resource_pool_id
+            == self.config.actor_rollout_ref.rollout.resource_pool_id
+        ):
+            actor_rollout_resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[actor_role],
                 config=self.config.actor_rollout_ref,
                 role=str(actor_role),
             )
-            self.resource_pool_to_cls[resource_pool][str(actor_role)] = actor_rollout_cls
+            self.resource_pool_to_cls[actor_rollout_resource_pool][str(actor_role)] = actor_rollout_cls
         else:
             raise NotImplementedError
 
@@ -864,6 +874,7 @@ class RayPPOTrainer:
             self.async_rollout_manager = AgentLoopManager(
                 config=self.config,
                 worker_group=self.actor_rollout_wg,
+                rollout_resource_pool=actor_rollout_resource_pool,
                 rm_resource_pool=rm_resource_pool,
             )
 

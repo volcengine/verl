@@ -12,6 +12,12 @@ enable_resource_pool: False
 n_gpus_per_node: 0
 nnodes: 0
 
+# resource pool id for the reward model
+resource_pool_id: global_pool
+
+# colocate slot for the reward model
+colocate_slot: 1
+
 # FSDP strategy: "fsdp" or "fsdp2"
 strategy: ???
 
@@ -73,7 +79,7 @@ sandbox_fusion:
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
 
-# profile the reward model in `compute_reward` 
+# profile the reward model in `compute_reward`
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -85,7 +91,7 @@ profiler:
 
   # whether enable profile on ref
   enable: False
-  
+
   # Whether to profile all ranks.
   all_ranks: False
 

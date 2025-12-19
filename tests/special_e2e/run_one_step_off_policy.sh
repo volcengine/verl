@@ -79,6 +79,7 @@ common_params=(
     actor_rollout_ref.actor.ppo_mini_batch_size=${train_prompt_mini_bsz}
     actor_rollout_ref.actor.entropy_coeff=0
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode}
+    actor_rollout_ref.actor.resource_pool_id='trainer_pool'
     actor_rollout_ref.rollout.gpu_memory_utilization=0.80
     actor_rollout_ref.rollout.temperature=${temperature}
     actor_rollout_ref.rollout.top_p=${top_p}
@@ -90,6 +91,7 @@ common_params=(
     actor_rollout_ref.rollout.val_kwargs.n=1
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.resource_pool_id='rollout_pool' \
     reward_model.reward_manager=dapo
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer}
     +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len}
@@ -109,7 +111,8 @@ common_params=(
     trainer.n_gpus_per_node=${n_gpus_training}
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_gpus_rollout}
-
+    "resource_pool_specs=[{id:trainer_pool,nnodes:1,n_gpus_per_node:${n_gpus_training},max_colocate_count:2},{id:rollout_pool,nnodes:1,n_gpus_per_node:${n_gpus_rollout},max_colocate_count:1}]"
+    critic.resource_pool_id=trainer_pool
 )
 
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then

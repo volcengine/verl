@@ -714,6 +714,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After resume weights", logger=logger)
 
         if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+            torch.cuda.synchronize()
             per_tensor_base_params = (
                 (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
                 for name, param in base_model_params.items()

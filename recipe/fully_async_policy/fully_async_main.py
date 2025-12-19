@@ -30,7 +30,7 @@ from verl.trainer.ppo.utils import Role
 from verl.utils.fs import copy_to_local
 
 
-def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
+def create_resource_pool_manager(config, roles: list, resource_mapping: dict) -> ResourcePoolManager:
     """
     Create resource pool manager
 
@@ -42,31 +42,28 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         ResourcePoolManager: Resource pool manager
     """
     resource_pool_spec = {}
-    mapping = {}
+    for role in roles:
+        pool_id = resource_mapping[role]
+        if pool_id in resource_pool_spec:
+            continue
+        for spec in config.resource_pool_specs:
+            if spec.id == pool_id:
+                resource_pool_spec[pool_id] = (spec.max_colocate_count, [spec.n_gpus_per_node] * spec.nnodes)
+                break
+        if pool_id not in resource_pool_spec:
+            raise ValueError(f"Resource pool {pool_id} not found in config.resource_pool_specs")
 
     # Actor/Critic resource pool
     if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
         assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
         assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
 
-        trainer_pool = [config.trainer.n_gpus_per_node] * config.trainer.nnodes
-        resource_pool_spec["trainer_pool"] = trainer_pool
-
-        # Map training-related roles to the same resource pool
-        for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
-            if role in roles:
-                mapping[role] = "trainer_pool"
-
     # Rollout resource pool
     if Role.Rollout in roles:
         assert config.rollout.n_gpus_per_node > 0, "config.rollout.n_gpus_per_node must be greater than 0"
         assert config.rollout.nnodes > 0, "config.rollout.nnodes must be greater than 0"
 
-        rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
-        resource_pool_spec["rollout_pool"] = rollout_pool
-        mapping[Role.Rollout] = "rollout_pool"
-
-    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+    return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=resource_mapping)
 
 
 def create_role_worker_mapping(config):
@@ -105,6 +102,10 @@ def create_role_worker_mapping(config):
         Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
         Role.Critic: ray.remote(CriticWorker),
     }
+    resource_mapping = {
+        Role.Actor: config.actor_rollout_ref.actor.resource_pool_id,
+        Role.Critic: config.critic.resource_pool_id,
+    }
 
     if config.reward_model.enable:
         if config.reward_model.strategy in ["fsdp", "fsdp2"]:
@@ -115,12 +116,14 @@ def create_role_worker_mapping(config):
             raise NotImplementedError
 
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+        resource_mapping[Role.RewardModel] = config.reward_model.resource_pool_id
 
     # Add reference policy (if KL loss or reward is required)
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
         role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
+        resource_mapping[Role.RefPolicy] = config.actor_rollout_ref.ref.resource_pool_id
 
-    return role_worker_mapping, ray_worker_group_cls
+    return role_worker_mapping, ray_worker_group_cls, resource_mapping
 
 
 @ray.remote(num_cpus=1)
@@ -161,9 +164,10 @@ class FullyAsyncTaskRunner:
         self.components["config"] = config
 
         print("[ASYNC MAIN] Creating worker mapping and resource pools...")
-        role_worker_mapping, ray_worker_group_cls = create_role_worker_mapping(config)
+        role_worker_mapping, ray_worker_group_cls, resource_mapping = create_role_worker_mapping(config)
         self.components["role_worker_mapping"] = role_worker_mapping
         self.components["ray_worker_group_cls"] = ray_worker_group_cls
+        self.components["resource_mapping"] = resource_mapping
 
         print("[ASYNC MAIN] Creating FullyAsyncRollouter...")
         self._create_rollouter(config)
@@ -214,7 +218,11 @@ class FullyAsyncTaskRunner:
             config=config,
             tokenizer=self.components["tokenizer"],
             role_worker_mapping={Role.Rollout: self.components["role_worker_mapping"][Role.Rollout]},
-            resource_pool_manager=create_resource_pool_manager(config, roles=[Role.Rollout]),
+            resource_pool_manager=create_resource_pool_manager(
+                config,
+                roles=[Role.Rollout],
+                resource_mapping={Role.Rollout: config.actor_rollout_ref.rollout.resource_pool_id},
+            ),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
             device_name=config.trainer.device,
@@ -237,7 +245,9 @@ class FullyAsyncTaskRunner:
             config=config,
             tokenizer=self.components["tokenizer"],
             role_worker_mapping=trainer_role_mapping,
-            resource_pool_manager=create_resource_pool_manager(config, roles=list(trainer_role_mapping.keys())),
+            resource_pool_manager=create_resource_pool_manager(
+                config, roles=list(trainer_role_mapping.keys()), resource_mapping=self.components["resource_mapping"]
+            ),
             ray_worker_group_cls=self.components["ray_worker_group_cls"],
             processor=self.components["processor"],
             device_name=config.trainer.device,
