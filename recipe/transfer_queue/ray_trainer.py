@@ -506,10 +506,18 @@ class RayPPOTrainer:
 
         num_workers = self.config.data["dataloader_num_workers"]
 
+        def _worker_init_fn(worker_id):
+            import verl.utils.transferqueue_utils
+
+            # we need to set the client to None in the worker process
+            # so that the worker process will not share the same client with the driver process
+            verl.utils.transferqueue_utils._TRANSFER_QUEUE_CLIENT = None
+
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
             batch_sampler=train_sampler,
             num_workers=num_workers,
+            worker_init_fn=_worker_init_fn,
             collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=True),
         )
 
@@ -517,6 +525,7 @@ class RayPPOTrainer:
             dataset=self.val_dataset,
             batch_sampler=val_sampler,
             num_workers=num_workers,
+            worker_init_fn=_worker_init_fn,
             collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=False),
         )
 

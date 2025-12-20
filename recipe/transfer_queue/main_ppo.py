@@ -249,7 +249,7 @@ def tq_collate_fn(batch, cls, config, is_train=True):
         prefix = "val_"
         repeat_times = config.actor_rollout_ref.rollout.val_kwargs.n
 
-    tq_client = create_transferqueue_client(client_id="data_process", config=config.transfer_queue, enforce=True)
+    tq_client = create_transferqueue_client(client_id="data_process", config=config.transfer_queue)
 
     batch_dict = collate_fn(batch)
     partition_id = batch_dict.pop("batch_id")[0]
