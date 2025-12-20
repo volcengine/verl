@@ -1,0 +1,28 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  gen_batch_size: ${data.train_batch_size}
+
+algorithm:
+  adv_estimator: grpo
+  filter_groups:
+    _target_: verl.trainer.config.FilterGroupsConfig
+    enable: False
+    metric: null
+    max_num_gen_batches: 0
+
+actor_rollout_ref:
+  actor:
+    policy_loss:
+      loss_mode: sapo
+      tau_pos: 1.0
+      tau_neg: 1.05
+
+trainer:
+  project_name: verl-sapo
