@@ -214,12 +214,10 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
 
-        # Set warmup_thread_args to avoid AttributeError in lifespan function
-        app.warmup_thread_args = (
-            server_args,
-            None,
-            None,
-        )
+        # Set warmup_thread_{kw}args to avoid AttributeError in lifespan function
+        app.server_args = server_args
+        app.warmup_thread_kwargs = {"server_args": server_args}
+        app.warmup_thread_args = (server_args, None, None)
 
         # Manually add Prometheus middleware before starting server
         # This ensures /metrics endpoint is available immediately
