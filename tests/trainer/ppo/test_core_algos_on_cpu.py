@@ -24,11 +24,13 @@ from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
     compute_grpo_outcome_advantage,
     compute_grpo_vectorized_outcome_advantage,
+    compute_policy_loss_sapo,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
     get_adv_estimator_fn,
     register_adv_est,
 )
+from verl.workers.config.actor import ActorConfig, PolicyLossConfig
 
 
 def mock_test_fn():
@@ -311,6 +313,44 @@ def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
+
+def test_policy_loss_sapo_matches_manual():
+    old_log_prob = torch.tensor([[0.0, -2.0, 1.0], [0.5, 0.0, -1.0]], dtype=torch.float32)
+    log_prob = torch.tensor([[25.0, -30.0, 1.5], [0.0, 0.0, -50.0]], dtype=torch.float32)
+    advantages = torch.tensor([[1.0, -0.5, 0.25], [-1.2, 0.0, 2.0]], dtype=torch.float32)
+    response_mask = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 1.0]], dtype=torch.float32)
+
+    config = ActorConfig(
+        strategy="test",
+        rollout_n=1,
+        use_dynamic_bsz=True,
+        policy_loss=PolicyLossConfig(tau_pos=2.0, tau_neg=0.5),
+    )
+
+    pg_loss, metrics = compute_policy_loss_sapo(
+        old_log_prob=old_log_prob,
+        log_prob=log_prob,
+        advantages=advantages,
+        response_mask=response_mask,
+        loss_agg_mode="token-mean",
+        config=config,
+    )
+
+    negative_approx_kl = torch.clamp(log_prob - old_log_prob, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    gate_pos = torch.sigmoid(config.policy_loss.tau_pos * (ratio - 1.0))
+    gate_neg = torch.sigmoid(config.policy_loss.tau_neg * (ratio - 1.0))
+    soft_gate = torch.where(advantages > 0, gate_pos, gate_neg)
+    pg_losses = -soft_gate * advantages
+
+    expected_loss = (pg_losses * response_mask).sum() / response_mask.sum()
+    expected_ppo_kl = (-(negative_approx_kl) * response_mask).sum() / (response_mask.sum() + 1e-8)
+
+    assert torch.allclose(pg_loss, expected_loss, rtol=1e-6, atol=1e-7)
+    assert metrics["actor/pg_clipfrac"] == 0.0
+    assert metrics["actor/pg_clipfrac_lower"] == 0.0
+    assert abs(metrics["actor/ppo_kl"] - expected_ppo_kl.item()) < 1e-6
 
 
 if __name__ == "__main__":
