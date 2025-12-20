@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-MODEL_PATH="/root/epfs/workspace/tmp/models/Qwen2.5-0.5B-Instruct"
-TRAIN_FILE="/root/epfs/workspace/train/01_gsm8k/datasets/gsm8k_train.parquet"
-TEST_FILE="/root/epfs/workspace/train/01_gsm8k/datasets/gsm8k_test.parquet"
+MODEL_PATH="/path/to/Qwen2.5-0.5B-Instruct"
+TRAIN_FILE="/path/to/gsm8k_train.parquet"
+TEST_FILE="/path/to/gsm8k_test.parquet"
 
 python3 -m recipe.sapo.main_sapo \
     data.train_files="${TRAIN_FILE}" \

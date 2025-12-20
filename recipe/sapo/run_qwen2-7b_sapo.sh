@@ -1,17 +1,16 @@
 set -x
 
-export VLLM_USE_V1=1
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/root/epfs/workspace/train/01_gsm8k/datasets/gsm8k_train.parquet \
-    data.val_files=/root/epfs/workspace/train/01_gsm8k/datasets/gsm8k_test.parquet \
+    data.train_files=/path/to/datasets/gsm8k_train.parquet \
+    data.val_files=/path/to/gsm8k_test.parquet \
     data.train_batch_size=1024 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
-    actor_rollout_ref.model.path=/root/epfs/workspace/tmp/models/Qwen2.5-0.5B-Instruct \
+    actor_rollout_ref.model.path=/path/to/Qwen2.5-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
