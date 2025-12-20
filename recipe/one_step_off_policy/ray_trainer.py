@@ -173,6 +173,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                 rank_offset=self.rank_offset,
                 ps_world_size=self.ps_world_size,
                 inference_parallel_size=self.config.actor_rollout_ref.rollout.tensor_model_parallel_size,
+                rollout_name=self.config.actor_rollout_ref.rollout.name
             )
             self.resource_pool_to_cls[resource_pool][str(Role.CkptEngine)] = ckpt_engine_cls
 
@@ -272,11 +273,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.actor_rollout_wg = self.actor_wg
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
-        self._create_weight_sync_group()
-
-    def _create_weight_sync_group(self):
-        self.actor_wg.init_process_group()
-        ray.get(self.ckpt_engine_wg.init_process_group())
 
     def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler

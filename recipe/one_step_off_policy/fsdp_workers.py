@@ -123,10 +123,8 @@ class DetachActorWorker(DetachSync):
             self.ps_rank_offset = kwargs.get("rank_offset", self.rank)
             self.ps_world_size = kwargs.get("ps_world_size", self.world_size)
             self.ps = ParameterServer(rank=self.rank, world_size=self.ps_world_size)
-
             self.index = 0
 
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_process_group(self):
         os.environ["HCCL_NPU_SOCKET_PORT_RANGE"] = "61020"
         self.ps.init_process_group(device_index=0, master_port=60010)
@@ -161,15 +159,15 @@ class DetachActorWorker(DetachSync):
         def req_func(socket_paths: list[tuple[str, str]]):
             return
 
+        self.init_process_group()
         named_tensors = self.split_tensors()
-
         checkpoint_name = f"sync_{self.index}"
 
         self.ps.register_checkpoint(checkpoint_name=checkpoint_name, named_tensors=named_tensors)
         self.ps.gather_metas(checkpoint_name)
-        ranks = list(range(self.ps_rank_offset, self.ps_world_size))
+        self.ps.update(checkpoint_name, req_func, ranks=list(range(self.ps_rank_offset, self.ps_world_size)))
 
-        self.ps.update(checkpoint_name, req_func, ranks=ranks)
+        self.index += 1
 
     def _get_actor_params(self):
         assert self._is_actor
