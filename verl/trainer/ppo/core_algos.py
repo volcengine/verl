@@ -1088,6 +1088,53 @@ def compute_policy_loss_gspo(
     return pg_loss, pg_metrics
 
 
+@register_policy_loss("sapo")
+def compute_policy_loss_sapo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[ActorConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Compute the SAPO policy objective with soft gating.
+
+    SAPO applies a temperature-controlled sigmoid gate based on the
+    importance sampling ratio instead of hard clipping.
+    """
+
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+    tau_pos = config.policy_loss.tau_pos
+    tau_neg = config.policy_loss.tau_neg
+
+    negative_approx_kl = log_prob - old_log_prob
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+
+    gate_pos = torch.sigmoid(tau_pos * (ratio - 1.0))
+    gate_neg = torch.sigmoid(tau_neg * (ratio - 1.0))
+    soft_gate = torch.where(advantages > 0, gate_pos, gate_neg)
+
+    pg_losses = -soft_gate * advantages
+
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+    )
+
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    pg_metrics = {
+        "actor/pg_clipfrac": 0.0,
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/pg_clipfrac_lower": 0.0,
+    }
+    return pg_loss, pg_metrics
+
+
 @register_policy_loss("gpg")
 def compute_policy_loss_gpg(
     old_log_prob: torch.Tensor,
