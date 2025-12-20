@@ -147,7 +147,7 @@ def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", fun
     return updated_batch_meta
 
 
-def _compute_need_collect(dispatch_mode: dict | "Dispatch", args: list) -> bool:
+def _compute_need_collect(dispatch_mode: dict | Dispatch, args: list) -> bool:
     """Compute whether data collection is needed for the current worker.
 
     This function determines whether the current worker should collect data based on
@@ -195,14 +195,13 @@ def _postprocess_common(output, put_data, need_collect):
     It ensures proper return types based on the execution context.
 
     Args:
-        output: The original output from the decorated function. Can be any type,
-               typically DataProto when working with transfer queues.
-        put_data: bool, indicating whether the output should be stored in TransferQueue.
-                 If True, output will be converted to BatchMeta; if False, returned as-is
-                 or converted to DataProto.
+        output: The original output from the decorated function. Can be any type.
+        put_data: bool, indicating whether the output should be put into TransferQueue.
+                 If True, output will be put to TQ and return the corresponding BatchMeta;
+                 if False, output will not be put into TQ.
         need_collect: bool, indicating whether this process needs to collect data.
-                     If False and put_data is True, returns empty BatchMeta to avoid
-                     redundant storage.
+                     If False, the output will be replaced by an empty BatchMeta or DataProto
+                     to avoid redundant communication.
 
     Returns:
         - BatchMeta.empty(): When put_data=True but need_collect=False, indicating
@@ -224,7 +223,7 @@ def _postprocess_common(output, put_data, need_collect):
         return output
 
 
-def tqbridge(dispatch_mode: dict | "Dispatch" = None, put_data: bool = True):
+def tqbridge(dispatch_mode: dict | Dispatch = None, put_data: bool = True):
     """Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
@@ -265,11 +264,10 @@ def tqbridge(dispatch_mode: dict | "Dispatch" = None, put_data: bool = True):
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = func(*args, **kwargs)
                 need_collect = _compute_need_collect(dispatch_mode, args)
-                updated_batch_meta = None
                 if put_data and need_collect:
                     updated_batch_meta = _update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batch_meta
-                return _postprocess_common(output, put_data, need_collect, updated_batch_meta)
+                return _postprocess_common(output, put_data, need_collect)
 
         @wraps(func)
         async def async_inner(*args, **kwargs):
@@ -288,7 +286,6 @@ def tqbridge(dispatch_mode: dict | "Dispatch" = None, put_data: bool = True):
                 }
                 output = await func(*args, **kwargs)
                 need_collect = _compute_need_collect(dispatch_mode, args)
-                updated_batchmeta = None
                 if put_data and need_collect:
                     updated_batchmeta = await _async_update_batchmeta_with_output(output, batchmeta, func.__name__)
                     return updated_batchmeta
