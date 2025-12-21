@@ -95,32 +95,44 @@ class RewardLoopWorker:
                 return await self.reward_loop.run_single(data)
 
     async def _post_request(self, payload: dict, endpoint: str, max_retries: int = 16):
-        attempt = 0
         url = f"http://{self.reward_router_address}/{endpoint}"
-        while attempt < max_retries:
+        last_exception = None
+        for attempt in range(max_retries):
             try:
+                # It's safer to have a timeout instead of None, which can hang indefinitely.
                 timeout = aiohttp.ClientTimeout(total=None)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.post(url, json=payload) as resp:
                         resp.raise_for_status()
-                        output = await resp.json()
-                        return output
-            except asyncio.TimeoutError:
-                logger.warning(f"[Attempt {attempt + 1} / {max_retries}] Async request to {endpoint} timed out")
-            except aiohttp.ClientConnectorError:
-                logger.warning(f"[Attempt {attempt + 1} / {max_retries}] Connection error for {endpoint}")
+                        return await resp.json()
             except aiohttp.ClientResponseError as e:
-                logger.error(f"[Attempt {attempt + 1} / {max_retries}] HTTP error for {endpoint}: {e}")
-                raise
+                # Do not retry on 4xx client errors, but retry on 5xx server errors.
+                if 400 <= e.status < 500:
+                    logger.error(f"Request to {url} failed with client error HTTP {e.status}: {e}. Not retrying.")
+                    raise
+                last_exception = e
+                logger.warning(
+                    f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed with HTTP {e.status}: {e}. "
+                    "Retrying..."
+                )
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError) as e:
+                last_exception = e
+                logger.warning(f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed: {e}. Retrying...")
             except Exception as e:
-                attempt += 1
-                logger.warning(f"[Attempt {attempt} / {max_retries}] Failed to post request to {url}, error: {e}")
-                if attempt >= max_retries:
-                    logger.error(f"Max retries ({max_retries}) reached")
-                    raise e
+                last_exception = e
+                logger.warning(
+                    f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed with unexpected error: {e}. "
+                    "Retrying..."
+                )
 
-            if attempt < max_retries:
-                await asyncio.sleep(2)
+            if attempt < max_retries - 1:
+                # Using exponential backoff is generally better than a fixed sleep.
+                backoff_seconds = 2**attempt
+                await asyncio.sleep(min(backoff_seconds, 30))
+
+        logger.error(f"Max retries ({max_retries}) reached for request to {url}.")
+        if last_exception:
+            raise last_exception
 
     async def _preprocess_reward_inputs(self, data: DataProto) -> str:
         assert len(data) == 1, "RewardLoopWorker only support single data item"
