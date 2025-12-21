@@ -187,7 +187,7 @@ class SandboxFusionTool(BaseTool):
         run_status = metadata.get("run_status")
         exit_code = metadata.get("exit_code")
 
-        if run_status == "Finished" and exit_code == 0:
+        if run_status == "Finished" and exit_code in (0, None):
             actual_output = stdout + stderr
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
             return actual_output

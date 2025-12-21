@@ -12,23 +12,31 @@ def test_execution_worker_execute_without_rate_limiter():
 
 
 @pytest.mark.parametrize(
-    "metadata, expected_substrings",
+    "metadata, expected, exact_match",
     [
         (
             {"run_status": "Finished", "exit_code": 0, "stdout": "hello\n", "stderr": ""},
-            ["hello\n"],
+            "hello\n",
+            True,
+        ),
+        (
+            {"run_status": "Finished", "exit_code": None, "status": "success", "stdout": "hello\n", "stderr": ""},
+            "hello\n",
+            True,
         ),
         (
             {"run_status": "Finished", "exit_code": 1, "stdout": "out\n", "stderr": "err\n"},
             ["Code execution failed with status: runtime_error", "exit_code=1", "out\nerr\n"],
+            False,
         ),
         (
             {"run_status": "CompileError", "status": "compile_error", "compile_stderr": "bad syntax"},
             ["Code execution failed with status: compile_error", "bad syntax"],
+            False,
         ),
     ],
 )
-def test_execute_code_returns_plain_text(monkeypatch, metadata, expected_substrings):
+def test_execute_code_returns_plain_text(monkeypatch, metadata, expected, exact_match):
     def fake_process_single_case(*args, **kwargs):
         return None, metadata
 
@@ -41,6 +49,8 @@ def test_execute_code_returns_plain_text(monkeypatch, metadata, expected_substri
     result = SandboxFusionTool.execute_code(tool, "instance-1", "print('hi')", timeout=1, language="python")
     assert isinstance(result, str)
     assert not isinstance(result, ToolResponse)
-    for substring in expected_substrings:
-        assert substring in result
-
+    if exact_match:
+        assert result == expected
+    else:
+        for substring in expected:
+            assert substring in result
