@@ -19,7 +19,7 @@ from verl.experimental.agent_loop import AgentLoopManager
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, RewardModelWorker
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
 
 
 def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerGroup:
@@ -31,7 +31,7 @@ def init_agent_loop_manager(config: DictConfig) -> AgentLoopManager | RayWorkerG
         Role.ActorRollout: ray.remote(actor_rollout_cls),
     }
     if config.reward_model.enable:
-        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+        pass
 
     global_pool_id = "global_pool"
     resource_pool_spec = {

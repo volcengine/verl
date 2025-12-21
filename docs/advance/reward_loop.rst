@@ -226,7 +226,6 @@ Users can specify the number of workers by setting ``reward_model.num_workers`` 
       """
       RewardLoopManager run in single controller.
       This class will create reward loop workers and manage them.
-      RewardLoopManager will deprecate fsdp/megatron RewardModelWorker in the future.
       """
    def __init__(self, config: DictConfig, rm_resource_pool: RayResourcePool = None):
       self.config = config
