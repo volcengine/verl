@@ -80,7 +80,6 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
     reward_model.model.path="${MODEL_PATH}" \
-    reward_model.use_reward_loop=True \
     reward_model.rollout.gpu_memory_utilization=0.8 \
     reward_model.rollout.tensor_model_parallel_size=1 \
     reward_model.rollout.prompt_length=1024 \

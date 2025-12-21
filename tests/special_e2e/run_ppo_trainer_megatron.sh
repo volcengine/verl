@@ -241,7 +241,6 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
     reward_model.enable=True \
     reward_model.model.path="${RM_MODEL_PATH}" \
-    reward_model.use_reward_loop=True \
     reward_model.rollout.name=${ENGINE} \
     reward_model.rollout.gpu_memory_utilization=0.6 \
     reward_model.rollout.tensor_model_parallel_size=${INFER_TP} \

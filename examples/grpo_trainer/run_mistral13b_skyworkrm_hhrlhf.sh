@@ -35,7 +35,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     reward_model.enable=True \
     reward_model.model.path=Skywork/Skywork-Reward-Llama-3.1-8B \
-    reward_model.use_reward_loop=True \
     reward_model.rollout.name=vllm \
     reward_model.rollout.gpu_memory_utilization=0.8 \
     reward_model.rollout.tensor_model_parallel_size=1 \
