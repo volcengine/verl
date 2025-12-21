@@ -50,7 +50,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -329,7 +329,7 @@ class RayPPOTrainer:
         self.resource_pool_manager = resource_pool_manager
         self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
         # legacy reward model implementation
-        self.use_rm = need_reward_model(self.role_worker_mapping)
+        self.use_rm = self.config.reward_model.enable
         self.use_reward_loop = self.config.reward_model.use_reward_loop
         if self.use_rm:
             assert self.use_reward_loop, "Legacy FSDP/Megatron RM has been deprecated, please use reward loop"
