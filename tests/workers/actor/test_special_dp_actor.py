@@ -20,6 +20,7 @@ from tensordict import TensorDict
 from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
+from verl.utils.device import get_nccl_backend, get_torch_device
 from verl.workers.actor.dp_actor import DataParallelPPOActor
 from verl.workers.config import FSDPActorConfig, OptimizerConfig
 
@@ -59,7 +60,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
         """Set up distributed environment"""
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend="nccl" if torch.cuda.is_available() else "gloo", init_method="env://"
+                backend=get_nccl_backend() if get_torch_device().is_available() else "gloo", init_method="env://"
             )
 
         cls.rank = torch.distributed.get_rank()
@@ -68,6 +69,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
         if torch.cuda.is_available():
             torch.cuda.set_device(cls.rank)
             cls.device = torch.device(f"cuda:{cls.rank}")
+        elif torch.npu.is_available():
+            torch.npu.set_device(cls.rank)
+            cls.device = torch.device(f"npu:{cls.rank}")
         else:
             cls.device = torch.device("cpu")
 
