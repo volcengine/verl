@@ -29,6 +29,14 @@ _BREAKING_CHANGES = [
     "actor_rollout_ref.ref.megatron.expert_tensor_parallel_size",
     "critic.megatron.expert_tensor_parallel_size",
     "reward_model.megatron.expert_tensor_parallel_size",
+    "reward_model.micro_batch_size",
+    "reward_model.micro_batch_size_per_gpu",
+    "reward_model.max_length",
+    "reward_model.use_dynamic_bsz",
+    "reward_model.forward_max_token_len_per_gpu",
+    "reward_model.sandbox_fusion",
+    "reward_model",
+    "reward_model",
 ]
 
 

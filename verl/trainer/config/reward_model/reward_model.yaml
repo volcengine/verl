@@ -10,6 +10,16 @@ enable_resource_pool: False
 n_gpus_per_node: 8
 num_workers: 1
 nnodes: 0
+launch_reward_fn_async: False  # will deprecated
+
+# Cloud/local sandbox fusion configuration for custom reward logic
+sandbox_fusion:
+  # Cloud /local function URL for sandbox execution
+  url: null
+  # Max concurrent requests allowed to sandbox
+  max_concurrent: 64
+  # Max memory limit for each sandbox process in MB
+  memory_limit_mb: 1024
 
 model:
   path: ~/models/FsfairX-LLaMA3-RM-v0.1

@@ -526,6 +526,11 @@ reward_model:
   n_gpus_per_node: 8
   num_workers: 1
   nnodes: 0
+  launch_reward_fn_async: false
+  sandbox_fusion:
+    url: null
+    max_concurrent: 64
+    memory_limit_mb: 1024
   model:
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
     external_lib: ${actor_rollout_ref.model.external_lib}
