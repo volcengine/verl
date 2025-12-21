@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import json
 import logging
 import os
 
