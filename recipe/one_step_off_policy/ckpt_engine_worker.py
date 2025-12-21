@@ -95,7 +95,10 @@ class CkptEngineWorker(Worker):
     def set_server_addresses(self, server_addresses: list[str]):
         # todo support multiple api server
         self.endpoint = f"http://{server_addresses[0]}"
-        self.check_vllm_ready()
+        if self.rollout_name == "sglang":
+            self.check_sglang_ready()
+        elif self.rollout_name == "vllm":
+            self.check_vllm_ready()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights_by_ckpt_engine(self):
@@ -109,7 +112,7 @@ class CkptEngineWorker(Worker):
                     socket_paths=dict(socket_paths),
                 )
 
-        def vllm_req_func(socket_paths: list[tuple[str, str]]) -> None:
+        def sglang_req_func(socket_paths: list[tuple[str, str]]) -> None:
             if rank == src:
                 with httpx.Client(transport=httpx.HTTPTransport()) as client:
                     resp = client.post(
