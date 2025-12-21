@@ -95,20 +95,33 @@ class RewardLoopWorker:
             else:
                 return await self.reward_loop.run_single(data)
 
-    # TODO (dyy): add retry, timeout, ...
-    async def _post_request(self, payload: dict, endpoint: str):
+    async def _post_request(self, payload: dict, endpoint: str, max_retries: int = 16):
+        attempt = 0
         url = f"http://{self.reward_router_address}/{endpoint}"
-        try:
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=payload) as resp:
-                output = await resp.text()
-                output = json.loads(output)
-                return output
-        except Exception as e:
-            raise e
-        finally:
-            await session.close()
+        while attempt < max_retries:
+            try:
+                timeout = aiohttp.ClientTimeout(total=None)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload) as resp:
+                        resp.raise_for_status()
+                        output = await resp.json()
+                        return output
+            except asyncio.TimeoutError:
+                logger.warning(f"[Attempt {attempt + 1} / {max_retries}] Async request to {endpoint} timed out")
+            except aiohttp.ClientConnectorError:
+                logger.warning(f"[Attempt {attempt + 1} / {max_retries}] Connection error for {endpoint}")
+            except aiohttp.ClientResponseError as e:
+                logger.error(f"[Attempt {attempt + 1} / {max_retries}] HTTP error for {endpoint}: {e}")
+                raise
+            except Exception as e:
+                attempt += 1
+                logger.warning(f"[Attempt {attempt} / {max_retries}] Failed to post request to {url}, error: {e}")
+                if attempt >= max_retries:
+                    logger.error(f"Max retries ({max_retries}) reached")
+                    raise e
+
+            if attempt < max_retries:
+                await asyncio.sleep(2)
 
     async def _preprocess_reward_inputs(self, data: DataProto) -> str:
         assert len(data) == 1, "RewardLoopWorker only support single data item"
@@ -161,8 +174,6 @@ class RewardLoopWorker:
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]
         elif engine_name == "sglang":
-            # TODO (dyy): current sglang router (v0.2.3) cannot dispatch "classify" method
-            # will switch to "classify" when supported
             payloads = {
                 "model": model_name,
                 "input": disrm_prompt,
