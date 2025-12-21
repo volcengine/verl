@@ -279,8 +279,7 @@ class TaskRunner:
         # - for code related prompt, we send to a sandbox if there are test cases
         # finally, we combine all the rewards together
         # The reward type depends on the tag of the data
-        # this part has been moved to reward loop
-        # self.add_reward_model_worker(config)
+        self.add_reward_model_worker(config)
 
         # Add a reference policy worker if KL loss or KL reward is used.
         self.add_ref_policy_worker(config, actor_rollout_cls)
