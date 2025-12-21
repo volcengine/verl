@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import json
 import logging
 import os
 
@@ -95,20 +94,45 @@ class RewardLoopWorker:
             else:
                 return await self.reward_loop.run_single(data)
 
-    # TODO (dyy): add retry, timeout, ...
-    async def _post_request(self, payload: dict, endpoint: str):
+    async def _post_request(self, payload: dict, endpoint: str, max_retries: int = 16):
         url = f"http://{self.reward_router_address}/{endpoint}"
-        try:
-            timeout = aiohttp.ClientTimeout(total=None)
-            session = aiohttp.ClientSession(timeout=timeout)
-            async with session.post(url, json=payload) as resp:
-                output = await resp.text()
-                output = json.loads(output)
-                return output
-        except Exception as e:
-            raise e
-        finally:
-            await session.close()
+        last_exception = None
+        for attempt in range(max_retries):
+            try:
+                # It's safer to have a timeout instead of None, which can hang indefinitely.
+                timeout = aiohttp.ClientTimeout(total=None)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload) as resp:
+                        resp.raise_for_status()
+                        return await resp.json()
+            except aiohttp.ClientResponseError as e:
+                # Do not retry on 4xx client errors, but retry on 5xx server errors.
+                if 400 <= e.status < 500:
+                    logger.error(f"Request to {url} failed with client error HTTP {e.status}: {e}. Not retrying.")
+                    raise
+                last_exception = e
+                logger.warning(
+                    f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed with HTTP {e.status}: {e}. "
+                    "Retrying..."
+                )
+            except (asyncio.TimeoutError, aiohttp.ClientConnectorError) as e:
+                last_exception = e
+                logger.warning(f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed: {e}. Retrying...")
+            except Exception as e:
+                last_exception = e
+                logger.warning(
+                    f"[Attempt {attempt + 1}/{max_retries}] Request to {url} failed with unexpected error: {e}. "
+                    "Retrying..."
+                )
+
+            if attempt < max_retries - 1:
+                # Using exponential backoff is generally better than a fixed sleep.
+                backoff_seconds = 2**attempt
+                await asyncio.sleep(min(backoff_seconds, 30))
+
+        logger.error(f"Max retries ({max_retries}) reached for request to {url}.")
+        if last_exception:
+            raise last_exception
 
     async def _preprocess_reward_inputs(self, data: DataProto) -> str:
         assert len(data) == 1, "RewardLoopWorker only support single data item"
@@ -161,8 +185,6 @@ class RewardLoopWorker:
             output = await self._post_request(payloads, "classify")
             rm_score = output["data"][-1]["probs"][-1]
         elif engine_name == "sglang":
-            # TODO (dyy): current sglang router (v0.2.3) cannot dispatch "classify" method
-            # will switch to "classify" when supported
             payloads = {
                 "model": model_name,
                 "input": disrm_prompt,
