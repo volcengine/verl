@@ -16,6 +16,8 @@ As a model-free drafting approach, it offers distinct advantages over methods re
 
 SpecRL operates in conjunction with the **Suffix-Tree-based Distributed Draft Server**, which efficiently caches historical responses, distributes them to workers, and indexes them using suffix trees for fast retrieval.
 
+This recipe is based on veRL commit `ccd7d93`. Please contact the authors for any adaptability issues.
+
 ## Evaluation Results
 
 Our evaluations on Qwen2.5 and Qwen3 models demonstrate up to **2.1× speedup** in rollout and validation phases.
