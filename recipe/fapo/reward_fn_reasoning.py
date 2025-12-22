@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import json
 import logging
 import os
@@ -20,6 +19,7 @@ import os
 import aiohttp
 from transformers import PreTrainedTokenizer
 
+from verl.utils.ray_utils import get_event_loop
 from verl.utils.reward_score.math_dapo import last_boxed_only_string, normalize_final_answer, remove_boxed
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def compute_score_baseline(
     ground_truth: str,
     **kwargs,
 ):
-    loop = asyncio.get_running_loop()
+    loop = get_event_loop()
     """Compute the reward score for Baseline."""
     correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))
     reward_score = 1.0 if correct else -1.0
@@ -103,7 +103,7 @@ async def compute_score_fapo(
     reward_model_tokenizer: PreTrainedTokenizer,
 ):
     """Compute the reward score for FAPO."""
-    loop = asyncio.get_running_loop()
+    loop = get_event_loop()
 
     question, split = extra_info["question"], extra_info["split"]
     correct, pred = await loop.run_in_executor(None, lambda: verify(solution_str, ground_truth))

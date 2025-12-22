@@ -162,6 +162,24 @@ def union_two_dict(dict1: dict, dict2: dict):
     return dict1
 
 
+def rename_dict(data: dict, prefix: str = "") -> dict:
+    """Add a prefix to all the keys in the data dict if it's name is not started with prefix
+
+    Args:
+        data: a dictionary
+        prefix: prefix
+
+    Returns:
+        dictionary with modified name
+
+    """
+    new_data = {}
+    for key, val in data.items():
+        new_key = f"{prefix}{key}" if not key.startswith(prefix) else key
+        new_data[new_key] = val
+    return new_data
+
+
 def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
     """Append values from new_data to lists in data.
 

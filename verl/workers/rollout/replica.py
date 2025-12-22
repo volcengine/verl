@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from omegaconf import DictConfig
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ from ray.actor import ActorHandle
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -35,6 +35,10 @@ class TokenOutput(BaseModel):
     """response token ids"""
     log_probs: Optional[list[float]] = None
     """logprobs of response token ids"""
+    routed_experts: Optional[Any] = None
+    """routed experts of response token ids"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
 
 
 class RolloutMode(Enum):
@@ -86,7 +90,7 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        self.model_config = model_config
+        self.model_config: HFModelConfig = model_config
 
         self.world_size = (
             self.config.tensor_model_parallel_size
@@ -138,8 +142,6 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_colocate_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_colocate_{self.replica_rank}",
-            replica_rank=self.replica_rank,
-            replica_world_size=self.world_size,
         )
         self.workers = worker_group.workers
         await self.launch_servers()
@@ -200,6 +202,10 @@ class RolloutReplica(ABC):
     async def sleep(self):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def clear_kv_cache(self):
+        """reset kv cache in each rollout server."""
+        await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
 
 class RolloutReplicaRegistry:

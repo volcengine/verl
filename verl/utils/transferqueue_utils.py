@@ -14,6 +14,7 @@
 
 import asyncio
 import inspect
+import logging
 import os
 import threading
 from functools import wraps
@@ -25,7 +26,6 @@ try:
     from transfer_queue import (
         AsyncTransferQueueClient,
         BatchMeta,
-        ZMQServerInfo,
     )
 
 except ImportError:
@@ -37,33 +37,31 @@ except ImportError:
 
 from verl.protocol import DataProto
 
+logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
 _TRANSFER_QUEUE_CLIENT = None
-_VAL_TRANSFER_QUEUE_CLIENT = None
 
 is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 
 
 def create_transferqueue_client(
     client_id: str,
-    controller_infos: dict[Any, "ZMQServerInfo"],
-    storage_infos: dict[Any, "ZMQServerInfo"],
-) -> None:
+    config,
+) -> "AsyncTransferQueueClient":
     global _TRANSFER_QUEUE_CLIENT
-    global _VAL_TRANSFER_QUEUE_CLIENT
-    if "val" in client_id:
-        _VAL_TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_infos, storage_infos)
-    else:
-        _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, controller_infos, storage_infos)
+    if _TRANSFER_QUEUE_CLIENT is None:
+        _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
+        _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.storage_backend, config=config)
+
+    return _TRANSFER_QUEUE_CLIENT
 
 
 def get_transferqueue_client() -> "AsyncTransferQueueClient":
     return _TRANSFER_QUEUE_CLIENT
 
 
-def get_val_transferqueue_client() -> "AsyncTransferQueueClient":
-    return _VAL_TRANSFER_QUEUE_CLIENT
-
-
+# TODO (TQ): verl will make all actor async, so this can be cleanup later.
 def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
     # Use a temporary event loop in a new thread because event
     # loop may already exist in server mode
@@ -109,10 +107,7 @@ async def _async_batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
             meta_info=batchmeta.extra_info.copy(),
         )
 
-    if batchmeta.extra_info.get("validate", False):
-        tensordict = await _VAL_TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
-    else:
-        tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
+    tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
     return DataProto.from_tensordict(tensordict, meta_info=batchmeta.extra_info.copy())
 
 
@@ -120,7 +115,9 @@ def _batchmeta_to_dataproto(batchmeta: "BatchMeta") -> DataProto:
     return _run_async_in_temp_loop(_async_batchmeta_to_dataproto, batchmeta)
 
 
-async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
+async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> "BatchMeta":
+    pid = os.getpid()
+
     for k, v in output.meta_info.items():
         batchmeta.set_extra_info(k, v)
 
@@ -129,19 +126,26 @@ async def _async_update_batchmeta_with_output(output: DataProto, batchmeta: "Bat
         # pop meta_info
         for key in output.meta_info.keys():
             tensordict.pop(key)
-        batchmeta.add_fields(tensordict)
-        if batchmeta.extra_info.get("validate", False):
-            await _VAL_TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
-        else:
-            await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+
+        logger.info(
+            f"Task {func_name} (pid={pid}) putting output data to TransferQueue with "
+            f"batch_size={tensordict.batch_size},\n"
+            f"tensordict keys={list(tensordict.keys())}"
+        )
+
+        updated_batch_meta = await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+        return updated_batch_meta
+    else:
+        return batchmeta
 
 
-def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta") -> None:
-    _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta)
+def _update_batchmeta_with_output(output: DataProto, batchmeta: "BatchMeta", func_name=None) -> "BatchMeta":
+    updated_batch_meta = _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta, func_name)
+    return updated_batch_meta
 
 
 def tqbridge(put_data: bool = True):
-    """ "Creates a decorator for bridging BatchMeta and DataProto.
+    """Creates a decorator for bridging BatchMeta and DataProto.
 
     This decorator automatically handles conversions between `BatchMeta` and
     `DataProto` in function parameters, and decides whether to sync function
@@ -162,18 +166,24 @@ def tqbridge(put_data: bool = True):
     """
 
     def decorator(func):
+        pid = os.getpid()
+
         @wraps(func)
         def inner(*args, **kwargs):
             batchmeta = _find_batchmeta(*args, **kwargs)
             if batchmeta is None:
                 return func(*args, **kwargs)
             else:
+                logger.info(
+                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
+                    f"global_idx={batchmeta.global_indexes}"
+                )
                 args = [_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {k: _batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v for k, v in kwargs.items()}
                 output = func(*args, **kwargs)
                 if put_data:
-                    _update_batchmeta_with_output(output, batchmeta)
-                    return batchmeta
+                    updated_batch_meta = _update_batchmeta_with_output(output, batchmeta, func.__name__)
+                    return updated_batch_meta
                 else:
                     return output
 
@@ -183,6 +193,10 @@ def tqbridge(put_data: bool = True):
             if batchmeta is None:
                 return await func(*args, **kwargs)
             else:
+                logger.info(
+                    f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
+                    f"global_idx={batchmeta.global_indexes}"
+                )
                 args = [await _async_batchmeta_to_dataproto(arg) if isinstance(arg, BatchMeta) else arg for arg in args]
                 kwargs = {
                     k: await _async_batchmeta_to_dataproto(v) if isinstance(v, BatchMeta) else v
@@ -190,8 +204,8 @@ def tqbridge(put_data: bool = True):
                 }
                 output = await func(*args, **kwargs)
                 if put_data:
-                    await _async_update_batchmeta_with_output(output, batchmeta)
-                    return batchmeta
+                    updated_batchmeta = await _async_update_batchmeta_with_output(output, batchmeta, func.__name__)
+                    return updated_batchmeta
                 return output
 
         @wraps(func)

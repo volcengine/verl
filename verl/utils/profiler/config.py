@@ -82,7 +82,7 @@ class NPUToolConfig(NsightToolConfig):
     contents: list[str] = field(default_factory=list)
 
     # Collection level, optional values: level_none, level0, level1, level2.
-    level: str = "level1"
+    level: str = "level0"
 
     # Whether to automatically parse the data.
     analysis: bool = False

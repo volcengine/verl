@@ -1,10 +1,10 @@
-Data collection based on FSDP backend on Ascend devices(en)
+Performance data collection based on FSDP or MindSpeed(Megatron) on Ascend devices(en)
 ==========================================================================================
 
 Last updated: 08/14/2025.
 
 This is a tutorial for data collection using the GRPO or DAPO algorithm
-based on FSDP on Ascend devices.
+based on FSDP or MindSpeed(Megatron) on Ascend devices.
 
 Configuration
 -------------
@@ -46,14 +46,10 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
 -  level: Collection level—options are level_none, level0, level1, and
    level2
 
-   -  level_none: Disables all level-based data collection (turns off
-      profiler_level).
-   -  level0: Collect high-level application data, underlying NPU data,
-      and operator execution details on NPU.
-   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI
-      Core performance metrics on NPU.
-   -  level2: Extends level1 by adding CANN-layer Runtime data and AI
-      CPU metrics.
+   -  level_none: Disables all level-based data collection (turns off profiler_level).
+   -  level0: Collect high-level application data, underlying NPU data, and operator execution details on NPU. After balancing data volume and analytical capability, Level 0 is recommended as the default configuration.
+   -  level1: Extends level0 by adding CANN-layer AscendCL data and AI Core performance metrics on NPU.
+   -  level2: Extends level1 by adding CANN-layer Runtime data and AI CPU metrics.
 
 -  contents: A list of options to control the collection content, such as
    npu, cpu, memory, shapes, module, stack.
@@ -62,8 +58,7 @@ Use parameters in each role's ``profiler.tool_config.npu`` to control npu profil
    -  cpu: Whether to collect host-side performance data.
    -  memory: Whether to enable memory analysis.
    -  shapes: Whether to record tensor shapes.
-   -  module: Whether to record framework-layer Python call stack
-      information.
+   -  module: Whether to record framework-layer Python call stack information. It is recommended to use 'module' instead of 'stack' for recording call stack information, as it costs less performance overhead.
    -  stack: Whether to record operator call stack information.
 
 -  analysis: Enables automatic data parsing.
@@ -122,6 +117,13 @@ Visualization
 
 Collected data is stored in the user-defined save_path and can be
 visualized by using the `MindStudio Insight <https://www.hiascend.com/document/detail/zh/mindstudio/80RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0002.html>`_ tool.
+
+Additionally, in a Linux environment, the MindStudio Insight tool is provided in the form of a `JupyterLab Plugin <https://www.hiascend.com/document/detail/zh/mindstudio/82RC1/GUI_baseddevelopmenttool/msascendinsightug/Insight_userguide_0130.html>`_ ，offering a more intuitive and highly interactive user interface. The advantages of the JupyterLab plugin are as follows:
+
+- Seamless integration: Supports running the MindStudio Insight tool directly within the Jupyter environment, eliminating the need to switch platforms or copy data from the server, enabling data to be collected and used immediately.
+- Fast startup: Allows MindStudio Insight to be launched quickly via the JupyterLab command line or graphical interface.
+- Smooth operation: In a Linux environment, launching MindStudio Insight through JupyterLab effectively alleviates performance lag compared to the full-package communication mode, significantly improving the user experience.
+- Remote access: Supports remotely launching MindStudio Insight. Users can connect to the service via a local browser for direct visual analysis, reducing the difficulty of uploading and downloading data during large-model training or inference.
 
 If the analysis parameter is set to False, offline parsing is required after data collection:
 

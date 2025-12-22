@@ -278,6 +278,7 @@ class _MlflowLoggingAdapter:
         self._invalid_chars_pattern = re.compile(
             r"[^/\w.\- :]"
         )  # Allowed: slashes, alphanumerics, underscores, periods, dashes, colons, and spaces.
+        self._consecutive_slashes_pattern = re.compile(r"/+")
 
     def log(self, data, step):
         import mlflow
@@ -285,6 +286,8 @@ class _MlflowLoggingAdapter:
         def sanitize_key(key):
             # First replace @ with _at_ for backward compatibility
             sanitized = key.replace("@", "_at_")
+            # Replace consecutive slashes with a single slash (MLflow treats them as file paths)
+            sanitized = self._consecutive_slashes_pattern.sub("/", sanitized)
             # Then replace any other invalid characters with _
             sanitized = self._invalid_chars_pattern.sub("_", sanitized)
             if sanitized != key:
@@ -388,7 +391,8 @@ class ValidationGenerationsLogger:
         new_table.add_data(*row_data)
 
         # Update reference and log
-        wandb.log({"val/generations": new_table}, step=step)
+        if wandb.run is not None:
+            wandb.log({"val/generations": new_table}, step=step)
         self.validation_table = new_table
 
     def log_generations_to_swanlab(self, samples, step):
