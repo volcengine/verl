@@ -1441,7 +1441,9 @@ def compute_policy_loss_cispo(
     if rollout_is_weights is not None:
         pg_losses = pg_losses * rollout_is_weights
 
-    pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+    )
 
     # For compatibility, return zero for pg_clipfrac_lower (not used in CISPO)
     pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
