@@ -114,14 +114,8 @@ def create_role_worker_mapping(config):
     }
 
     if config.reward_model.enable:
-        if config.reward_model.strategy in ["fsdp", "fsdp2"]:
-            from verl.workers.fsdp_workers import RewardModelWorker
-        elif config.reward_model.strategy == "megatron":
-            from verl.workers.megatron_workers import RewardModelWorker
-        else:
-            raise NotImplementedError(f"Unsupported reward model strategy: {config.reward_model.strategy}")
-
-        role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+        # handled in reward loop
+        pass
 
     # Add reference policy (if KL loss or reward is required)
     if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:

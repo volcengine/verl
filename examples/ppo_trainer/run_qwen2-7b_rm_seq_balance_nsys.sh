@@ -55,7 +55,6 @@ python3 -m verl.trainer.main_ppo \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
     reward_model.enable=True \
     reward_model.model.path=sfairXC/FsfairX-LLaMA3-RM-v0.1\
-    reward_model.use_reward_loop=True \
     reward_model.rollout.name=vllm \
     reward_model.rollout.gpu_memory_utilization=0.8 \
     reward_model.rollout.tensor_model_parallel_size=1 \

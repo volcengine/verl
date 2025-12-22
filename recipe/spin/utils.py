@@ -43,7 +43,6 @@ def validate_config(
         settings = {
             "actor_rollout_ref.actor": "micro_batch_size",
             "critic": "micro_batch_size",
-            "reward_model": "micro_batch_size",
             "actor_rollout_ref.ref": "log_prob_micro_batch_size",
             "actor_rollout_ref.rollout": "log_prob_micro_batch_size",
         }
@@ -89,16 +88,6 @@ def validate_config(
         # Check for critic micro-batch size conflicts
         check_mutually_exclusive(
             config.critic.ppo_micro_batch_size, config.critic.ppo_micro_batch_size_per_gpu, "critic"
-        )
-
-    # Check for reward model micro-batch size conflicts
-    if (
-        config.reward_model.enable
-        and not config.reward_model.use_dynamic_bsz
-        and not config.reward_model.use_reward_loop
-    ):
-        check_mutually_exclusive(
-            config.reward_model.micro_batch_size, config.reward_model.micro_batch_size_per_gpu, "reward_model"
         )
 
     # Actor

@@ -201,7 +201,6 @@ class RewardLoopManager:
     """
     RewardLoopManager run in single controller.
     This class will create reward loop workers and manage them.
-    RewardLoopManager will deprecate fsdp/megatron RewardModelWorker in the future.
     """
 
     def __init__(self, config: DictConfig, rm_resource_pool: RayResourcePool = None):
@@ -233,7 +232,6 @@ class RewardLoopManager:
                 ).remote(self.config, self.reward_router_address)
             )
 
-    # this func is used to replace the legacy fsdp/megatron RewardModelWorker.compute_rm_score
     def compute_rm_score(self, data: DataProto) -> DataProto:
         if self.reward_model_manager is not None:
             self.reward_model_manager.wake_up()
