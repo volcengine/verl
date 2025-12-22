@@ -49,10 +49,7 @@ Batch scaling is automatic; no extra knobs required.
   - Init covers LoRA adapter load + vLLM `--enable_lora`; runs successfully but first step still dominated by long-sequence generation.
 
 ## Smoke Tests
-- `tools/run_deepspeed_smoke.py` runs ~30-step DeepSpeed PPO smokes (tiny GSM8K/synthetic parquet from `tools/make_tiny_parquet.py`), logging to `outputs/deepspeed_smoke/<mode>.log`. Modes: `lora_dp2_sp1`, `lora_dp1_sp2`, `lora_dp2_sp2`, `offload_dp2_sp2`, `sglang_dp2_sp2`. Override model with `--model` or `VERL_SMOKE_MODEL` (default `Qwen/Qwen2.5-0.5B-Instruct`).
-- LoRA modes: log should show `--enable_lora` / `max_lora_rank` from vLLM args. Offload mode: log should show `[DS Actor] offload config` / `[DS Critic] offload config` with zero_optimization keys proving param/optimizer offload. The runner fails fast on `nan` in logs or missing deps (vLLM/sglang).
-- Dataset prep: if `~/data/gsm8k/train.parquet` is missing, `tools/make_tiny_parquet.py` best-effort runs `examples/data_preprocess/gsm8k.py` then falls back to synthetic prompts; val/train parquets are written under `--data-dir`.
-- SGLang mode: skips with a clear message when `sglang[all]==0.5.2` is absent; set `SGL_DISABLE_TP_MEMORY_INBALANCE_CHECK=true` (the runner does this automatically) before launching Ray actors. Install deps with `pip install -e ".[sglang]"` if needed.
+Smoke scripts were used during PR validation; remove or replace with project-specific runners as needed.
 
 ## Notes & Limitations
 - Async HTTP rollout only; SPMD vLLM is not integrated in this branch (present in `deepspeed-merge`).
