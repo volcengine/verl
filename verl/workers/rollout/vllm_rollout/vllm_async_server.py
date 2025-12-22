@@ -448,17 +448,21 @@ class vLLMHttpServerBase:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
-        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
-        prompt = TokensPrompt(
-            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
-        )
+        max_tokens = min(self.config.response_length, max(self.config.max_model_len - len(prompt_ids), 0))
+        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        multi_modal_data = {}
+        if image_data is not None:
+            multi_modal_data["image"] = image_data
+        if video_data is not None:
+            multi_modal_data["video"] = video_data
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data or None)
 
         # Add lora request
         lora_request = None

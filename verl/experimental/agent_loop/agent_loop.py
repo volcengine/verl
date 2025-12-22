@@ -96,6 +96,7 @@ class AsyncLLMServerManager:
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -113,6 +114,7 @@ class AsyncLLMServerManager:
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
             image_data=image_data,
+            video_data=video_data,
         )
         return output
 
@@ -505,8 +507,73 @@ class AgentLoopWorkerBase:
         multi_modal_inputs = None
         if self.processor is not None:
             images = getattr(output, "multi_modal_data", {}).get("image", None)
+            videos_raw = getattr(output, "multi_modal_data", {}).get("video", None)
+            videos = None
+            videos_kwargs: dict[str, Any] = {}
+            if videos_raw is not None:
+                if not isinstance(videos_raw, list):
+                    raise ValueError(f"Expected multi_modal_data['video'] to be a list, got {type(videos_raw)}")
+
+                has_dict = any(isinstance(item, dict) for item in videos_raw)
+                has_non_dict = any(not isinstance(item, dict) for item in videos_raw)
+                if has_dict and has_non_dict:
+                    raise ValueError(
+                        "Mixed multi_modal_data['video'] formats are not supported: got both dict-based video specs "
+                        "(e.g. {'video': 'file:///...','fps': 2}) and pre-decoded frame tensors/arrays "
+                        "(optionally with (frames, metadata) tuples). Please provide a homogeneous list."
+                    )
+
+                if has_dict:
+                    from verl.utils.dataset.vision_utils import process_video
+
+                    videos = []
+                    video_metadata = []
+                    for item in videos_raw:
+                        if "video" not in item:
+                            raise ValueError(
+                                f"Each video dict in multi_modal_data['video'] must contain a 'video' key, got keys: "
+                                f"{list(item.keys())}"
+                            )
+                        v, meta = process_video(item, return_video_metadata=True)
+                        videos.append(v)
+                        video_metadata.append(meta)
+                    videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+                else:
+                    has_metadata = any(isinstance(item, tuple) for item in videos_raw)
+                    videos = []
+                    video_metadata = [] if has_metadata else None
+                    for item in videos_raw:
+                        if isinstance(item, tuple):
+                            if len(item) != 2:
+                                raise ValueError(
+                                    "Expected a (frames, metadata) tuple for video items in multi_modal_data['video'], "
+                                    f"but got tuple of length {len(item)}"
+                                )
+                            v, meta = item
+                            if meta is not None and not isinstance(meta, dict):
+                                raise ValueError(f"Expected video metadata to be a dict, got {type(meta)}")
+                            meta = meta or {}
+                        else:
+                            v, meta = item, {}
+
+                        if isinstance(v, np.ndarray):
+                            v = torch.from_numpy(v)
+                        videos.append(v)
+                        if has_metadata:
+                            video_metadata.append(meta)
+
+                    videos_kwargs = {"do_sample_frames": False}
+                    if has_metadata:
+                        videos_kwargs["video_metadata"] = video_metadata
+
             current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
-            multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
+            multi_modal_inputs = self.processor(
+                text=[current_text],
+                images=images,
+                videos=videos,
+                videos_kwargs=videos_kwargs,
+                return_tensors="pt",
+            )
             multi_modal_inputs.pop("input_ids", None)
             multi_modal_inputs.pop("attention_mask", None)
 
@@ -514,7 +581,11 @@ class AgentLoopWorkerBase:
             # because np.array() only keeps the keys for BatchFeature.
             multi_modal_inputs = dict(multi_modal_inputs.convert_to_tensors("pt"))
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+            # qwen-vl mrope
+            if "Qwen3VLProcessor" in self.processor.__class__.__name__:
+                from verl.models.transformers.qwen3_vl import get_rope_index
+            else:
+                from verl.models.transformers.qwen2_vl import get_rope_index
 
             image_grid_thw = multi_modal_inputs.get("image_grid_thw")
             video_grid_thw = multi_modal_inputs.get("video_grid_thw")

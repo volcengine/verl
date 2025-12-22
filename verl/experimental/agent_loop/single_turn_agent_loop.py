@@ -17,6 +17,9 @@ import os
 from typing import Any
 from uuid import uuid4
 
+import numpy as np
+import torch
+
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
 from verl.utils.profiler import simple_timer
 
@@ -37,6 +40,70 @@ class SingleTurnAgentLoop(AgentLoopBase):
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
         image_data = copy.deepcopy((kwargs.get("multi_modal_data") or {}).get("image", None))
+        video_data = copy.deepcopy((kwargs.get("multi_modal_data") or {}).get("video", None))
+
+        videos = None
+        videos_kwargs: dict[str, Any] = {}
+        if video_data is not None:
+            if not isinstance(video_data, list):
+                raise ValueError(f"Expected multi_modal_data['video'] to be a list, got {type(video_data)}")
+
+            has_dict = any(isinstance(item, dict) for item in video_data)
+            has_non_dict = any(not isinstance(item, dict) for item in video_data)
+            if has_dict and has_non_dict:
+                raise ValueError(
+                    "Mixed multi_modal_data['video'] formats are not supported: got both dict-based video specs "
+                    "(e.g. {'video': 'file:///...','fps': 2}) and pre-decoded frame tensors/arrays "
+                    "(optionally with (frames, metadata) tuples). Please provide a homogeneous list."
+                )
+
+            if has_dict:
+                from verl.utils.dataset.vision_utils import process_video
+
+                videos = []
+                video_metadata = []
+                server_video_data = []
+                for item in video_data:
+                    if "video" not in item:
+                        raise ValueError(
+                            f"Each video dict in multi_modal_data['video'] must contain a 'video' key, got keys: "
+                            f"{list(item.keys())}"
+                        )
+                    v, meta = process_video(item, return_video_metadata=True)
+                    videos.append(v)
+                    video_metadata.append(meta)
+                    server_video_data.append((v.detach().cpu().numpy(), meta))
+
+                # Normalize video_data to the (np.ndarray, metadata) format expected by vLLM.
+                video_data = server_video_data
+                videos_kwargs = {"video_metadata": video_metadata, "do_sample_frames": False}
+            else:
+                has_metadata = any(isinstance(item, tuple) for item in video_data)
+                videos = []
+                video_metadata = [] if has_metadata else None
+                for item in video_data:
+                    if isinstance(item, tuple):
+                        if len(item) != 2:
+                            raise ValueError(
+                                "Expected a (frames, metadata) tuple for video items in multi_modal_data['video'], "
+                                f"but got tuple of length {len(item)}"
+                            )
+                        v, meta = item
+                        if meta is not None and not isinstance(meta, dict):
+                            raise ValueError(f"Expected video metadata to be a dict, got {type(meta)}")
+                        meta = meta or {}
+                    else:
+                        v, meta = item, {}
+
+                    if isinstance(v, np.ndarray):
+                        v = torch.from_numpy(v)
+                    videos.append(v)
+                    if has_metadata:
+                        video_metadata.append(meta)
+
+                videos_kwargs = {"do_sample_frames": False}
+                if has_metadata:
+                    videos_kwargs["video_metadata"] = video_metadata
 
         metrics = {}
         request_id = uuid4().hex
@@ -52,8 +119,24 @@ class SingleTurnAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-            model_inputs = self.processor(text=[raw_prompt], images=image_data, return_tensors="pt")
-            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            # vLLM's multimodal preprocessor expects *unexpanded* placeholders in the prompt
+            # (e.g. "<|vision_start|><|video_pad|><|vision_end|>"), and will expand them based on mm inputs.
+            # So we:
+            # 1) send unexpanded prompt ids to vLLM for generation
+            # 2) keep expanded prompt ids in the rollout output for training-side forward passes
+            server_prompt_ids = (
+                self.tokenizer(raw_prompt, add_special_tokens=False, return_tensors="pt")["input_ids"]
+                .squeeze(0)
+                .tolist()
+            )
+            expanded_inputs = self.processor(
+                text=[raw_prompt],
+                images=image_data,
+                videos=videos,
+                videos_kwargs=videos_kwargs,
+                return_tensors="pt",
+            )
+            prompt_ids = expanded_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             prompt_ids = await self.loop.run_in_executor(
                 None,
@@ -61,10 +144,15 @@ class SingleTurnAgentLoop(AgentLoopBase):
                     messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
                 ),
             )
+            server_prompt_ids = prompt_ids
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
-                request_id=request_id, prompt_ids=prompt_ids, sampling_params=sampling_params, image_data=image_data
+                request_id=request_id,
+                prompt_ids=server_prompt_ids,
+                sampling_params=sampling_params,
+                image_data=image_data,
+                video_data=video_data,
             )
         response_mask = [1] * len(output.token_ids)
 
@@ -78,7 +166,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
                 if output.routed_experts is not None
                 else None
             ),
-            multi_modal_data={"image": image_data} if image_data is not None else {},
+            multi_modal_data={k: v for k, v in {"image": image_data, "video": video_data}.items() if v is not None},
             num_turns=2,
             metrics=metrics,
         )
