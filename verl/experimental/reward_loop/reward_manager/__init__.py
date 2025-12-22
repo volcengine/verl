@@ -1,4 +1,4 @@
-# Copyright 2024 PRIME team and/or its affiliates
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,25 +13,14 @@
 # limitations under the License.
 
 from .registry import get_reward_manager_cls, register  # noqa: I001
-from .batch import BatchRewardManager
 from .dapo import DAPORewardManager
 from .naive import NaiveRewardManager
-from .prime import PrimeRewardManager
+from .limited import RateLimitedRewardManager
 
-# Note(haibin.lin): no need to include all reward managers here in case of complicated dependencies
 __all__ = [
-    "BatchRewardManager",
     "DAPORewardManager",
     "NaiveRewardManager",
-    "PrimeRewardManager",
+    "RateLimitedRewardManager",
     "register",
     "get_reward_manager_cls",
 ]
-
-# Import experimental reward managers to ensure they are registered
-try:
-    from verl.experimental.reward_loop.reward_manager.limited import RateLimitedRewardManager  # noqa: F401
-
-    __all__.append("RateLimitedRewardManager")
-except ImportError:
-    pass  # Optional dependency, may not be available

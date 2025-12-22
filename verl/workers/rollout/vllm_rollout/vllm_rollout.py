@@ -26,7 +26,6 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-import asyncio
 import getpass
 import logging
 import os
@@ -43,6 +42,8 @@ import zmq.asyncio
 from filelock import FileLock
 from torch.distributed.device_mesh import DeviceMesh
 from vllm.config import LoRAConfig
+
+from verl.utils.ray_utils import get_event_loop
 
 try:
     from vllm.worker.worker_base import WorkerWrapperBase
@@ -157,7 +158,7 @@ class vLLMAsyncRollout(BaseRollout):
                     address = f"tcp://{ip}:{port}"
             self.socket.bind(address)
 
-        loop = asyncio.get_running_loop()
+        loop = get_event_loop()
         self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
@@ -235,12 +236,13 @@ class vLLMAsyncRollout(BaseRollout):
         if peft_config and base_sync_done:
             # In async mode, make sure the old lora is removed before adding the new one
             self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
+            weights = dict(weights)
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
                 peft_config=asdict(peft_config),
-                lora_tensors=dict(weights),
+                lora_tensors=weights,
             )
             self.inference_engine.worker.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")

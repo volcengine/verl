@@ -21,7 +21,7 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_manager.limited import RateLimitedRewardLoopManager
+from verl.experimental.reward_loop.reward_manager.limited import RateLimitedRewardManager
 
 
 # Mock API reward functions for testing
@@ -140,17 +140,17 @@ def create_test_data_proto(tokenizer, response_text: str, ground_truth: str, dat
 
 
 class TestRateLimitedRewardManager:
-    """Integration tests for RateLimitedRewardLoopManager with mock API functions."""
+    """Integration tests for RateLimitedRewardManager with mock API functions."""
 
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self):
         """Reset global state before each test."""
         api_counter.reset()
         # Reset class state
-        RateLimitedRewardLoopManager._class_initialized = False
-        RateLimitedRewardLoopManager._semaphore = None
-        RateLimitedRewardLoopManager._rpm_limiter = None
-        RateLimitedRewardLoopManager._tpm_limiter = None
+        RateLimitedRewardManager._class_initialized = False
+        RateLimitedRewardManager._semaphore = None
+        RateLimitedRewardManager._rpm_limiter = None
+        RateLimitedRewardManager._tpm_limiter = None
         yield
         # Cleanup
         api_counter.reset()
@@ -165,10 +165,8 @@ class TestRateLimitedRewardManager:
         """Test basic reward computation without rate limiting."""
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         # Create test data
         data = create_test_data_proto(tokenizer, "correct answer", "correct answer")
@@ -194,10 +192,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         # Create test data
         data = create_test_data_proto(tokenizer, "answer", "answer")
@@ -233,10 +229,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -267,10 +261,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -302,8 +294,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(config=config, tokenizer=tokenizer, compute_score=mock_slow_api_function)
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_slow_api_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -319,10 +311,8 @@ class TestRateLimitedRewardManager:
         """Test error handling for failing API."""
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_failing_api_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_failing_api_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -340,10 +330,8 @@ class TestRateLimitedRewardManager:
         """Test handling of dict return format from reward function."""
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_dict_result_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_dict_result_function)
 
         data = create_test_data_proto(tokenizer, "correct", "correct")
 
@@ -359,10 +347,8 @@ class TestRateLimitedRewardManager:
         """Test that synchronous reward functions work correctly."""
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_sync_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_sync_reward_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -386,10 +372,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -414,10 +398,8 @@ class TestRateLimitedRewardManager:
         """Test scoring of correct vs incorrect answers."""
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         # Test correct answer
         data_correct = create_test_data_proto(tokenizer, "right answer", "right answer")
@@ -443,10 +425,8 @@ class TestRateLimitedRewardManager:
             }
         )
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
-            config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function
-        )
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(config=config, tokenizer=tokenizer, compute_score=mock_async_reward_function)
 
         data = create_test_data_proto(tokenizer, "answer", "answer")
 
@@ -480,11 +460,11 @@ class TestRateLimitedRewardManager:
         config = DictConfig({"reward_model": {"max_concurrent": 5, "timeout": 10.0}})
 
         # Initialize multiple times
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        first_semaphore = RateLimitedRewardLoopManager._semaphore
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        first_semaphore = RateLimitedRewardManager._semaphore
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        second_semaphore = RateLimitedRewardLoopManager._semaphore
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        second_semaphore = RateLimitedRewardManager._semaphore
 
         # Should be the same object
         assert first_semaphore is second_semaphore
@@ -502,8 +482,8 @@ class TestRateLimitedRewardManager:
 
         config = DictConfig({"reward_model": {"max_concurrent": 10, "timeout": 10.0}})
 
-        RateLimitedRewardLoopManager.init_class(config, tokenizer)
-        manager = RateLimitedRewardLoopManager(
+        RateLimitedRewardManager.init_class(config, tokenizer)
+        manager = RateLimitedRewardManager(
             config=config, tokenizer=tokenizer, compute_score=mock_reward_with_extra_info
         )
 
