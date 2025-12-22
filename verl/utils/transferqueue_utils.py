@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import functools
 import inspect
 import logging
 import os
@@ -179,12 +180,24 @@ def _compute_need_collect(dispatch_mode: "dict | Dispatch", args: list) -> bool:
         return True
 
     assert "collect_fn" in dispatch_mode.keys(), "collect_fn should be in dispatch_mode."
-    collect_fn_name = dispatch_mode["collect_fn"].func.__name__
-    if collect_fn_name != "collect_lazy_compute_data_proto" or len(args) < 1 or not isinstance(args[0], Worker):
-        return True
 
-    collect_mesh_name = dispatch_mode["collect_fn"].args[0]
-    return args[0]._Worker__collect_dp_rank[collect_mesh_name]
+    collect_fn = dispatch_mode["collect_fn"]
+
+    # Check if collect_fn is a functools.partial and handle gracefully
+    if isinstance(collect_fn, functools.partial):
+        collect_fn_name = collect_fn.func.__name__
+        if collect_fn_name != "collect_lazy_compute_data_proto" or len(args) < 1 or not isinstance(args[0], Worker):
+            return True
+
+        collect_mesh_name = collect_fn.args[0] if collect_fn.args else None
+        if collect_mesh_name is None:
+            return True
+
+        return args[0].query_collect_info(collect_mesh_name)
+    else:
+        # If collect_fn is not a partial, we can't extract mesh_name information
+        # Fall back to default behavior (collect data)
+        return True
 
 
 def _postprocess_common(output, put_data, need_collect):
@@ -294,17 +307,11 @@ def tqbridge(dispatch_mode: "dict | Dispatch" = None, put_data: bool = True):
         @wraps(func)
         def dummy_inner(*args, **kwargs):
             output = func(*args, **kwargs)
-            need_collect = _compute_need_collect(dispatch_mode, args)
-            if not need_collect:
-                return DataProto()
             return output
 
         @wraps(func)
         async def dummy_async_inner(*args, **kwargs):
             output = await func(*args, **kwargs)
-            need_collect = _compute_need_collect(dispatch_mode, args)
-            if not need_collect:
-                return DataProto()
             return output
 
         wrapper_inner = inner if is_transferqueue_enabled else dummy_inner
