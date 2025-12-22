@@ -16,7 +16,7 @@ import math
 
 import pytest
 
-from verl.utils.flops_counter import FlopsCounter, get_device_flops, _DEVICE_FLOPS
+from verl.utils.flops_counter import _DEVICE_FLOPS, FlopsCounter, get_device_flops
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"}
 

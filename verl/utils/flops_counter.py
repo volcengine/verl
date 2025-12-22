@@ -17,8 +17,6 @@ from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
 
-
-
 _DEVICE_FLOPS = {
     "CPU": 448e9,
     "GB200": 2.5e15,
@@ -36,7 +34,7 @@ _DEVICE_FLOPS = {
     "H20": 148e12,
     "910B": 354e12,
     "Ascend910": 354e12,
-    "RTX 3070 Ti": 21.75e12
+    "RTX 3070 Ti": 21.75e12,
 }
 
 
@@ -119,6 +117,7 @@ def _estimate_qwen2_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
     return flops_achieved
 
+
 def _estimate_deepseek_v3_flops(config, tokens_sum, batch_seqlens, delta_time):
     hidden_size = config.hidden_size
     vocab_size = config.vocab_size
@@ -145,11 +144,7 @@ def _estimate_deepseek_v3_flops(config, tokens_sum, batch_seqlens, delta_time):
         attn_linear_N += num_query_heads * q_head_dim * config.q_lora_rank
 
     attn_linear_N += hidden_size * (config.kv_lora_rank + config.qk_rope_head_dim)
-    attn_linear_N += (
-        num_query_heads
-        * (q_head_dim - config.qk_rope_head_dim + config.v_head_dim)
-        * config.kv_lora_rank
-    )
+    attn_linear_N += num_query_heads * (q_head_dim - config.qk_rope_head_dim + config.v_head_dim) * config.kv_lora_rank
     attn_linear_N += num_query_heads * config.v_head_dim * hidden_size
     emd_and_lm_head_N = vocab_size * hidden_size * 2
     # non-attn all_layer parm
@@ -172,6 +167,7 @@ def _estimate_deepseek_v3_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
 
     return flops_achieved
+
 
 def _estimate_qwen2_moe_flops(config, tokens_sum, batch_seqlens, delta_time):
     hidden_size = config.hidden_size
@@ -208,6 +204,7 @@ def _estimate_qwen2_moe_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_all_token = dense_N_flops + attn_qkv_flops
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
     return flops_achieved
+
 
 def _estimate_gemma3_flops(config, tokens_sum, batch_seqlens, delta_time):
     hidden_size = config.hidden_size
@@ -276,6 +273,7 @@ def _estimate_gemma3_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
     return flops_achieved
 
+
 def _estimate_apertus_flops(config, tokens_sum, batch_seqlens, delta_time):
     hidden_size = config.hidden_size
     vocab_size = config.vocab_size
@@ -339,8 +337,6 @@ ESTIMATE_FUNC = {
     "apertus": _estimate_apertus_flops,
     "glm4v": _estimate_qwen2_flops,
 }
-
-
 
 
 class FlopsCounter:
