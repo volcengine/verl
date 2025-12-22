@@ -20,10 +20,11 @@ import os
 from typing import Any, Optional
 
 import ray
-import sglang
-import sglang.srt.entrypoints.engine
 import torch
 from ray.actor import ActorHandle
+
+import sglang
+import sglang.srt.entrypoints.engine
 from sglang.srt.entrypoints.http_server import (
     ServerArgs,
     _GlobalState,
@@ -37,10 +38,9 @@ from sglang.srt.managers.io_struct import (
     ResumeMemoryOccupationReqInput,
 )
 from sglang.srt.managers.tokenizer_manager import ServerStatus
-
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import HFModelConfig, RolloutConfig
+from verl.workers.config import RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
@@ -68,7 +68,8 @@ class SGLangHttpServer:
     def __init__(
         self,
         config: RolloutConfig,
-        model_config: HFModelConfig,
+        model_path: str,
+        trust_remote_code: bool,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -81,7 +82,8 @@ class SGLangHttpServer:
         assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
-        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        self.model_path = model_path
+        self.trust_remote_code = trust_remote_code
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
@@ -147,7 +149,7 @@ class SGLangHttpServer:
         )
 
         args = {
-            "model_path": self.model_config.local_path,
+            "model_path": self.model_path,
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
@@ -161,9 +163,9 @@ class SGLangHttpServer:
             "load_format": self.config.load_format,
             "dist_init_addr": dist_init_addr,
             "nnodes": self.nnodes,
-            "trust_remote_code": self.model_config.trust_remote_code,
+            "trust_remote_code": self.trust_remote_code,
             "max_running_requests": self.config.get("max_num_seqs", None),
-            "log_level": "error",
+            "log_level": "info",
             "mm_attention_backend": "fa3",
             "attention_backend": attention_backend if attention_backend is not None else "fa3",
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
@@ -322,7 +324,9 @@ class SGLangReplica(RolloutReplica):
         for node_rank in range(self.nnodes):
             workers = self.workers[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
             node_cuda_visible_devices = ",".join(
-                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                dict.fromkeys(
+                    worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                )
             )
             node_id = worker_node_ids[node_rank * self.gpus_per_node]
             name = (
@@ -339,7 +343,8 @@ class SGLangReplica(RolloutReplica):
                 name=name,
             ).remote(
                 config=self.config,
-                model_config=self.model_config,
+                model_path=self.model_config.path,
+                trust_remote_code=self.model_config.trust_remote_code,
                 rollout_mode=self.rollout_mode,
                 workers=workers,
                 replica_rank=self.replica_rank,
