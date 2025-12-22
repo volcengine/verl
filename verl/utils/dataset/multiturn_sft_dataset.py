@@ -297,8 +297,8 @@ class MultiTurnSFTDataset(Dataset):
         for k, v in multi_modal_inputs.items():
             if len(v) > 0 and v[0] is not None and isinstance(v[0], torch.Tensor):
                 # Check if all tensors in the list have the same shape
-                first_shape = v[0].shape
-                if not all(tensor.shape == first_shape for tensor in v):
+                first_shape = v[0].shape[1:]
+                if not all(tensor.shape[1:] == first_shape for tensor in v):
                     keys_to_remove.append(k)
 
         for k in keys_to_remove:
