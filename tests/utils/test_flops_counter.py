@@ -16,7 +16,7 @@ import math
 
 import pytest
 
-from verl.utils.flops_counter import FlopsCounter
+from verl.utils.flops_counter import FlopsCounter, get_device_flops, _DEVICE_FLOPS
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"}
 
@@ -244,3 +244,8 @@ def test_flops_counter(config_type: str):
         assert math.isclose(counted_flops, expected_flops), (
             f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
         )
+
+
+def test_device_flops():
+    for key, val in _DEVICE_FLOPS.items():
+        assert get_device_flops(unit="B", device_name=key) == val
