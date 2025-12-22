@@ -222,7 +222,9 @@ class FSDPSFTTrainer:
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
         # load config first
-        config = AutoConfig.from_pretrained(local_model_path, trust_remote_code=trust_remote_code)
+        config = AutoConfig.from_pretrained(
+            local_model_path, trust_remote_code=trust_remote_code, attn_implementation="flash_attention_2"
+        )
         self.model_config = config
         if hasattr(self.model_config, "max_position_embeddings"):
             self.model_config.max_position_embeddings = max(
@@ -247,7 +249,6 @@ class FSDPSFTTrainer:
                     local_model_path,
                     config=config,
                     torch_dtype=torch_dtype,
-                    attn_implementation="flash_attention_2",
                     trust_remote_code=trust_remote_code,
                 )
 
