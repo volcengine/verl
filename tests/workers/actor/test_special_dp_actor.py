@@ -20,7 +20,7 @@ from tensordict import TensorDict
 from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
-from verl.utils.device import get_nccl_backend, get_torch_device
+from verl.utils.device import get_nccl_backend, get_torch_device, get_device_name
 from verl.workers.actor.dp_actor import DataParallelPPOActor
 from verl.workers.config import FSDPActorConfig, OptimizerConfig
 
@@ -66,10 +66,10 @@ class TestDataParallelPPOActor(unittest.TestCase):
         cls.rank = torch.distributed.get_rank()
         cls.world_size = torch.distributed.get_world_size()
 
-        if torch.cuda.is_available():
+        if get_device_name() == "cuda":
             torch.cuda.set_device(cls.rank)
             cls.device = torch.device(f"cuda:{cls.rank}")
-        elif torch.npu.is_available():
+        elif get_device_name() == "npu":
             torch.npu.set_device(cls.rank)
             cls.device = torch.device(f"npu:{cls.rank}")
         else:

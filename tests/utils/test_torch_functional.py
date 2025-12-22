@@ -33,7 +33,7 @@ def _worker_mean(rank: int, world_size: int, rendezvous_file: str):
         world_size=world_size,
     )
 
-    local = torch.tensor([float(rank + 1)], device=get_device_name())
+    local = torch.tensor([float(rank + 1)], device=f"{get_device_name()}:{rank}")
     mean, gmax, gmin, gstd = distributed_mean_max_min_std(local, True, True, True)
 
     values = [float(i + 1) for i in range(world_size)]

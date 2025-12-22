@@ -45,11 +45,11 @@ def get_device_name_ray() -> str:
     Returns:
         device
     """
-    if torch.cuda.is_available():
-        device = "GPU"
-    elif torch.npu.is_available():
-        device = "NPU"
-    return device
+    if get_device_name() == "cuda":
+        return "GPU"
+    elif get_device_name() == "npu":
+        return "NPU"
+    return "CPU"
 
 
 @ray.remote
