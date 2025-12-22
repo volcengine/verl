@@ -54,6 +54,7 @@ class vLLMRollout(vLLMRolloutBase):
         )
 
         from recipe.r1_ascend import engine_core  # noqa: F401
+
         # NPU-ADAPTATION END
 
         if config.layered_summon:
@@ -65,11 +66,10 @@ class vLLMRollout(vLLMRolloutBase):
         tokenizer = model_config.tokenizer
         model_hf_config = model_config.hf_config
         trust_remote_code = model_config.trust_remote_code
-        self.lora_kwargs = (
-            {"enable_lora": True, "max_loras": 1, "max_lora_rank": model_config.lora_rank}
-            if model_config.lora_rank > 0
-            else {}
-        )
+        lora_rank = model_config.lora.get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = model_config.lora_rank
+        self.lora_kwargs = {"enable_lora": True, "max_loras": 1, "max_lora_rank": lora_rank} if lora_rank > 0 else {}
 
         tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
         assert tensor_parallel_size <= torch.distributed.get_world_size(), (

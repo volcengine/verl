@@ -67,11 +67,7 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
 - ``actor_rollout_ref.actor.megatron.use_mbridge=True``
 - ``actor_rollout_ref.actor.megatron.vanilla_mbridge=False``
 
-**Key Differences from FSDP LoRA:**
-
-1. **LoRA Implementation**: Verl Megatron backend uses Megatron-Bridge's native LoRA implementation, which differs from HuggingFace PEFT.
-
-2. **Weight Sync Mechanism**: Currently, Megatron-Bridge syncs weights by merging LoRA adapters into the base model weights before transferring to vLLM rather than loading separate adapters. This is necessary because Megatron-Bridge's LoRA format is not directly integratable with vLLM's LoRA loading mechanism (HF PEFT format), and LoRA bridge is not yet supported.
+**Key Differences from FSDP LoRA:** Verl Megatron backend uses Megatron-Bridge's native LoRA implementation, which differs from HuggingFace PEFT.
 
 **Configuration for Megatron LoRA:**
 
@@ -135,14 +131,6 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
         freeze_vision_model: True
         freeze_vision_projection: True
         freeze_language_model: True
-
-
-**Current Limitations:**
-
-1. **No HuggingFace PEFT Export**: Currently there is no built-in way to export Megatron LoRA adapters to HuggingFace PEFT format for inference with standard HF/vLLM pipelines, such support is coming soon with Megatron-Bridge `LoRA bridge <https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1536>`_.
-
-2. **LoRA Merge Overhead**: As we don't have LoRA bridge for now, each weight sync (refit) requires merging LoRA weights, which adds some overhead compared to direct dynamic adapter loading.
-
 
 Best Practices and Notes
 -------------------------
