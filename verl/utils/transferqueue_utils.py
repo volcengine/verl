@@ -249,7 +249,7 @@ def tqbridge(dispatch_mode: "dict | Dispatch" = None, put_data: bool = True):
     Args:
         dispatch_mode: Controls data collection behavior for the current worker. Passed to
                       _compute_need_collect to determine if current worker should collect data.
-                      If None, _compute_need_collect returns True (current worker collects).
+                      If None, _compute_need_collect will return True to fallback default logics.
         put_data: Whether put the DataProto into Storage after func return.
                   If True, after function execution, the output result will be
                   updated to `BatchMeta` and `BatchMeta` will be returned;
