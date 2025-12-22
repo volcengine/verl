@@ -741,6 +741,55 @@ def test_concat_tensordict():
     assert output["temp"] == 1.0
 
 
+def test_chunk_tensordict():
+    # Qwen-VL 3d position_ids
+    position_ids = torch.nested.as_nested_tensor(
+        [
+            torch.arange(4).expand(4, 4),
+            torch.arange(5).expand(4, 5),
+            torch.arange(6).expand(4, 6),
+            torch.arange(7).expand(4, 7),
+        ],
+        layout=torch.jagged,
+    )
+    input_ids = torch.nested.as_nested_tensor(
+        [torch.arange(4), torch.arange(5), torch.arange(6), torch.arange(7)], layout=torch.jagged
+    )
+
+    multi_modal_inputs = torch.stack(
+        [
+            NonTensorData({"pixel_values": torch.randn(3, 224, 224)}),
+            NonTensorData(None),
+            NonTensorData({"pixel_values": torch.randn(3, 128, 128)}),
+            NonTensorData({"pixel_values": torch.randn(3, 128, 128)}),
+        ]
+    )
+    td = tu.get_tensordict(
+        {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "multi_modal_inputs": multi_modal_inputs,
+        },
+    )
+    assert len(td) == 4
+    chunks = tu.chunk_tensordict(td, chunks=2)
+
+    for i, chunk in enumerate(chunks):
+        assert len(chunk) == 2
+        for key, val in chunk.items():
+            if isinstance(val, torch.Tensor) and val.is_nested:
+                tensors = td[key].unbind(dim=0)
+                expected = torch.nested.as_nested_tensor(tensors[i * 2 : (i + 1) * 2], layout=torch.jagged)
+                assert torch.all(torch.eq(val.values(), expected.values())).item()
+            else:
+                expected = td[key][i * 2 : (i + 1) * 2]
+                for tensor, expect in zip(val, expected, strict=False):
+                    if tensor.data is None:
+                        assert expect is None
+                    else:
+                        assert torch.all(torch.eq(tensor.data["pixel_values"], expect["pixel_values"])).item()
+
+
 def test_assign_non_tensor_stack_with_nested_lists():
     """Test assign_non_tensor_stack with lists of lists."""
     td = tu.get_tensordict({"obs": torch.randn(3, 4)}, non_tensor_dict={})

@@ -52,7 +52,7 @@ actor_rollout_ref:
         recompute_num_layers: null
         attention_backend: flash
       override_mcore_model_config: {}
-      use_mbridge: false
+      use_mbridge: true
       vanilla_mbridge: true
       use_remove_padding: true
       forward_only: false
@@ -112,7 +112,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -151,7 +151,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -433,7 +433,7 @@ critic:
       recompute_num_layers: null
       attention_backend: flash
     override_mcore_model_config: {}
-    use_mbridge: false
+    use_mbridge: true
     vanilla_mbridge: true
     use_remove_padding: true
     forward_only: false
@@ -480,6 +480,7 @@ critic:
   forward_max_token_len_per_gpu: ${.ppo_max_token_len_per_gpu}
   ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
   shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
+  data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
@@ -504,7 +505,7 @@ critic:
       npu:
         _target_: verl.utils.profiler.config.NPUToolConfig
         contents: []
-        level: level1
+        level: level0
         analysis: true
         discrete: false
       torch:
@@ -517,11 +518,10 @@ critic:
         stack_depth: ${oc.select:global_profiler.global_tool_config.torch_memory.stack_depth,32}
   nccl_timeout: 600
   load_weight: true
-  data_loader_seed: ${oc.select:actor_rollout_ref.actor.data_loader_seed,null}
 reward_model:
   enable: false
   enable_resource_pool: false
-  n_gpus_per_node: 0
+  n_gpus_per_node: 8
   nnodes: 0
   strategy: megatron
   model:
@@ -536,6 +536,9 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  reward_loop_source: register
+  reward_loop_module_path: null
+  reward_loop_class_name: null
   launch_reward_fn_async: false
   sandbox_fusion:
     url: null
@@ -572,6 +575,7 @@ reward_model:
     dtype: bfloat16
   load_weight: true
   use_reward_loop: true
+  num_workers: 1
   rollout:
     _target_: verl.workers.config.RolloutConfig
     name: ???
@@ -592,9 +596,9 @@ reward_model:
     enable_chunked_prefill: true
     enable_prefix_caching: true
     disable_log_stats: true
-    skip_tokenizer_init: true
-    prompt_length: 512
-    response_length: 512
+    skip_tokenizer_init: false
+    prompt_length: 2048
+    response_length: 2048
 algorithm:
   rollout_correction:
     rollout_is: null
@@ -604,7 +608,7 @@ algorithm:
     rollout_rs_threshold_lower: null
     rollout_token_veto_threshold: null
     bypass_mode: false
-    use_policy_gradient: false
+    loss_type: ppo_clip
     rollout_is_batch_normalize: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
