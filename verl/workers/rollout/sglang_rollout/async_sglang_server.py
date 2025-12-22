@@ -263,15 +263,18 @@ class SGLangHttpServer:
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        if "max_new_tokens" not in sampling_params:
-            max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
-            sampling_params["max_new_tokens"] = max_new_tokens
+        response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        if "max_new_tokens" in sampling_params:
+            max_new_tokens = sampling_params.pop("max_new_tokens")
+        elif "max_tokens" in sampling_params:
+            # support vllm-style 'max_tokens' param
+            max_new_tokens = sampling_params.pop("max_tokens")
         else:
-            max_new_tokens = sampling_params["max_new_tokens"]
-            response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
-            assert max_new_tokens <= response_length, (
-                f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
-            )
+            max_new_tokens = response_length
+        assert max_new_tokens <= response_length, (
+            f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
+        )
+        sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 
         request = GenerateReqInput(
