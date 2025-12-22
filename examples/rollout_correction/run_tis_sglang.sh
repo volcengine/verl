@@ -13,7 +13,7 @@ echo "WORKING_DIR: ${WORKING_DIR}"
 # Paths
 CKPTS_DIR=${CKPTS_DIR:-"${WORKING_DIR}/ckpts/${project_name}/${exp_name}"}
 
-MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-14B-Instruct"}
+MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen3-8B-Base"}
 
 export SGLANG_PATCH=1
 export SGLANG_PORT=30300
@@ -59,7 +59,7 @@ fi
 
 PYTHONUNBUFFERED=1 python3 -m recipe.dapo.main_dapo \
     data.train_files=$HOME/data/BytedTsinghua-SIA/DAPO-Math-17k/train.parquet \
-    data.val_files=$HOME/data/gsm8k/test.parquet \
+    data.val_files=$HOME/data/AIME-2024/train.parquet \
     data.prompt_key=prompt \
     data.truncation='left' \
     data.max_prompt_length=2048 \
@@ -107,7 +107,7 @@ PYTHONUNBUFFERED=1 python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.actor.fsdp_config.fsdp_size=-1 \
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
-    actor_rollout_ref.rollout.val_kwargs.top_p=0.7 \
+    actor_rollout_ref.rollout.val_kwargs.top_p=1.0 \
     actor_rollout_ref.rollout.val_kwargs.top_k=-1 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
@@ -120,9 +120,9 @@ PYTHONUNBUFFERED=1 python3 -m recipe.dapo.main_dapo \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=1 \
-    trainer.total_training_steps=100 \
+    trainer.total_training_steps=150 \
     trainer.val_before_train=True \
-    trainer.test_freq=20 \
+    trainer.test_freq=5 \
     trainer.save_freq=-1 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
