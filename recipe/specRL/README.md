@@ -28,14 +28,14 @@ Our evaluations on Qwen2.5 and Qwen3 models demonstrate up to **2.1× speedup** 
 
 ## Installation
 
-This recipe is based on veRL commit `ccd7d93`. Please contact the authors for any adaptability issues.
+This recipe is based on verl commit `ccd7d93`. Please contact the authors for any adaptability issues.
 
 ```sh
 # Install the Distributed Draft Server and its C++ dependencies
 sudo apt install -y libprotobuf-dev protobuf-compiler libprotoc-dev \
     libgrpc-dev libgrpc++-dev protobuf-compiler-grpc \
     libxxhash-dev libboost-all-dev cmake
-    
+
 pip install verl@git+https://github.com/volcengine/verl.git@ccd7d934f91be98bb3732c78bd1870fa39c399ad
 pip install git+https://github.com/He-Jingkai/specRL.git --no-build-isolation -v
 # pip install git+ssh://git@code.byted.org/jingkai.he/specRL.git  --no-build-isolation -v
