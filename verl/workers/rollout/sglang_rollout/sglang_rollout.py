@@ -439,6 +439,10 @@ class SGLangRollout(BaseRollout):
         if self.config.mode == "async" and not self.config.skip_tokenizer_init:
             raise ValueError("async mode requires skip_tokenizer_init to be True")
         backend = attention_backend if attention_backend is not None else "fa3"
+        enable_dp_attention = engine_kwargs.get("enable_dp_attention", False)
+        moe_a2a_backend = engine_kwargs.get("moe_a2a_backend", "deepep")
+        deepep_mode = engine_kwargs.get("deepep_mode", "auto")
+        _dp_size = self.config.get("data_parallel_size", 1)
         sglang_port = int(os.getenv("SGLANG_PORT", "30000")) + (dist.get_rank() * 2)
         if effective_first:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -450,6 +454,10 @@ class SGLangRollout(BaseRollout):
                 "base_gpu_id": 0,
                 "gpu_id_step": 1,
                 "tp_size": self._tp_size,
+                "dp_size": _dp_size,
+                "enable_dp_attention": enable_dp_attention,
+                "moe_a2a_backend": moe_a2a_backend,
+                "deepep_mode": deepep_mode,
                 "node_rank": node_rank,
                 "load_format": load_format,
                 "dist_init_addr": dist_init_addr,

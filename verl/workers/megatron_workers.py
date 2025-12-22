@@ -405,7 +405,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
 
         # 2. build rollout device mesh
-        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
+        if self.config.rollout.name == "sglang":
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+        else:
+            infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         infer_pp = self.config.rollout.pipeline_model_parallel_size
         infer_world_size = infer_tp * infer_pp
         dp = self.world_size // infer_world_size
