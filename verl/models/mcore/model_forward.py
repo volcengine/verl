@@ -54,19 +54,6 @@ def model_forward_gen(vision_model: bool = False):
         data_format: str = "thd",
         mtp_config: MtpConfig =None
     ):
-        
-        # print(f"model {model}")
-        print(f"input_ids {input_ids}")
-        print(f"attention_mask {attention_mask}")
-        print(f"position_ids {position_ids}")
-        print(f"multi_modal_inputs {multi_modal_inputs}")
-        print(f"logits_processor {logits_processor}")
-        print(f"logits_processor_args {logits_processor_args}")
-        print(f"value_model {value_model}")
-        print(f"data_format {data_format}")
-        print(f"mtp_config {mtp_config}")
-
-
         """Forward pass for models with sequence packing."""
         assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
         pre_process = (
@@ -86,19 +73,6 @@ def model_forward_gen(vision_model: bool = False):
             model_kwargs["pixel_values_videos"] = multi_modal_inputs["pixel_values_videos"].to(input_ids.device)
         if "video_grid_thw" in multi_modal_inputs:
             model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
-
-        print(f"input_ids {input_ids.shape} \n"
-              f"attention_mask {attention_mask.shape} \n"
-              f"position_ids {position_ids.shape} \n"
-              )
-        
-        if post_process and logits_processor_args:
-            print(f"lables {logits_processor_args['label'].shape} \n"
-                  f"label_mask {logits_processor_args['label_mask'].shape} \n"
-              )
-        
-        # breakpoint()
-
 
         batch_size, seq_len = attention_mask.shape[:2]
         if data_format == "thd":

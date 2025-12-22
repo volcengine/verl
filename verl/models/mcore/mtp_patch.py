@@ -103,7 +103,6 @@ def _megatron_gptmodel_postprocess(
             **(extra_block_kwargs or {}),
         )
 
-    print(f"hzg hidden_states: {hidden_states.shape}")
     if not self.post_process:
         return hidden_states
     
@@ -167,7 +166,4 @@ def _megatron_gptmodel_postprocess(
 
     logits, _ = self.output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
     # [s b h] => [b s h]
-    print(f"hzg logits: {logits.shape}")
-    logits = logits.transpose(0, 1).contiguous()
-    print(f"hzg logits transpose: {logits.shape}")
-    return logits
+    return logits.transpose(0, 1).contiguous()

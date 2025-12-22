@@ -16,8 +16,7 @@ env_vars:
   HF_HOME: "/tmp/hf_home_mimo"
   PYTHONPATH: "/tmp/hf_home_mimo/modules/"
 
-  RAY_DEBUG_ADDRESS: "0.0.0.0:44401"
-  RAY_DEBUG_POST_MORTEM: "1"
+#  RAY_DEBUG_POST_MORTEM: "1"
 #  HF_DATASETS_CACHE: "/tmp/datasets_cache_mimo"
 #  TRANSFORMERS_OFFLINE: "0"
 #  HF_DATASETS_OFFLINE: "0"

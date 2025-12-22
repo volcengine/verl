@@ -140,7 +140,6 @@ class MegatronWorker(Worker):
                 self.tokenizer.chat_template = self.config.model.custom_chat_template
 
         # Step 2: get the hf
-        print(f"hzg trust_remote_code: {trust_remote_code}")
         hf_config = AutoConfig.from_pretrained(self.local_path, trust_remote_code=trust_remote_code)
 
         # Step 3: override the hf config
@@ -692,7 +691,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.bridge is not None:
             if self.vanilla_bridge:
-                per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+                print(f"hzg rollout mode {self.config.model.mtp.enable_rollout}")
+                per_tensor_param = self.bridge.export_weights(self.actor.actor_module, self.config.model.mtp.enable_rollout)
             else:
                 per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
         else:
@@ -743,10 +743,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red")
     def update_actor(self, data: DataProto):
-
-        print("hzg update actor", "#" * 200)
-
-
         assert self._is_actor
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
