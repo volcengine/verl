@@ -295,7 +295,7 @@ class MultiTurnSFTDataset(Dataset):
         # Since the tokenizer may return user-customized results, we need to filter out keys with inconsistent tensor shapes
         keys_to_remove = []
         for k, v in multi_modal_inputs.items():
-            if len(v) > 0:
+            if len(v) > 0 and v[0] is not None and isinstance(v[0], torch.Tensor):
                 # Check if all tensors in the list have the same shape
                 first_shape = v[0].shape
                 if not all(tensor.shape == first_shape for tensor in v):
