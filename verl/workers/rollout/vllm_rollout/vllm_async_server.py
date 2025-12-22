@@ -637,7 +637,7 @@ class vLLMHttpServer(vLLMHttpServerBase):
         super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
 
 
-_rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
+_rollout_worker_actor_cls = ray.remote(num_cpus=1, num_gpus=1)(vLLMAsyncRollout)
 
 
 class vLLMReplica(RolloutReplica):

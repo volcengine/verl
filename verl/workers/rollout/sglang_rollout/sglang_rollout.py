@@ -21,16 +21,7 @@ import os
 from typing import Generator
 
 import ray
-import sglang.srt.entrypoints.engine
 import torch
-from sglang.srt.server_args import ServerArgs
-from sglang.srt.utils import (
-    assert_pkg_version,
-    is_cuda,
-    set_prometheus_multiproc_dir,
-    set_ulimit,
-)
-from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.workers.config import HFModelConfig, RolloutConfig
@@ -38,6 +29,23 @@ from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
 from verl.workers.rollout.utils import is_valid_ipv6_address
+
+try:
+    import sglang.srt.entrypoints.engine
+    from sglang.srt.server_args import ServerArgs
+    from sglang.srt.utils import (
+        assert_pkg_version,
+        is_cuda,
+        set_prometheus_multiproc_dir,
+        set_ulimit,
+    )
+    from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
+except Exception as exc:  # pragma: no cover - import guard
+    raise ImportError(
+        "SGLang rollout requires sglang[all]==0.5.2. "
+        "Install with `pip install -e '.[sglang]'` (repo root) or `pip install sglang[all]==0.5.2`. "
+        f"Original error: {exc}"
+    ) from exc
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

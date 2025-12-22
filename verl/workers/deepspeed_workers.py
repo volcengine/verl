@@ -520,6 +520,19 @@ class ActorRolloutRefWorker(Worker):
                 gradient_clipping=self.config.actor.get("grad_clip", None),
             )
 
+            if self.rank == 0 and (
+                deepspeed_config.get("param_offload", False) or deepspeed_config.get("optimizer_offload", False)
+            ):
+                zero_opt_keys = (
+                    list(ds_config.get("zero_optimization", {}).keys()) if "zero_optimization" in ds_config else []
+                )
+                print(
+                    f"[DS Actor] offload config: zero_stage={zero_stage}, "
+                    f"param_offload={deepspeed_config.get('param_offload', False)}, "
+                    f"optimizer_offload={deepspeed_config.get('optimizer_offload', False)}, "
+                    f"zero_opt_keys={zero_opt_keys}"
+                )
+
             # Initialize DeepSpeed engine
             tempWorldSize = ds_config.get("world_size", 1)
             ds_config["world_size"] = ds_config.get("dp_size", 1)
@@ -695,6 +708,8 @@ class ActorRolloutRefWorker(Worker):
             self.base_sync_done = True
             return
 
+        deepspeed_config = getattr(self.config.actor, "deepspeed_config", {}) if self._is_actor else {}
+
         def _prepare_rollout_payload():
             _debug_print("rollout_mode:prepare_payload:start")
             aggressive_empty_cache(force_sync=True)
@@ -715,7 +730,16 @@ class ActorRolloutRefWorker(Worker):
             # For ZeRO-2, weights are not partitioned, only optimizer states
             # For ZeRO-3, weights ARE partitioned and need gathering
             if self.actor_engine is not None:
-                if hasattr(self.actor_engine, "get_full_state_dict"):
+                zero_stage = getattr(self.config.actor, "zero_stage", deepspeed_config.get("zero_stage", 2))
+                if zero_stage >= 3:
+                    # Prefer GatheredParameters to ensure fully materialized tensors for rollout (avoids
+                    # partially sharded embeddings hitting vLLM shape asserts).
+                    from deepspeed.runtime.zero import GatheredParameters
+
+                    _debug_print("rollout_mode:prepare_payload:zero3_gathered_parameters")
+                    with GatheredParameters(self.actor_engine.module.parameters(), modifier_rank=None):
+                        params = {k: v.detach().cpu() for k, v in self.actor_engine.module.state_dict().items()}
+                elif hasattr(self.actor_engine, "get_full_state_dict"):
                     _debug_print("rollout_mode:prepare_payload:get_full_state_dict")
                     params = self.actor_engine.get_full_state_dict()
                 else:
@@ -1886,8 +1910,20 @@ class CriticWorker(Worker):
             offload_optimizer=self.config.deepspeed_config.get("optimizer_offload", False),
             gradient_clipping=self.config.get("grad_clip", None),
         )
-        
-        
+        if self.rank == 0 and (
+            self.config.deepspeed_config.get("param_offload", False)
+            or self.config.deepspeed_config.get("optimizer_offload", False)
+        ):
+            zero_opt_keys = (
+                list(ds_config.get("zero_optimization", {}).keys()) if "zero_optimization" in ds_config else []
+            )
+            print(
+                f"[DS Critic] offload config: zero_stage={zero_stage}, "
+                f"param_offload={self.config.deepspeed_config.get('param_offload', False)}, "
+                f"optimizer_offload={self.config.deepspeed_config.get('optimizer_offload', False)}, "
+                f"zero_opt_keys={zero_opt_keys}"
+            )
+
         tempWorldSize = ds_config.get("world_size", 1)
         ds_config["world_size"] = ds_config.get("dp_size", 1) 
         self.critic_engine, optimizer, _, lr_scheduler = initialize_deepspeed_engine(

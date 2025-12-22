@@ -141,6 +141,8 @@ def get_deepspeed_config(
 
     # Configure optimizer offloading for ZeRO-2/3
     if zero_stage >= 2 and offload_optimizer:
+        if os.getenv("VERL_DISABLE_DEEPSPEED_CPU_ADAM", "0") == "1":
+            config["optimizer"]["torch_adam"] = True
         config["zero_optimization"]["offload_optimizer"] = {
             "device": "cpu",
             "pin_memory": True,
