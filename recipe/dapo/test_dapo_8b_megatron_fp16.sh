@@ -62,6 +62,8 @@ gen_tp=1
 train_tp=2
 train_pp=1
 
+optimizer_offload_fraction=${OFFLOAD_FRACTION:-1.}
+
 # TODO: support dynamic_bsz for megatron
 
 python3 -m verl.trainer.main_ppo \
@@ -125,6 +127,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.calculate_log_probs=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_offload_fraction=${optimizer_offload_fraction} \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.use_precision_aware_optimizer=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.apply_rope_fusion=True \
     reward_model.reward_manager=dapo \
     trainer.logger=['console','wandb'] \
