@@ -268,8 +268,9 @@ class SGLangHttpServer:
             sampling_params["max_new_tokens"] = max_new_tokens
         else:
             max_new_tokens = sampling_params["max_new_tokens"]
-            assert max_new_tokens <= self.config.response_length, (
-                f"max_new_tokens {max_new_tokens} exceeds response_length {self.config.response_length}"
+            response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+            assert max_new_tokens <= response_length, (
+                f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
             )
         return_logprob = sampling_params.pop("logprobs", False)
 
