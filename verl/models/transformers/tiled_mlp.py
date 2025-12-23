@@ -20,7 +20,7 @@ useful for large models with FSDP2 training.
 """
 
 import threading
-from typing import Optional, Type
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -28,7 +28,7 @@ import torch.nn as nn
 
 class GradientAccumulator:
     """Gradient accumulator for TiledMLP (FSDP compatible).
-    
+
     This class manages gradient accumulation across multiple shards during
     the backward pass of TiledMLP. It ensures correct gradient computation
     when processing input in chunks.
@@ -85,7 +85,7 @@ class GradientAccumulator:
 
 class TiledMLP(torch.autograd.Function):
     """TiledMLP implementation for memory-efficient MLP computation.
-    
+
     This autograd function processes MLP forward/backward in tiles (chunks)
     to reduce peak memory usage. Compatible with FSDP2.
     """
@@ -122,10 +122,10 @@ class TiledMLP(torch.autograd.Function):
         x_shape_orig = x.shape
         x = x.view(-1, hidden_size)
         incoming_grad = grads[0].view(-1, hidden_size)
-        
+
         # Pre-allocate input gradient
         x_grad = torch.zeros_like(x)
-        
+
         # Split on dim=0
         x_shards = list(torch.chunk(x, chunks=shards, dim=0))
 
@@ -133,10 +133,10 @@ class TiledMLP(torch.autograd.Function):
 
         for i, x_shard in enumerate(x_shards):
             x_shard.requires_grad_(x_requires_grad)
-            
+
             shard_step = x_shards[i].shape[0]
             shard_offset = i * x_shards[0].shape[0]
-            
+
             # narrow(0, ...) creates a contiguous view that can receive gradients
             x_shard.grad = x_grad.narrow(0, shard_offset, shard_step)
             incoming_grad_shard = incoming_grad.narrow(0, shard_offset, shard_step)
@@ -179,17 +179,17 @@ def apply_tiled_mlp_monkey_patch(
     model_type: Optional[str] = None,
 ):
     """Apply TiledMLP monkey patch based on model_type.
-    
+
     This function MUST be called BEFORE model instantiation to take effect.
     It patches the MLP classes in transformers library to use TiledMLP for
     memory-efficient computation during training.
-    
+
     Args:
         num_shards: Number of shards to split the input into. Higher values
                    reduce peak memory but may slightly impact performance.
         model_type: The model type string (e.g., "llama", "qwen2", "qwen3").
                    If None, patches all supported model types.
-    
+
     Returns:
         List of patched class names.
     """
@@ -200,13 +200,14 @@ def apply_tiled_mlp_monkey_patch(
     else:
         # Unsupported model type, skip silently
         return []
-    
+
     patched_classes = []
-    
+
     for mtype in types_to_patch:
         module_path, class_name = _MODEL_TYPE_TO_MLP_CLASS[mtype]
         try:
             import importlib
+
             module = importlib.import_module(module_path)
             mlp_class = getattr(module, class_name)
             _patch_mlp_class(mlp_class, _mlp_forward_fn, num_shards)
@@ -214,17 +215,18 @@ def apply_tiled_mlp_monkey_patch(
                 patched_classes.append(class_name)
         except (ImportError, AttributeError) as e:
             print(f"Warning: Could not patch {mtype} MLP: {e}")
-    
+
     if patched_classes:
         print(f"TiledMLP monkey patch applied to: {', '.join(patched_classes)} (shards={num_shards})")
-    
+
     return patched_classes
 
 
-def _patch_mlp_class(mlp_class: Type[nn.Module], forward_fn, num_shards: int):
+def _patch_mlp_class(mlp_class: type[nn.Module], forward_fn, num_shards: int):
     """Patch a single MLP class to use TiledMLP."""
+
     def tiled_forward(self, x):
         compute_params = [p for p in self.parameters() if p.requires_grad]
         return TiledMLP.apply(forward_fn, self, x, num_shards, compute_params)
-    
+
     mlp_class.forward = tiled_forward
