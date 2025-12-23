@@ -1395,6 +1395,67 @@ def compute_policy_loss_geo_mean(
     return pg_loss, pg_metrics
 
 
+@register_policy_loss("cispo")
+def compute_policy_loss_cispo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | ActorConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """
+    Compute the clipped policy objective and related metrics for CISPO.
+
+    See https://arxiv.org/pdf/2506.13585 for more details.
+    """
+
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
+    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
+
+    # Compute importance sampling ratio: π_θ / π_θ_old
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp for numerical stability
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    # CISPO: Clip the importance sampling weights
+    # KEY: Apply stop gradient to the clipped ratio
+    # This prevents gradients from flowing through the ratio computation and clipping
+    # Gradients only flow through log_prob in the final loss term
+    clipped_ratio = torch.clamp(ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+    clipped_ratio_sg = clipped_ratio.detach()
+
+    # CISPO objective function (to maximize): J = sg(clip(ratio)) * A * log π_θ
+    # Loss function (to minimize): L = -J = -sg(clip(ratio)) * A * log_prob
+    pg_losses = -clipped_ratio_sg * advantages * log_prob
+
+    # Track clipping statistics
+    pg_clipfrac = verl_F.masked_mean((ratio != clipped_ratio).float(), response_mask)
+
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+    )
+
+    # For compatibility, return zero for pg_clipfrac_lower (not used in CISPO)
+    pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
+
+    pg_metrics = {
+        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+    }
+    return pg_loss, pg_metrics
+
+
 def compute_entropy_loss(logits, response_mask, loss_agg_mode: str = "token-mean"):
     """Compute categorical entropy loss (For backward compatibility)
 
