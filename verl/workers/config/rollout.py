@@ -208,7 +208,7 @@ class RolloutConfig(BaseConfig):
 
     enable_rollout_routing_replay: bool = False
 
-    mtp_config: MtpConfig = field(default_factory=MtpConfig)
+    mtp: MtpConfig = field(default_factory=MtpConfig)
 
     def __post_init__(self):
         """Validate the rollout config"""

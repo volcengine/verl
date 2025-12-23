@@ -78,6 +78,22 @@ def _megatron_gptmodel_postprocess(
     Applies Multi-Token Prediction if enabled, generates output logits through
     the output layer, and computes language model loss when labels are provided.
     """
+
+
+    if labels is not None:
+        print(f"hzg _megatron_gptmodel_postprocess\n"
+              f"\t input_ids: {input_ids.shape}\n"
+              f"\t position_ids: {position_ids.shape}\n"
+              f"\t labels: {labels.shape}\n"
+              f"\t hidden states: {hidden_states.shape}\n"
+              )
+    else:
+        print(f"hzg _megatron_gptmodel_postprocess\n"
+              f"\t input_ids: {input_ids.shape}\n"
+              f"\t position_ids: {position_ids.shape}\n"
+              f"\t hidden states: {hidden_states.shape}\n"
+              )
+
     in_inference_mode = inference_context is not None and not self.training
     if in_inference_mode:
         assert runtime_gather_output, "Inference must always gather TP logits"
@@ -102,6 +118,9 @@ def _megatron_gptmodel_postprocess(
             embedding=self.embedding,
             **(extra_block_kwargs or {}),
         )
+        print(f"hzg mtp_in_postprocess\n"
+              f"\tinput_ids {input_ids.shape}\n"
+              f"\thidden states: {hidden_states.shape}\n")
 
     if not self.post_process:
         return hidden_states

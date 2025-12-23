@@ -46,9 +46,9 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
-gen_tp=1
+gen_tp=4
 train_tp=1
-train_pp=1
+train_pp=2
 
 python -m verl.trainer.main_ppo \
     --config-path=config \
@@ -110,7 +110,7 @@ python -m verl.trainer.main_ppo \
     trainer.logger='["console","tensorboard"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=1 \
+    trainer.n_gpus_per_node=8 \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
@@ -126,5 +126,6 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
     actor_rollout_ref.model.mtp.enable=True \
     actor_rollout_ref.model.mtp.enable_train=True \
+    actor_rollout_ref.model.mtp.enable_rollout=False \
     actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.01
 

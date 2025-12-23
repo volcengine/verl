@@ -194,7 +194,11 @@ class SGLangHttpServer:
 
         
         # mtp
-        if self.config.model.
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            args["speculative_algorithm"] = self.config.mtp.speculative_algorithm
+            args["speculative_num_steps"] = self.config.mtp.speculative_num_steps
+            args["speculative_eagle_topk"] = self.config.mtp.speculative_eagle_topk
+            args["speculative_num_draft_tokens"] = self.config.mtp.speculative_num_draft_tokens
 
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py

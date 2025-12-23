@@ -81,8 +81,6 @@ def model_forward_gen(vision_model: bool = False):
             )
             input_ids_rmpad = input_ids_rmpad.contiguous()
 
-            print(f"input_ids {input_ids.shape} input_ids_rmpad: {input_ids_rmpad.shape}")
-
             if mtp_config and mtp_config.enable_train:
                 args = {
                     k: preprocess_packed_seqs(v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding)[0]
@@ -90,7 +88,14 @@ def model_forward_gen(vision_model: bool = False):
                 }
                 model_kwargs["labels"] = args["label"]
                 model_kwargs['loss_mask'] = args["label_mask"]
-                # breakpoint()
+
+                print(f"hzg model_forward\n"
+                      f"\t input_ids: {input_ids.shape}\n"
+                      f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
+                      f"\t position_ids: {position_ids.shape}\n"
+                      f"\t labels {model_kwargs['labels'].shape}\n"
+                      f"\t loss_mask {model_kwargs['loss_mask'].shape}\n"
+                      )
 
             input_args = dict(
                 input_ids=input_ids_rmpad,

@@ -15,6 +15,8 @@ env_vars:
   # Transformers cache configuration to handle MiMo model custom modules
   HF_HOME: "/tmp/hf_home_mimo"
   PYTHONPATH: "/tmp/hf_home_mimo/modules/"
+  PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:256"
+  RAY_DEDUP_LOGS: "0"
 
 #  RAY_DEBUG_POST_MORTEM: "1"
 #  HF_DATASETS_CACHE: "/tmp/datasets_cache_mimo"
