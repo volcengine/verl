@@ -8,7 +8,7 @@ PROFILE_RANKS="[1,2]"
 
 # profiling NPU options
 SAVE_PATH="$HOME/profile_data"
-LEVEL="level1"
+LEVEL="level0"
 CONTENTS=['npu','cpu']
 ANALYSIS=True
 

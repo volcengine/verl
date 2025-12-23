@@ -20,10 +20,11 @@ from omegaconf import DictConfig
 from transformers import AutoTokenizer
 
 from verl import DataProto
-from verl.experimental.reward.reward_manager import register as register_loop
-from verl.experimental.reward.reward_manager.base import RewardLoopManagerBase
+from verl.experimental.reward_loop.reward_manager import register as register_manager
+from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
+from verl.utils.ray_utils import get_event_loop
 from verl.utils.reward_score import default_compute_score
-from verl.workers.reward_manager import register as register_manager
+from verl.workers.reward_manager import register as register_manager_legacy
 
 logger = logging.getLogger(__file__)
 
@@ -123,7 +124,7 @@ class AsyncTokenBucket:
         if num_tokens > self.max_tokens:
             wait_time = 0.0
             async with self.lock:
-                loop = asyncio.get_running_loop()
+                loop = get_event_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now
@@ -147,7 +148,7 @@ class AsyncTokenBucket:
         while True:
             wait_time = 0.0
             async with self.lock:
-                loop = asyncio.get_running_loop()
+                loop = get_event_loop()
                 now = loop.time()
                 if self.last_update is None:
                     self.last_update = now
@@ -168,10 +169,10 @@ class AsyncTokenBucket:
                 await asyncio.sleep(wait_time)
 
 
-@register_loop("rate_limited")
 @register_manager("rate_limited")
-class RateLimitedRewardLoopManager(RewardLoopManagerBase):
-    """Reward loop manager with rate limiting for API-based reward functions.
+@register_manager_legacy("rate_limited")
+class RateLimitedRewardManager(RewardManagerBase):
+    """Reward manager with rate limiting for API-based reward functions.
 
     This manager implements a sophisticated three-layer rate limiting system
     designed for LLM-as-judge scenarios where reward computation involves
@@ -238,7 +239,7 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
         ...         "timeout": 60.0,
         ...     }
         ... })
-        >>> manager = RateLimitedRewardLoopManager(config, tokenizer)
+        >>> manager = RateLimitedRewardManager(config, tokenizer)
 
     Thread Safety:
         This class is designed for concurrent use. All rate limiting resources
@@ -246,7 +247,7 @@ class RateLimitedRewardLoopManager(RewardLoopManagerBase):
 
     See Also:
         - AsyncTokenBucket: Token bucket implementation for rate limiting
-        - RewardLoopManagerBase: Base class for reward loop managers
+        - RewardManagerBase: Base class for reward managers
         - verl.utils.reward_score.default_compute_score: Default scoring function
     """
 

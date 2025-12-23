@@ -447,7 +447,7 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
-        func = tqbridge()(func)
+        func = tqbridge(dispatch_mode=dispatch_mode)(func)
 
         @wraps(func)
         def inner(*args, **kwargs):

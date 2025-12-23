@@ -48,6 +48,9 @@ on:
       - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
   pull_request:
     branches:
       - main
@@ -67,6 +70,9 @@ on:
       - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
       # Entrypoints
       - "verl/worksers/rollout/sglang_rollout/*"
       - ".github/workflows/e2e_ppo_trainer_megatron_sglang.yml"
