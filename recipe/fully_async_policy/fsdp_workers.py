@@ -22,18 +22,15 @@ import torch.distributed
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
+from recipe.fully_async_policy.fsdp2_utils import (fsdp2_sharded_load_from_cpu,
+                                                   fsdp2_sharded_save_to_cpu)
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils.device import (
-    get_device_name,
-    get_torch_device,
-)
-from verl.utils.fsdp_utils import (
-    fsdp_version,
-    load_fsdp_model_to_gpu,
-    offload_fsdp_model_to_cpu,
-)
-from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.fsdp_utils import (fsdp_version, load_fsdp_model_to_gpu,
+                                   offload_fsdp_model_to_cpu)
+from verl.workers.fsdp_workers import (ActorRolloutRefWorker,
+                                       AsyncActorRolloutRefWorker,
+                                       CriticWorker)
 
 from .checkpoint_engine import CheckpointEngine
 
@@ -75,7 +72,11 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert rank_offset == 0 or rank_offset == actor_num
 
         self.checkpoint_engine = CheckpointEngine(
-            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
+            current_rank,
+            actor_ranks,
+            rollout_ranks,
+            self.config.checkpoint_engine.device_buffer_size_M,
+            use_cpu_buffer=not self.config.checkpoint_engine.get("bypass_cpu", False),
         )
 
     def _get_actor_params(self):
@@ -92,7 +93,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
 
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            from verl.utils.vllm.patch import \
+                patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
@@ -120,6 +122,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             params = self._get_actor_params()
             local_rank = torch.distributed.get_rank()
             world_size = torch.distributed.get_world_size()
+            bypass_cpu = self.config.checkpoint_engine.get("bypass_cpu", False)
 
             for tensor_idx, (key, _, _) in enumerate(self._weights_info):
                 origin_data = params[key]
@@ -127,8 +130,12 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                     origin_data = origin_data.full_tensor()
 
                 if tensor_idx % world_size == local_rank:
-                    self.cpu_named_params[key] = origin_data.to("cpu", non_blocking=True)
-            get_torch_device().synchronize()
+                    if bypass_cpu:
+                        self.cpu_named_params[key] = origin_data
+                    else:
+                        self.cpu_named_params[key] = origin_data.to("cpu", non_blocking=True)
+            if not bypass_cpu:
+                get_torch_device().synchronize()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
@@ -158,7 +165,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         inference_model = None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            from verl.utils.vllm.patch import \
+                patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
 
@@ -198,7 +206,8 @@ class DetachActorWorker(DetachNcclSync):
         if hasattr(self, "_weights_info"):
             return self._weights_info
         if fsdp_version(self.actor_module_fsdp) == 1:
-            from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
+            from torch.distributed.fsdp.api import (ShardedStateDictConfig,
+                                                    StateDictType)
 
             FSDP.set_state_dict_type(
                 self.actor_module_fsdp,
