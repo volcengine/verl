@@ -115,3 +115,19 @@ def test_distributed_masked_mean(world_size, tmp_path):
         nprocs=world_size,
         join=True,
     )
+
+
+@pytest.mark.parametrize("dtype", [torch.float64, torch.float32, torch.float16, torch.bfloat16])
+def test_logprobs_from_logits_naive(dtype):
+    from verl.utils.torch_functional import logprobs_from_logits_naive
+
+    vocab_size = 32000
+    seq_len = 512
+
+    labels = torch.randint(low=0, high=vocab_size, size=(seq_len,), device="cuda")
+    logits = torch.randn(seq_len, vocab_size, device="cuda", dtype=dtype)
+
+    expected_output = -torch.nn.functional.cross_entropy(logits.float(), labels, reduction="none")
+    actual_output = logprobs_from_logits_naive(labels=labels, logits=logits)
+
+    torch.testing.assert_close(actual_output, expected_output, rtol=1e-5, atol=1e-5)
