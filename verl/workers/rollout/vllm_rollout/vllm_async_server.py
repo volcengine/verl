@@ -263,7 +263,12 @@ class vLLMHttpServerBase:
             set_expandable_segments(True)
 
         quantization = self.config.quantization
+
         if quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
+
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
@@ -275,8 +280,14 @@ class vLLMHttpServerBase:
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+
+        hf_overrides = {}
+        if quantization is not None and self.config.quantization_config_file is not None:
+            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
+
+        if quantization == "fp8":
+            hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -296,7 +307,7 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": hf_overrides,
             **engine_kwargs,
         }
 
