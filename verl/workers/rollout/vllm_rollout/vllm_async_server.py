@@ -304,7 +304,7 @@ class vLLMHttpServerBase:
             f"get worker zmq handles: {zmq_handles}"
         )
 
-        # 5. launch server
+        # 4. launch server
         if self.node_rank == 0:
             await self.run_server(server_args)
         else:
@@ -615,7 +615,17 @@ class vLLMReplica(RolloutReplica):
             f"worker number {len(self.workers)} not equal to world size {self.world_size}"
         )
 
-        # get (node_id, CUDA_VISIBLE_DEVICES) of all workers
+        # get envs for vllm initilization
+        global_world_size, global_master_addr, global_master_port = ray.get(
+            self.workers[0].__ray_call__.remote(
+                lambda self: (
+                    int(os.environ["WORLD_SIZE"]),
+                    os.environ["MASTER_ADDR_FOR_ROLLOUT"],
+                    os.environ["MASTER_PORT_FOR_ROLLOUT"],
+                )
+            )
+        )
+
         worker_infos = await asyncio.gather(
             *[
                 worker.__ray_call__.remote(
@@ -637,9 +647,9 @@ class vLLMReplica(RolloutReplica):
 
         env_vars = {
             "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-            "WORLD_SIZE": os.environ["WORLD_SIZE"],
-            "MASTER_ADDR": os.environ["MASTER_ADDR"],
-            "MASTER_PORT": os.environ["MASTER_PORT"],
+            "WORLD_SIZE": str(global_world_size),
+            "MASTER_ADDR": global_master_addr,
+            "MASTER_PORT": global_master_port,
             "VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET": str(global_rank_offset),
         }
 

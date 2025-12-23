@@ -23,6 +23,7 @@ import torch
 import zmq
 from vllm.lora.request import LoRARequest
 
+from verl.utils.device import get_torch_device
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
@@ -101,7 +102,6 @@ class vLLMColocateWorkerExtension:
     def __new__(cls, **kwargs):
         global_rank = kwargs.get("rank", 0) + int(os.environ.get("VERL_VLLM_MULTIPROC_GLOBAL_RANK_OFFSET", "0"))
         local_rank = kwargs.get("local_rank", 0)
-        kwargs["rank"] = global_rank
         kwargs["distributed_init_method"] = os.environ.get("DIST_INIT_METHOD", None)
 
         os.environ["RANK"] = str(global_rank)
@@ -122,6 +122,7 @@ class vLLMColocateWorkerExtension:
         from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
         assert self.device is not None
+        device = get_torch_device()
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
             self._zmq_ctx = zmq.Context()
         socket = self._zmq_ctx.socket(zmq.REP)
@@ -132,7 +133,7 @@ class vLLMColocateWorkerExtension:
             if payload is None:
                 # means the update is done
                 process_weights_after_loading(self.model_runner.model, self.model_config, self.device)
-                torch.cuda.synchronize()
+                device.synchronize()
                 socket.send(b"")
                 break
             tensor = rebuild_ipc(payload, self.device.index)
@@ -149,14 +150,14 @@ class vLLMColocateWorkerExtension:
             if load:
                 self.model_runner.model.load_weights(weights=weights)
                 del weights
-                torch.cuda.synchronize()
+                device.synchronize()
             else:
                 weights_to_load.extend(weights)
             socket.send(b"")
 
         socket.close()
         gc.collect()
-        torch.cuda.empty_cache()
+        device.empty_cache()
         return weights_to_load
 
     def update_weights_from_ipc(self, zmq_handles: dict[str, str]):
@@ -192,7 +193,7 @@ class vLLMColocateWorkerExtension:
         logger.info(f"vLLM load weights, loaded_params: {len(lora_weights)}")
         del lora_weights
         gc.collect()
-        torch.cuda.empty_cache()
+        get_torch_device().empty_cache()
 
     def report_device_id(self) -> str:
         """Report device ID for ZMQ handle."""
