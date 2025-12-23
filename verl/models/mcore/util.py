@@ -90,6 +90,11 @@ def preprocess_packed_seqs(
             input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[
                 half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)
             ]
+            if half_seqlen * cp_rank < d.shape[0]:
+                valid_len = min(half_seqlen, d.shape[0] - half_seqlen * cp_rank)
+                input_ids_rmpad[start_idx : start_idx + valid_len] = d[
+                    half_seqlen * cp_rank : half_seqlen * cp_rank + valid_len
+                ]
 
             remain_start = seqlen_padded_i - half_seqlen * (cp_rank + 1)
             remain_end = seqlen_padded_i - half_seqlen * cp_rank
