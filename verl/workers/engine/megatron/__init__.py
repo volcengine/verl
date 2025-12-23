@@ -12,6 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Avoid cpu worker trigger cuda jit error
+import torch as _torch
+import os
+need_mock_cuda = False
+if _torch.cuda.device_count() == 0 and "TORCH_CUDA_ARCH_LIST" not in os.environ:
+    os.environ["TORCH_CUDA_ARCH_LIST"] = "8.0"
+    need_mock_cuda = True
+
 from .transformer_impl import MegatronEngine, MegatronEngineWithLMHead
+
+if need_mock_cuda:
+    del os.environ["TORCH_CUDA_ARCH_LIST"]
 
 __all__ = ["MegatronEngine", "MegatronEngineWithLMHead"]
