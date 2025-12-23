@@ -60,10 +60,11 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 class TensorBuffer:
     def __init__(self, memory_alloc, dtype):
-        device = get_device_id()
+        self.device = get_device_id()
         dtype_size = torch.tensor([], dtype=dtype).element_size()
         self.capacity = memory_alloc // dtype_size
-        self.tensor = torch.empty(self.capacity, dtype=dtype, device=device)
+        self.dtype = dtype
+        self.tensor = torch.empty(self.capacity, dtype=self.dtype, device=self.device)
         self.keys = []
         self.shapes = []
 
@@ -74,6 +75,7 @@ class TensorBuffer:
     def clear(self):
         self.keys.clear()
         self.shapes.clear()
+        self.tensor = torch.empty(self.capacity, dtype=self.dtype, device=self.device)
 
     def append(self, key, shape, weight=None):
         if weight is not None:
