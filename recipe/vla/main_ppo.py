@@ -24,9 +24,8 @@ from omegaconf import OmegaConf
 from verl import DataProto
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-from verl.utils.device import is_cuda_available
-
 from verl.trainer.ppo.utils import Role
+from verl.utils.device import is_cuda_available
 
 from .rob_ray_trainer import RobRayPPOTrainer
 
@@ -55,7 +54,7 @@ def main(config):
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
         logger.info(f"ray init kwargs: {ray_init_kwargs}")
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
-    
+
     # Apply controller nsight profiling if configured
     if (
         is_cuda_available
