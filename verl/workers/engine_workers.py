@@ -358,6 +358,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
         self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+        
         if self._is_actor:
             omega_profiler_config = config.actor.get("profiler", {})
         elif self._is_rollout:
@@ -366,6 +367,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             omega_profiler_config = config.rollout.get("profiler", {})
         else:
             omega_profiler_config = config.ref.get("profiler", {})
+        
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
@@ -373,6 +375,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
         else:
             tool_config = None
+        
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
