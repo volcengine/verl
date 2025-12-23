@@ -364,13 +364,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
             # This is for extendability in AsyncRL cases
             omega_profiler_config = config.rollout.get("profiler", {})
-        elif self._is_ref:
-            omega_profiler_config = config.ref.get("profiler", {})
         else:
-            raise ValueError(
-                f"Invalid role {self.role}, should be one of "
-                "['actor', 'rollout', 'ref', 'actor_rollout', 'actor_rollout_ref']"
-            )
+            omega_profiler_config = config.ref.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
