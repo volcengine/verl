@@ -104,6 +104,27 @@ def _megatron_gptmodel_postprocess(
         output_weight = self.shared_embedding_or_output_weight()
 
     if mtp_in_postprocess and labels is not None:
+        # When input_ids is compressed (packed_seq_params is not None),
+        # position_ids also needs to be compressed to match the shape
+        if packed_seq_params is not None and input_ids.shape[0] != position_ids.shape[0]:
+            # Create position_ids_rmpad with the same compression as input_ids
+            position_ids_rmpad = torch.zeros_like(input_ids, dtype=position_ids.dtype)
+            if hasattr(packed_seq_params, 'cu_seqlens_q') and packed_seq_params.cu_seqlens_q is not None:
+                cu_seqlens = packed_seq_params.cu_seqlens_q
+                # Extract position_ids for each sequence in the batch
+                for i in range(len(cu_seqlens) - 1):
+                    start_idx = cu_seqlens[i]
+                    end_idx = cu_seqlens[i + 1]
+                    # Map from original position_ids to compressed position_ids
+                    seq_len_compressed = end_idx - start_idx
+                    # For simplicity, use the first seq_len_compressed positions from position_ids[i]
+                    position_ids_rmpad[start_idx:end_idx] = position_ids[i, :seq_len_compressed]
+            else:
+                # Fallback: simple reshape to match input_ids first dimension
+                seq_len = min(position_ids.shape[1], input_ids.shape[1])
+                position_ids_rmpad = position_ids[:, :seq_len].reshape(input_ids.shape)
+            position_ids = position_ids_rmpad.contiguous()
+
         hidden_states = self.mtp(
             input_ids=input_ids,
             position_ids=position_ids,

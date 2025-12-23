@@ -15,8 +15,10 @@
 # limitations under the License.
 
 
-from verl.utils.megatron_utils import unwrap_model
+import numpy as np  # 用于设置 np.inf
+import torch
 
+from verl.utils.megatron_utils import unwrap_model
 from .util import (
     postprocess_bshd,
     postprocess_bshd_no_padding,
@@ -28,9 +30,6 @@ from .util import (
     preprocess_thd_no_padding,
 )
 from ...workers.config import MtpConfig
-
-import numpy as np  # 用于设置 np.inf
-import torch
 
 # 全局配置：打印全部元素，不截断、不省略
 torch.set_printoptions(
@@ -81,20 +80,24 @@ def model_forward_gen(vision_model: bool = False):
             )
             input_ids_rmpad = input_ids_rmpad.contiguous()
 
-            if mtp_config and mtp_config.enable_train:
+            # when pp > 1 and processor is not None, we need to pass the labels and loss_mask to the model
+            if mtp_config and mtp_config.enable_train and pre_process:
                 args = {
-                    k: preprocess_packed_seqs(v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding)[0]
+                    k: preprocess_packed_seqs(v, attention_mask, pre_process=pre_process, use_fp8_padding=use_fp8_padding)[0]
                     for k, v in logits_processor_args.items()
                 }
-                model_kwargs["labels"] = args["label"]
-                model_kwargs['loss_mask'] = args["label_mask"]
+                model_kwargs["labels"] = args["label"].contiguous()
+                model_kwargs['loss_mask'] = args["label_mask"].contiguous()
 
                 print(f"hzg model_forward\n"
+                      f"\t pre_process {pre_process}\n"
                       f"\t input_ids: {input_ids.shape}\n"
                       f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
                       f"\t position_ids: {position_ids.shape}\n"
-                      f"\t labels {model_kwargs['labels'].shape}\n"
-                      f"\t loss_mask {model_kwargs['loss_mask'].shape}\n"
+                      f"\t labels {logits_processor_args['label'].shape}\n"
+                      f"\t labels_rmpad {model_kwargs['labels'].shape}\n"
+                      f"\t loss_mask {logits_processor_args['label_mask'].shape}\n"
+                      f"\t loss_mask_rmpad {model_kwargs['loss_mask'].shape}\n"
                       )
 
             input_args = dict(
