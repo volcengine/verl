@@ -279,6 +279,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         use_liger=False,
         role="actor",
         enable_activation_offload=False,
+        use_tiled_mlp=False,
+        tiled_mlp_shards=4,
     ):
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
@@ -345,6 +347,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
         )
+
+        # Apply TiledMLP monkey patch BEFORE model instantiation for memory-efficient MLP
+        if use_tiled_mlp:
+            from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
+
+            model_type = getattr(actor_model_config, "model_type", None)
+            apply_tiled_mlp_monkey_patch(num_shards=tiled_mlp_shards, model_type=model_type)
+            if self.rank == 0:
+                print(f"TiledMLP enabled for {role} model (shards={tiled_mlp_shards}, model_type={model_type})")
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -774,6 +785,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 fsdp_config = FSDPEngineConfig()
 
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+            # TiledMLP configuration for memory-efficient MLP computation
+            tiled_mlp_config = self.config.model.get("tiled_mlp", {})
+            use_tiled_mlp = tiled_mlp_config.get("enabled", False)
+            tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
+
             (
                 self.actor_module_fsdp,
                 self.actor_optimizer,
@@ -791,6 +807,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 use_liger=self.config.model.get("use_liger", False),
                 role="actor",
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # get the original unwrapped module
@@ -823,6 +841,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self.rank == 0:
                 print("reference model:", ref_model_path)
             local_path = copy_to_local(ref_model_path, use_shm=use_shm)
+
+            # TiledMLP for ref model: use ref config if specified, otherwise use actor config
+            ref_tiled_mlp_config = self.config.ref.get("tiled_mlp", None)
+            if ref_tiled_mlp_config is None:
+                ref_tiled_mlp_config = self.config.model.get("tiled_mlp", {})
+            ref_use_tiled_mlp = ref_tiled_mlp_config.get("enabled", False)
+            ref_tiled_mlp_shards = ref_tiled_mlp_config.get("num_shards", 4)
+
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
                 fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
@@ -833,6 +859,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 trust_remote_code=self.config.model.get("trust_remote_code", False),
                 use_liger=self.config.model.get("use_liger", False),
                 role="ref",
+                use_tiled_mlp=ref_use_tiled_mlp,
+                tiled_mlp_shards=ref_tiled_mlp_shards,
             )[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
@@ -1275,6 +1303,19 @@ class CriticWorker(Worker, DistProfilerExtension):
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh
         )
+
+        # Apply TiledMLP monkey patch BEFORE model instantiation for memory-efficient MLP
+        tiled_mlp_config = config.model.get("tiled_mlp", {})
+        use_tiled_mlp = tiled_mlp_config.get("enabled", False)
+        tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
+
+        if use_tiled_mlp:
+            from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
+
+            model_type = getattr(critic_model_config, "model_type", None)
+            apply_tiled_mlp_monkey_patch(num_shards=tiled_mlp_shards, model_type=model_type)
+            if self.rank == 0:
+                print(f"TiledMLP enabled for critic model (shards={tiled_mlp_shards}, model_type={model_type})")
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
