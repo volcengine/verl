@@ -31,16 +31,28 @@ def extract_solution(solution_str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--local_dir", default="~/data/math")
+    parser.add_argument("--local_dir", default=None)
     parser.add_argument("--hdfs_dir", default=None)
+    parser.add_argument("--local_dataset_path", default=None, help="The local path to the raw dataset, if it exists.")
+    parser.add_argument(
+        "--local_save_dir", default="~/data/math", help="The save directory for the preprocessed dataset."
+    )
 
     args = parser.parse_args()
+    local_dataset_path = args.local_dataset_path
 
     # 'lighteval/MATH' is no longer available on huggingface.
     # Use mirror repo: DigitalLearningGmbH/MATH-lighteval
     data_source = "DigitalLearningGmbH/MATH-lighteval"
     print(f"Loading the {data_source} dataset from huggingface...", flush=True)
-    dataset = datasets.load_dataset(data_source, trust_remote_code=True)
+    if local_dataset_path is not None:
+        dataset = datasets.load_dataset(
+            local_dataset_path,
+        )
+    else:
+        dataset = datasets.load_dataset(
+            data_source,
+        )
 
     train_dataset = dataset["train"]
     test_dataset = dataset["test"]
@@ -70,7 +82,13 @@ if __name__ == "__main__":
     train_dataset = train_dataset.map(function=make_map_fn("train"), with_indices=True)
     test_dataset = test_dataset.map(function=make_map_fn("test"), with_indices=True)
 
-    local_dir = os.path.expanduser(args.local_dir)
+    local_save_dir = args.local_dir
+    if local_save_dir is not None:
+        print("Warning: Argument 'local_dir' is deprecated. Please use 'local_save_dir' instead.")
+    else:
+        local_save_dir = args.local_save_dir
+
+    local_dir = os.path.expanduser(local_save_dir)
     hdfs_dir = args.hdfs_dir
 
     train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))

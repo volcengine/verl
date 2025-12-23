@@ -16,8 +16,8 @@ tensor_model_parallel_size: 1
 # expert model parallel size
 expert_model_parallel_size: 1
 
-# expert tensor parallel size
-expert_tensor_parallel_size: 1
+# expert tensor parallel size (null to be same as TP)
+expert_tensor_parallel_size: null
 
 # pipeline model parallel size
 pipeline_model_parallel_size: 1
@@ -39,6 +39,9 @@ use_dist_checkpointing: False
 
 # distributed checkpointing path
 dist_checkpointing_path: null
+
+# distributed checkpointing prefix, e.g. Nemo2 will append prefix 'module.' to the state dict keys
+dist_checkpointing_prefix: ''
 
 # oc.select: default val for ref.megatron.seed
 seed: 42
@@ -66,10 +69,22 @@ override_transformer_config:
   # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
   recompute_num_layers: null
 
+  # Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto in mcore, flash in verl
+  attention_backend: flash
+
 override_mcore_model_config: {}
 
 # oc.select: default val for ref.megatron.use_mbridge
-use_mbridge: False
+use_mbridge: True
+
+# oc.select: default val for ref.megatron.vanilla_mbridge
+vanilla_mbridge: True
+
+# whether to use thd format (sequence packing), if not, use bshd format, padding the input_ids to the longest sequence length
+use_remove_padding: True
 
 # whether to use forward only
 forward_only: False
+
+# Mixed precision training param dtype
+dtype: bfloat16 # ["bfloat16", "float16"]

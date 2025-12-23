@@ -16,7 +16,12 @@ import os
 import unittest
 
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import ActorConfig, FSDPActorConfig, McoreActorConfig, OptimizerConfig
+from verl.workers.config import (
+    ActorConfig,
+    FSDPActorConfig,
+    McoreActorConfig,
+    OptimizerConfig,
+)
 
 
 class TestActorConfig(unittest.TestCase):
@@ -31,9 +36,10 @@ class TestActorConfig(unittest.TestCase):
             "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
             "optim": {
-                "_target_": "verl.workers.config.OptimizerConfig",
+                "_target_": "verl.workers.config.McoreOptimizerConfig",
                 "lr": 0.1,
             },
+            "rollout_n": 1,
         }
         fsdp_dict = {
             "_target_": "verl.workers.config.FSDPActorConfig",
@@ -42,9 +48,10 @@ class TestActorConfig(unittest.TestCase):
             "ppo_micro_batch_size_per_gpu": 256,
             "clip_ratio": 0.2,
             "optim": {
-                "_target_": "verl.workers.config.OptimizerConfig",
+                "_target_": "verl.workers.config.FSDPOptimizerConfig",
                 "lr": 0.1,
             },
+            "rollout_n": 1,
         }
 
         megatron_config = omega_conf_to_dataclass(megatron_dict)
@@ -103,6 +110,7 @@ class TestActorConfig(unittest.TestCase):
                 "_target_": "verl.workers.config.OptimizerConfig",
                 "lr": 0.1,
             },
+            "rollout_n": 1,
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -123,6 +131,7 @@ class TestActorConfig(unittest.TestCase):
                 "_target_": "verl.workers.config.OptimizerConfig",
                 "lr": 0.1,
             },
+            "rollout_n": 1,
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -146,6 +155,7 @@ class TestActorConfig(unittest.TestCase):
                 "_target_": "verl.workers.config.OptimizerConfig",
                 "lr": 0.1,
             },
+            "rollout_n": 1,
         }
         config = omega_conf_to_dataclass(config_dict)
 
@@ -168,6 +178,7 @@ class TestActorConfig(unittest.TestCase):
                 use_dynamic_bsz=True,
                 optim=optim,
                 ppo_micro_batch_size_per_gpu=4,
+                rollout_n=1,
             )
         self.assertIn("Invalid loss_agg_mode", str(cm.exception))
 
@@ -178,6 +189,7 @@ class TestActorConfig(unittest.TestCase):
                 ppo_micro_batch_size=4,
                 ppo_micro_batch_size_per_gpu=2,
                 optim=optim,
+                rollout_n=1,
             )
         self.assertIn("You have set both", str(cm.exception))
 
@@ -188,6 +200,7 @@ class TestActorConfig(unittest.TestCase):
                 ppo_micro_batch_size=None,
                 ppo_micro_batch_size_per_gpu=None,
                 optim=optim,
+                rollout_n=1,
             )
         self.assertIn("Please set at least one", str(cm.exception))
 
@@ -197,6 +210,7 @@ class TestActorConfig(unittest.TestCase):
             ppo_micro_batch_size=None,
             ppo_micro_batch_size_per_gpu=None,
             optim=optim,
+            rollout_n=1,
         )
         self.assertIsNotNone(config)  # Should not raise an exception
 
@@ -208,6 +222,7 @@ class TestActorConfig(unittest.TestCase):
             ulysses_sequence_parallel_size=2,
             use_dynamic_bsz=True,  # Skip batch size validation to focus on FSDP validation
             optim=optim,
+            rollout_n=1,
         )
 
         model_config = {"use_remove_padding": False}
@@ -225,6 +240,7 @@ class TestActorConfig(unittest.TestCase):
             ppo_micro_batch_size=8,
             ppo_micro_batch_size_per_gpu=None,  # Ensure only one batch size setting is used
             optim=optim,
+            rollout_n=1,
         )
 
         with self.assertRaises(ValueError) as cm:

@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 def is_torch_npu_available() -> bool:
     """Check the availability of NPU"""
     try:
-        import torch_npu  # noqa: F401
-
-        return torch.npu.is_available()
+        if hasattr(torch, "npu") and callable(getattr(torch.npu, "is_available", None)):
+            return torch.npu.is_available()
+        return False
     except ImportError:
         return False
 
@@ -84,14 +84,13 @@ def get_nccl_backend() -> str:
     Returns:
         nccl backend type string.
     """
-    if is_cuda_available:
-        return "nccl"
-    elif is_npu_available:
+    if is_npu_available:
         return "hccl"
     elif is_mps_available:
         return "gloo"
     else:
-        raise RuntimeError(f"No available nccl backend found on device type {get_device_name()}.")
+        # default to nccl
+        return "nccl"
 
 
 def set_expandable_segments(enable: bool) -> None:
@@ -101,3 +100,23 @@ def set_expandable_segments(enable: bool) -> None:
     """
     if is_cuda_available:
         torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
+
+
+def auto_set_ascend_device_name(config):
+    if config and config.trainer and config.trainer.device:
+        if is_torch_npu_available():
+            if config.trainer.device != "npu":
+                logger.warning(
+                    f"Detect setting config.trainer.device to {config.trainer.device} for Ascend NPU, maybe"
+                    f"from default value in config file, automatically set to `npu` instead."
+                )
+
+            config.trainer.device = "npu"
+
+
+def get_device_capability(device_id: int = 0) -> tuple[int, int]:
+    major, minor = None, None
+    if is_cuda_available:
+        major, minor = torch.cuda.get_device_capability(device_id)
+
+    return major, minor

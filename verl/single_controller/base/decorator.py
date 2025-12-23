@@ -11,13 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import inspect
 from functools import partial, wraps
 from types import FunctionType
 
+from tensordict import TensorDict
+
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
+from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict
+from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
 MAGIC_ATTR = "attrs_3141562937"
@@ -73,13 +76,23 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
 
     splitted_args = []
     for arg in args:
-        assert isinstance(arg, DataProto | DataProtoFuture)
-        splitted_args.append(arg.chunk(chunks=chunks))
+        assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta | TensorDict)
+        if isinstance(arg, TensorDict):
+            chunked_arg = chunk_tensordict(arg, chunks)
+        else:
+            chunked_arg = arg.chunk(chunks=chunks)
+        assert len(chunked_arg) == chunks
+        splitted_args.append(chunked_arg)
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
-        assert isinstance(val, DataProto | DataProtoFuture)
-        splitted_kwargs[key] = val.chunk(chunks=chunks)
+        assert isinstance(val, DataProto | DataProtoFuture | BatchMeta | TensorDict)
+        if isinstance(val, TensorDict):
+            chunked_kwarg = chunk_tensordict(val, chunks)
+        else:
+            chunked_kwarg = val.chunk(chunks=chunks)
+        assert len(chunked_kwarg) == chunks
+        splitted_kwargs[key] = chunked_kwarg
 
     return splitted_args, splitted_kwargs
 
@@ -146,6 +159,10 @@ def _concat_data_proto_or_future(output: list):
         return DataProto.concat(output)
     elif isinstance(o, ray.ObjectRef):
         return DataProtoFuture.concat(output)
+    elif isinstance(o, BatchMeta):
+        return BatchMeta.concat(output)
+    elif isinstance(o, TensorDict):
+        return concat_tensordict(output)
     else:
         raise NotImplementedError
 
@@ -206,14 +223,17 @@ def collect_dp_compute_data_proto(worker_group, output):
 
 
 def dispatch_nd_compute(dp_rank_mapping: list[int], dp_size, worker_group, *args, **kwargs):
-    import ray
+    import os
 
     from verl.single_controller.base.worker_group import WorkerGroup
+    from verl.utils.ray_utils import parallel_put
 
     assert isinstance(worker_group, WorkerGroup)
 
-    args = [[ray.put(dp_arg) for dp_arg in arg] for arg in args]
-    kwargs = {k: [ray.put(dp_v) for dp_v in v] for k, v in kwargs.items()}
+    max_workers = max(1, min(len(args[0]), os.cpu_count()))
+
+    args = [parallel_put(arg, max_workers=max_workers) for arg in args]
+    kwargs = {k: parallel_put(v, max_workers=max_workers) for k, v in kwargs.items()}
 
     all_args = []
     for arg in args:
@@ -262,7 +282,9 @@ def collect_nd_compute_dataproto(collect_mask: list[bool], worker_group, output)
     from verl.protocol import DataProto
 
     for o in output:
-        assert isinstance(o, DataProto | ray.ObjectRef), f"expecting {o} to be DataProto, but got {type(o)}"
+        assert isinstance(o, DataProto | ray.ObjectRef | BatchMeta | TensorDict), (
+            f"expecting {o} to be DataProto | ray.ObjectRef | BatchMeta | TensorDict, but got {type(o)}"
+        )
     return _concat_data_proto_or_future(output)
 
 
@@ -419,10 +441,14 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
         A decorator that wraps the original function with distributed execution
         configuration.
     """
+    from verl.utils.transferqueue_utils import tqbridge
+
     _check_dispatch_mode(dispatch_mode=dispatch_mode)
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
+        func = tqbridge(dispatch_mode=dispatch_mode)(func)
+
         @wraps(func)
         def inner(*args, **kwargs):
             if materialize_futures:

@@ -5,7 +5,7 @@ set -x
 # Example usage:
 #
 #   python3 examples/data_preprocess/math_dataset.py --local_dir ~/data/math
-#   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+#   python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 gsm8k_train_path=$HOME/data/gsm8k/train.parquet
 gsm8k_test_path=$HOME/data/gsm8k/test.parquet
@@ -55,9 +55,13 @@ python3 -m verl.trainer.main_ppo \
     critic.model.fsdp_config.optimizer_offload=False \
     reward_model.enable=True \
     reward_model.model.path="$HOME/models/FsfairX-LLaMA3-RM-v0.1" \
-    reward_model.model.use_remove_padding=True \
-    reward_model.model.fsdp_config.param_offload=True \
-    reward_model.micro_batch_size_per_gpu=32 \
+    reward_model.use_reward_loop=True \
+    reward_model.rollout.name=vllm \
+    reward_model.rollout.gpu_memory_utilization=0.8 \
+    reward_model.rollout.tensor_model_parallel_size=1 \
+    reward_model.rollout.prompt_length=2048 \
+    reward_model.rollout.response_length=1024 \
+    reward_model.num_workers=8 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \

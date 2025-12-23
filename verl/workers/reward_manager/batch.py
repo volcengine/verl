@@ -61,7 +61,11 @@ class BatchRewardManager(AbstractRewardManager):
 
         ground_truths = [item.non_tensor_batch["reward_model"].get("ground_truth", None) for item in data]
         data_sources = data.non_tensor_batch[self.reward_fn_key]
-        extras = data.non_tensor_batch.get("extra_info", [None] * len(data))
+        rollout_reward_scores = data.non_tensor_batch.get("reward_scores", [{} for _ in range(len(data))])
+        extras = data.non_tensor_batch.get("extra_info", [{} for _ in range(len(data))])
+
+        for i in range(len(data)):
+            extras[i]["rollout_reward_scores"] = rollout_reward_scores[i]
 
         scores = self.compute_score(
             data_sources=data_sources,
@@ -75,13 +79,9 @@ class BatchRewardManager(AbstractRewardManager):
 
     def __call__(self, data: DataProto, return_dict: bool = False) -> torch.Tensor | dict[str, Any]:
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
-        if "rm_scores" in data.batch.keys():
-            if return_dict:
-                reward_extra_keys = data.meta_info.get("reward_extra_keys", [])
-                reward_extra_info = {key: data.non_tensor_batch[key] for key in reward_extra_keys}
-                return {"reward_tensor": data.batch["rm_scores"], "reward_extra_info": reward_extra_info}
-            else:
-                return data.batch["rm_scores"]
+        reward_from_rm_scores = self._extract_reward_from_rm_scores(data, return_dict)
+        if reward_from_rm_scores is not None:
+            return reward_from_rm_scores
 
         reward_tensor = torch.zeros_like(data.batch["responses"], dtype=torch.float32)
         reward_extra_info = defaultdict(list)

@@ -218,7 +218,7 @@ class ParallelQwen2ForCausalLM(nn.Module):
         )
 
 
-from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa: F401, E402
 
 
 class ParallelQwen2ModelRmPad(nn.Module):
@@ -583,7 +583,7 @@ class ParallelQwen2ForCausalLMRmPadPP(nn.Module):
     def setup_embeddings_and_output_layer(self) -> None:
         """Sets up embedding layer in first stage and output layer in last stage.
 
-        This function initalizes word embeddings in the final stage when we are
+        This function initializes word embeddings in the final stage when we are
         using pipeline parallelism and sharing word embeddings, and sets up param
         attributes on the embedding and output layers.
         """

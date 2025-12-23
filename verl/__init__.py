@@ -15,13 +15,12 @@
 import importlib
 import logging
 import os
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as get_version
 
 from packaging.version import parse as parse_version
 
 from .protocol import DataProto
 from .utils.device import is_npu_available
+from .utils.import_utils import import_external_libs
 from .utils.logging_utils import set_basic_config
 
 version_folder = os.path.dirname(os.path.join(os.path.abspath(__file__)))
@@ -35,6 +34,13 @@ set_basic_config(level=logging.WARNING)
 
 __all__ = ["DataProto", "__version__"]
 
+
+modules = os.getenv("VERL_USE_EXTERNAL_MODULES", "")
+if modules:
+    modules = modules.split(",")
+    import_external_libs(modules)
+
+
 if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     if importlib.util.find_spec("modelscope") is None:
         raise ImportError("You are using the modelscope hub, please install modelscope by `pip install modelscope -U`")
@@ -44,24 +50,28 @@ if os.getenv("VERL_USE_MODELSCOPE", "False").lower() == "true":
     patch_hub()
 
 if is_npu_available:
-    from .models.transformers import npu_patch as npu_patch
+    # Workaround for torch-npu's lack of support for creating nested tensors from NPU tensors.
+    #
+    # ```
+    # >>> a, b = torch.arange(3).npu(), torch.arange(5).npu() + 3
+    # >>> nt = torch.nested.nested_tensor([a, b], layout=torch.jagged)
+    # ```
+    # throws "not supported in npu" on Ascend NPU.
+    # See https://github.com/Ascend/pytorch/blob/294cdf5335439b359991cecc042957458a8d38ae/torch_npu/utils/npu_intercept.py#L109
+    # for details.
 
-    package_name = "transformers"
-    required_version_spec = "4.52.4"
+    import torch
+
     try:
-        installed_version = get_version(package_name)
-        installed = parse_version(installed_version)
-        required = parse_version(required_version_spec)
+        if hasattr(torch.nested.nested_tensor, "__wrapped__"):
+            torch.nested.nested_tensor = torch.nested.nested_tensor.__wrapped__
+        if hasattr(torch.nested.as_nested_tensor, "__wrapped__"):
+            torch.nested.as_nested_tensor = torch.nested.as_nested_tensor.__wrapped__
+    except AttributeError:
+        pass
 
-        if installed < required:
-            raise ValueError(
-                f"{package_name} version >= {required_version_spec} is required on ASCEND NPU, current version is "
-                f"{installed}."
-            )
-    except PackageNotFoundError as e:
-        raise ImportError(
-            f"package {package_name} is not installed, please run pip install {package_name}=={required_version_spec}"
-        ) from e
+    # Apply patches about transformers
+    from .models.transformers import npu_patch as npu_patch  # noqa
 
     # In verl, the driver process aggregates the computation results of workers via Ray.
     # Therefore, after a worker completes its computation job, it will package the output
@@ -74,16 +84,19 @@ if is_npu_available:
     # for third-party devices such as NPUs. This patch fixes this issue, and the relevant
     # modifications can be removed once the fix is merged into tensordict.
 
-    from tensordict.base import TensorDictBase
+    import tensordict
 
-    def _sync_all_patch(self):
-        from torch._utils import _get_available_device_type, _get_device_module
+    if parse_version(tensordict.__version__) < parse_version("0.10.0"):
+        from tensordict.base import TensorDictBase
 
-        device_type = _get_available_device_type()
-        if device_type is None:
-            return
+        def _sync_all_patch(self):
+            from torch._utils import _get_available_device_type, _get_device_module
 
-        device_module = _get_device_module(device_type)
-        device_module.synchronize()
+            device_type = _get_available_device_type()
+            if device_type is None:
+                return
 
-    TensorDictBase._sync_all = _sync_all_patch
+            device_module = _get_device_module(device_type)
+            device_module.synchronize()
+
+        TensorDictBase._sync_all = _sync_all_patch

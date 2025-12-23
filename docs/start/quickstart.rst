@@ -46,7 +46,7 @@ We preprocess the dataset in parquet format so that (1) it contains necessary fi
 
 .. code-block:: bash
 
-   python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k
+   python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k
 
 Step 2: Download a model for post-training
 -------------------------------------------
@@ -87,7 +87,7 @@ You may set ``VERL_USE_MODELSCOPE=True`` to download models from `modelscope <ht
     data.val_files=$HOME/data/gsm8k/test.parquet \
     data.train_batch_size=256 \
     data.max_prompt_length=512 \
-    data.max_response_length=256 \
+    data.max_response_length=512 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-0.5B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \

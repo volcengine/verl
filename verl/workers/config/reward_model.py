@@ -12,28 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 from verl.base_config import BaseConfig
-from verl.utils.profiler import ProfilerConfig
 
 from .model import HFModelConfig
+from .rollout import RolloutConfig
 
-__all__ = ["ServerConfig", "SandboxFusionConfig", "RewardModelConfig"]
+__all__ = ["SandboxFusionConfig", "RewardModelConfig"]
 
-
-@dataclass
-class ServerConfig(BaseConfig):
-    """
-    Configuration for SGLang server when running in server mode
-    """
-
-    timeout: float = 60.0
-    max_attempts: int = 3
-    retry_delay: float = 2.0
-    max_connections: int = 1000
-    max_start_wait_time: float = 300.0
+logger = logging.getLogger(__name__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 @dataclass
@@ -53,54 +45,25 @@ class SandboxFusionConfig(BaseConfig):
 
 @dataclass
 class RewardModelConfig(BaseConfig):
-    """Configuration for reward model scoring.
-
-    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
-
-    Args:
-        enable (bool): Whether to enable reward model.
-        enable_resource_pool (bool): Whether to deploy the model to a separate resource pool.
-        n_gpus_per_node (int): Number of GPUs per node when using resource pool.
-        nnodes (int): Number of nodes when using resource pool.
-        strategy (str): FSDP strategy: "fsdp" or "fsdp2".
-        model (Dict[str, Any]): Model configuration for reward scoring.
-        micro_batch_size (Optional[int]): Global micro batch size (deprecated).
-        micro_batch_size_per_gpu (Optional[int]): Local per-GPU micro batch size.
-        max_length (Optional[int]): Maximum sequence length to process for scoring.
-        use_dynamic_bsz (bool): Whether to dynamically adjust batch size at runtime.
-        forward_max_token_len_per_gpu (int): Maximum number of tokens per GPU in one forward pass.
-        reward_manager (str): Reward manager type (naive or prime).
-        launch_reward_fn_async (bool): Whether to launch custom reward function asynchronously during log_prob.
-        sandbox_fusion (Dict[str, Any]): Cloud/local sandbox fusion configuration for custom reward logic.
-        profiler (Dict[str, Any]): Profiler configuration for reward model.
-    """
-
     _mutable_fields = BaseConfig._mutable_fields
+
+    reward_manager: Optional[str] = None
 
     enable: bool = False
     enable_resource_pool: bool = False
     n_gpus_per_node: int = 0
     nnodes: int = 0
-    # strategy: str = MISSING
-    # model: BaseModelConfig = field(default_factory=BaseModelConfig)
-    # micro_batch_size: Optional[int] = None
-    # micro_batch_size_per_gpu: Optional[int] = None
-    # max_length: Optional[int] = None
-    # use_dynamic_bsz: bool = False
-    # forward_max_token_len_per_gpu: int = 32768
-    reward_manager: str = "naive"
-    launch_reward_fn_async: bool = False
 
-    tensor_model_parallel_size: int = 2
-    engine_kwargs: dict = field(default_factory=dict)
-    max_num_seqs: int = 1024
-    dtype: str = "bfloat16"
-    gpu_memory_utilization: float = 0.5
-    free_cache_engine: bool = True
-
+    # reward model args
+    rollout: RolloutConfig = field(default_factory=RolloutConfig)
+    model: HFModelConfig = field(default_factory=HFModelConfig)
     sandbox_fusion: SandboxFusionConfig = field(default_factory=SandboxFusionConfig)
-    profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
-    input_model_config: HFModelConfig = field(default_factory=HFModelConfig)
-    model_config: HFModelConfig = field(default_factory=HFModelConfig)
-    # Server configuration for sglang server mode
-    server: ServerConfig = field(default_factory=ServerConfig)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.reward_manager is not None:
+            logger.warning(
+                f"`reward_model.reward_manager` is deprecated, but got value {self.reward_manager}. "
+                "Please use `reward_manager.name instead. "
+                "See `verl/trainer/config/config.py:RewardManagerConfig` for more details."
+            )

@@ -30,7 +30,7 @@ train_prompt_mini_bsz=128
 train_ppo_micro_batch_size_per_gpu=2
 infer_ppo_micro_batch_size_per_gpu=2
 # Paths
-MODEL_PATH=Qwen/Qwen3-30B-A3B
+MODEL_PATH=Qwen/Qwen3-30B-A3B-Base
 
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet

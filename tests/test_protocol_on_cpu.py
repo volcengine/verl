@@ -16,11 +16,21 @@ import random
 
 import numpy as np
 import pytest
+import tensordict
 import torch
+from packaging.version import parse as parse_version
 from tensordict import TensorDict
 
 from verl import DataProto
-from verl.protocol import union_numpy_dict, union_tensor_dict
+from verl.protocol import (
+    deserialize_single_tensor,
+    deserialize_tensordict,
+    serialize_single_tensor,
+    serialize_tensordict,
+    union_numpy_dict,
+    union_tensor_dict,
+)
+from verl.utils import tensordict_utils as tu
 
 
 def test_union_tensor_dict():
@@ -204,6 +214,144 @@ def test_chunk_concat():
     assert torch.all(torch.eq(concat_data.batch["obs"], data.batch["obs"]))
     assert np.all(concat_data.non_tensor_batch["labels"] == data.non_tensor_batch["labels"])
     assert concat_data.meta_info == data.meta_info
+
+
+def test_concat_metrics_from_multiple_workers():
+    """Test that concat() properly merges metrics from all workers in distributed training."""
+    # Simulate 3 workers each with their own metrics
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # Each worker has different metrics (as list of dict format)
+    worker1_metrics = [{"loss": 0.5, "accuracy": 0.9}]
+    worker2_metrics = [{"loss": 0.6, "accuracy": 0.85}]
+    worker3_metrics = [{"loss": 0.55, "accuracy": 0.88}]
+
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": worker1_metrics, "config_flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": worker2_metrics, "config_flag": True})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": worker3_metrics, "config_flag": True})
+
+    # Concat all workers' data
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # Verify tensors are concatenated
+    assert torch.all(torch.eq(concat_data.batch["obs"], torch.tensor([1, 2, 3, 4, 5, 6])))
+
+    # Verify ALL workers' metrics are flattened to dict of lists
+    expected_metrics = {"loss": [0.5, 0.6, 0.55], "accuracy": [0.9, 0.85, 0.88]}
+    assert concat_data.meta_info["metrics"] == expected_metrics
+
+    # Verify config flags are preserved from first worker
+    assert concat_data.meta_info["config_flag"] is True
+
+
+def test_concat_with_empty_and_non_list_meta_info():
+    """Test concat() handles edge cases: empty meta_info, non-list values, and None."""
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Worker 1 has metrics, worker 2 doesn't
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": [{"loss": 0.5}], "flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"flag": True})
+
+    concat_data = DataProto.concat([data1, data2])
+
+    # Should flatten worker1's metrics to dict of lists
+    assert concat_data.meta_info["metrics"] == {"loss": [0.5]}
+    assert concat_data.meta_info["flag"] is True
+
+    # Test with non-list meta_info value
+    data3 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"single_value": 42})
+    data4 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"single_value": 42})
+
+    concat_data2 = DataProto.concat([data3, data4])
+    assert concat_data2.meta_info["single_value"] == 42
+
+
+def test_concat_first_worker_missing_metrics():
+    """Test that metrics from other workers are preserved even when first worker has no metrics.
+
+    This is a critical edge case - the old buggy implementation only checked data[0].meta_info
+    and would lose all metrics if the first worker didn't have any.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # First worker has NO metrics, but workers 2 and 3 do
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config_flag": True})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": {"loss": 0.6}, "config_flag": True})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"metrics": {"loss": 0.55}, "config_flag": True})
+
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # Should flatten metrics from workers 2 and 3 into dict of lists
+    expected_metrics = {"loss": [0.6, 0.55]}
+    assert concat_data.meta_info["metrics"] == expected_metrics
+    assert concat_data.meta_info["config_flag"] is True
+
+
+def test_concat_non_list_metrics():
+    """Test that concat() handles non-list metrics (single dict) correctly.
+
+    In some cases, metrics might be a single dict instead of a list.
+    The implementation should flatten them into a dict of lists.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Metrics as single dict (not wrapped in list)
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"metrics": {"loss": 0.5, "accuracy": 0.9}})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"metrics": {"loss": 0.6, "accuracy": 0.85}})
+
+    concat_data = DataProto.concat([data1, data2])
+
+    # Should flatten to dict of lists
+    expected_metrics = {"loss": [0.5, 0.6], "accuracy": [0.9, 0.85]}
+    assert concat_data.meta_info["metrics"] == expected_metrics
+
+
+def test_concat_merge_different_non_metric_keys():
+    """Test that concat() merges non-metric meta_info keys from all workers.
+
+    When different workers have different non-metric keys, all keys should be preserved.
+    This prevents silent data loss and aligns with the docstring stating meta_info is "merged".
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+    obs3 = torch.tensor([5, 6])
+
+    # Each worker has some unique non-metric keys
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config": "A", "shared_key": "X"})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"extra_key": "B", "shared_key": "X"})
+    data3 = DataProto.from_dict(tensors={"obs": obs3}, meta_info={"another_key": "C", "shared_key": "X"})
+
+    concat_data = DataProto.concat([data1, data2, data3])
+
+    # All unique keys should be preserved
+    assert concat_data.meta_info["config"] == "A"
+    assert concat_data.meta_info["extra_key"] == "B"
+    assert concat_data.meta_info["another_key"] == "C"
+    assert concat_data.meta_info["shared_key"] == "X"
+
+
+def test_concat_conflicting_non_metric_keys():
+    """Test that concat() raises an assertion error when non-metric keys have conflicting values.
+
+    This ensures data integrity by catching cases where workers have different values
+    for what should be the same configuration parameter.
+    """
+    obs1 = torch.tensor([1, 2])
+    obs2 = torch.tensor([3, 4])
+
+    # Same key "config" but different values
+    data1 = DataProto.from_dict(tensors={"obs": obs1}, meta_info={"config": "A"})
+    data2 = DataProto.from_dict(tensors={"obs": obs2}, meta_info={"config": "B"})
+
+    # Should raise an assertion error due to conflicting values
+    with pytest.raises(AssertionError, match="Conflicting values for meta_info key 'config'"):
+        DataProto.concat([data1, data2])
 
 
 def test_pop():
@@ -598,3 +746,489 @@ def test_dataproto_chunk_after_index():
     selected = data[torch_int_mask]
     assert isinstance(selected.batch.batch_size, torch.Size)
     assert all(isinstance(d, int) for d in selected.batch.batch_size)
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict():
+    obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    labels = ["a", "b", "c", "d", "e", "f"]
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"labels": labels}, meta_info={"name": "abdce"})
+    output = data.to_tensordict()
+
+    assert torch.all(torch.eq(output["obs"], obs)).item()
+    assert output["labels"] == labels
+    assert output["name"] == "abdce"
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_from_tensordict():
+    tensor_dict = {
+        "obs": torch.tensor([1, 2, 3, 4, 5, 6]),
+        "labels": ["a", "b", "c", "d", "e", "f"],
+    }
+    non_tensor_dict = {"name": "abdce"}
+    tensordict = tu.get_tensordict(tensor_dict, non_tensor_dict)
+    data = DataProto.from_tensordict(tensordict)
+
+    assert data.non_tensor_batch["labels"].tolist() == tensor_dict["labels"]
+    assert torch.all(torch.eq(data.batch["obs"], tensor_dict["obs"])).item()
+    assert data.meta_info["name"] == "abdce"
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict_with_nested_lists():
+    """Test converting DataProto with nested lists to TensorDict (lists of lists)."""
+    obs = torch.tensor([1, 2, 3])
+    # Simulate turn_scores or tool_rewards: array of lists with varying lengths
+    turn_scores = [[], [0.5, 0.8], [0.9]]
+
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"turn_scores": turn_scores})
+
+    # This should not raise an error
+    tensordict_output = data.to_tensordict()
+
+    # Verify the data is preserved
+    assert torch.all(torch.eq(tensordict_output["obs"], obs)).item()
+    # Verify nested structure is accessible (TensorDict wraps NonTensorStack as LinkedList)
+    retrieved_scores = tensordict_output["turn_scores"]
+    assert len(retrieved_scores) == len(turn_scores)
+    # Verify content matches
+    assert list(retrieved_scores[0]) == []
+    assert list(retrieved_scores[1]) == [0.5, 0.8]
+    assert list(retrieved_scores[2]) == [0.9]
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict_with_nested_dicts():
+    """Test converting DataProto with lists of dicts to TensorDict."""
+    obs = torch.tensor([1, 2, 3])
+    # Simulate reward_extra_info: array of dicts
+    reward_extra_info = [{"acc": 1.0}, {"acc": 0.0}, {"acc": 1.0}]
+
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"reward_extra_info": reward_extra_info})
+
+    # This should not raise an error - this was the original bug
+    tensordict_output = data.to_tensordict()
+
+    # Verify the data is preserved
+    assert torch.all(torch.eq(tensordict_output["obs"], obs)).item()
+    # Verify nested dicts are accessible
+    retrieved_info = tensordict_output["reward_extra_info"]
+    assert len(retrieved_info) == len(reward_extra_info)
+    # Verify content matches
+    for i, expected_dict in enumerate(reward_extra_info):
+        assert dict(retrieved_info[i]) == expected_dict
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict_with_complex_nested_structures():
+    """Test converting DataProto with complex nested structures (lists of lists of dicts)."""
+    obs = torch.tensor([1, 2, 3])
+    # Simulate raw_prompt: array of lists containing dicts
+    raw_prompt = [
+        [{"content": "Question 1", "role": "user"}],
+        [{"content": "Question 2", "role": "user"}, {"content": "Answer 2", "role": "assistant"}],
+        [{"content": "Question 3", "role": "user"}],
+    ]
+
+    data = DataProto.from_dict(tensors={"obs": obs}, non_tensors={"raw_prompt": raw_prompt})
+
+    # This should not raise an error
+    tensordict_output = data.to_tensordict()
+
+    # Verify the data is preserved
+    assert torch.all(torch.eq(tensordict_output["obs"], obs)).item()
+    # Verify complex nested structure is accessible
+    retrieved_prompt = tensordict_output["raw_prompt"]
+    assert len(retrieved_prompt) == len(raw_prompt)
+    # Spot check: verify first prompt has correct structure
+    assert len(retrieved_prompt[0]) == 1
+    assert dict(retrieved_prompt[0][0]) == {"content": "Question 1", "role": "user"}
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict_and_back_with_nested_data():
+    """Test round-trip conversion: DataProto → TensorDict → DataProto with nested structures."""
+    obs = torch.tensor([1, 2, 3, 4])
+    labels = ["a", "b", "c", "d"]
+
+    # Multiple types of nested structures
+    turn_scores = [[], [0.5], [0.8, 0.9], [0.7]]
+    reward_extra_info = [
+        {"acc": 1.0, "loss": 0.1},
+        {"acc": 0.5, "loss": 0.3},
+        {"acc": 1.0, "loss": 0.05},
+        {"acc": 0.0, "loss": 0.9},
+    ]
+    raw_prompt = [
+        [{"content": "Q1", "role": "user"}],
+        [{"content": "Q2", "role": "user"}],
+        [{"content": "Q3", "role": "user"}, {"content": "A3", "role": "assistant"}],
+        [{"content": "Q4", "role": "user"}],
+    ]
+
+    # Create original DataProto
+    original_data = DataProto.from_dict(
+        tensors={"obs": obs},
+        non_tensors={
+            "labels": labels,
+            "turn_scores": turn_scores,
+            "reward_extra_info": reward_extra_info,
+            "raw_prompt": raw_prompt,
+        },
+        meta_info={"experiment": "test_nested"},
+    )
+
+    # Convert to TensorDict
+    tensordict_output = original_data.to_tensordict()
+
+    # Convert back to DataProto
+    reconstructed_data = DataProto.from_tensordict(tensordict_output)
+
+    # Verify tensors are preserved
+    assert torch.all(torch.eq(reconstructed_data.batch["obs"], obs)).item()
+
+    # Verify non-tensor data is preserved
+    assert reconstructed_data.non_tensor_batch["labels"].tolist() == labels
+
+    # Verify nested structures are preserved
+    assert len(reconstructed_data.non_tensor_batch["turn_scores"]) == len(turn_scores)
+    for orig, recon in zip(turn_scores, reconstructed_data.non_tensor_batch["turn_scores"], strict=True):
+        assert list(orig) == list(recon)
+
+    assert len(reconstructed_data.non_tensor_batch["reward_extra_info"]) == len(reward_extra_info)
+    for orig, recon in zip(reward_extra_info, reconstructed_data.non_tensor_batch["reward_extra_info"], strict=True):
+        assert orig == recon
+
+    assert len(reconstructed_data.non_tensor_batch["raw_prompt"]) == len(raw_prompt)
+    for orig, recon in zip(raw_prompt, reconstructed_data.non_tensor_batch["raw_prompt"], strict=True):
+        assert orig == list(recon)
+
+    # Verify meta_info is preserved
+    assert reconstructed_data.meta_info["experiment"] == "test_nested"
+
+
+@pytest.mark.skipif(
+    parse_version(tensordict.__version__) < parse_version("0.10"), reason="requires at least tensordict 0.10"
+)
+def test_to_tensordict_agent_loop_scenario():
+    """Test the exact scenario from agent loop: DataProto with tool rewards, acc, etc.
+
+    This test reproduces the exact error from the agent loop where nested structures
+    (lists of lists, lists of dicts) failed to convert to TensorDict.
+    """
+    # Simulate real agent loop data structure
+    prompts = torch.tensor([[1, 2, 3], [4, 5, 6]])
+    responses = torch.tensor([[7, 8], [9, 10]])
+
+    # Non-tensor data with nested structures from agent loop
+    data_source = ["lighteval/MATH", "lighteval/MATH"]
+    uid = ["uuid-1", "uuid-2"]
+    num_turns = np.array([2, 4], dtype=np.int32)
+    acc = np.array([1.0, 0.0])
+    turn_scores = [[], [0.5, 0.8]]  # Lists of varying lengths
+    reward_extra_info = [{"acc": 1.0}, {"acc": 0.0}]  # List of dicts
+    raw_prompt = [
+        [{"content": "Compute 4 @ 2", "role": "user"}],
+        [{"content": "Compute 8 @ 7", "role": "user"}],
+    ]
+    tool_rewards = [[0.0], []]  # List of lists
+
+    data = DataProto.from_dict(
+        tensors={"prompts": prompts, "responses": responses},
+        non_tensors={
+            "data_source": data_source,
+            "uid": uid,
+            "num_turns": num_turns,
+            "acc": acc,
+            "turn_scores": turn_scores,
+            "reward_extra_info": reward_extra_info,
+            "raw_prompt": raw_prompt,
+            "tool_rewards": tool_rewards,
+        },
+        meta_info={"global_steps": 42},
+    )
+
+    # THE KEY TEST: This should not raise ValueError about TensorDict conversion
+    tensordict_output = data.to_tensordict()
+
+    # Verify tensors are accessible
+    assert torch.all(torch.eq(tensordict_output["prompts"], prompts)).item()
+    assert torch.all(torch.eq(tensordict_output["responses"], responses)).item()
+
+    # Verify all nested structures are accessible (content check, not type check)
+    assert len(tensordict_output["turn_scores"]) == 2
+    assert list(tensordict_output["turn_scores"][0]) == []
+    assert list(tensordict_output["turn_scores"][1]) == [0.5, 0.8]
+
+    assert len(tensordict_output["reward_extra_info"]) == 2
+    assert dict(tensordict_output["reward_extra_info"][0]) == {"acc": 1.0}
+
+    assert len(tensordict_output["raw_prompt"]) == 2
+    assert dict(tensordict_output["raw_prompt"][0][0]) == {"content": "Compute 4 @ 2", "role": "user"}
+
+    assert len(tensordict_output["tool_rewards"]) == 2
+    assert list(tensordict_output["tool_rewards"][0]) == [0.0]
+    assert list(tensordict_output["tool_rewards"][1]) == []
+
+    # Verify round-trip conversion works perfectly
+    reconstructed = DataProto.from_tensordict(tensordict_output)
+    assert len(reconstructed) == 2
+    assert reconstructed.meta_info["global_steps"] == 42
+    assert torch.all(torch.eq(reconstructed.batch["prompts"], prompts)).item()
+
+
+def test_serialize_deserialize_single_tensor():
+    """Test serialization and deserialization of a single tensor"""
+    # Create test tensor
+    original_tensor = torch.randn(3, 4, 5)
+
+    # Serialize
+    dtype, shape, data = serialize_single_tensor(original_tensor)
+
+    # Deserialize
+    reconstructed_tensor = deserialize_single_tensor((dtype, shape, data))
+
+    # Verify results
+    assert torch.allclose(original_tensor, reconstructed_tensor)
+    assert original_tensor.shape == reconstructed_tensor.shape
+    assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_regular_tensors():
+    """Test serialization and deserialization of TensorDict with regular tensors"""
+    # Create test data
+    batch_size = (5, 3)
+    tensor1 = torch.randn(*batch_size, 4)
+    tensor2 = torch.randint(0, 10, (*batch_size, 2))
+
+    # Create TensorDict
+    original_tensordict = TensorDict({"tensor1": tensor1, "tensor2": tensor2}, batch_size=batch_size)
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        assert torch.allclose(original_tensor, reconstructed_tensor)
+        assert original_tensor.shape == reconstructed_tensor.shape
+        assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_nested_tensors():
+    """Test serialization and deserialization of TensorDict with nested tensors"""
+    # Create nested tensor
+    tensor_list = [torch.randn(2, 3), torch.randn(3, 4), torch.randn(1, 5)]
+    nested_tensor = torch.nested.as_nested_tensor(tensor_list)
+
+    # Create regular tensor for comparison
+    regular_tensor = torch.randn(3, 4, 5)
+
+    # Create TensorDict
+    original_tensordict = TensorDict({"nested": nested_tensor, "regular": regular_tensor}, batch_size=(3,))
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    # Verify regular tensor
+    original_regular = original_tensordict["regular"]
+    reconstructed_regular = reconstructed_tensordict["regular"]
+
+    assert torch.allclose(original_regular, reconstructed_regular)
+    assert original_regular.shape == reconstructed_regular.shape
+    assert original_regular.dtype == reconstructed_regular.dtype
+
+    # Verify nested tensor
+    original_nested = original_tensordict["nested"]
+    reconstructed_nested = reconstructed_tensordict["nested"]
+
+    # Check if it's a nested tensor
+    assert original_nested.is_nested
+    assert reconstructed_nested.is_nested
+
+    # Check layout
+    assert original_nested.layout == reconstructed_nested.layout
+
+    # Check each tensor after unbinding
+    original_unbind = original_nested.unbind()
+    reconstructed_unbind = reconstructed_nested.unbind()
+
+    assert len(original_unbind) == len(reconstructed_unbind)
+
+    for orig, recon in zip(original_unbind, reconstructed_unbind, strict=False):
+        assert torch.allclose(orig, recon)
+        assert orig.shape == recon.shape
+        assert orig.dtype == recon.dtype
+
+
+def test_serialize_deserialize_tensordict_mixed_types():
+    """Test serialization and deserialization of TensorDict with mixed tensor types"""
+    # Create tensors with different data types
+    float_tensor = torch.randn(2, 3).float()
+    double_tensor = torch.randn(2, 3).double()
+    int_tensor = torch.randint(0, 10, (2, 3)).int()
+    long_tensor = torch.randint(0, 10, (2, 3)).long()
+    bool_tensor = torch.tensor([[True, False], [False, True]])
+    bfloat16_tensor = torch.randn(2, 3).bfloat16()
+
+    # Add fp8 tensor (if available)
+    # Note: FP8 is not natively supported in all PyTorch versions
+    # We'll check if it's available and conditionally include it
+    has_fp8 = hasattr(torch, "float8_e5m2") or hasattr(torch, "float8_e4m3fn")
+    if has_fp8:
+        try:
+            # Try to create an FP8 tensor (implementation may vary)
+            # This is a placeholder - actual FP8 support might require specific hardware
+            fp8_tensor = torch.randn(2, 3)
+            if hasattr(torch, "float8_e5m2"):
+                fp8_tensor = fp8_tensor.to(torch.float8_e5m2)
+            elif hasattr(torch, "float8_e4m3fn"):
+                fp8_tensor = fp8_tensor.to(torch.float8_e4m3fn)
+        except Exception:
+            has_fp8 = False
+
+    # Create nested tensor
+    tensor_list = [
+        torch.randn(2, 3),
+        torch.randn(3, 4),
+    ]
+    nested_tensor = torch.nested.as_nested_tensor(tensor_list)
+
+    # Create TensorDict with all available types
+    tensordict_data = {
+        "float": float_tensor,
+        "double": double_tensor,
+        "int": int_tensor,
+        "long": long_tensor,
+        "bool": bool_tensor,
+        "bfloat16": bfloat16_tensor,
+        "nested": nested_tensor,
+    }
+
+    # Conditionally add fp8 tensor if available
+    if has_fp8:
+        tensordict_data["fp8"] = fp8_tensor
+
+    original_tensordict = TensorDict(
+        tensordict_data,
+        batch_size=(2,),
+    )
+
+    # Serialize
+    batch_size_serialized, device, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        if original_tensor.is_nested:
+            # For nested tensors, check each tensor after unbinding
+            original_unbind = original_tensor.unbind()
+            reconstructed_unbind = reconstructed_tensor.unbind()
+
+            assert len(original_unbind) == len(reconstructed_unbind)
+
+            for orig, recon in zip(original_unbind, reconstructed_unbind, strict=False):
+                assert torch.allclose(orig, recon, equal_nan=True)
+                assert orig.shape == recon.shape
+                assert orig.dtype == recon.dtype
+        else:
+            # For regular tensors, compare directly
+            assert torch.all(original_tensor == reconstructed_tensor)
+            assert original_tensor.shape == reconstructed_tensor.shape
+            assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_deserialize_tensordict_with_device():
+    """Test serialization and deserialization of TensorDict with device information"""
+    # Create test data
+    batch_size = (2, 3)
+    tensor1 = torch.randn(*batch_size, 4)
+    tensor2 = torch.randint(0, 10, (*batch_size, 2))
+
+    # Create TensorDict with device information
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    original_tensordict = TensorDict({"tensor1": tensor1, "tensor2": tensor2}, batch_size=batch_size, device=device)
+
+    # Serialize
+    batch_size_serialized, device_serialized, encoded_items = serialize_tensordict(original_tensordict)
+
+    # Deserialize
+    reconstructed_tensordict = deserialize_tensordict((batch_size_serialized, device_serialized, encoded_items))
+
+    # Verify results
+    assert original_tensordict.batch_size == reconstructed_tensordict.batch_size
+    assert str(original_tensordict.device) == str(reconstructed_tensordict.device)
+    assert set(original_tensordict.keys()) == set(reconstructed_tensordict.keys())
+
+    for key in original_tensordict.keys():
+        original_tensor = original_tensordict[key]
+        reconstructed_tensor = reconstructed_tensordict[key]
+
+        assert torch.allclose(original_tensor.cpu(), reconstructed_tensor.cpu())
+        assert original_tensor.shape == reconstructed_tensor.shape
+        assert original_tensor.dtype == reconstructed_tensor.dtype
+
+
+def test_serialize_dataproto_with_empty_tensordict():
+    """Tests that serializing a DataProto with an empty TensorDict does not crash.
+
+    This test verifies the fix for the torch.cat error that occurs when calling
+    consolidate() on an empty TensorDict during serialization.
+    """
+    import pickle
+
+    # This test requires tensordict >= 0.5.0 to trigger the code path
+    if parse_version(tensordict.__version__) < parse_version("0.5.0"):
+        pytest.skip("Test requires tensordict>=0.5.0")
+
+    # Create a DataProto with an empty TensorDict but with a batch size
+    empty_td = TensorDict({}, batch_size=[10])
+    data = DataProto(batch=empty_td)
+
+    # This would crash before the fix with:
+    # RuntimeError: torch.cat(): expected a non-empty list of Tensors
+    try:
+        serialized_data = pickle.dumps(data)
+    except Exception as e:
+        pytest.fail(f"Serializing DataProto with empty TensorDict failed with: {e}")
+
+    # Verify deserialization works as expected
+    deserialized_data = pickle.loads(serialized_data)
+    assert len(deserialized_data.batch.keys()) == 0
+    assert deserialized_data.batch.batch_size == torch.Size([10])

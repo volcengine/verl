@@ -80,7 +80,6 @@ def test_mcore_config_converter():
         tensor_model_parallel_size=2,
         pipeline_model_parallel_size=2,
         virtual_pipeline_model_parallel_size=None,
-        pipeline_model_parallel_split_rank=None,
         use_sharp=False,
         context_parallel_size=2,
         expert_model_parallel_size=1,
@@ -89,7 +88,7 @@ def test_mcore_config_converter():
     )
     for model_name in TEST_MODELS:
         print(f"testing {model_name}")
-        hf_config = AutoConfig.from_pretrained(os.path.expanduser(f"~/configs/{model_name}/config.json"))
+        hf_config = AutoConfig.from_pretrained(os.path.expanduser(f"~/models/configs/{model_name}/config.json"))
         hf_config = modify_hf_config(model_name, hf_config)
         tf_config = hf_to_mcore_config(hf_config, torch.bfloat16)
         check_config_converter_results(tf_config, hf_config)

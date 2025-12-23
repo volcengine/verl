@@ -115,7 +115,7 @@ The following steps outline how to set up the environment and run the SPIN recip
     # wandb login
 
     # Download the GSM8K dataset
-    python3 examples/data_preprocess/gsm8k.py --local_dir ~/data/gsm8k # Adjusted path
+    python3 examples/data_preprocess/gsm8k.py --local_save_dir ~/data/gsm8k # Adjusted path
 
     # Download the base model (Example: Qwen2.5-3B-Instruct)
     huggingface-cli download Qwen/Qwen2.5-3B-Instruct --local-dir $HOME/models/Qwen2.5-3B-Instruct
@@ -123,7 +123,7 @@ The following steps outline how to set up the environment and run the SPIN recip
 
 4.  **Configure:**
     * Modify the configuration file (e.g., `config/spin_trainer.yaml` or the one specified in the run script) with correct paths to your downloaded model, data, desired hyperparameters (`dpo_beta`, learning rate, etc.), and distributed training settings (nodes, GPUs per node).
-    * Pay attention to `actor_rollout_ref.model_path`, `data` paths, `reward_model` config (if using one), and `trainer.ref_update_freq`.
+    * Pay attention to `actor_rollout_ref.model`, `data` paths, `reward_model` config (if using one), and `trainer.ref_update_freq`.
 
 5.  **Run Training:**
     ```bash

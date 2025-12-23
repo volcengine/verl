@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -22,6 +23,7 @@ from verl.trainer.config import BaseModelConfig, CheckpointConfig
 from verl.utils.profiler import ProfilerConfig
 
 from .engine import FSDPEngineConfig, McoreEngineConfig
+from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
 __all__ = ["CriticConfig", "FSDPCriticConfig", "McoreCriticConfig", "FSDPCriticModelCfg"]
@@ -57,6 +59,7 @@ class CriticConfig(BaseConfig):
         "ppo_micro_batch_size_per_gpu",
         "ppo_mini_batch_size",
         "ppo_micro_batch_size",
+        "model_config",
     }
 
     strategy: str = MISSING
@@ -66,20 +69,38 @@ class CriticConfig(BaseConfig):
     ppo_mini_batch_size: int = 1
     use_dynamic_bsz: bool = False
     ppo_max_token_len_per_gpu: int = 32768
+    # deprecate this
     forward_max_token_len_per_gpu: int = 32768
+    ppo_infer_micro_batch_size_per_gpu: Optional[int] = None
+    ppo_infer_max_token_len_per_gpu: int = 32768
     ppo_epochs: int = 1
+    data_loader_seed: int = 1
     shuffle: bool = True
     cliprange_value: float = 0.5
     loss_agg_mode: str = "token-mean"
     ppo_micro_batch_size: Optional[int] = None
+    engine: BaseConfig = field(default_factory=BaseConfig)
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
+    # deprecate model to favor model_config
     model: BaseModelConfig = field(default_factory=BaseModelConfig)
+    model_config: HFModelConfig = None
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
 
     def __post_init__(self):
         """Validate critic configuration parameters."""
         assert self.strategy != MISSING
+
+        if self.model_config is None:
+            warnings.warn("using model in Critic Config is deprecated, please use model_config instead", stacklevel=2)
+            self.model_config = HFModelConfig(
+                path=self.model.path,
+                tokenizer_path=self.model.tokenizer_path,
+                override_config=self.model.override_config,
+                external_lib=self.model.external_lib,
+                trust_remote_code=self.model.trust_remote_code,
+            )
+
         if not self.use_dynamic_bsz:
             self._check_mutually_exclusive(self.ppo_micro_batch_size, self.ppo_micro_batch_size_per_gpu, "critic")
 
@@ -142,14 +163,12 @@ class McoreCriticConfig(CriticConfig):
         nccl_timeout (int): NCCL timeout in seconds for distributed operations.
         megatron (Dict[str, Any]): Megatron-specific parallelism settings.
         load_weight (bool): Whether to load initial weights.
-        data_loader_seed (Optional[int]): Seed for data loader.
     """
 
     strategy: str = "megatron"
     nccl_timeout: int = 600
     megatron: McoreEngineConfig = field(default_factory=McoreEngineConfig)
     load_weight: bool = True
-    data_loader_seed: Optional[int] = None
 
     def validate(self, n_gpus: int, train_batch_size: int):
         """Validate Megatron critic configuration with runtime parameters."""
@@ -165,7 +184,7 @@ class FSDPCriticConfig(CriticConfig):
     Args:
         forward_micro_batch_size (int): Forward-only batch size during inference (global).
         forward_micro_batch_size_per_gpu (int): Forward-only batch size during inference (per GPU).
-        ulysses_sequence_parallel_size (int): Sequence parallelism size for Ulysses-style model parallelism.
+        ulysses_sequence_parallel_size (int): [DEPRECATED] Ulysses sequence parallel size for long sequences.
         grad_clip (float): Gradient clipping for critic updates.
     """
 

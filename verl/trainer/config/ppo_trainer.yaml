@@ -14,6 +14,9 @@ defaults:
   # data: trainer/config/data/legacy_data.yaml
   - data@data: legacy_data
 
+  # (Rule-based) Reward manager config.
+  - reward_manager@reward_manager
+
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   - ref@actor_rollout_ref.ref: dp_ref
@@ -28,7 +31,10 @@ defaults:
   - critic@critic: dp_critic
 
   # Reward model config.
-  - reward_model@reward_model: dp_reward_model
+  - reward_model@reward_model: dp_reward_loop
+
+  # Rollout correction config.
+  - algorithm@algorithm.rollout_correction: rollout_correction
 
   # load the reference default config, then apply the fields in the current yaml
   # self config override anything above
@@ -45,13 +51,6 @@ actor_rollout_ref:
 
   # Rollout model config.
   rollout:
-
-    # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
-    enable_chunked_prefill: True
-
-    # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
-    # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
-    load_format: dummy_dtensor
 
     # for huge model, layered summon can save memory (prevent OOM) but make it slower
     layered_summon: False
@@ -139,7 +138,7 @@ trainer:
   experiment_name: gsm8k
 
   # Logging backends to use: "console", "wandb", etc.
-  logger: [ 'console', 'wandb' ]
+  logger: ["console", "wandb"]
 
   # Number of generations to log during validation
   log_val_generations: 0
@@ -212,7 +211,6 @@ trainer:
   #  mode: "auto", "enable", or "disable"
   use_legacy_worker_impl: auto
 
-
 # profiler configs
 global_profiler:
 
@@ -235,7 +233,7 @@ global_profiler:
 
   # Specific tool configs, can use +profiler.tool_config.[tool].xxx to config
   global_tool_config:
-  
+
     # nsys config
     nsys:
 
@@ -302,13 +300,19 @@ global_profiler:
 
       # devices, record_context etc.
       kw_args: {}
-  
+
+# configs for TransferQueue
+transfer_queue:
+
+  # Whether to enable transfer queue
+  enable: False
+
 # configs related to ray
 ray_kwargs:
 
   # configs related to ray initialization
   ray_init:
-  
+
     # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
     num_cpus: null
     num_gpus: null
