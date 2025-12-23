@@ -106,7 +106,7 @@ RUN pip3 install nvtx matplotlib liger_kernel
 
 RUN pip install -U git+https://github.com/ISEEKYAN/mbridge.git
 
-RUN pip install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.14.0rc7
+RUN pip install --no-deps git+https://github.com/NVIDIA/Megatron-LM.git@core_v0.15.0
 
 RUN pip install git+https://github.com/volcengine/verl.git@v0.6.0 && \
     pip uninstall -y verl
