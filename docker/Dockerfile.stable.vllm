@@ -50,14 +50,14 @@ RUN pip install codetiming tensordict mathruler pylatexenc qwen_vl_utils
 
 RUN pip install flash_attn==2.8.1 --no-build-isolation
 
-RUN wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_5/nsight-systems-2025.5.1_2025.5.1.121-1_amd64.deb && \
+RUN wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_6/nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
     apt-get update && apt-get install -y libxcb-cursor0 && \
-    apt-get install -y ./nsight-systems-2025.5.1_2025.5.1.121-1_amd64.deb && \
+    apt-get install -y ./nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
     rm -rf /usr/local/cuda/bin/nsys && \
-    ln -s /opt/nvidia/nsight-systems/2025.5.1/target-linux-x64/nsys  /usr/local/cuda/bin/nsys && \
+    ln -s /opt/nvidia/nsight-systems/2025.6.1/target-linux-x64/nsys  /usr/local/cuda/bin/nsys && \
     rm -rf /usr/local/cuda/bin/nsys-ui && \
-    ln -s /opt/nvidia/nsight-systems/2025.5.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
-    rm nsight-systems-2025.5.1_2025.5.1.121-1_amd64.deb && \
+    ln -s /opt/nvidia/nsight-systems/2025.6.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
+    rm nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
     rm -rf /var/lib/apt/lists/*
 
 # =========================
