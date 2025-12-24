@@ -20,11 +20,13 @@ from collections.abc import Callable
 from dataclasses import asdict
 
 import numpy as np
+import ray
 import torch
 import torch.distributed
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.enums import AttnBackend
+from ray.util.state import api
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
@@ -414,7 +416,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # remove previous local_path
         if (
-            max_ckpt_to_keep
+            not self.checkpoint_config.async_save
+            and max_ckpt_to_keep
             and isinstance(max_ckpt_to_keep, int)
             and max_ckpt_to_keep > 0
             and len(self.previous_saved_paths) >= max_ckpt_to_keep
@@ -633,12 +636,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             log_with_rank(
                 f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger
             )
-            if self.checkpoint_config.async_save and self.rank == 0:
-                local_latest_checkpointed_iteration = os.path.join(
-                    os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
-                )
-                with open(local_latest_checkpointed_iteration, "w") as f:
-                    f.write(str(global_step))
             if self.rank == 0:
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
@@ -647,6 +644,31 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=dist_checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
                     hdfs_io.copy(src=hf_config_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
+            if not self.checkpoint_config.async_save:
+                return
+            head_node = None
+            nodes = api.list_nodes()
+            for node in nodes:
+                if node.is_head_node:
+                    head_node = node
+                    break
+            current_node_id = ray.get_runtime_context().get_node_id()
+            if head_node is not None and head_node.node_id == current_node_id:
+                local_latest_checkpointed_iteration = os.path.join(
+                    os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
+                )
+                with open(local_latest_checkpointed_iteration, "w") as f:
+                    f.write(str(global_step))
+            # remove previous local_path
+            if (
+                max_ckpt_to_keep
+                and isinstance(max_ckpt_to_keep, int)
+                and max_ckpt_to_keep > 0
+                and len(self.previous_saved_paths) >= max_ckpt_to_keep
+            ):
+                keep_start = global_step - max_ckpt_to_keep
+                self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
+                self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
         if self.checkpoint_config.async_save:
             assert async_save_request is not None, "Async save request should not be None when using async save."
