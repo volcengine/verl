@@ -64,3 +64,4 @@ pip3 install -e .[sglang]
 
 - 2025/12/23: update vllm stable image to vllm==0.12.0; update sglang stable image to sglang==0.5.6
 - 2025/11/18: update vllm stable image to vllm==0.11.1; update sglang stable image to sglang==0.5.5
+
