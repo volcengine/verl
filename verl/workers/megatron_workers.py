@@ -691,8 +691,26 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.bridge is not None:
             if self.vanilla_bridge:
-                print(f"hzg rollout mode {self.config.model.mtp.enable_rollout}")
-                per_tensor_param = self.bridge.export_weights(self.actor.actor_module, self.config.model.mtp.enable_rollout)
+                per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+
+                # raw_per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+                #
+                # # 添加处理层来查看和修改 per_tensor_param，并检查张量有效性
+                # def processed_per_tensor_param_generator():
+                #     for name, param in raw_per_tensor_param:
+                #         # 在这里可以查看和处理每个参数
+                #         # print(f"hzg Processing tensor: {name}, shape: {param.shape}, dtype: {param.dtype}")
+                #         # 检查张量是否包含无效值
+                #         if torch.isnan(param).any():
+                #             print(f"WARNING: Tensor {name} contains NaN values!")
+                #             print(f"NaN count: {torch.isnan(param).sum()}")
+                #         if torch.isinf(param).any():
+                #             print(f"WARNING: Tensor {name} contains Inf values!")
+                #             print(f"Inf count: {torch.isinf(param).sum()}")
+                #
+                #         yield name, param
+                #
+                # per_tensor_param = processed_per_tensor_param_generator()
             else:
                 per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
         else:
@@ -706,8 +724,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
-        # await self.rollout.update_weights(per_tensor_param)
-        print(f"hzg await self.rollout.update_weights(per_tensor_param)")
+        await self.rollout.update_weights(per_tensor_param)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor.actor_module)
         aggressive_empty_cache(force_sync=True)
