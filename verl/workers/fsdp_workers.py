@@ -106,13 +106,20 @@ def create_device_mesh(world_size, fsdp_size):
     return device_mesh
 
 
-def get_sharding_strategy(device_mesh):
+def get_sharding_strategy(device_mesh, zero3_enable):
     from torch.distributed.fsdp import ShardingStrategy
 
+    if zero3_enable:
+        fsdp_strategy = ShardingStrategy.FULL_SHARD
+        hsdp_strategy = ShardingStrategy.HYBRID_SHARD
+    else:
+        fsdp_strategy = ShardingStrategy.SHARD_GRAD_OP
+        hsdp_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
+
     if device_mesh.ndim == 1:
-        sharding_strategy = ShardingStrategy.FULL_SHARD
+        sharding_strategy = fsdp_strategy
     elif device_mesh.ndim == 2:
-        sharding_strategy = ShardingStrategy.HYBRID_SHARD
+        sharding_strategy = hsdp_strategy
     else:
         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
     return sharding_strategy
@@ -485,7 +492,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
-        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+        fsdp_enable_zero3 = fsdp_config.get("reshard_after_forward")
+        sharding_strategy = get_sharding_strategy(fsdp_mesh, fsdp_enable_zero3)
 
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
