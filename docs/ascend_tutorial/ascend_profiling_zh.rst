@@ -57,6 +57,12 @@ Last updated: 08/14/2025.
 
 -  analysis: 启用自动数据解析。
 -  discrete: 使用离散模式。
+-  roles: 控制采集的阶段，例如 "all", "actor_compute_log_prob", "actor_update", "ref_compute_log_prob", "rollout_generate", 仅在离散模式下生效。
+   -  actor_compute_log_prob: 采集actor计算对数概率阶段的数据，仅在 `actor` 下生效。
+   -  actor_update: 采集actor更新阶段的数据，仅在 `actor` 下生效。
+   -  ref_compute_log_prob: 采集ref计算对数概率阶段的数据，仅在 `ref` 下生效。
+   -  rollout_generate: 采集rollout生成阶段的数据，仅在 `rollout` 下生效。
+   -  all: 采集所在角色的所有阶段的数据。
 
 示例
 ----
@@ -75,6 +81,7 @@ Last updated: 08/14/2025.
 .. code:: yaml
 
       global_profiler:
+         tool: npu
          steps: [1, 2, 5]
       actor_rollout_ref:
          actor:
@@ -93,6 +100,7 @@ Last updated: 08/14/2025.
 .. code:: yaml
 
       global_profiler:
+         tool: npu
          steps: [1, 2, 5]
       actor_rollout_ref:
          actor:
@@ -102,6 +110,7 @@ Last updated: 08/14/2025.
                tool_config:
                   npu:
                      discrete: True
+                     roles: ["all"]
         # rollout & ref follow actor settings
 
 
