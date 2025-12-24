@@ -145,6 +145,7 @@ class RolloutConfig(BaseConfig):
     tensor_model_parallel_size: int = 2
     pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
+    max_batch_size: int = 256
 
     # TODO: enable train_kwargs
     # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
@@ -180,6 +181,7 @@ class RolloutConfig(BaseConfig):
     prometheus: PrometheusConfig = field(default_factory=PrometheusConfig)
 
     update_weights_bucket_megabytes: int = 512
+    refit_ipc_memory_ratio: float = 0.5
 
     skip_rollout: bool = False
 
@@ -215,7 +217,7 @@ class RolloutConfig(BaseConfig):
             )
 
         if self.pipeline_model_parallel_size > 1:
-            if self.name == "vllm" or self.name == "sglang":
+            if self.name == "vllm" or self.name == "sglang" or self.name == "trtllm":
                 raise NotImplementedError(
                     f"Current rollout {self.name=} not implemented pipeline_model_parallel_size > 1 yet."
                 )
