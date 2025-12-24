@@ -94,6 +94,10 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
         return future.result()
 
+    def _flush_sglang_batch(self, inference_model, batch_data):
+        batch_copy = list(batch_data)
+        self._run_async_safely(self.update_weights(inference_model, batch_copy))   
+
     def __del__(self):
         if hasattr(self, "_bg_loop") and self._bg_loop.is_running():
             self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
@@ -157,69 +161,40 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
 
         from ray.util.collective import collective
+        
+        max_bucket_bytes = 8 * 1024 * 1024 * 1024 # 8GB
+        bucket = []
+        bucket_bytes = 0
 
-        BATCH_SIZE = 20
+        for key, shape, dtype in self._weights_info:
+            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+            if self._is_actor:
+                assert key in params
+                origin_data = params[key]
+                if hasattr(origin_data, "full_tensor"):
+                    origin_data = origin_data.full_tensor()
+                if torch.distributed.get_rank() == 0:
+                    tensor.copy_(origin_data)
+        collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
 
-        if rollout_name == "sglang" and self._is_rollout:
+        if self._is_rollout:
+            # batching tensors for sglang
+            if rollout_name == "sglang":
+                bucket.append((key, tensor))
+                bucket_bytes += tensor.numel() * tensor.element_size()
 
-            current_batch = []
-            batch_count = 0
+                if bucket_bytes >= max_bucket_bytes:
+                    self._flush_sglang_batch(inference_model, bucket)
+                    bucket.clear()
+                    bucket_bytes = 0
+            else:
+                if rollout_name == "vllm":
+                    inference_model.load_weights([(key, tensor)])
 
-            for key, shape, dtype in self._weights_info:
-                tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-                if self._is_actor:
-                    assert key in params
-                    origin_data = params[key]
-                    if hasattr(origin_data, "full_tensor"):
-                        origin_data = origin_data.full_tensor()
-                    if torch.distributed.get_rank() == 0:
-                        tensor.copy_(origin_data)
-
-                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
-
-                current_batch.append((key, tensor))
-
-                # Process batch when it reaches BATCH_SIZE or at the end
-                if len(current_batch) >= BATCH_SIZE:
-                    def batch_generator():
-                        for item in current_batch:
-                            yield item
-                    self._run_async_safely(self.update_weights(inference_model, batch_generator()))
-                    # Clear batch to free memory
-                    current_batch.clear()
-                    batch_count += 1
-                    # Clear cache periodically to help with memory fragmentation
-                    if batch_count % 5 == 0:
-                        get_torch_device().empty_cache()
-                
-            # Process remaining tensors in the last batch
-            if current_batch:
-                def batch_generator():
-                    for item in current_batch:
-                        yield item
-                self._run_async_safely(self.update_weights(inference_model, batch_generator()))
-                current_batch.clear()
-
-        else:
-            # Original implementation for VLLM or actor workers
-            for key, shape, dtype in self._weights_info:
-                tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-                if self._is_actor:
-                    assert key in params
-                    origin_data = params[key]
-                    if hasattr(origin_data, "full_tensor"):
-                        origin_data = origin_data.full_tensor()
-                    if torch.distributed.get_rank() == 0:
-                        tensor.copy_(origin_data)
-
-                # Critical: All workers (actor + rollout) must participate in broadcast
-                # This is a synchronous collective operation
-                collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
-
-                if self._is_rollout:
-                    if rollout_name == "vllm":
-                        inference_model.load_weights([(key, tensor)])
-
+        if self._is_rollout and rollout_name == "sglang" and bucket:
+            self._flush_sglang_batch(inference_model, bucket)
+            bucket.clear()
+        
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
