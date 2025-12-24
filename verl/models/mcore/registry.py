@@ -22,6 +22,57 @@ from typing import Callable
 import torch
 import torch.nn as nn
 
+from .model_forward import gptmodel_forward_no_padding, model_forward_gen
+from .model_forward_fused import fused_forward_model_gen
+
+
+class SupportedVLM(Enum):
+    QWEN2_5_VL = "Qwen2_5_VLForConditionalGeneration"
+    QWEN3_MOE_VL = "Qwen3VLMoeForConditionalGeneration"
+    QWEN3_VL = "Qwen3VLForConditionalGeneration"
+
+
+supported_vlm = [member.value for member in SupportedVLM]
+
+
+def get_mcore_forward_fn(hf_config) -> Callable:
+    """
+    Get the forward function for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    if hf_config.architectures[0] in supported_vlm:
+        return model_forward_gen(True)
+    else:
+        # default to language model
+        return model_forward_gen(False)
+
+
+def get_mcore_forward_no_padding_fn(hf_config) -> Callable:
+    """
+    Get the forward function for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    return gptmodel_forward_no_padding
+
+
+def get_mcore_forward_fused_fn(hf_config) -> Callable:
+    """
+    Get the forward function for given model architecture.
+    """
+    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
+    if hf_config.architectures[0] in supported_vlm:
+        return fused_forward_model_gen(True)
+    else:
+        # default to language model
+        return fused_forward_model_gen(False)
+
+
+# ruff: noqa
+
+########################################################
+# below is the deprecated code
+########################################################
+
 from .config_converter import (
     PretrainedConfig,
     TransformerConfig,
@@ -33,8 +84,6 @@ from .config_converter import (
     hf_to_mcore_config_qwen2moe,
     hf_to_mcore_config_qwen3moe,
 )
-from .model_forward import gptmodel_forward_no_padding, model_forward_gen
-from .model_forward_fused import fused_forward_model_gen
 from .model_initializer import (
     BaseModelInitializer,
     DeepseekV3Model,
@@ -237,33 +286,6 @@ def init_mcore_model(
         value=value,
         **extra_kwargs,
     )
-
-
-def get_mcore_forward_fn(hf_config: PretrainedConfig) -> Callable:
-    """
-    Get the forward function for given model architecture.
-    """
-    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    model = get_supported_model(hf_config.architectures[0])
-    return MODEL_FORWARD_REGISTRY[model]
-
-
-def get_mcore_forward_no_padding_fn(hf_config: PretrainedConfig) -> Callable:
-    """
-    Get the forward function for given model architecture.
-    """
-    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    model = get_supported_model(hf_config.architectures[0])
-    return MODEL_FORWARD_NOPAD_REGISTRY[model]
-
-
-def get_mcore_forward_fused_fn(hf_config: PretrainedConfig) -> Callable:
-    """
-    Get the forward function for given model architecture.
-    """
-    assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    model = get_supported_model(hf_config.architectures[0])
-    return MODEL_FORWARD_FUSED_REGISTRY[model]
 
 
 def get_mcore_weight_converter(hf_config: PretrainedConfig, dtype: torch.dtype) -> Callable:

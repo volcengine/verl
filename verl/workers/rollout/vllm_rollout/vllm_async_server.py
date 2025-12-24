@@ -174,8 +174,20 @@ class vLLMHttpServerBase:
             max_new_tokens=self.config.response_length,
         )
         logger.info(f"override_generation_config: {override_generation_config}")
+
+        logger.info(f"enable_sleep_mode: {self.config.enable_sleep_mode}")
+        if not self.config.enable_sleep_mode:
+            from verl.utils.device import set_expandable_segments
+
+            set_expandable_segments(True)
+
         quantization = self.config.quantization
+
         if quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
+
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
@@ -189,8 +201,14 @@ class vLLMHttpServerBase:
                 apply_vllm_fp8_patches()
                 # for subprocesses patching
                 os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+
+        hf_overrides = {}
+        if quantization is not None and self.config.quantization_config_file is not None:
+            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
+
+        if quantization == "fp8":
+            hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -201,7 +219,7 @@ class vLLMHttpServerBase:
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
             "max_num_batched_tokens": self.config.max_num_batched_tokens,
             "enable_prefix_caching": self.config.enable_prefix_caching,
-            "enable_sleep_mode": True,
+            "enable_sleep_mode": self.config.enable_sleep_mode,
             "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
@@ -210,7 +228,7 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": hf_overrides,
             **engine_kwargs,
         }
 
@@ -387,7 +405,17 @@ class vLLMHttpServerBase:
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
+        response_length = self.config.max_model_len - len(prompt_ids)
+        if "max_tokens" in sampling_params:
+            max_tokens = sampling_params.pop("max_tokens")
+        elif "max_new_tokens" in sampling_params:
+            # support sglang-style 'max_new_tokens' param
+            max_tokens = sampling_params.pop("max_new_tokens")
+        else:
+            max_tokens = response_length
+        assert max_tokens <= response_length, (
+            f"max_tokens {max_tokens} exceeds available response_length {response_length}"
+        )
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
