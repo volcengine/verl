@@ -25,11 +25,11 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
-    get_device_name, 
+    get_device_name,
     get_torch_device,
 )
 from verl.utils.fsdp_utils import (
-    fsdp_version, 
+    fsdp_version,
     load_fsdp_model_to_gpu,
     offload_fsdp_model_to_cpu,
 )
@@ -96,8 +96,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
 
-            from verl.utils.vllm.patch import \
-                patch_vllm_moe_model_weight_loader
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:

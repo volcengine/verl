@@ -365,11 +365,13 @@ class CheckpointEngine:
             with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
                 if self.use_cpu_buffer:
                     futures = [
-                        executor.submit(register_pin_memory, idx, bucket.size) for idx, bucket in enumerate(local_buckets)
+                        executor.submit(register_pin_memory, idx, bucket.size) 
+                        for idx, bucket in enumerate(local_buckets)
                     ]
                 else:
                     futures = [
-                        executor.submit(register_gpu_memory, idx, bucket.size) for idx, bucket in enumerate(local_buckets)
+                        executor.submit(register_gpu_memory, idx, bucket.size) 
+                        for idx, bucket in enumerate(local_buckets)
                     ]
                 new_futures = []
                 for future in concurrent.futures.as_completed(futures):
