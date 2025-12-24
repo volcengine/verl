@@ -62,6 +62,7 @@ def get_inference_model(rollout):
         )
     return inference_model
 
+
 class DetachNcclSync(AsyncActorRolloutRefWorker):
     def __init__(self, config: DictConfig, role: str):
         super().__init__(config, role)
@@ -148,11 +149,12 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                         )
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
-        
+
         from ray.util.collective import collective
+
         bucket = []
         bucket_bytes = 0
-        max_bucket_bytes = 8 * 1024 * 1024 * 1024 # 8GB
+        max_bucket_bytes = 8 * 1024 * 1024 * 1024  # 8GB
 
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())

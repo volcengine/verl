@@ -96,7 +96,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
     def _flush_sglang_batch(self, inference_model, batch_data):
         batch_copy = list(batch_data)
-        self._run_async_safely(self.update_weights(inference_model, batch_copy))   
+        self._run_async_safely(self.update_weights(inference_model, batch_copy))
 
     def __del__(self):
         if hasattr(self, "_bg_loop") and self._bg_loop.is_running():
@@ -161,8 +161,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
 
         from ray.util.collective import collective
-        
-        max_bucket_bytes = 8 * 1024 * 1024 * 1024 # 8GB
+
+        max_bucket_bytes = 8 * 1024 * 1024 * 1024  # 8GB
         bucket = []
         bucket_bytes = 0
 
@@ -194,7 +194,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         if self._is_rollout and rollout_name == "sglang" and bucket:
             self._flush_sglang_batch(inference_model, bucket)
             bucket.clear()
-        
+
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()

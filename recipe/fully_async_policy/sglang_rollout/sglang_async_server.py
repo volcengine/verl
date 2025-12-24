@@ -61,9 +61,7 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
         self.req_output: dict[str, Optional[dict[str, Any]]] = {}
 
     def _get_enable_memory_saver(self) -> bool:
-        logger.info(
-            "[SGLangHttpServerForPartial] Using enable_memory_saver=False for partial_rollout compatibility."
-        )
+        logger.info("[SGLangHttpServerForPartial] Using enable_memory_saver=False for partial_rollout compatibility.")
         return False
 
     async def _generate_step(

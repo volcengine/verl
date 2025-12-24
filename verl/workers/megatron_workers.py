@@ -510,7 +510,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             assert infer_pp == 1, "pipeline_model_parallel_size must be 1 for sglang async rollout"
             rollout_tensor_model_parallel_size = self.config.rollout.get("tensor_model_parallel_size", 1)
             rollout_device_mesh = init_device_mesh(
-                get_device_name(), mesh_shape=(dp, rollout_tensor_model_parallel_size), mesh_dim_names=["dp", "infer_tp"]
+                get_device_name(),
+                mesh_shape=(dp, rollout_tensor_model_parallel_size),
+                mesh_dim_names=["dp", "infer_tp"],
             )
         else:
             rollout_device_mesh = init_device_mesh(
