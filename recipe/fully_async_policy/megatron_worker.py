@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import logging
 import os
 import time
@@ -61,8 +62,38 @@ def get_inference_model(rollout):
         )
     return inference_model
 
-
 class DetachNcclSync(AsyncActorRolloutRefWorker):
+    def __init__(self, config: DictConfig, role: str):
+        super().__init__(config, role)
+
+        self._bg_loop = asyncio.new_event_loop()
+        self._bg_thread = threading.Thread(
+            target=self._start_background_loop, args=(self._bg_loop,), name="rollout_actor_async_worker", daemon=True
+        )
+        self._bg_thread.start()
+        logger.info(f"[DetachNcclSync] Background thread for SGLang sync started. PID: {os.getpid()}")
+
+    def _start_background_loop(self, loop):
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_forever()
+        except Exception as e:
+            logger.error(f"[DetachNcclSync] Background loop crashed: {e}")
+
+    def _run_async_safely(self, coro):
+        if not self._bg_thread.is_alive():
+            raise RuntimeError("Background thread for SGLang sync is not running!")
+
+        future = asyncio.run_coroutine_threadsafe(coro, self._bg_loop)
+
+        return future.result()
+
+    def __del__(self):
+        if hasattr(self, "_bg_loop") and self._bg_loop.is_running():
+            self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
+        if hasattr(self, "_bg_thread") and self._bg_thread.is_alive():
+            self._bg_thread.join(timeout=1.0)
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
         current_rank = torch.distributed.get_rank() + rank_offset
@@ -84,26 +115,74 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         if self._is_actor and self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
         params_generator = self._get_actor_params_generator() if self._is_actor else None
+
+        rollout_name = self.config.rollout.name
+        inference_model = None
         if self._is_rollout:
-            inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            if rollout_name == "vllm":
+                inference_model = get_inference_model(self.rollout)
 
-            patch_vllm_moe_model_weight_loader(inference_model)
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
+                patch_vllm_moe_model_weight_loader(inference_model)
+            elif rollout_name == "sglang":
+                inference_model = self.rollout._engine
+                # For ServerAdapter, _engine might be None and needs async initialization
+                if inference_model is None:
+                    # Initialize the server adapter engine
+                    print("[sync_rollout_weights] Initialize server adapter engine")
+
+                    async def init_engine():
+                        if hasattr(self.rollout, "_init_server_adapter"):
+                            await self.rollout._init_server_adapter()
+                        else:
+                            print("[sync_rollout_weights] No _init_server_adapter method found")
+                        return self.rollout._engine
+
+                    inference_model = self._run_async_safely(init_engine())
+                    if inference_model is None:
+                        raise RuntimeError(
+                            f"Failed to initialize rollout engine. "
+                            f"rollout type: {type(self.rollout)}, "
+                            f"has _init_server_adapter: {hasattr(self.rollout, '_init_server_adapter')}"
+                        )
+            else:
+                raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
+        
+        from ray.util.collective import collective
+        bucket = []
+        bucket_bytes = 0
+        max_bucket_bytes = 8 * 1024 * 1024 * 1024 # 8GB
+
         for key, shape, dtype in self._weights_info:
-            if self._is_actor:
-                weight_key, weight = next(params_generator)
-                assert key == weight_key
-                assert shape == weight.size()
-                assert dtype == weight.dtype
-
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if self._is_actor and torch.distributed.get_rank() == 0:
-                tensor.copy_(weight)
-            from ray.util.collective import collective
+            if self._is_actor:
+                assert key in params
+                origin_data = params[key]
+                if hasattr(origin_data, "full_tensor"):
+                    origin_data = origin_data.full_tensor()
+                if torch.distributed.get_rank() == 0:
+                    tensor.copy_(origin_data)
+        collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
 
-            collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
-            if self._is_rollout:
-                inference_model.load_weights([(key, tensor)])
+        if self._is_rollout:
+            # batching tensors for sglang
+            if rollout_name == "sglang":
+                bucket.append((key, tensor))
+                bucket_bytes += tensor.numel() * tensor.element_size()
+
+                if bucket_bytes >= max_bucket_bytes:
+                    self._flush_sglang_batch(inference_model, bucket)
+                    bucket.clear()
+                    bucket_bytes = 0
+            else:
+                if rollout_name == "vllm":
+                    inference_model.load_weights([(key, tensor)])
+
+        if self._is_rollout and rollout_name == "sglang" and bucket:
+            self._flush_sglang_batch(inference_model, bucket)
+            bucket.clear()
+
         if self._is_actor and self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
 
@@ -157,13 +236,37 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         collective.barrier(group_name=sync_group_name)
         update_start_time = time.time()
 
+        rollout_name = self.config.rollout.name
         inference_model = None
         if self._is_rollout:
-            inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+            if rollout_name == "vllm":
+                inference_model = get_inference_model(self.rollout)
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            patch_vllm_moe_model_weight_loader(inference_model)
+                patch_vllm_moe_model_weight_loader(inference_model)
+            elif rollout_name == "sglang":
+                inference_model = self.rollout._engine
+                # For ServerAdapter, _engine might be None and needs async initialization
+                if inference_model is None:
+                    # Initialize the server adapter engine
+                    print("[sync_rollout_weights] Initialize server adapter engine")
 
+                    async def init_engine():
+                        if hasattr(self.rollout, "_init_server_adapter"):
+                            await self.rollout._init_server_adapter()
+                        else:
+                            print("[sync_rollout_weights] No _init_server_adapter method found")
+                        return self.rollout._engine
+
+                    inference_model = self._run_async_safely(init_engine())
+                    if inference_model is None:
+                        raise RuntimeError(
+                            f"Failed to initialize rollout engine. "
+                            f"rollout type: {type(self.rollout)}, "
+                            f"has _init_server_adapter: {hasattr(self.rollout, '_init_server_adapter')}"
+                        )
+            else:
+                raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
         # Update the checkpoint with the inference model and broadcast weights
         self.checkpoint_engine.update_checkpoint(
             inference_model=inference_model,

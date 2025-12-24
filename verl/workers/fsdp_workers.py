@@ -177,16 +177,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         else:
             self._register_dispatch_collect_info("actor", dp_rank=self.rank, is_collect=True)
 
-        # build device mesh for rollout
-        self.rollout_device_mesh = None
-        self.rollout_tensor_model_parallel_size = self.config.rollout.get("tensor_model_parallel_size", 1)
-        dp = world_size // self.rollout_tensor_model_parallel_size
-        print(f"[ActorRolloutRefWorker] rollout mode: {self.config.rollout.mode}")
-        if self.config.rollout.mode == "async":
-            self.rollout_device_mesh = init_device_mesh(
-                device_name, mesh_shape=(dp, self.rollout_tensor_model_parallel_size), mesh_dim_names=["dp", "infer_tp"]
-            )
-
         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
@@ -603,9 +593,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         assert self.world_size % infer_world_size == 0, (
             f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
         )
-        rollout_device_mesh = init_device_mesh(
-            device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
-        )
+        if self.config.rollout.mode == "async" and self.config.rollout.name == "sglang":
+            assert infer_pp == 1, "pipeline_model_parallel_size must be 1 for sglang async rollout"
+            rollout_tensor_model_parallel_size = self.config.rollout.get("tensor_model_parallel_size", 1)
+            rollout_device_mesh = init_device_mesh(
+                device_name, mesh_shape=(dp, rollout_tensor_model_parallel_size), mesh_dim_names=["dp", "infer_tp"]
+            )
+        else:
+            rollout_device_mesh = init_device_mesh(
+                get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
+            )
+        
         rollout_name = self.config.rollout.name
 
         self.rollout_device_mesh = rollout_device_mesh
