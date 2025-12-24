@@ -760,13 +760,7 @@ class RayPPOTrainer:
 
             # collect num_turns of each prompt
             if "__num_turns__" in batch_meta.field_names:
-                num_turns_meta = self.tq_client.get_meta(
-                    data_fields=["__num_turns__"],
-                    batch_size=test_batch.batch_size[0],
-                    partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
-                    task_name="get_num_turns",
-                )
-                data = self.tq_client.get_data(num_turns_meta)
+                data = self.tq_client.get_data(batch_meta.select_fields(["__num_turns__"]))
                 sample_turns.append(data["__num_turns__"])
 
             data_source = ["unknown"] * reward_tensor.shape[0]
@@ -1328,14 +1322,10 @@ class RayPPOTrainer:
                     # which won't affect the advantage calculation (since it's based on uid),
                     # but might affect the loss calculation (due to the change of mini-batching).
                     # TODO: Decouple the DP balancing and mini-batching.
+
+                    attention_mask_meta = batch_meta.select_fields(["attention_mask"])
                     balanced_idx = None
                     if self.config.trainer.balance_batch:
-                        attention_mask_meta = self.tq_client.get_meta(
-                            data_fields=["attention_mask"],
-                            task_name="balance_batch",
-                            **base_get_meta_kwargs,
-                        )
-
                         balanced_idx = self._balance_batch(attention_mask_meta, self.tq_client, metrics=metrics)
                         batch_meta.reorder(balanced_idx)
 
@@ -1674,7 +1664,7 @@ class RayPPOTrainer:
                     compute_data_metrics_fields.append("__num_turns__")
                 if "tool_call_counts" in batch_meta.field_names:
                     compute_data_metrics_fields.append("tool_call_counts")
-                compute_data_metrics_meta = batch_meta.select_fields(compute_reward_fields)
+                compute_data_metrics_meta = batch_meta.select_fields(compute_data_metrics_fields)
                 compute_data_metrics_meta.reorder(balanced_idx)
                 metrics.update(
                     compute_data_metrics_decorated(batch=compute_data_metrics_meta, use_critic=self.use_critic)
