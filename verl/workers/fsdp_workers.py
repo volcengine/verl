@@ -581,21 +581,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def update_weighs_by_checkpoint_engine(
         self,
         weights: Generator[tuple[str, torch.Tensor], None, None],
-        req_func: Callable[[list[tuple[str, str]]], None]
+        req_func: Callable[[list[tuple[str, str]]], None],
     ):
         named_tensors = {}
         for tensor_idx, (name, tensor) in enumerate(weights):
             if tensor_idx % self.world_size == self.rank:
                 named_tensors[name] = tensor
 
-        checkpoint_name = f"checkpoint_engine"
+        checkpoint_name = "checkpoint_engine"
         self.parameter_server.register_checkpoint(checkpoint_name, named_tensors=named_tensors)
         named_tensors = {}
         dist.barrier()
         self.parameter_server.gather_metas(checkpoint_name)
         self.parameter_server.update(checkpoint_name, req_func)
         self.parameter_server.unregister_checkpoint(checkpoint_name)
-
 
     def _build_rollout(self, trust_remote_code=False):
         from torch.distributed.device_mesh import init_device_mesh
@@ -744,16 +743,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             )
             if self.config.rollout.enable_checkpoint_engine:
                 req_func = await self.rollout.checkpoint_engine_req_func(self.infer_world_size)
-                self.update_weighs_by_checkpoint_engine(per_tensor_param, req_func)
+                self.update_weighs_by_checkpoint_engine(per_tensor_base_params, req_func)
             else:
                 await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
             del base_model_params, per_tensor_base_params
-        
+
         if self.config.rollout.enable_checkpoint_engine:
             req_func = await self.rollout.checkpoint_engine_req_func(self.infer_world_size)
             self.update_weighs_by_checkpoint_engine(per_tensor_param, req_func)
         else:
-            await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+            await self.rollout.update_weights(
+                per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done
+            )
         log_gpu_memory_usage("After update_weights", logger=logger)
         del params, per_tensor_param
         aggressive_empty_cache(force_sync=True)

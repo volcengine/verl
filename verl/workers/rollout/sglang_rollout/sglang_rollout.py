@@ -18,12 +18,13 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
+from collections.abc import Callable
 from typing import Generator
 
 import ray
 import sglang.srt.entrypoints.engine
 import torch
-from collections.abc import Callable
+from sglang.srt.checkpoint_engine.update import req_inference
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
@@ -32,7 +33,6 @@ from sglang.srt.utils import (
     set_ulimit,
 )
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
-from sglang.srt.checkpoint_engine.update import req_inference
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.workers.config import HFModelConfig, RolloutConfig

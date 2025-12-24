@@ -19,12 +19,12 @@ import datetime
 import logging
 import os
 import time
+from collections.abc import Callable
 from typing import Any, Generator, Optional
 
 import psutil
 import torch
 import torch.distributed
-from collections.abc import Callable
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
@@ -487,14 +487,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def update_weighs_by_checkpoint_engine(
         self,
         weights: Generator[tuple[str, torch.Tensor], None, None],
-        req_func: Callable[[list[tuple[str, str]]], None]
+        req_func: Callable[[list[tuple[str, str]]], None],
     ):
         named_tensors = {}
         for tensor_idx, (name, tensor) in enumerate(weights):
             if tensor_idx % self.world_size == self.rank:
                 named_tensors[name] = tensor.to("cpu", non_blocking=True)
 
-        checkpoint_name = f"checkpoint_engine"
+        checkpoint_name = "checkpoint_engine"
         self.parameter_server.register_checkpoint(checkpoint_name, named_tensors=named_tensors)
         named_tensors = {}
         torch.distributed.barrier()

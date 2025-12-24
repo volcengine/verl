@@ -290,7 +290,9 @@ class vLLMHttpServerBase:
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
             "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
-            "worker_extension_cls": "checkpoint_engine.worker.VllmColocateWorkerExtension" if self.config.enable_checkpoint_engine else None,
+            "worker_extension_cls": "checkpoint_engine.worker.VllmColocateWorkerExtension"
+            if self.config.enable_checkpoint_engine
+            else None,
             **engine_kwargs,
         }
 
@@ -691,7 +693,9 @@ class vLLMReplica(RolloutReplica):
                     soft=False,
                 ),
                 name=name,
-                runtime_env={"env_vars": {"VLLM_SERVER_DEV_MODE": "1"}} if self.config.enable_checkpoint_engine else None,
+                runtime_env={"env_vars": {"VLLM_SERVER_DEV_MODE": "1"}}
+                if self.config.enable_checkpoint_engine
+                else None,
             ).remote(
                 config=self.config,
                 model_config=self.model_config,
