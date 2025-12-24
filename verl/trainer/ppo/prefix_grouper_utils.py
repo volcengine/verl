@@ -164,7 +164,7 @@ def forward_micro_batch_with_prefix_grouper(
         model: The actor module.
         temperature: Temperature for logits scaling.
         calculate_entropy: Whether to compute entropy.
-        device_name: Device name for autocast (e.g., "cuda").
+        device_name: Device name for autocast.
         param_dtype: Parameter dtype for autocast.
         use_chunking_entropy: Whether to use chunking entropy function.
 

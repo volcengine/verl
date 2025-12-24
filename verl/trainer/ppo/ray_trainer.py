@@ -1023,7 +1023,7 @@ class RayPPOTrainer:
         world_size = self.actor_rollout_wg.world_size
 
         # Use group-level balancing for PrefixGrouper to keep same-uid samples together
-        if self.use_prefix_grouper and "uid" in batch.non_tensor_batch:
+        if getattr(self, "use_prefix_grouper", False) and "uid" in batch.non_tensor_batch:
             from verl.utils.seqlen_balancing import get_group_balanced_partitions
 
             uid_list = list(batch.non_tensor_batch["uid"])
@@ -1066,7 +1066,7 @@ class RayPPOTrainer:
             )
         # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
         # Skip reordering within partitions for PrefixGrouper to maintain uid grouping
-        if not self.use_prefix_grouper:
+        if not getattr(self, "use_prefix_grouper", False):
             for idx, partition in enumerate(global_partition_lst):
                 partition.sort(key=lambda x: (workload_lst[x], x))
                 ordered_partition = partition[::2] + partition[1::2][::-1]
