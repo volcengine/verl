@@ -13,9 +13,15 @@ export RAY_DEDUP_LOGS=0
 # -----
 # Config
 # -----
-TP=${1:-2}
+TP=${1:-4}
 PROJECT_NAME=${PROJECT_NAME:-"verl_grpo_example_gsm8k_math"}
 EXP_NAME=megatron-trtllm-qwen2-7b-tp${TP}-8gpus
+
+if [ $TP -eq 4 ]; then
+    MAX_BATCH_SIZE=1024
+else
+    MAX_BATCH_SIZE=384
+fi
 
 # -----
 # Data
@@ -42,7 +48,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     data.val_files="$TEST_FILES" \
     data.return_raw_chat=True \
     data.train_batch_size=1024 \
-    data.max_prompt_length=1024 \
+    data.max_prompt_length=2048 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
@@ -50,27 +56,26 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.model.use_fused_kernels=$USE_FUSED_KERNELS \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=2 \
-    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${TP} \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.actor.megatron.use_mbridge=True \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=${TP} \
     actor_rollout_ref.rollout.name=trtllm \
     actor_rollout_ref.rollout.mode="async" \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=5 \
-    actor_rollout_ref.rollout.max_batch_size=256 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
-    actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=2 \
+    actor_rollout_ref.rollout.max_batch_size=${MAX_BATCH_SIZE} \
+    actor_rollout_ref.rollout.max_num_batched_tokens=32768 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
+    actor_rollout_ref.ref.megatron.tensor_model_parallel_size=4 \
     +actor_rollout_ref.rollout.engine_kwargs.trtllm.batch_wait_timeout_iters=32 \
     +actor_rollout_ref.rollout.engine_kwargs.trtllm.batch_wait_max_tokens_ratio=0.5 \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${TP} \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
