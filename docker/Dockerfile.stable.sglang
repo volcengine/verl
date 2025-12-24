@@ -14,7 +14,7 @@ RUN pip install --upgrade --no-cache-dir transformers tokenizers
 
 RUN pip install codetiming tensordict mathruler pylatexenc qwen_vl_utils
 
-RUN pip install --no-cache-dir --no-build-isolation flash_attn==2.8.1
+RUN pip install --no-cache-dir --no-build-isolation --no-binary flash_attn==2.8.1
 
 RUN wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_6/nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
     apt-get update && apt-get install -y libxcb-cursor0
