@@ -22,15 +22,18 @@ import torch.distributed
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.fully_async_policy.fsdp2_utils import (fsdp2_sharded_load_from_cpu,
-                                                   fsdp2_sharded_save_to_cpu)
+from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils.device import get_device_name, get_torch_device
-from verl.utils.fsdp_utils import (fsdp_version, load_fsdp_model_to_gpu,
-                                   offload_fsdp_model_to_cpu)
-from verl.workers.fsdp_workers import (ActorRolloutRefWorker,
-                                       AsyncActorRolloutRefWorker,
-                                       CriticWorker)
+from verl.utils.device import (
+    get_device_name, 
+    get_torch_device,
+)
+from verl.utils.fsdp_utils import (
+    fsdp_version, 
+    load_fsdp_model_to_gpu,
+    offload_fsdp_model_to_cpu,
+)
+from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 from .checkpoint_engine import CheckpointEngine
 
@@ -165,8 +168,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         inference_model = None
         if self._is_rollout:
             inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import \
-                patch_vllm_moe_model_weight_loader
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
 
@@ -206,8 +208,7 @@ class DetachActorWorker(DetachNcclSync):
         if hasattr(self, "_weights_info"):
             return self._weights_info
         if fsdp_version(self.actor_module_fsdp) == 1:
-            from torch.distributed.fsdp.api import (ShardedStateDictConfig,
-                                                    StateDictType)
+            from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
 
             FSDP.set_state_dict_type(
                 self.actor_module_fsdp,
