@@ -1,0 +1,33 @@
+# Local uasge: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# [dev] feat: immigrate from yapf & pylint to ruff based on pre-commit
+# This commit changed 268 files and modified ~20k lines for formatting.
+b00f77d8
+
+# [ci] refactor: reduce ruff line-length from 300 to 120
+# Massive formatting change affecting 238 files and ~8k lines.
+00a10a8e
+
+# CI: limit ruff checks and enable push tests
+# Large cleanup involving 99 files and ~7k deletions.
+568239fb
+
+# [Lint] fix: linting errors in all files
+# Global linting fix affecting 179 files.
+8e5ad468
+
+# [env] feat: safely bump py version to 3.10
+# Bulk update affecting 142 files.
+eac4863a
+
+# [doc] fix: quickstart example can't work on zsh
+# Bulk documentation find-and-replace affecting 138 files.
+a31a8f25
+
+# [ci] feat: pre-commit check all the files by default
+# Formatting enforcement affecting 52 files.
+c3ffce26
+
+# [misc] fix: add compileall pre-commit hook checks and improve code quality
+# Formatting/Linting update affecting 23 files.
+d73e600f
