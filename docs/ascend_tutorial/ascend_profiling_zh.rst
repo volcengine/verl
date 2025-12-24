@@ -13,7 +13,7 @@ Last updated: 12/20/2025.
 
 使用两级profile设置来控制数据采集
 
-- 全局采集控制：使用verl/trainer/config/ppo_trainer.yaml(FSDP)，或verl/trainer/config/ppo_megatron_trainer.yaml(MindSpeed)中的配置项控制采集的模式和步数，
+- 全局采集控制：使用verl/trainer/config/ppo_trainer.yaml(FSDP)，或verl/trainer/config/ppo_megatron_trainer.yaml(MindSpeed)中的配置项控制采集的模式和步数。
 - 角色profile控制：通过每个角色中的配置项控制等参数。
 
 全局采集控制
