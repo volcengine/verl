@@ -123,10 +123,12 @@ class vLLMColocateWorkerExtension:
 
         assert self.device is not None
         device = get_torch_device()
+
         if not hasattr(self, "_zmq_ctx") or self._zmq_ctx is None:
             self._zmq_ctx = zmq.Context()
         socket = self._zmq_ctx.socket(zmq.REP)
         socket.connect(zmq_handle)
+        buffer: torch.Tensor | None = None
         weights_to_load = []
         while True:
             payload: tuple[Callable, tuple] | list[FlattenedTensorMetadata] | None = socket.recv_pyobj()
@@ -136,17 +138,27 @@ class vLLMColocateWorkerExtension:
                 device.synchronize()
                 socket.send(b"")
                 break
-            tensor = rebuild_ipc(payload, self.device.index)
-            socket.send(b"")
-
-            # Get the next metadata containing tensor name
-            metadata: dict | None = socket.recv_pyobj()
-            if metadata is None:
-                del tensor
+            if isinstance(payload, tuple):
+                # an ipc handle that vLLM can use `func, args = handle`
+                # and `func(*args)` to rebuild GPU tensor.
+                buffer = rebuild_ipc(payload, self.device.index)
+                assert buffer.dtype == torch.uint8
+                socket.send(b"")
                 continue
-
-            name = metadata["name"]
-            weights = [(name, tensor)]
+            assert isinstance(payload, list)
+            assert buffer is not None
+            weights = []
+            for item in payload:
+                shape = item["shape"]
+                if isinstance(shape, list | tuple):
+                    shape = torch.Size(shape)
+                assert isinstance(shape, torch.Size)
+                dtype, offset = item["dtype"], item["offset"]
+                size = dtype.itemsize * shape.numel()
+                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
+                if not load:
+                    tensor = tensor.clone()
+                weights.append((item["name"], tensor))
             if load:
                 self.model_runner.model.load_weights(weights=weights)
                 del weights
@@ -156,6 +168,7 @@ class vLLMColocateWorkerExtension:
             socket.send(b"")
 
         socket.close()
+        del buffer
         gc.collect()
         device.empty_cache()
         return weights_to_load

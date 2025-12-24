@@ -26,6 +26,7 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
+import gc
 import logging
 import os
 from typing import Any, Generator, Optional
@@ -39,6 +40,7 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
+from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.vllm import VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
@@ -82,14 +84,12 @@ class ServerAdapter(BaseRollout):
         self.server_handle: ray.actor.ActorHandle = None
 
         rank = int(os.environ["RANK"])
-        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
         rollout_world_size = (
             self.config.tensor_model_parallel_size
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
         self.rollout_rank = rank % rollout_world_size
-        self.local_rank = self.rollout_rank % local_world_size
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -98,6 +98,8 @@ class ServerAdapter(BaseRollout):
             self.sleep_level = VLLM_SLEEP_LEVEL
 
         # Attributes related to weight updates
+        self.device = get_torch_device()
+
         from vllm.platforms import current_platform
 
         self.device_uuid = current_platform.get_device_uuid(0)
@@ -168,26 +170,63 @@ class ServerAdapter(BaseRollout):
                     "zmq_handles": self.zmq_handles,
                 },
             )
-        await self._update_weights_per_tensor(weights)
+        await self._update_weights(weights)
 
-    async def _update_weights_per_tensor(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
-        """Update weights per tensor via ZMQ."""
+    async def _update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+        # align size to avoid misaligned address
+        align_size = 256
+
+        def get_size(p: torch.Tensor) -> int:
+            return (p.nbytes + align_size - 1) // align_size * align_size
+
+        # use update_weights_buffer_slot_bytes * 2 as buffer size (default: 512 MB)
+        update_weights_buffer_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        buffer = torch.empty(update_weights_buffer_bytes * 8, dtype=torch.uint8, device=f"{get_device_name()}:0")
         s = self.zmq_context.socket(zmq.REQ)
         s.bind(self.zmq_address)
+        handle = reduce_tensor(buffer)
 
+        offset = 0
+        buckets: list[tuple[list[dict], list[torch.Tensor]]] = []
+        named_tensors: list[dict] = []
+        real_tensors: list[torch.Tensor] = []
         for name, p in weights:
-            handle = reduce_tensor(p)
-            # Send the tensor handle
-            s.send_pyobj(handle)
+            size = get_size(p)
+            if size > update_weights_buffer_bytes:
+                raise ValueError(
+                    f"Parameter {name} size ({size // 1024 // 1024} MB) exceeds buffer size"
+                    f"actor_rollout_ref.rollout.update_weights_bucket_megabytes * 8 "
+                    f"({self.config.update_weights_bucket_megabytes * 8} MB), "
+                    f"please increase its value."
+                )
+            if offset + size > buffer.numel():
+                buckets.append((named_tensors, real_tensors))
+                named_tensors, real_tensors = [], []
+                offset = 0
+            # assume tensors are contiguous
+            named_tensors.append({"name": name, "dtype": p.dtype, "shape": p.shape, "offset": offset})
+            real_tensors.append(p)
+            offset += size
+        if named_tensors:
+            buckets.append((named_tensors, real_tensors))
+        s.send_pyobj(handle)
+        s.recv()
+        for named_tensors, real_tensors in buckets:
+            offset = 0
+            for p in real_tensors:
+                buffer[offset : offset + p.nbytes].data.copy_(
+                    p.data.view(-1).view(dtype=torch.uint8), non_blocking=True
+                )
+                offset += get_size(p)
+            self.device.synchronize()
+            s.send_pyobj(named_tensors)
             s.recv()
-            # Send metadata (tensor name)
-            s.send_pyobj({"name": name})
-            s.recv()
-
-        # Send None to signal completion
         s.send_pyobj(None)
         s.recv()
         s.close()
+        del buffer
+        gc.collect()
+        self.device.empty_cache()
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
