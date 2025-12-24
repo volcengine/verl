@@ -209,6 +209,15 @@ class TaskRunner(MainTaskRunner):
 
 
 class BatchSamplerWithId(BatchSampler):
+    def __init__(self, sampler, batch_size, drop_last):
+        super().__init__(sampler, batch_size, drop_last)
+
+        # When using BatchSample, calling iter() triggers the execution of iter(self.sampler) once.
+        # To ensure that BatchSamplerWithId behaves consistently with BatchSampler in terms of data fetching,
+        # iter(self.sampler) should be called in advance.
+        # https://github.com/meta-pytorch/data/blob/main/torchdata/stateful_dataloader/sampler.py#L175
+        iter(self.sampler)
+
     def __iter__(self):
         for batch_id, batch in enumerate(super().__iter__()):
             yield [(batch_id, idx) for idx in batch]
