@@ -29,7 +29,6 @@ import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.distributed import finalize_model_grads
-
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
@@ -735,6 +734,35 @@ class MegatronPPOActor(BasePPOActor):
             else:
                 losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
             self.mini_layer_topk_idx_list = []
+
+        # Collect and pass MTP metrics to losses_reduced
+        if self.mtp_config and self.mtp_config.enable and self.mtp_config.enable_train:
+            from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
+
+            # Calculate MTP loss scale similar to Megatron-LM implementation
+            mtp_loss_scale = 1.0 / n_micro_batch
+
+            # Create a dummy total_loss_dict to collect MTP metrics
+            total_loss_dict = {}
+
+            # Track MTP metrics - this will populate total_loss_dict with MTP losses
+            MTPLossLoggingHelper.track_mtp_metrics(
+                loss_scale=mtp_loss_scale,
+                iteration=0,
+                writer=None,
+                wandb_writer=None,
+                total_loss_dict=total_loss_dict
+            )
+            breakpoint()
+            print(f"hzg total_loss_dict: {total_loss_dict}")
+
+            # Add MTP metrics to losses_reduced if any were collected
+            if total_loss_dict:
+                if "mtp_metrics" not in losses_reduced:
+                    losses_reduced["mtp_metrics"] = {}
+                losses_reduced["mtp_metrics"].update(total_loss_dict)
+
+            print(f"hzg losses_reduced: {losses_reduced}")
 
         return losses_reduced
 
