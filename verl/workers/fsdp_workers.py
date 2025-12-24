@@ -296,6 +296,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         assert role in ["actor", "ref"]
 
+        # TiledMLP requires FSDP2 for correct gradient computation
+        if use_tiled_mlp and self.config.actor.strategy == "fsdp":
+            raise ValueError("TiledMLP requires FSDP2. Set `actor_rollout_ref.actor.strategy=fsdp2`.")
+
         log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
         local_path = model_path
 
@@ -1308,6 +1312,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         tiled_mlp_config = config.model.get("tiled_mlp", {})
         use_tiled_mlp = tiled_mlp_config.get("enabled", False)
         tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
+
+        # TiledMLP requires FSDP2 for correct gradient computation
+        if use_tiled_mlp and config.strategy == "fsdp":
+            raise ValueError("TiledMLP requires FSDP2. Set `critic.strategy=fsdp2`.")
 
         if use_tiled_mlp:
             from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
