@@ -180,8 +180,8 @@ class ServerAdapter(BaseRollout):
             return (p.nbytes + align_size - 1) // align_size * align_size
 
         # use update_weights_buffer_slot_bytes * 2 as buffer size (default: 512 MB)
-        update_weights_buffer_bytes = int(self.config.update_weights_bucket_megabytes) << 20
-        buffer = torch.empty(update_weights_buffer_bytes * 8, dtype=torch.uint8, device=f"{get_device_name()}:0")
+        update_weights_buffer_bytes = (int(self.config.update_weights_bucket_megabytes) << 20) * 8
+        buffer = torch.empty(update_weights_buffer_bytes, dtype=torch.uint8, device=f"{get_device_name()}:0")
         s = self.zmq_context.socket(zmq.REQ)
         s.bind(self.zmq_address)
         handle = reduce_tensor(buffer)
@@ -194,9 +194,9 @@ class ServerAdapter(BaseRollout):
             size = get_size(p)
             if size > update_weights_buffer_bytes:
                 raise ValueError(
-                    f"Parameter {name} size ({size // 1024 // 1024} MB) exceeds buffer size"
-                    f"actor_rollout_ref.rollout.update_weights_bucket_megabytes * 8 "
-                    f"({self.config.update_weights_bucket_megabytes * 8} MB), "
+                    f"Parameter {name} size ({size // 1024 // 1024} MB) exceeds buffer size "
+                    f"({self.config.update_weights_bucket_megabytes * 8} MB, "
+                    f"actor_rollout_ref.rollout.update_weights_bucket_megabytes * 8), "
                     f"please increase its value."
                 )
             if offset + size > buffer.numel():
