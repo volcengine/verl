@@ -106,7 +106,7 @@ def create_device_mesh(world_size, fsdp_size):
     return device_mesh
 
 
-def get_sharding_strategy(device_mesh, zero3_enable):
+def get_sharding_strategy(device_mesh, zero3_enable=True):
     from torch.distributed.fsdp import ShardingStrategy
 
     if zero3_enable:
@@ -492,7 +492,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
-        fsdp_enable_zero3 = fsdp_config.get("reshard_after_forward")
+        fsdp_enable_zero3 = fsdp_config.reshard_after_forward
         sharding_strategy = get_sharding_strategy(fsdp_mesh, fsdp_enable_zero3)
 
         # TODO: add transformer policy
