@@ -127,7 +127,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,sglang]
+          pip3 install -e .[test]
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -153,7 +153,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,geo,gpu,sglang] --no-deps
+          pip3 install -e .[test,geo] --no-deps
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |
