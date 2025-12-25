@@ -192,7 +192,6 @@ class SGLangHttpServer:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
-        
         # mtp
         if self.config.mtp.enable and self.config.mtp.enable_rollout:
             args["speculative_algorithm"] = self.config.mtp.speculative_algorithm

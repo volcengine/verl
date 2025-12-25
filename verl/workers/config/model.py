@@ -41,8 +41,11 @@ class MtpConfig(BaseConfig):
         detach_encoder: 是否 mtp 训练期间 detach encoder的参数
         mtp_loss_scaling_factor: mtp 训练期间 loss 缩放因子
 
+    vllm rollout 参数：
+        num-speculative-tokens 1
 
-    rollout 参数：
+
+    sglang rollout 参数：
         speculative-algorithm EAGLE
         speculative-num-steps 2
         speculative-eagle-topk 2
@@ -61,6 +64,9 @@ class MtpConfig(BaseConfig):
     speculative_num_steps: int = 2
     speculative_eagle_topk: int = 2
     speculative_num_draft_tokens: int = 4
+
+    method: str = "mtp"
+    num_speculative_tokens: int = 1
 
 
 @dataclass

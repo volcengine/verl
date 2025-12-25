@@ -152,7 +152,7 @@ class MegatronWorker(Worker):
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
 
         # only actor need enable mtp
-        if enable_mtp and self.config.model.mtp.enable:
+        if enable_mtp:
             assert hf_config.num_nextn_predict_layers > 0, "MTP requires at least one nextn_predict_layer"
             assert megatron_config.use_mbridge, "MTP requires use_mbridge to be True"
             assert megatron_config.vanilla_mbridge, "MTP requires vanilla_mbridge to be True"
@@ -613,7 +613,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 model_config=self.actor_model_config,
                 hf_config=self.hf_config,
                 tf_config=self.tf_config,
-                mtp_config=self.config.model.mtp,
+                mtp_config=self.config.model.mtp if self.config.model.mtp.enable else None,
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
             )

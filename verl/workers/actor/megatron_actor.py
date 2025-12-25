@@ -29,6 +29,7 @@ import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.distributed import finalize_model_grads
+
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
@@ -36,6 +37,7 @@ from omegaconf import OmegaConf
 from torch import nn
 
 from verl import DataProto
+from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
@@ -95,6 +97,7 @@ class MegatronPPOActor(BasePPOActor):
                 ``model_config.hidden_size``
             hf_config (PretrainedConfig): huggingface config
             tf_config (TransformerConfig): mcore transformer config
+            mtp_config (MtpConfig): mtp config, default None
             actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this
                 pp stage.
                 each nn.Module in this rank holds a vpp module chunk. See https://arxiv.org/pdf/2104.04473.pdf for
@@ -140,6 +143,10 @@ class MegatronPPOActor(BasePPOActor):
             )
         else:
             self.prof = None
+
+        if self.mtp_config:
+            assert self.mtp_config.enable, "MTP requires mtp_config.enable to be True"
+
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         if self.use_fused_kernels and not getattr(self.config, "overlap_moe_expert_parallel_comm", False):
             # do not patch if overlap_moe_expert_parallel_comm is enabled
@@ -153,8 +160,12 @@ class MegatronPPOActor(BasePPOActor):
                 patch_fused_forward(model)
         else:
             from verl.models.mcore.mtp_patch import patch_postprocess
+
             for model in self.actor_module:
                 patch_postprocess(model)
+
+                if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
+                    patch_mtp_layer_get_embeddings(model)
 
         self.optimizer_step_args = OmegaConf.create(
             {
@@ -738,7 +749,7 @@ class MegatronPPOActor(BasePPOActor):
             self.mini_layer_topk_idx_list = []
 
         # Collect and pass MTP metrics to losses_reduced
-        if not forward_only and self.mtp_config and self.mtp_config.enable and self.mtp_config.enable_train:
+        if not forward_only and self.mtp_config and self.mtp_config.enable_train:
             from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 
             # Calculate MTP loss scale similar to Megatron-LM implementation
@@ -749,15 +760,10 @@ class MegatronPPOActor(BasePPOActor):
 
             # Track MTP metrics - this will populate total_loss_dict with MTP losses
             MTPLossLoggingHelper.track_mtp_metrics(
-                loss_scale=mtp_loss_scale,
-                iteration=0,
-                writer=None,
-                wandb_writer=None,
-                total_loss_dict=total_loss_dict
+                loss_scale=mtp_loss_scale, iteration=0, writer=None, wandb_writer=None, total_loss_dict=total_loss_dict
             )
-            print(f"hzg total_loss_dict: {total_loss_dict}")
             # Add MTP metrics to losses_reduced if any were collected
-            # total_loss_dict: {'mtp_1 loss': tensor(0.7855, device='cuda:0')}
+            # total_loss_dict: {'mtp_1 loss': tensor(value, device='cuda:0')}
             if total_loss_dict:
                 mtp_metrics = {}
                 for key, value in total_loss_dict.items():
@@ -765,8 +771,6 @@ class MegatronPPOActor(BasePPOActor):
                     formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
                     mtp_metrics[formatted_key] = [value.cpu().item()]
                 losses_reduced["mtp_losses"] = [mtp_metrics]
-
-            print(f"hzg losses_reduced: {losses_reduced}")
 
         return losses_reduced
 

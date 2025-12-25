@@ -15,6 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Callable
+
 import torch
 from megatron.core import parallel_state
 from megatron.core.models.gpt.gpt_model import GPTModel
@@ -54,24 +56,24 @@ def unpatch_postprocess(model: torch.nn.Module):
 # copy from https://github.com/NVIDIA/Megatron-LM/blob/23e092f41ec8bc659020e401ddac9576c1cfed7e/megatron/core/models/gpt/gpt_model.py
 # patch the postprocess method of GPTModel to support advanced features like MTP, 1f1b overlap, etc.
 def _megatron_gptmodel_postprocess(
-        self,
-        hidden_states,
-        input_ids,
-        position_ids,
-        labels,
-        rotary_pos_emb,
-        rotary_pos_cos,
-        rotary_pos_sin,
-        mtp_in_postprocess=None,
-        loss_mask=None,
-        decoder_input=None,
-        attention_mask=None,
-        inference_params=None,
-        packed_seq_params=None,
-        sequence_len_offset=None,
-        runtime_gather_output=None,
-        extra_block_kwargs=None,
-        inference_context=None,
+    self,
+    hidden_states,
+    input_ids,
+    position_ids,
+    labels,
+    rotary_pos_emb,
+    rotary_pos_cos,
+    rotary_pos_sin,
+    mtp_in_postprocess=None,
+    loss_mask=None,
+    decoder_input=None,
+    attention_mask=None,
+    inference_params=None,
+    packed_seq_params=None,
+    sequence_len_offset=None,
+    runtime_gather_output=None,
+    extra_block_kwargs=None,
+    inference_context=None,
 ):
     """Postprocesses decoder hidden states to generate logits or compute loss.
 
@@ -79,20 +81,21 @@ def _megatron_gptmodel_postprocess(
     the output layer, and computes language model loss when labels are provided.
     """
 
-
     if labels is not None:
-        print(f"hzg _megatron_gptmodel_postprocess\n"
-              f"\t input_ids: {input_ids.shape}\n"
-              f"\t position_ids: {position_ids.shape}\n"
-              f"\t labels: {labels.shape}\n"
-              f"\t hidden states: {hidden_states.shape}\n"
-              )
+        print(
+            f"hzg _megatron_gptmodel_postprocess\n"
+            f"\t input_ids: {input_ids.shape}\n"
+            f"\t position_ids: {position_ids.shape}\n"
+            f"\t labels: {labels.shape}\n"
+            f"\t hidden states: {hidden_states.shape}\n"
+        )
     else:
-        print(f"hzg _megatron_gptmodel_postprocess\n"
-              f"\t input_ids: {input_ids.shape}\n"
-              f"\t position_ids: {position_ids.shape}\n"
-              f"\t hidden states: {hidden_states.shape}\n"
-              )
+        print(
+            f"hzg _megatron_gptmodel_postprocess\n"
+            f"\t input_ids: {input_ids.shape}\n"
+            f"\t position_ids: {position_ids.shape}\n"
+            f"\t hidden states: {hidden_states.shape}\n"
+        )
 
     # logits and loss
     output_weight = None
@@ -114,10 +117,12 @@ def _megatron_gptmodel_postprocess(
             embedding=self.embedding,
             **(extra_block_kwargs or {}),
         )
-        print(f"hzg mtp_in_postprocess\n"
-              f"\tinput_ids {input_ids.shape}\n"
-              f"\thidden states: {hidden_states.shape}\n"
-              f"\tself.post_process: {self.post_process}\n")
+        print(
+            f"hzg mtp_in_postprocess\n"
+            f"\tinput_ids {input_ids.shape}\n"
+            f"\thidden states: {hidden_states.shape}\n"
+            f"\tself.post_process: {self.post_process}\n"
+        )
 
     if not self.post_process:
         return hidden_states
@@ -181,3 +186,120 @@ def _megatron_gptmodel_postprocess(
     logits, _ = self.output_layer(hidden_states, weight=output_weight, runtime_gather_output=runtime_gather_output)
     # [s b h] => [b s h]
     return logits.transpose(0, 1).contiguous()
+
+
+def patch_mtp_layer_get_embeddings(model: torch.nn.Module):
+    """Patch the _get_embeddings method of MultiTokenPredictionLayer"""
+    from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
+
+    # Check if model is a MultiTokenPredictionLayer or contains one
+    target_layer = None
+
+    if isinstance(model, MultiTokenPredictionLayer):
+        target_layer = model
+    elif hasattr(model, "layers"):
+        # Check if any layer in the model is MultiTokenPredictionLayer
+        for layer in model.layers:
+            if isinstance(layer, MultiTokenPredictionLayer):
+                target_layer = layer
+                break
+
+    if target_layer is not None:
+        target_layer._get_embeddings_backup = target_layer._get_embeddings
+        target_layer._get_embeddings = _patched_get_embeddings_for_detach.__get__(target_layer, target_layer.__class__)
+        return True
+    return False
+
+
+def unpatch_mtp_layer_get_embeddings(model: torch.nn.Module):
+    """Unpatch the _get_embeddings method of MultiTokenPredictionLayer"""
+    from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
+
+    # Check if model is a MultiTokenPredictionLayer or contains one
+    target_layer = None
+
+    if isinstance(model, MultiTokenPredictionLayer):
+        target_layer = model
+    elif hasattr(model, "layers"):
+        # Check if any layer in the model is MultiTokenPredictionLayer
+        for layer in model.layers:
+            if isinstance(layer, MultiTokenPredictionLayer):
+                target_layer = layer
+                break
+
+    if target_layer is not None and hasattr(target_layer, "_get_embeddings_backup"):
+        target_layer._get_embeddings = target_layer._get_embeddings_backup
+        delattr(target_layer, "_get_embeddings_backup")
+        return True
+    return False
+
+
+def _patched_get_embeddings_for_detach(
+    self,
+    input_ids: torch.Tensor,
+    position_ids: torch.Tensor,
+    embedding: Callable,
+    hidden_states: torch.Tensor,
+    packed_seq_params=None,
+):
+    """
+    Patched version of _get_embeddings method for MultiTokenPredictionLayer.
+
+    This is a modified version that you can customize according to your needs.
+    The original implementation is preserved below with modifications.
+    """
+    print(
+        f"hzg _patched_get_embeddings\n"
+        f"\t input_ids: {input_ids.shape}\n"
+        f"\t position_ids: {position_ids.shape}\n"
+        f"\t hidden states: {hidden_states.shape}\n"
+    )
+
+    # You can modify the logic here as needed
+    # For example, you could:
+    # - Change the shift amount in roll_tensor
+    # - Apply custom transformations to input_ids or position_ids
+    # - Add debugging information
+    # - Modify the embedding computation
+
+    # Original logic with custom modifications
+    from megatron.core.transformer.multi_token_prediction import roll_tensor
+    from megatron.core.utils import make_viewless_tensor
+
+    # Calc logits for the current Multi-Token Prediction (MTP) layers.
+    input_ids, _ = roll_tensor(
+        input_ids,
+        shifts=-1,  # You can modify this shift value
+        dims=-1,
+        cp_group=self.cp_group,
+        packed_seq_params=packed_seq_params,
+    )
+    position_ids, _ = roll_tensor(
+        position_ids,
+        shifts=-1,  # You can modify this shift value
+        dims=-1,
+        cp_group=self.cp_group,
+        packed_seq_params=packed_seq_params,
+    )
+
+    # embedding computation - you can modify this part
+    decoder_input = embedding(input_ids=input_ids, position_ids=position_ids)
+
+    # Apply custom transformations if needed
+    # For example: decoder_input = some_custom_function(decoder_input)
+
+    hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=True)
+
+    print(
+        f"hzg _patched_get_embeddings after processing\n"
+        f"\t input_ids: {input_ids.shape}\n"
+        f"\t position_ids: {position_ids.shape}\n"
+        f"\t decoder_input: {decoder_input.shape}\n"
+        f"\t hidden states: {hidden_states.shape}\n"
+    )
+
+    # detach decoder_input and hidden_states
+    decoder_input = decoder_input.detach()
+    hidden_states = hidden_states.detach()
+
+    return input_ids, position_ids, decoder_input, hidden_states

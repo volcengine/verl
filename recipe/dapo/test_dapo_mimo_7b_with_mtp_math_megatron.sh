@@ -22,7 +22,7 @@ overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=32
+train_prompt_bsz=128
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
@@ -47,8 +47,8 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=1
-train_tp=4
-train_pp=2
+train_tp=2
+train_pp=1
 
 python -m verl.trainer.main_ppo \
     --config-path=config \

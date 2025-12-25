@@ -325,19 +325,5 @@ prometheus:
   # Specify served_model_name to avoid displaying overly long model paths in Grafana
   served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
 
-mtp:
-
-  _target_: verl.workers.config.MtpConfig
-
-  enable: ${oc.select:actor_rollout_ref.model.mtp.enable, False}
-  enable_train: ${oc.select:actor_rollout_ref.model.mtp.enable_train, False}
-  enable_rollout: ${oc.select:actor_rollout_ref.model.mtp.enable_rollout, False}
-
-  detach_encoder: ${oc.select:actor_rollout_ref.model.mtp.detach_encoder,True}
-  mtp_loss_scaling_factor: ${oc.select:actor_rollout_ref.model.mtp.mtp_loss_scaling_factor, 0.1}
-
-  speculative_algorithm: ${oc.select:actor_rollout_ref.model.mtp.speculative_algorithm, EAGLE}
-  speculative_num_steps: ${oc.select:actor_rollout_ref.model.mtp.speculative_num_steps, 2}
-  speculative_eagle_topk: ${oc.select:actor_rollout_ref.model.mtp.speculative_eagle_topk, 2}
-  speculative_num_draft_tokens: ${oc.select:actor_rollout_ref.model.mtp.speculative_num_draft_tokens,4}
-
+# MTP configuration, reuse model configuration
+mtp: ${oc.select:actor_rollout_ref.model.mtp, null}

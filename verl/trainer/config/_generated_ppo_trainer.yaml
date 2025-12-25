@@ -275,6 +275,7 @@ actor_rollout_ref:
       port: 9090
       file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    mtp: ${oc.select:actor_rollout_ref.model.mtp, null}
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -301,7 +302,16 @@ actor_rollout_ref:
     mtp:
       _target_: verl.workers.config.MtpConfig
       enable: false
+      enable_train: false
+      enable_rollout: false
+      detach_encoder: true
       mtp_loss_scaling_factor: 0.1
+      speculative_algorithm: EAGLE
+      speculative_num_steps: 2
+      speculative_eagle_topk: 2
+      speculative_num_draft_tokens: 4
+      method: mtp
+      num_speculative_tokens: 1
   hybrid_engine: true
   nccl_timeout: 600
 data:
