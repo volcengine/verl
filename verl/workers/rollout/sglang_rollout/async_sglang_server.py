@@ -77,7 +77,7 @@ class SGLangHttpServer:
         cuda_visible_devices: str,
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
-        os.environ["CUDA_VISIBLE_DEVICES" if torch.cuda.is_avilable else "ASCEND_RT_VISIBLE_DEVICES"] = (
+        os.environ["CUDA_VISIBLE_DEVICES" if torch.cuda.is_available() else "ASCEND_RT_VISIBLE_DEVICES"] = (
             cuda_visible_devices
         )
         assert torch.cuda.is_available() or torch.npu.is_available(), "SGLang http server should run on GPU/NPU node"
@@ -341,9 +341,8 @@ class SGLangReplica(RolloutReplica):
                 ),
                 runtime_env={
                     "env_vars": {
-                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"
-                        if torch.cuda.is_available()
-                        else "RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1"
+                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                        "RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1",
                     }
                 },
                 name=name,
