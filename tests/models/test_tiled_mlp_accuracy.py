@@ -1,7 +1,20 @@
 """
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 Test script to verify TiledMLP accuracy by comparing logits and gradients
 between regular MLP and TiledMLP under FSDP2.
-
 Run with: torchrun --nproc_per_node=2 tests/test_tiled_mlp_accuracy.py
 """
 
@@ -88,12 +101,12 @@ def compare_results(logits1, grads1, logits2, grads2, rank):
 
     # Only print on rank 0 to avoid duplicate output
     if rank == 0:
-        print(f"\n=== Comparison Results ===")
-        print(f"\nLogits:")
+        print("\n=== Comparison Results ===")
+        print("\nLogits:")
         print(f"  Max diff: {logits_max_diff:.2e}")
         print(f"  Mean diff: {logits_mean_diff:.2e}")
 
-        print(f"\nMLP Parameter Gradients:")
+        print("\nMLP Parameter Gradients:")
         if grad_results:
             for name, max_diff, mean_diff, passed in grad_results:
                 status = "✓" if passed else "✗"
@@ -163,6 +176,7 @@ def main():
         print("Applying TiledMLP monkey patch before FSDP2...")
 
     from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
+
     apply_tiled_mlp_monkey_patch(num_shards=4, model_type="qwen3")
 
     model2 = apply_fsdp2(model2, device_mesh)
