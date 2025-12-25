@@ -64,7 +64,7 @@ def device_id_to_physical_device_id(id: int) -> int:
         try:
             physical_device_id = int(device_ids[id])
             return physical_device_id
-        except ValueError as err:
+        except (ValueError, IndexError) as err:
             raise RuntimeError(
                 f"Failed to convert logical device ID {id} to physical device ID. Available devices are: {device_ids}."
             ) from err
