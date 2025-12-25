@@ -660,13 +660,14 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 with open(local_latest_checkpointed_iteration, "w") as f:
                     f.write(str(global_step))
             # remove previous local_path
+            self.previous_saved_paths.append(local_path)
             if (
                 max_ckpt_to_keep
                 and isinstance(max_ckpt_to_keep, int)
                 and max_ckpt_to_keep > 0
-                and len(self.previous_saved_paths) >= max_ckpt_to_keep
+                and len(self.previous_saved_paths) > max_ckpt_to_keep
             ):
-                keep_start = global_step - max_ckpt_to_keep
+                keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep
                 self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
                 self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
@@ -678,5 +679,4 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             async_calls.schedule_async_request(async_save_request)
         else:
             finalize_save_fn()
-
-        self.previous_saved_paths.append(local_path)
+            self.previous_saved_paths.append(local_path)
