@@ -49,6 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
+    compute_variance_proxy_metrics,
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -241,6 +242,28 @@ def compute_advantage(
             response_mask=grpo_calculation_mask,
             index=data.non_tensor_batch["uid"],
             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+        )
+        data.batch["advantages"] = advantages
+        data.batch["returns"] = returns
+    elif adv_estimator == AdvantageEstimator.OPTIMAL_TOKEN_BASELINE:
+        # Compute advantages and returns using Optimal Token Baseline (OTB)
+
+        # Check if sum_pi_squared is available
+        assert "sum_pi_squared" in data.batch, (
+            "Step-dependent optimal baseline requires sum_pi_squared from actor. "
+            "Please set actor.compute_sum_pi_squared=True in config."
+        )
+
+        # Get pre-computed rollout IS weights if available
+        rollout_is_weights = data.batch.get('rollout_is_weights', None)
+
+        advantages, returns = core_algos.compute_optimal_token_baseline_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=data.batch["response_mask"],
+            index=data.non_tensor_batch["uid"],
+            old_log_probs=data.batch["old_log_probs"],
+            sum_pi_squared=data.batch["sum_pi_squared"],
+            rollout_is_weights=rollout_is_weights,
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
@@ -1472,6 +1495,9 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                # compute variance proxy metrics
+                gradient_norm = metrics.get("actor/grad_norm", None)
+                metrics.update(compute_variance_proxy_metrics(batch=batch, gradient_norm=gradient_norm))
                 # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
