@@ -122,7 +122,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test,gpu]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
           pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |
@@ -150,7 +151,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test,gpu]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
           pip3 install transformers==$TRANSFORMERS_VERSION
       - name: Prepare GSM8K dataset
         run: |

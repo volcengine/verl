@@ -55,7 +55,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test,gpu]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

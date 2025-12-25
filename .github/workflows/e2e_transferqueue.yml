@@ -122,7 +122,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test,gpu]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
           pip3 install transformers==$TRANSFORMERS_VERSION
           pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple TransferQueue==0.1.4.dev1
       - name: Prepare GSM8K dataset
@@ -152,7 +153,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test,gpu]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
           pip3 install transformers==$TRANSFORMERS_VERSION
           pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple TransferQueue==0.1.4.dev1
       - name: Prepare GSM8K dataset
