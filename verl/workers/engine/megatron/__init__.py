@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Avoid cpu worker trigger cuda jit error
+
+# HACK Avoid cpu worker trigger cuda jit error
 import os
 
 from verl.utils.device import is_cuda_available
