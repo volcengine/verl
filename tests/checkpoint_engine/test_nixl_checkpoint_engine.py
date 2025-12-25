@@ -30,14 +30,8 @@ class Worker:
         self.checkpoint_engine = NIXLCheckpointEngine(bucket_size=bucket_size, device="cuda")
         self.received_weights: dict[str, torch.Tensor] = {}
 
-    def get_metadata(self):
-        return self.checkpoint_engine.get_metadata()
-
-    def setup(self, *args, **kwargs):
-        self.checkpoint_engine.setup(*args, **kwargs)
-
-    def tear_down(self, *args, **kwargs):
-        self.checkpoint_engine.tear_down(*args, **kwargs)
+    def execute_checkpoint_engine(self, method: str, *args, **kwargs):
+        return getattr(self.checkpoint_engine, method)(*args, **kwargs)
 
     async def update_weights(self):
         if self.role == "trainer":
@@ -57,37 +51,47 @@ class Worker:
         self.received_weights.clear()
 
 
-@pytest.mark.parametrize("num_rollout", [1, 4, 7])
+@pytest.mark.parametrize("num_rollout", [2, 4, 6])
 def test_nixl_checkpoint_engine(num_rollout):
     ray.init()
-    trainer = Worker.remote("trainer")
+    trainer = [Worker.remote("trainer") for _ in range(2)]
     rollout = [Worker.remote("rollout") for _ in range(num_rollout)]
-    workers = [trainer] + rollout
-
-    # get metadata of all workers
-    metadata = ray.get([worker.get_metadata.remote() for worker in workers])
-    kwargs = []
-    for rank in range(len(workers)):
-        kwargs.append(
-            {
-                "rank": rank,
-                "world_size": len(workers),
-                "prev_address": metadata[rank - 1] if rank > 0 else None,
-                "next_address": metadata[rank + 1] if rank < len(workers) - 1 else None,
-            }
-        )
+    workers = trainer + rollout
 
     for _ in range(3):
-        # setup communication between all workers
-        ray.get([worker.setup.remote(**kwargs[rank]) for rank, worker in enumerate(workers)])
+        # 1. prepare all workers
+        metadata = ray.get([worker.execute_checkpoint_engine.remote("prepare") for worker in workers])
+        metadata = [metadata[0]] + metadata[-len(rollout) :]
+        kwargs = []
+        for rank in range(len(metadata)):
+            kwargs.append(
+                {
+                    "rank": rank,
+                    "world_size": len(metadata),
+                    "prev_agent_metadata": metadata[rank - 1] if rank > 0 else None,
+                    "next_agent_metadata": metadata[rank + 1] if rank < len(metadata) - 1 else None,
+                }
+            )
 
-        # update weights of all workers
+        dummy = {"rank": -1, "world_size": len(metadata), "prev_agent_metadata": None, "next_agent_metadata": None}
+        kwargs = [kwargs[0]] + [dummy] * (len(trainer) - 1) + kwargs[1:]
+        assert len(kwargs) == len(workers), f"kwargs length must be {len(workers)}, but got {len(kwargs)}"
+
+        # 2. init process group between all workers
+        ray.get(
+            [
+                worker.execute_checkpoint_engine.remote("init_process_group", **kwargs[rank])
+                for rank, worker in enumerate(workers)
+            ]
+        )
+
+        # 3. update weights of all workers
         ray.get([worker.update_weights.remote() for worker in workers])
 
-        # tear down communication between all workers
-        ray.get([worker.tear_down.remote() for worker in workers])
+        # 4. finish all workers
+        ray.get([worker.execute_checkpoint_engine.remote("finish") for worker in workers])
 
-        # check weights of all workers
+        # 5. check weights of all workers
         ray.get([worker.check_weights.remote() for worker in workers])
 
     ray.shutdown()

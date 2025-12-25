@@ -14,8 +14,6 @@
 
 import asyncio
 import logging
-import pickle
-import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -25,18 +23,37 @@ import nixl._api as nixl_api
 import nixl._bindings as nixl_bindings
 import ray
 import torch
+import zmq
+import zmq.asyncio
 
 from verl.checkpoint_engine.base import CheckpointEngine, TensorMeta
-from verl.utils.net_utils import get_free_port
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
+
+
+@dataclass
+class NixlAgentMetadata:
+    agent_name: str
+    agent_metadata: bytes
+    zmq_ip: str
+    zmq_port: int
 
 
 class NixlAgent:
-    def __init__(self, agent: nixl_api.nixl_agent):
-        self.agent = agent
+    """This is a wrapper class for nixl_agent, the main purpose is to use ZeroMQ instead of
+    `nixl_agent.send_notif` to send bucket tensor metadata.
+    """
+
+    def __init__(self):
+        self.agent_name = str(uuid.uuid4())
+        self.agent = nixl_api.nixl_agent(self.agent_name)
         self.notifications: dict[str, deque[bytes]] = defaultdict(deque)
+
+        self.start_zmq_server()
+        self.zmq_clients: dict[str, zmq.Socket] = {}
+        self.messages: dict[str, deque[bytes]] = defaultdict(deque)
 
     def __getattr__(self, name):
         attr = getattr(self.agent, name)
@@ -50,6 +67,59 @@ class NixlAgent:
         else:
             return attr
 
+    def get_agent_metadata(self) -> NixlAgentMetadata:
+        return NixlAgentMetadata(
+            agent_name=self.agent_name,
+            agent_metadata=self.agent.get_agent_metadata(),
+            zmq_ip=self.ip,
+            zmq_port=self.listen_port,
+        )
+
+    def start_zmq_server(self):
+        self.ip = ray.util.get_node_ip_address().strip("[]")
+        self.listen_port, self.listen_sock = get_free_port(self.ip)
+
+        context = zmq.asyncio.Context()
+        self.socket = context.socket(zmq.PULL)
+        if is_valid_ipv6_address(self.ip):
+            address = f"tcp://[{self.ip}]:{self.listen_port}"
+            self.socket.setsockopt(zmq.IPV6, 1)
+        else:
+            address = f"tcp://{self.ip}:{self.listen_port}"
+
+        self.socket.bind(address)
+
+    def add_remote_agent(self, metadata: NixlAgentMetadata) -> str:
+        agent_name = self.agent.add_remote_agent(metadata.agent_metadata).decode("utf-8")
+        assert agent_name == metadata.agent_name, f"Agent name {agent_name} not equal to {metadata.agent_name}"
+
+        context = zmq.Context()
+        socket = context.socket(zmq.PUSH)
+        if is_valid_ipv6_address(metadata.zmq_ip):
+            address = f"tcp://[{metadata.zmq_ip}]:{metadata.zmq_port}"
+            socket.setsockopt(zmq.IPV6, 1)
+        else:
+            address = f"tcp://{metadata.zmq_ip}:{metadata.zmq_port}"
+
+        socket.connect(address)
+        self.zmq_clients[agent_name] = socket
+        return agent_name
+
+    def remove_remote_agent(self, agent_name: str):
+        self.agent.remove_remote_agent(agent_name)
+        socket = self.zmq_clients.pop(agent_name)
+        socket.close()
+
+    def send_message(self, agent_name, message: dict):
+        socket = self.zmq_clients[agent_name]
+        socket.send_pyobj((self.agent_name, message), zmq.DONTWAIT)
+
+    async def read_message(self, agent_name: str) -> dict:
+        while len(self.messages[agent_name]) == 0:
+            recv_agent_name, message = await self.socket.recv_pyobj()
+            self.messages[recv_agent_name].append(message)
+        return self.messages[agent_name].popleft()
+
     async def get_notification(self, remote_name: str) -> bytes:
         while len(self.notifications[remote_name]) == 0:
             notifs = self.agent.get_new_notifs()
@@ -57,15 +127,6 @@ class NixlAgent:
                 self.notifications[remote_name].extend(notif)
             await asyncio.sleep(0.1)
         return self.notifications[remote_name].popleft()
-
-
-@dataclass
-class NixlAgentAddress:
-    """Address for a Nixl agent."""
-
-    name: str
-    ip: str
-    port: int
 
 
 class ReadableOperation:
@@ -85,8 +146,8 @@ class ReadableOperation:
         self.remote_agent = remote_agent
         self.local_descs = local_descs
         self.notify_key = uuid.uuid4().bytes
-        msg = pickle.dumps({"notify_key": self.notify_key, "remote_descs": self.local_descs, **metadata})
-        self.agent.send_notif(self.remote_agent, msg)
+        message = {"notify_key": self.notify_key, "remote_descs": self.local_descs, **metadata}
+        self.agent.send_message(self.remote_agent, message)
 
     async def wait_for_complete(self):
         """Block until remote agent read complete."""
@@ -121,8 +182,7 @@ class ReadOperation:
         Returns:
             dict: Metadata from the remote agent.
         """
-        notification = await self.agent.get_notification(self.remote_agent)
-        metadata = pickle.loads(notification)
+        metadata = await self.agent.read_message(self.remote_agent)
         self.remote_descs = metadata.pop("remote_descs")
         self.notify_key = metadata.pop("notify_key")
         return metadata
@@ -155,29 +215,14 @@ class NIXLCheckpointEngine(CheckpointEngine):
     def __init__(self, bucket_size: int, device: str):
         self.bucket_size = bucket_size
         self.device = device
-        self.agent_name = str(uuid.uuid4())
-        self.ip = ray.util.get_node_ip_address().strip("[]")
+        self.agent = NixlAgent()
 
-        self.listen_port, self.listen_sock = get_free_port(self.ip)
-        self.agent = NixlAgent(
-            nixl_api.nixl_agent(self.agent_name, nixl_api.nixl_agent_config(True, True, self.listen_port))
-        )
-
-    def get_metadata(self) -> NixlAgentAddress:
-        return NixlAgentAddress(self.agent_name, self.ip, self.listen_port)
-
-    def setup(self, rank: int, world_size: int, prev_address: NixlAgentAddress, next_address: NixlAgentAddress):
-        """Get the full metadata of the send and recv agents.
+    def prepare(self) -> bytes:
+        """Prepare send and recv bucket.
 
         Returns:
-            A tuple of the send and recv agent metadata.
+            bytes: The metadata of the current nixl agent.
         """
-        self.rank = rank
-        self.world_size = world_size
-        self.prev_agent = None
-        self.next_agent = None
-
-        # create and register memory for send and recv bucket.
         self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
         self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
         self.send_reg_descs = self.agent.register_memory(self.send_buf)
@@ -185,31 +230,35 @@ class NIXLCheckpointEngine(CheckpointEngine):
         self.send_descs = self.agent.get_xfer_descs(self.send_buf)
         self.recv_descs = self.agent.get_xfer_descs(self.recv_buf)
 
-        # check prev agent metadata ready
-        if prev_address is not None:
-            self.prev_agent = prev_address.name
-            self.agent.fetch_remote_metadata(self.prev_agent, prev_address.ip, prev_address.port)
-            self.agent.send_local_metadata(prev_address.ip, prev_address.port)
-            while True:
-                if self.agent.check_remote_metadata(self.prev_agent):
-                    break
-                time.sleep(1)
+        return self.agent.get_agent_metadata()
 
-        # check next agent metadata ready
-        if next_address is not None:
-            self.next_agent = next_address.name
-            while True:
-                if self.agent.check_remote_metadata(self.next_agent):
-                    break
-                time.sleep(1)
+    def init_process_group(self, rank: int, world_size: int, prev_agent_metadata: bytes, next_agent_metadata: bytes):
+        """Setup the communication with the previous and next agent.
+
+        Args:
+            rank (int): The rank of the current process.
+            world_size (int): The total number of processes.
+            prev_agent_metadata (bytes): The metadata of the previous nixl agent.
+            next_agent_metadata (bytes): The metadata of the next nixl agent.
+        """
+        self.rank = rank
+        self.world_size = world_size
+        self.prev_agent = None
+        self.next_agent = None
+
+        if prev_agent_metadata is not None:
+            self.prev_agent = self.agent.add_remote_agent(prev_agent_metadata)
+
+        if next_agent_metadata is not None:
+            self.next_agent = self.agent.add_remote_agent(next_agent_metadata)
 
         logger.info(
             f"Setup rank: {self.rank}, world_size: {self.world_size}, "
             f"prev_agent: {self.prev_agent}, next_agent: {self.next_agent}"
         )
 
-    def tear_down(self):
-        """Tear down the communication with the previous and next agent."""
+    def finish(self):
+        """Cleanup communication with the previous and next agent, and deregister the memory."""
         if self.prev_agent:
             self.agent.remove_remote_agent(self.prev_agent)
         if self.next_agent:
@@ -236,6 +285,12 @@ class NIXLCheckpointEngine(CheckpointEngine):
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
+        # For trainer rank other than 0, consume weights without sending.
+        if self.rank != 0:
+            for name, weight in weights:
+                pass
+            return
+
         assert self.next_agent is not None, "Next agent is not set."
         send_buf = self.send_buf
         send_descs = self.send_descs
@@ -327,6 +382,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
             await read_op.wait_for_complete()
 
             # 5. swap send and recv buf
+            torch.cuda.synchronize()  # sync non-blocking copy
             metadata = next_metadata
             send_buf, recv_buf = recv_buf, send_buf
             send_descs, recv_descs = recv_descs, send_descs
