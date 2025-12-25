@@ -352,15 +352,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
         )
 
-        # Apply TiledMLP monkey patch BEFORE model instantiation for memory-efficient MLP
-        if use_tiled_mlp:
-            from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
-
-            model_type = getattr(actor_model_config, "model_type", None)
-            apply_tiled_mlp_monkey_patch(num_shards=tiled_mlp_shards, model_type=model_type)
-            if self.rank == 0:
-                print(f"TiledMLP enabled for {role} model (shards={tiled_mlp_shards}, model_type={model_type})")
-
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             has_remote_code = hasattr(actor_model_config, "auto_map") and any(
@@ -414,6 +405,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
@@ -1308,7 +1301,7 @@ class CriticWorker(Worker, DistProfilerExtension):
             use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh
         )
 
-        # Apply TiledMLP monkey patch BEFORE model instantiation for memory-efficient MLP
+        # TiledMLP configuration for memory-efficient MLP computation
         tiled_mlp_config = config.model.get("tiled_mlp", {})
         use_tiled_mlp = tiled_mlp_config.get("enabled", False)
         tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
@@ -1316,14 +1309,6 @@ class CriticWorker(Worker, DistProfilerExtension):
         # TiledMLP requires FSDP2 for correct gradient computation
         if use_tiled_mlp and config.strategy == "fsdp":
             raise ValueError("TiledMLP requires FSDP2. Set `critic.strategy=fsdp2`.")
-
-        if use_tiled_mlp:
-            from verl.models.transformers.tiled_mlp import apply_tiled_mlp_monkey_patch
-
-            model_type = getattr(critic_model_config, "model_type", None)
-            apply_tiled_mlp_monkey_patch(num_shards=tiled_mlp_shards, model_type=model_type)
-            if self.rank == 0:
-                print(f"TiledMLP enabled for critic model (shards={tiled_mlp_shards}, model_type={model_type})")
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1344,6 +1329,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 model=critic_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # some parameters may not in torch_dtype

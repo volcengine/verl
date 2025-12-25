@@ -198,8 +198,12 @@ def apply_tiled_mlp_monkey_patch(
     elif model_type in _MODEL_TYPE_TO_MLP_CLASS:
         types_to_patch = [model_type]
     else:
-        # Unsupported model type, skip silently
-        return []
+        raise ValueError(
+            f"TiledMLP does not support model_type='{model_type}'. "
+            f"Supported types: {list(_MODEL_TYPE_TO_MLP_CLASS.keys())}. "
+            f"For SwiGLU-style MLPs, you can add support by extending _MODEL_TYPE_TO_MLP_CLASS "
+            f"in verl/models/transformers/tiled_mlp.py"
+        )
 
     patched_classes = []
 
