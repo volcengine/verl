@@ -23,9 +23,9 @@ import json
 import logging
 import math
 import os
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import partial
 from pprint import pprint
 from typing import Any, Optional
 
@@ -355,6 +355,7 @@ class RayPPOTrainer:
         val_dataset: Optional[Dataset] = None,
         collate_fn=None,
         train_sampler: Optional[Sampler] = None,
+        val_sampler: Optional[Sampler] = None,
         device_name=None,
     ):
         """
@@ -374,6 +375,7 @@ class RayPPOTrainer:
             val_dataset (Optional[Dataset], optional): Validation dataset. Defaults to None.
             collate_fn: Function to collate data samples into batches.
             train_sampler (Optional[Sampler], optional): Sampler for the training dataset. Defaults to None.
+            val_sampler (Optional[Sampler], optional): Sampler for the validation dataset. Defaults to None.
             device_name (str, optional): Device name for training (e.g., "cuda", "cpu"). Defaults to None.
         """
 
@@ -410,17 +412,20 @@ class RayPPOTrainer:
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
-
+        self.val_dataset_size = len(val_dataset)
         self.tq_client = self._initialize_transferqueue()
+        self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler, val_sampler)
 
     def _initialize_transferqueue(self):
         # 1. initialize TransferQueueStorage
         if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
+            # TODO(baymax): support prefetch_factor
+            # set num_global_batch = num_workers * prefetch_factor * 2 + 1
+            num_workers = self.config.data["dataloader_num_workers"]
+            num_global_batch = num_workers * 2 + 1
+
             train_data_size = (
-                self.config.data.train_batch_size
-                * self.config.transfer_queue.num_global_batch
-                * self.config.actor_rollout_ref.rollout.n
+                self.config.data.train_batch_size * num_global_batch * self.config.actor_rollout_ref.rollout.n
             )
             val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
 
@@ -480,12 +485,14 @@ class RayPPOTrainer:
         tq_client = get_transferqueue_client()
         return tq_client
 
-    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler]):
+    def _create_dataloader(
+        self, train_dataset, val_dataset, collate_fn, train_sampler: Optional[Sampler], val_sampler: Optional[Sampler]
+    ):
         """
         Creates the train and validation dataloaders.
         """
         # TODO: we have to make sure the batch size is divisible by the dp size
-        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+        from verl.trainer.main_ppo import create_rl_dataset
 
         if train_dataset is None:
             train_dataset = create_rl_dataset(
@@ -497,38 +504,29 @@ class RayPPOTrainer:
             )
         self.train_dataset, self.val_dataset = train_dataset, val_dataset
 
-        self.val_dataset_size = len(val_dataset)
-
-        if train_sampler is None:
-            train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
-        if collate_fn is None:
-            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
-
-            collate_fn = default_collate_fn
-
         num_workers = self.config.data["dataloader_num_workers"]
+
+        def _worker_init_fn(worker_id):
+            import verl.utils.transferqueue_utils
+
+            # we need to set the client to None in the worker process
+            # so that the worker process will not share the same client with the driver process
+            verl.utils.transferqueue_utils._TRANSFER_QUEUE_CLIENT = None
 
         self.train_dataloader = StatefulDataLoader(
             dataset=self.train_dataset,
-            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            batch_sampler=train_sampler,
             num_workers=num_workers,
-            drop_last=True,
-            collate_fn=collate_fn,
-            sampler=train_sampler,
+            worker_init_fn=_worker_init_fn,
+            collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=True),
         )
-
-        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
-        if val_batch_size is None:
-            val_batch_size = len(self.val_dataset)
-        self.val_batch_size = val_batch_size
 
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
-            batch_size=val_batch_size,
+            batch_sampler=val_sampler,
             num_workers=num_workers,
-            shuffle=self.config.data.get("validation_shuffle", True),
-            drop_last=False,
-            collate_fn=collate_fn,
+            worker_init_fn=_worker_init_fn,
+            collate_fn=partial(collate_fn, cls=self, config=self.config, is_train=False),
         )
 
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
@@ -673,36 +671,15 @@ class RayPPOTrainer:
         sample_scores = []
         sample_turns = []
         sample_uids = []
-
-        for test_data in self.val_dataloader:
-            if "uid" not in test_data.keys():
-                test_data["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_data["input_ids"]))], dtype=object
-                )
-
-            # repeat test data
-            repeated_test_data = self.repeat_dict(
-                test_data, repeat_times=self.config.actor_rollout_ref.rollout.val_kwargs.n, interleave=True
-            )
-
-            test_batch: TensorDict = self.dict_to_tensordict(repeated_test_data)
+        val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
+        for local_step, batch_meta in self.val_dataloader:
+            data = asyncio.run(self.tq_client.async_get_data(batch_meta))
 
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable and test_batch[0]["reward_model"]["style"] == "model":
+            if self.config.reward_model.enable and data[0]["reward_model"]["style"] == "model":
+                asyncio.run(self.tq_client.async_clear(partition_id=f"val_{local_step}"))
                 return {}
 
-            asyncio.run(self.tq_client.async_put(data=test_batch, partition_id=f"val_{self.global_steps - 1}"))
-
-            # Store original inputs
-            batch_meta = asyncio.run(
-                self.tq_client.async_get_meta(
-                    data_fields=["input_ids", "uid", "reward_model"],
-                    batch_size=test_batch.batch_size[0],
-                    partition_id=f"val_{self.global_steps - 1}",
-                    task_name="get_data",
-                )
-            )
-            data = asyncio.run(self.tq_client.async_get_data(batch_meta))
             input_ids = data["input_ids"]
             # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
@@ -714,9 +691,9 @@ class RayPPOTrainer:
 
             test_gen_meta = asyncio.run(
                 self.tq_client.async_get_meta(
-                    data_fields=list(test_batch.keys()),  # TODO: (TQ) Get metadata by specified fields
-                    batch_size=test_batch.batch_size[0],
-                    partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
+                    data_fields=list(data.keys()),  # TODO: (TQ) Get metadata by specified fields
+                    batch_size=val_data_size,
+                    partition_id=f"val_{local_step}",
                     task_name="generate_sequences",
                 )
             )
@@ -744,8 +721,8 @@ class RayPPOTrainer:
             test_response_meta = asyncio.run(
                 self.tq_client.async_get_meta(
                     data_fields=["responses"],
-                    batch_size=test_batch.batch_size[0],
-                    partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
+                    batch_size=val_data_size,
+                    partition_id=f"val_{local_step}",
                     task_name="get_response",
                 )
             )
@@ -772,8 +749,8 @@ class RayPPOTrainer:
             val_reward_meta = asyncio.run(
                 self.tq_client.async_get_meta(
                     data_fields=compute_reward_fields,
-                    batch_size=test_batch.batch_size[0],
-                    partition_id=f"val_{self.global_steps - 1}",
+                    batch_size=val_data_size,
+                    partition_id=f"val_{local_step}",
                     task_name="compute_reward",
                 )
             )
@@ -795,8 +772,8 @@ class RayPPOTrainer:
                 num_turns_meta = asyncio.run(
                     self.tq_client.async_get_meta(
                         data_fields=["__num_turns__"],
-                        batch_size=test_batch.batch_size[0],
-                        partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
+                        batch_size=val_data_size,
+                        partition_id=f"val_{local_step}",
                         task_name="get_num_turns",
                     )
                 )
@@ -808,8 +785,8 @@ class RayPPOTrainer:
                 data_source_meta = asyncio.run(
                     self.tq_client.async_get_meta(
                         data_fields=["data_source"],
-                        batch_size=test_batch.batch_size[0],
-                        partition_id=f"val_{self.global_steps - 1}",  # self.global_steps start from 1
+                        batch_size=val_data_size,
+                        partition_id=f"val_{local_step}",
                         task_name="get_data_source",
                     )
                 )
@@ -818,7 +795,7 @@ class RayPPOTrainer:
 
             data_source_lst.append(data_source)
 
-            asyncio.run(self.tq_client.async_clear(partition_id=f"val_{self.global_steps - 1}"))
+            asyncio.run(self.tq_client.async_clear(partition_id=f"val_{local_step}"))
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -863,7 +840,7 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
-        asyncio.run(self.tq_client.async_clear(partition_id=f"val_{self.global_steps - 1}"))
+        asyncio.run(self.tq_client.async_clear(partition_id=f"val_{local_step}"))
         return metric_dict
 
     def init_workers(self):
@@ -1291,12 +1268,12 @@ class RayPPOTrainer:
         next_step_profile = False
 
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            for local_step, gen_meta in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
                 base_get_meta_kwargs = dict(
                     batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                    partition_id=f"train_{self.global_steps - 1}",  # self.global_steps starts from 1
+                    partition_id=f"train_{local_step}",
                 )
 
                 with marked_timer("start_profile", timing_raw):
@@ -1305,19 +1282,6 @@ class RayPPOTrainer:
                         if self.config.global_profiler.profile_continuous_steps
                         else curr_step_profile
                     )
-
-                # add uid to batch
-                batch_dict["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object
-                )
-                # When n > 1, repeat input data before putting to data system, simulating DataProto repeat.
-                repeated_batch_dict = self.repeat_dict(
-                    batch_dict, repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
-                )
-                batch: TensorDict = self.dict_to_tensordict(repeated_batch_dict)
-                gen_meta = asyncio.run(
-                    self.tq_client.async_put(data=batch, partition_id=f"train_{self.global_steps - 1}")
-                )
 
                 # pass global_steps to trace
                 gen_meta.set_extra_info("global_steps", self.global_steps)
@@ -1766,9 +1730,10 @@ class RayPPOTrainer:
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                     # TODO (TQ) :support transfer queue
+                    batch = asyncio.run(self.tq_client.async_get_data(gen_meta))
                     self.train_dataloader.sampler.update(batch=batch)
 
-                asyncio.run(self.tq_client.async_clear(partition_id=f"train_{self.global_steps - 1}"))
+                asyncio.run(self.tq_client.async_clear(partition_id=f"train_{local_step}"))
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 
@@ -1793,4 +1758,5 @@ class RayPPOTrainer:
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
                     # TODO (TQ): support transfer queue
+                    batch = asyncio.run(self.tq_client.async_get_data(gen_meta))
                     self.train_dataset.on_batch_end(batch=batch)

@@ -57,7 +57,6 @@ def create_transferqueue_client(
     if _TRANSFER_QUEUE_CLIENT is None:
         _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
         _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.storage_backend, config=config)
-
     return _TRANSFER_QUEUE_CLIENT
 
 

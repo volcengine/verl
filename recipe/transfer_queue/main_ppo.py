@@ -15,12 +15,16 @@
 Note that we don't combine the main with ray_trainer as ray_trainer is used by other main.
 """
 
+import asyncio
 import os
 import socket
 
 import hydra
+import numpy as np
 import ray
 from omegaconf import OmegaConf
+from tensordict import TensorDict
+from torchdata.stateful_dataloader.sampler import BatchSampler
 
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import (
@@ -176,12 +180,11 @@ class TaskRunner(MainTaskRunner):
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 
-        from verl.utils.dataset.rl_dataset import collate_fn
-
         # Create training and validation datasets.
         train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
-        train_sampler = create_rl_sampler(config.data, train_dataset)
+        train_sampler = create_rl_batch_sampler(config.data, train_dataset, is_train=True)
+        val_sampler = create_rl_batch_sampler(config.data, val_dataset, is_train=False)
 
         # Initialize the PPO trainer.
         trainer = RayPPOTrainer(
@@ -195,13 +198,78 @@ class TaskRunner(MainTaskRunner):
             val_reward_fn=val_reward_fn,
             train_dataset=train_dataset,
             val_dataset=val_dataset,
-            collate_fn=collate_fn,
+            collate_fn=tq_collate_fn,
             train_sampler=train_sampler,
+            val_sampler=val_sampler,
         )
         # Initialize the workers of the trainer.
         trainer.init_workers()
         # Start the training process.
         trainer.fit()
+
+
+class BatchSamplerWithId(BatchSampler):
+    def __init__(self, sampler, batch_size, drop_last):
+        super().__init__(sampler, batch_size, drop_last)
+
+        # When using BatchSample, calling iter() triggers the execution of iter(self.sampler) once.
+        # To ensure that BatchSamplerWithId behaves consistently with BatchSampler in terms of data fetching,
+        # iter(self.sampler) should be called in advance.
+        # https://github.com/meta-pytorch/data/blob/main/torchdata/stateful_dataloader/sampler.py#L175
+        iter(self.sampler)
+
+    def __iter__(self):
+        for batch_id, batch in enumerate(super().__iter__()):
+            yield [(batch_id, idx) for idx in batch]
+
+
+def create_rl_batch_sampler(data_config, dataset, is_train=True):
+    if is_train:
+        batch_size = data_config.get("gen_batch_size", data_config.train_batch_size)
+        drop_last = True
+    else:
+        import copy
+
+        data_config = copy.deepcopy(data_config)
+        data_config.shuffle = data_config.get("validation_shuffle", True)
+        batch_size = len(dataset)
+        drop_last = False
+
+    base_sampler = create_rl_sampler(data_config, dataset)
+    batch_sampler = BatchSamplerWithId(
+        sampler=base_sampler,
+        batch_size=batch_size,
+        drop_last=drop_last,
+    )
+
+    return batch_sampler
+
+
+def tq_collate_fn(batch, cls, config, is_train=True):
+    import uuid
+
+    from verl.utils.dataset.rl_dataset import collate_fn
+    from verl.utils.transferqueue_utils import create_transferqueue_client
+
+    if is_train:
+        prefix = "train_"
+        repeat_times = config.actor_rollout_ref.rollout.n
+    else:
+        prefix = "val_"
+        repeat_times = config.actor_rollout_ref.rollout.val_kwargs.n
+
+    tq_client = create_transferqueue_client(client_id="data_process", config=config.transfer_queue)
+
+    batch_dict = collate_fn(batch)
+    partition_id = batch_dict.pop("batch_id")[0]
+
+    batch_dict["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object)
+
+    batch_dict = cls.repeat_dict(batch_dict, repeat_times=repeat_times, interleave=True)
+    batch_dict: TensorDict = cls.dict_to_tensordict(batch_dict)
+    batchmeta = asyncio.run(tq_client.async_put(data=batch_dict, partition_id=f"{prefix}{partition_id}"))
+
+    return partition_id, batchmeta
 
 
 if __name__ == "__main__":
