@@ -18,7 +18,6 @@ PPO Trainer with Ray-based single controller.
 This trainer supports model-agonistic model initialization with huggingface
 """
 
-import asyncio
 import json
 import logging
 import math
@@ -215,7 +214,7 @@ def compute_response_mask(batch_meta: BatchMeta, tq_client):
     Returns:
         BatchMeta: The BatchMeta of attention mask for the response tokens.
     """
-    data = asyncio.run(tq_client.async_get_data(batch_meta))
+    data = tq_client.get_data(batch_meta)
 
     responses = data["responses"]
     response_length = responses.size(1)
@@ -223,8 +222,7 @@ def compute_response_mask(batch_meta: BatchMeta, tq_client):
     response_mask = attention_mask[:, -response_length:]
     output = TensorDict({"response_mask": response_mask}, batch_size=response_mask.size(0))
 
-    asyncio.run(tq_client.async_put(data=output, metadata=batch_meta))
-    batch_meta.add_fields(output)
+    batch_meta = tq_client.put(data=output, metadata=batch_meta)
 
     return batch_meta
 
@@ -1079,7 +1077,7 @@ class RayPPOTrainer:
         self, batch: BatchMeta, tq_client, metrics, logging_prefix="global_seqlen", keep_minibatch=False
     ):
         """Reorder the batchmeta on single controller such that each dp rank gets similar total tokens"""
-        data = asyncio.run(tq_client.async_get_data(batch))
+        data = tq_client.get_data(batch)
 
         attention_mask = data["attention_mask"]
         batch_size = attention_mask.shape[0]
