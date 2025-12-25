@@ -57,7 +57,7 @@ class MtpConfig(BaseConfig):
     enable_train: bool = False
     enable_rollout: bool = False
 
-    detach_encoder: bool = True
+    detach_encoder: bool = False
     mtp_loss_scaling_factor: float = 0.1
 
     speculative_algorithm: str = "EAGLE"

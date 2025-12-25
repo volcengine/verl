@@ -321,7 +321,7 @@ actor_rollout_ref:
       enable: false
       enable_train: false
       enable_rollout: false
-      detach_encoder: true
+      detach_encoder: false
       mtp_loss_scaling_factor: 0.1
       speculative_algorithm: EAGLE
       speculative_num_steps: 2

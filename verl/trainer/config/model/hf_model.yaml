@@ -75,7 +75,7 @@ mtp:
   enable_train: False
   enable_rollout: False
 
-  detach_encoder: True
+  detach_encoder: False
   mtp_loss_scaling_factor: 0.1
 
   speculative_algorithm: EAGLE
