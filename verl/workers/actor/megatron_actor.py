@@ -178,6 +178,8 @@ class MegatronPPOActor(BasePPOActor):
         print(config)
         config.finalize_model_grads_func = finalize_model_grads
 
+        print(f"hzg actor_module {self.actor_module}")
+
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get("ulysses_sequence_parallel_size", 1) == 1
@@ -736,7 +738,7 @@ class MegatronPPOActor(BasePPOActor):
             self.mini_layer_topk_idx_list = []
 
         # Collect and pass MTP metrics to losses_reduced
-        if self.mtp_config and self.mtp_config.enable and self.mtp_config.enable_train:
+        if not forward_only and self.mtp_config and self.mtp_config.enable and self.mtp_config.enable_train:
             from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 
             # Calculate MTP loss scale similar to Megatron-LM implementation
@@ -753,14 +755,16 @@ class MegatronPPOActor(BasePPOActor):
                 wandb_writer=None,
                 total_loss_dict=total_loss_dict
             )
-            breakpoint()
             print(f"hzg total_loss_dict: {total_loss_dict}")
-
             # Add MTP metrics to losses_reduced if any were collected
+            # total_loss_dict: {'mtp_1 loss': tensor(0.7855, device='cuda:0')}
             if total_loss_dict:
-                if "mtp_metrics" not in losses_reduced:
-                    losses_reduced["mtp_metrics"] = {}
-                losses_reduced["mtp_metrics"].update(total_loss_dict)
+                mtp_metrics = {}
+                for key, value in total_loss_dict.items():
+                    # Convert key to have proper prefix and format
+                    formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
+                    mtp_metrics[formatted_key] = [value.cpu().item()]
+                losses_reduced["mtp_losses"] = [mtp_metrics]
 
             print(f"hzg losses_reduced: {losses_reduced}")
 
@@ -809,6 +813,13 @@ class MegatronPPOActor(BasePPOActor):
                 max_token_len=max_token_len,
                 mini_batch_size=self.config.ppo_mini_batch_size,
             )
+
+            mtp_losses = metric_micro_batch.get("mtp_losses", None)
+            if mtp_losses is not None:
+                # mtp_losses is now in format: [{"mtp_losses/mtp_1_loss": [value1], "mtp_losses/mtp_2_loss": [value2]}]
+                for mtp_metrics_dict in mtp_losses:
+                    append_to_dict(metrics, mtp_metrics_dict)
+
             metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask
