@@ -82,12 +82,16 @@ def main(config):
 
 @ray.remote
 def main_task(config):
+    import logging
+
     # print initial config
     from pprint import pprint
 
     from omegaconf import OmegaConf
 
     from verl.utils.fs import copy_local_path_from_hdfs
+
+    logger = logging.getLogger(__name__)
 
     pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
     OmegaConf.resolve(config)
@@ -103,12 +107,25 @@ def main_task(config):
     # define worker classes
     if config.actor_rollout_ref.actor.strategy in ["fsdp", "fsdp2"]:
         assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from recipe.vla.workers.env.env_worker import EnvWorker
         from verl.single_controller.ray import RayWorkerGroup
 
         from .fsdp_workers import RobActorRolloutRefWorker
 
         ray_worker_group_cls = RayWorkerGroup
+
+        # Choose EnvWorker based on server mode config
+        use_server_mode = config.env.train.get("use_server_mode", False)
+        if use_server_mode:
+            from recipe.vla.workers.env import EnvWorkerServer as EnvWorker
+
+            logger.info("Using Isaac Server mode (EnvWorkerServer)")
+            logger.info(
+                f"Server address: {config.env.train.get('isaac_server_address', 'ipc:///tmp/isaac_server.sock')}"
+            )
+        else:
+            from recipe.vla.workers.env.env_worker import EnvWorker
+
+            logger.info("Using standard mode (EnvWorker with local Isaac instances)")
 
     else:
         raise NotImplementedError
@@ -132,6 +149,13 @@ def main_task(config):
         # colocated sim and actor rollout
         num_nodes_sim = config.trainer.nnodes
 
+    # In server mode, EnvWorkerServer is a lightweight client that doesn't need GPUs
+    # The Isaac Server manages all GPUs independently
+    if use_server_mode:
+        # Override env_gpu_num for server mode - only need 1 worker for coordination
+        env_gpu_num = config.env.train.get("server_mode_env_workers", 1)
+        logger.info(f"Server mode: using {env_gpu_num} EnvWorkerServer(s) per node (lightweight clients)")
+
     resource_pool_spec = {
         train_rollout_pool_id: [train_rollout_gpu_num] * num_nodes_actor_rollout,
         "env_gpu_pool": [env_gpu_num] * num_nodes_sim,
@@ -152,6 +176,29 @@ def main_task(config):
     train_dataset = datasets.load_dataset("parquet", data_files=config.data.train_files)["train"]
     val_dataset = datasets.load_dataset("parquet", data_files=config.data.val_files)["train"]
 
+    # Create task-balanced sampler for server mode
+    train_sampler = None
+    if use_server_mode:
+        from recipe.vla.workers.env import create_task_balanced_sampler
+
+        # Pass env config to sampler for task balancing
+        # For dual server mode, also pass stage_num and dual_server_mode
+        dual_server_mode = config.env.train.get("dual_server_mode", False)
+        stage_num = config.env.rollout.pipeline_stage_num if dual_server_mode else 1
+
+        sampler_config = OmegaConf.create(
+            {
+                **OmegaConf.to_container(config.data),
+                "server_group_size": config.env.train.get("server_group_size", 64),
+                "num_envs": config.env.train.num_envs,
+                "stage_num": stage_num,
+                "dual_server_mode": dual_server_mode,
+            }
+        )
+        train_sampler = create_task_balanced_sampler(sampler_config, train_dataset)
+        mode_str = "dual server" if dual_server_mode else "standard"
+        logger.info(f"Using TaskBalancedSampler for server mode ({mode_str})")
+
     trainer = RobRayPPOTrainer(
         config=config,
         tokenizer=tokenizer,
@@ -162,6 +209,7 @@ def main_task(config):
         val_reward_fn=val_reward_fn,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
+        train_sampler=train_sampler,
     )
     trainer.init_workers()
     trainer.fit()

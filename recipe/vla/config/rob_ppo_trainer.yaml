@@ -26,6 +26,32 @@ env:
     num_envs: 16
     seed: 42
     task_suite_name: libero_10
+
+    # Isaac Server Mode Configuration
+    # When enabled, EnvWorker connects to a standalone Isaac server
+    # instead of managing its own Isaac instance
+    use_server_mode: False
+    
+    # Address of the Isaac server (IPC or TCP)
+    # IPC: "ipc:///tmp/isaac_server.sock"
+    # TCP: "tcp://sim_node_ip:5555"
+    isaac_server_address: "ipc:///tmp/isaac_server.sock"
+    
+    # Number of EnvWorkerServer instances per node in server mode
+    # In server mode, workers are lightweight clients, so typically only need 1
+    server_mode_env_workers: 1
+    
+    # Original env worker count (how many workers would exist in standard mode)
+    # This tells the coordinator how many stages to handle
+    # total_stages = original_env_worker_count × pipeline_stage_num
+    original_env_worker_count: 8
+    
+    # Server's group_size (envs per task on the Isaac server)
+    # This must match the --group_size passed to isaac_server.py
+    # Max trajectories per task = server_group_size / num_envs
+    # Example: group_size=32, num_envs=8 → 4 trajectories per task max
+    server_group_size: 32
+
     init_params:
       camera_depths: False
       camera_heights: 256

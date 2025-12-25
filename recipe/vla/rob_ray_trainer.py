@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import asyncio
+import logging
 import uuid
 from collections import defaultdict
 from pprint import pprint
@@ -46,6 +47,8 @@ from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
+
+logger = logging.getLogger(__name__)
 
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:
@@ -185,12 +188,23 @@ class RobRayPPOTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async_envloop":
-            from recipe.vla.env_loop import EnvLoop
-
             self.async_rollout_mode = True
-            self.async_rollout_manager = EnvLoop(
-                config=self.config, rollout_wg=self.actor_rollout_wg, env_wg=self.env_wg
-            )
+
+            # Use EnvLoopServer for server mode, EnvLoop for standard mode
+            use_server_mode = self.config.env.train.get("use_server_mode", False)
+            if use_server_mode:
+                from recipe.vla.env_loop_server import EnvLoopServer
+
+                logger.info("Using EnvLoopServer for Isaac Server Mode")
+                self.async_rollout_manager = EnvLoopServer(
+                    config=self.config, rollout_wg=self.actor_rollout_wg, env_wg=self.env_wg
+                )
+            else:
+                from recipe.vla.env_loop import EnvLoop
+
+                self.async_rollout_manager = EnvLoop(
+                    config=self.config, rollout_wg=self.actor_rollout_wg, env_wg=self.env_wg
+                )
 
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
         # pop those keys for generation
