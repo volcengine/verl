@@ -39,6 +39,9 @@ on:
     branches:
       - main
       - v0.*
+    paths:
+      - "**/*.py"
+      - .github/workflows/npu_unit_tests.yml
   pull_request:
     branches:
       - main
@@ -68,19 +71,16 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  npu_unit_tests:
     if: github.repository_owner == 'volcengine'
-    name: verl Ascend test (self-host)
+    name: Ascend unit test
     runs-on: linux-aarch64-a2-8
-    timeout-minutes: 15 # Increase this timeout value as needed
+    timeout-minutes: 20 # Increase this timeout value as needed
     container:
       image: swr.ap-southeast-1.myhuaweicloud.com/base_image/ascend-ci/verl/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
       options: >-
         --shm-size 16g
     env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     steps:
@@ -99,18 +99,15 @@ jobs:
       - name: Install the current repository
         run: |
           pip install -r requirements-npu.txt
-          pip install -e .
           pip install --no-deps -e .[test]
           pip install pytest-asyncio
-          pip install mlflow
-          pip install triton
       - name: Check final pip list
         run: |
           pip list
       - name: Prepare weights
         run: |
-          hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir ~/models/Qwen/Qwen2.5-0.5B-Instruct
-          hf download Qwen/Qwen2.5-1.5B-Instruct --local-dir ~/models/Qwen/Qwen2.5-1.5B-Instruct
+          ln -s /root/.cache/models/Qwen/Qwen2.5-0.5B-Instruct ~/models/Qwen/Qwen2.5-0.5B-Instruct
+          ln -s /root/.cache/models/Qwen/Qwen2.5-1.5B-Instruct ~/models/Qwen/Qwen2.5-1.5B-Instruct
       - name: Run all NPU unit tests
         run: |
           pytest -s -x --ignore-glob="*test_special_*.py" --ignore-glob="*on_cpu.py" --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob="tests/special*" --ignore-glob="tests/experimental" --ignore-glob="tests/workers/reward_model" --ignore-glob="*test_rvdz*" --ignore-glob="*test_ray_collectives*" --ignore-glob="*test_nvtx_profile*" tests/
@@ -120,3 +117,6 @@ jobs:
       - name: Testing FSDP2 critic functionality
         run: |
           torchrun --standalone --nnodes=1 --nproc-per-node=2 tests/workers/critic/test_special_dp_critic.py
+      - name: Running NPU profiling unit tests
+        run: |
+          pytest -s -x tests/utils/test_special_mstx_profile.py
