@@ -25,6 +25,9 @@ train_prompt_bsz=512
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
+TRAIN_ENGINE=${TRAIN_ENGINE:-fsdp}
+exp_name=dapo-${TRAIN_ENGINE}-trtllm
+
 # Ray
 # RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
 # WORKING_DIR=${WORKING_DIR:-"${PWD}"}
@@ -57,9 +60,7 @@ train_tp=4
 train_pp=2
 
 # reference run wandb: https://wandb.ai/verl-org/DAPO%20Reproduction%20on%20verl/runs/ow47vvon?nw=nwusertongyuxuan361
-TRAIN_ENGINE=${TRAIN_ENGINE:-fsdp}
 
-exp_name=dapo-${TRAIN_ENGINE}-trtllm
 verl_args=()
 if [ $TRAIN_ENGINE == "fsdp" ]; then
     verl_args=(
@@ -73,7 +74,6 @@ if [ $TRAIN_ENGINE == "fsdp" ]; then
         actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size}
     )
 elif [ $TRAIN_ENGINE == "megatron" ]; then
-
     verl_args=(
         ${verl_args[@]}
         --config-path=config
