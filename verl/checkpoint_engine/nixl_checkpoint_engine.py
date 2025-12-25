@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -30,7 +31,7 @@ from verl.checkpoint_engine.base import CheckpointEngine, TensorMeta
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 @dataclass
@@ -139,9 +140,16 @@ class ReadableOperation:
         remote_agent (str): The name of the remote agent.
         local_descs (nixl_bindings.nixlXferDList): The local transfer descriptors.
         metadata (dict): Metadata for the read operation.
+        bucket_size (int): The size of the bucket in bytes.
     """
 
-    def __init__(self, agent: NixlAgent, remote_agent: str, local_descs: nixl_bindings.nixlXferDList, metadata: dict):
+    def __init__(
+        self,
+        agent: NixlAgent,
+        remote_agent: str,
+        local_descs: nixl_bindings.nixlXferDList,
+        metadata: dict,
+    ):
         self.agent = agent
         self.remote_agent = remote_agent
         self.local_descs = local_descs
@@ -153,7 +161,7 @@ class ReadableOperation:
         """Block until remote agent read complete."""
         notification = await self.agent.get_notification(self.remote_agent)
         assert self.notify_key == notification, f"Notify key {self.notify_key} not equal to {notification}"
-        logger.debug(f"ReadableOperation {self.notify_key} complete")
+        logger.debug(f"ReadableOperation to {self.remote_agent} complete")
 
 
 class ReadOperation:
@@ -166,15 +174,18 @@ class ReadOperation:
         agent (NixlAgent): The Nixl agent.
         remote_agent (str): The name of the remote agent.
         local_descs (nixl_bindings.nixlXferDList): The local transfer descriptors.
+        bucket_size (int): The size of the bucket in bytes.
     """
 
-    def __init__(self, agent: NixlAgent, remote_agent: str, local_descs: nixl_bindings.nixlXferDList):
+    def __init__(self, agent: NixlAgent, remote_agent: str, local_descs: nixl_bindings.nixlXferDList, bucket_size: int):
         self.agent = agent
         self.remote_agent = remote_agent
         self.local_descs = local_descs
         self.remote_descs = None
         self.xfer_handle = None
         self.notify_key = None
+        self.bucket_size = bucket_size
+        self.start_time = None
 
     async def read_metadata(self) -> dict:
         """Block until the remote agent sends the metadata.
@@ -195,6 +206,7 @@ class ReadOperation:
         )
         state = self.agent.transfer(self.xfer_handle)
         assert state != "ERR", f"Read from {self.remote_agent} got to {state} state."
+        self.start_time = time.time()
 
     async def wait_for_complete(self):
         """Block until the read operation complete."""
@@ -208,7 +220,9 @@ class ReadOperation:
             else:
                 await asyncio.sleep(0.1)
         self.agent.release_xfer_handle(self.xfer_handle)
-        logger.debug(f"ReadOperation read data {self.notify_key} from {self.remote_agent} complete")
+        end_time = time.time()
+        bandwidth = self.bucket_size / (end_time - self.start_time) / (1024 * 1024 * 1024)
+        logger.debug(f"ReadOperation read data from {self.remote_agent} complete, bandwidth: {bandwidth:.2f} GB/s")
 
 
 class NIXLCheckpointEngine(CheckpointEngine):
@@ -295,6 +309,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
         send_buf = self.send_buf
         send_descs = self.send_descs
 
+        start_time = time.time()
         bucket_meta: dict[str, TensorMeta] = {}
         offset = 0
         for name, weight in weights:
@@ -304,7 +319,10 @@ class NIXLCheckpointEngine(CheckpointEngine):
 
                 # send bucket meta to next agent
                 readable_op = ReadableOperation(
-                    self.agent, self.next_agent, send_descs, {"bucket_meta": bucket_meta, "is_last": False}
+                    self.agent,
+                    self.next_agent,
+                    send_descs,
+                    {"bucket_meta": bucket_meta, "is_last": False},
                 )
                 await readable_op.wait_for_complete()
 
@@ -331,7 +349,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
             self.agent, self.next_agent, send_descs, {"bucket_meta": bucket_meta, "is_last": True}
         )
         await readable_op.wait_for_complete()
-        logger.info(f"Rank {self.rank} send weights done!")
+        logger.info(f"Rank {self.rank} send weights done, time cost: {time.time() - start_time:.2f}s")
 
     @torch.no_grad()
     async def receive_weights(self) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
@@ -345,7 +363,8 @@ class NIXLCheckpointEngine(CheckpointEngine):
         send_descs, recv_descs = self.send_descs, self.recv_descs
 
         # receive first bucket from previous agent
-        read_op = ReadOperation(self.agent, self.prev_agent, recv_descs)
+        start_time = time.time()
+        read_op = ReadOperation(self.agent, self.prev_agent, recv_descs, self.bucket_size)
         metadata = await read_op.read_metadata()
         read_op.begin_read()
         await read_op.wait_for_complete()
@@ -365,7 +384,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
                 )
 
             # 2. receive bucket from previous agent
-            read_op = ReadOperation(self.agent, self.prev_agent, recv_descs)
+            read_op = ReadOperation(self.agent, self.prev_agent, recv_descs, self.bucket_size)
             next_metadata = await read_op.read_metadata()
             read_op.begin_read()
 
@@ -407,4 +426,4 @@ class NIXLCheckpointEngine(CheckpointEngine):
         # wait for next agent read complete
         if readable_op is not None:
             await readable_op.wait_for_complete()
-        logger.info(f"Rank {self.rank} receive weights done!")
+        logger.info(f"Rank {self.rank} receive weights done, time cost: {time.time() - start_time:.2f}s")

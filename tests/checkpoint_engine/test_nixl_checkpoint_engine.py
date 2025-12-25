@@ -11,12 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
+
 import pytest
 import ray
 import torch
 from transformers import AutoModelForCausalLM
 
 from verl.checkpoint_engine.nixl_checkpoint_engine import NIXLCheckpointEngine
+from verl.utils.fs import copy_to_local
 
 
 @ray.remote(num_gpus=1)
@@ -24,9 +27,11 @@ class Worker:
     def __init__(self, role: str) -> None:
         assert role in ["trainer", "rollout"], f"role must be trainer or rollout, but got {role}"
         self.role = role
-        self.model = AutoModelForCausalLM.from_pretrained("/mnt/hdfs/wuxibin_wl/model/Qwen3-0.6B")
+        model_path = os.environ["HDFS_ROOT"] + "/model/Qwen3-8B-Base"
+        local_path = copy_to_local(model_path)
+        self.model = AutoModelForCausalLM.from_pretrained(local_path, torch_dtype=torch.bfloat16)
         self.model.to("cuda")
-        bucket_size = 1024 * 1024 * 1024  # 1GB
+        bucket_size = 2 * 1024 * 1024 * 1024  # 2GB
         self.checkpoint_engine = NIXLCheckpointEngine(bucket_size=bucket_size, device="cuda")
         self.received_weights: dict[str, torch.Tensor] = {}
 
@@ -53,7 +58,15 @@ class Worker:
 
 @pytest.mark.parametrize("num_rollout", [2, 4, 6])
 def test_nixl_checkpoint_engine(num_rollout):
-    ray.init()
+    ray.init(
+        runtime_env={
+            "env_vars": {
+                "UCX_TLS": "rc,tcp,cuda",
+                "UCX_MAX_RNDV_RAILS": "4",
+                "UCX_LOG_LEVEL": "INFO",
+            }
+        }
+    )
     trainer = [Worker.remote("trainer") for _ in range(2)]
     rollout = [Worker.remote("rollout") for _ in range(num_rollout)]
     workers = trainer + rollout
@@ -95,3 +108,7 @@ def test_nixl_checkpoint_engine(num_rollout):
         ray.get([worker.check_weights.remote() for worker in workers])
 
     ray.shutdown()
+
+
+if __name__ == "__main__":
+    test_nixl_checkpoint_engine(14)
