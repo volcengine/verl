@@ -135,21 +135,12 @@ config = RolloutCorrectionConfig.decoupled_geo_rs_token_tis()   # Geo-RS + Token
 config = RolloutCorrectionConfig.decoupled_k3_rs()              # K3-RS only
 config = RolloutCorrectionConfig.decoupled_k3_rs_token_tis()    # K3-RS + Token-TIS
 
-# === Group-level presets (reject entire groups together) ===
-# Useful when multiple sequences share the same prompt/context
-config = RolloutCorrectionConfig.decoupled_group_k1_rs()              # Group K1 RS
-config = RolloutCorrectionConfig.decoupled_group_k1_rs_token_tis()    # Group K1 RS + Token-TIS
-config = RolloutCorrectionConfig.decoupled_group_k3_rs()              # Group K3 RS
-config = RolloutCorrectionConfig.decoupled_group_k3_rs_token_tis()    # Group K3 RS + Token-TIS
-
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # PPO ratio handles IS, so no explicit IS weights needed
 config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
 config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs()        # PPO-clip + K1-RS (divergence)
 config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS (ratio)
 config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
-config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
-config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
 
 # === Bypass PG mode (2 policies, no PPO clipping) - fast ===
 # IS weights computed on-the-fly as π_θ / π_rollout
@@ -173,7 +164,7 @@ algorithm:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
     rollout_is_batch_normalize: false      # Batch normalize IS weights to mean=1.0
-    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", "k3", "group_k1", "group_k3", or null
+    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", "k3", or null
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null, ignored for k3 modes)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
@@ -262,15 +253,6 @@ Both K1 and K3 estimate KL(π_rollout || π_train) — the **reverse KL** measur
   - More stable than K1 (each token term is non-negative)
   - K3 >= 0 always, so only upper threshold applies
   - Typical threshold: 0.001 - 0.01
-- `"group_k1"`: Group-level masking with K1 divergence
-  - Rejects entire groups of sequences together
-  - Requires `group_indices` tensor in the batch
-  - K1 >= 0 always, so only upper threshold applies
-  - Typical threshold: 0.0001 - 0.001
-- `"group_k3"`: Group-level masking with K3 divergence
-  - Rejects entire groups of sequences together using K3 divergence
-  - Requires `group_indices` tensor in the batch
-  - Typical threshold: 0.001 - 0.01
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
@@ -347,18 +329,11 @@ This section provides detailed guidance on choosing and using the verified prese
 | **K3 KL Estimator** (more stable for small KL values) |
 | `decoupled_k3_rs()` | K3-RS | Decoupled | - | k3 + veto | K3 rejection, no IS weights |
 | `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled | token | k3 + veto | K3 filter + token clipped weight |
-| **Group-level** (reject entire groups together; requires group_indices) |
-| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled | - | group_k1 + veto | Group K1 RS |
-| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled | token | group_k1 + veto | Group K1 filter + token clipped weight |
-| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled | - | group_k3 + veto | Group K3 RS |
-| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled | token | group_k3 + veto | Group K3 filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
 | `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | - | k1 + veto | PPO-clip + K1-RS (divergence) |
 | `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS (ratio) |
 | `bypass_ppo_clip_k3_rs()` | K3-RS | Bypass (PPO-clip) | - | k3 + veto | PPO-clip + K3-RS |
-| `bypass_ppo_clip_group_k1_rs()` | Group-K1-RS | Bypass (PPO-clip) | - | group_k1 + veto | PPO-clip + Group K1 RS |
-| `bypass_ppo_clip_group_k3_rs()` | Group-K3-RS | Bypass (PPO-clip) | - | group_k3 + veto | PPO-clip + Group K3 RS |
 | **Bypass Mode (REINFORCE)** (2 policies; explicit IS weights, no PPO clipping) |
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | sequence | - | REINFORCE with explicit IS |
 | `bypass_pg_k1_rs()` | K1-RS | Bypass (REINFORCE) | - | k1 + veto | REINFORCE with K1-RS (divergence) |
@@ -914,9 +889,9 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 | `rollout_is` | `rollout_rs` | Behavior |
 |--------------|--------------|----------|
 | `null` | `null` | **Disabled**: No computation, no metrics, no rejection |
-| `null` | `"token"`, `"sequence"`, `"geometric"`, `"k1"`, `"k3"`, `"group_k1"`, or `"group_k3"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
+| `null` | `"token"`, `"sequence"`, `"geometric"`, `"k1"` or `"k3"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
 | `"token"` or `"sequence"` | `null` | **IS weights only**: Weight correction enabled, NO rejection sampling |
-| `"token"` or `"sequence"` | `"token"`, `"sequence"`, `"geometric"`, `"k1"`, `"k3"`, `"group_k1"`, or `"group_k3"` | **Full correction**: Both weight correction and rejection sampling enabled |
+| `"token"` or `"sequence"` | `"token"`, `"sequence"`, `"geometric"`, `"k1"` or `"k3"`| **Full correction**: Both weight correction and rejection sampling enabled |
 
 ### Key Insights
 

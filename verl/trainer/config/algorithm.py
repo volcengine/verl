@@ -100,11 +100,6 @@ class RolloutCorrectionConfig(BaseConfig):
             - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
               More stable than K1 for small KL values. K3 >= 0, so only
               upper threshold applies (typical: 0.001-0.01).
-            - "group_k1": Group-level masking with K1 divergence - reject entire groups
-              of sequences together. Requires group_indices in batch. Useful when multiple
-              sequences share the same prompt or context.
-            - "group_k3": Group-level masking with K3 KL estimator - reject entire groups
-              of sequences together using K3 divergence. Requires group_indices in batch.
             Default: None (use IS weights without rejection)
 
         rollout_rs_threshold (Optional[float]): Upper threshold for rejection sampling.
@@ -164,8 +159,6 @@ class RolloutCorrectionConfig(BaseConfig):
         config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs()        # PPO-clip + K1-RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS
         config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
-        config = RolloutCorrectionConfig.bypass_ppo_clip_group_k1_rs()  # PPO-clip + Group K1 RS
-        config = RolloutCorrectionConfig.bypass_ppo_clip_group_k3_rs()  # PPO-clip + Group K3 RS
         # REINFORCE presets (explicit IS weights):
         config = RolloutCorrectionConfig.bypass_pg_is()                 # REINFORCE + Seq-TIS
         config = RolloutCorrectionConfig.bypass_pg_k1_rs()              # REINFORCE + K1-RS
@@ -187,14 +180,6 @@ class RolloutCorrectionConfig(BaseConfig):
         config = RolloutCorrectionConfig.decoupled_k3_rs()                    # Decoupled K3-RS
         config = RolloutCorrectionConfig.decoupled_k3_rs_seq_tis()            # Decoupled K3-RS + Seq-TIS
         config = RolloutCorrectionConfig.decoupled_k3_rs_token_tis()          # Decoupled K3-RS + Token-TIS
-
-        # Decoupled Group-level presets (reject entire groups together)
-        config = RolloutCorrectionConfig.decoupled_group_k1_rs()              # Decoupled Group K1 RS
-        config = RolloutCorrectionConfig.decoupled_group_k1_rs_seq_tis()      # Decoupled Group K1 RS + Seq-TIS
-        config = RolloutCorrectionConfig.decoupled_group_k1_rs_token_tis()    # Decoupled Group K1 RS + Token-TIS
-        config = RolloutCorrectionConfig.decoupled_group_k3_rs()              # Decoupled Group K3 RS
-        config = RolloutCorrectionConfig.decoupled_group_k3_rs_seq_tis()      # Decoupled Group K3 RS + Seq-TIS
-        config = RolloutCorrectionConfig.decoupled_group_k3_rs_token_tis()    # Decoupled Group K3 RS + Token-TIS
 
     Reference:
         Liu, Li, Fu, Wang, Liu, Shen (2025)
@@ -428,63 +413,6 @@ class RolloutCorrectionConfig(BaseConfig):
         return cls(
             rollout_is=None,
             rollout_rs="k3",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-            bypass_mode=True,
-            loss_type="ppo_clip",
-        )
-
-    @classmethod
-    def bypass_ppo_clip_group_k1_rs(
-        cls,
-        rs_threshold: float = 0.001,
-        veto_threshold: float = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Bypass mode with PPO-clip loss and Group K1 Rejection Sampling.
-
-        PPO clipped objective in bypass mode with group-level K1 divergence RS.
-        Rejects entire groups of sequences together based on K1 divergence.
-        Requires group_indices tensor in the batch.
-
-        Args:
-            rs_threshold (float): K1 divergence threshold (max allowed). Default: 0.001 (±0.1%)
-                Rejects groups where |group_mean(E[log(π_train/π_rollout)])| > threshold.
-            veto_threshold (float): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Group-K1-RS
-        """
-        return cls(
-            rollout_is=None,
-            rollout_rs="group_k1",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-            bypass_mode=True,
-            loss_type="ppo_clip",
-        )
-
-    @classmethod
-    def bypass_ppo_clip_group_k3_rs(
-        cls,
-        rs_threshold: float = 0.01,
-        veto_threshold: float = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Bypass mode with PPO-clip loss and Group K3 Rejection Sampling.
-
-        PPO clipped objective in bypass mode with group-level K3 KL estimator RS.
-        Rejects entire groups of sequences together using K3 divergence.
-        Requires group_indices tensor in the batch.
-
-        Args:
-            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
-            veto_threshold (float): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for bypass mode with PPO-clip + Group-K3-RS
-        """
-        return cls(
-            rollout_is=None,
-            rollout_rs="group_k3",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
             bypass_mode=True,
@@ -912,175 +840,6 @@ class RolloutCorrectionConfig(BaseConfig):
             rollout_is="token",
             rollout_is_threshold=is_threshold,
             rollout_rs="k3",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k1_rs(
-        cls,
-        rs_threshold: float = 0.001,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group-level K1 Divergence Rejection Sampling.
-
-        Rejects entire groups of sequences together using K1 divergence.
-        K1 = |group_mean(E[log(r)])|, ideal = 0.0.
-        Useful when multiple sequences share the same prompt/context.
-
-        Requires group_indices tensor in the batch to identify groups.
-
-        Args:
-            rs_threshold (float): K1 divergence threshold (max allowed). Default: 0.001 (±0.1%)
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for group-level K1 RS
-        """
-        return cls(
-            rollout_is=None,
-            rollout_rs="group_k1",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k1_rs_seq_tis(
-        cls,
-        is_threshold: float = 2.0,
-        rs_threshold: float = 0.001,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group K1 RS and Sequence-level Truncated IS.
-
-        Combines group-level K1 divergence rejection with sequence-level IS weights.
-        Groups are defined by group_indices tensor in the batch.
-
-        Args:
-            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
-            rs_threshold (float): K1 divergence threshold (max allowed). Default: 0.001 (±0.1%)
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for Group-K1-RS-Seq-TIS
-        """
-        return cls(
-            rollout_is="sequence",
-            rollout_is_threshold=is_threshold,
-            rollout_rs="group_k1",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k1_rs_token_tis(
-        cls,
-        is_threshold: float = 2.0,
-        rs_threshold: float = 0.001,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group K1 RS and Token-level Truncated IS.
-
-        Combines group-level K1 divergence rejection with token-level IS weights.
-        Groups are defined by group_indices tensor in the batch.
-        Token-level IS has lower variance but introduces bias.
-
-        Args:
-            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
-            rs_threshold (float): K1 divergence threshold (max allowed). Default: 0.001 (±0.1%)
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for Group-K1-RS-Token-TIS
-        """
-        return cls(
-            rollout_is="token",
-            rollout_is_threshold=is_threshold,
-            rollout_rs="group_k1",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k3_rs(
-        cls,
-        rs_threshold: float = 0.01,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group-level K3 KL Estimator Rejection Sampling.
-
-        Rejects entire groups of sequences together using K3 KL estimator.
-        More stable than k1/geometric for small KL values.
-
-        Requires group_indices tensor in the batch to identify groups.
-
-        Args:
-            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for group-level K3 RS
-        """
-        return cls(
-            rollout_is=None,
-            rollout_rs="group_k3",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k3_rs_seq_tis(
-        cls,
-        is_threshold: float = 2.0,
-        rs_threshold: float = 0.01,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group K3 RS and Sequence-level Truncated IS.
-
-        Combines group-level K3 KL rejection with sequence-level IS weights.
-        Groups are defined by group_indices tensor in the batch.
-
-        Args:
-            is_threshold (float): Upper threshold for sequence IS weights. Default: 2.0
-            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for Group-K3-RS-Seq-TIS
-        """
-        return cls(
-            rollout_is="sequence",
-            rollout_is_threshold=is_threshold,
-            rollout_rs="group_k3",
-            rollout_rs_threshold=rs_threshold,
-            rollout_token_veto_threshold=veto_threshold,
-        )
-
-    @classmethod
-    def decoupled_group_k3_rs_token_tis(
-        cls,
-        is_threshold: float = 2.0,
-        rs_threshold: float = 0.01,
-        veto_threshold: Optional[float] = 1e-4,
-    ) -> "RolloutCorrectionConfig":
-        """Decoupled mode with Group K3 RS and Token-level Truncated IS.
-
-        Combines group-level K3 KL rejection with token-level IS weights.
-        Groups are defined by group_indices tensor in the batch.
-        Token-level IS has lower variance but introduces bias.
-
-        Args:
-            is_threshold (float): Upper threshold for token IS weights. Default: 2.0
-            rs_threshold (float): Max allowed group K3 divergence. Default: 0.01
-            veto_threshold (Optional[float]): Per-token veto threshold. Default: 1e-4
-
-        Returns:
-            RolloutCorrectionConfig configured for Group-K3-RS-Token-TIS
-        """
-        return cls(
-            rollout_is="token",
-            rollout_is_threshold=is_threshold,
-            rollout_rs="group_k3",
             rollout_rs_threshold=rs_threshold,
             rollout_token_veto_threshold=veto_threshold,
         )

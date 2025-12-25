@@ -568,51 +568,6 @@ $$
 
 This is implemented by combining `rollout_rs="k3"` with `rollout_is="token"`.
 
-#### 3.3.5 Group-Level Aggregation
-
-Group-level aggregation rejects entire **groups** of sequences together, useful when multiple sequences share the same prompt or context (e.g., multiple responses to the same question).
-
-**Group K1 Divergence:**
-
-$$
-K1_{\text{group}} = \left| \frac{1}{|G|} \sum_{i \in G} \left( \frac{1}{|T_i|} \sum_{t \in T_i} \log \rho_{i,t} \right) \right|
-$$
-
-where $G$ is a group of sequences sharing the same index, and the absolute value ensures $K1_{\text{group}} \geq 0$.
-
-**Configuration:**
-```python
-rollout_rs = "group_k1"  # Group-level K1 divergence RS
-# Requires group_indices tensor in batch
-```
-
-**Group K3:**
-
-$$
-K3_{\text{group}} = \frac{1}{|G|} \sum_{i \in G} K3_{\text{seq},i}
-$$
-
-where $K3_{\text{seq},i}$ is the K3 value for sequence $i$ in group $G$.
-
-**Configuration:**
-```python
-rollout_rs = "group_k3"  # Group-level K3 RS
-# Requires group_indices tensor in batch
-```
-
-**Properties:**
-- Requires `group_indices` tensor of shape (batch_size,) identifying which group each sequence belongs to
-- All sequences in the same group are rejected or accepted together
-- Group K1 and Group K3 both use threshold around 0 (e.g., 0.001 for K1, 0.01 for K3)
-- Useful for:
-  - Best-of-N sampling (reject all N responses if any is too different)
-  - Multi-turn conversations (sequences sharing the same context)
-  - Comparative evaluations (paired responses to same prompt)
-
-**Combined Estimators:**
-- `group_k1_rs_token_tis`: Group K1 filter + token-level IS weights
-- `group_k3_rs_token_tis`: Group K3 filter + token-level IS weights
-
 ---
 
 ### 3.4 Rejection Sampling (RS)
@@ -723,10 +678,6 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | **Geo-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
 | **K3-RS** | `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
 | **K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k3"` | Decoupled PPO, Bypass PG |
-| **Group-K1-RS** | `rollout_rs="group_k1"` | Decoupled PPO, Bypass PG |
-| **Group-K1-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="group_k1"` | Decoupled PPO, Bypass PG |
-| **Group-K3-RS** | `rollout_rs="group_k3"` | Decoupled PPO, Bypass PG |
-| **Group-K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="group_k3"` | Decoupled PPO, Bypass PG |
 
 **Note:** In bypass mode, `loss_type` controls the loss function. Use "ppo_clip" (default) or "reinforce".
 
@@ -745,18 +696,11 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | **K3 KL Estimator** (more stable for small KL values) |
 | `decoupled_k3_rs()` | K3-RS | Decoupled PPO | K3 rejection, no IS weights |
 | `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled PPO | K3 filter + token clipped weight |
-| **Group-level** (reject entire groups together; requires group_indices) |
-| `decoupled_group_k1_rs()` | Group-K1-RS | Decoupled PPO | Group K1 RS |
-| `decoupled_group_k1_rs_token_tis()` | Group-K1-RS-Token-TIS | Decoupled PPO | Group K1 filter + token clipped weight |
-| `decoupled_group_k3_rs()` | Group-K3-RS | Decoupled PPO | Group K3 RS |
-| `decoupled_group_k3_rs_token_tis()` | Group-K3-RS-Token-TIS | Decoupled PPO | Group K3 filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | PPO-clip only |
 | `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | PPO-clip + K1-RS (divergence) |
 | `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | PPO-clip + Geo-RS (ratio) |
 | `bypass_ppo_clip_k3_rs()` | K3-RS | Bypass (PPO-clip) | PPO-clip + K3-RS |
-| `bypass_ppo_clip_group_k1_rs()` | Group-K1-RS | Bypass (PPO-clip) | PPO-clip + Group K1 RS |
-| `bypass_ppo_clip_group_k3_rs()` | Group-K3-RS | Bypass (PPO-clip) | PPO-clip + Group K3 RS |
 | **Bypass Mode (REINFORCE)** (explicit IS weights, no PPO clipping) |
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | REINFORCE + Seq IS |
 | `bypass_pg_k1_rs()` | K1-RS | Bypass (REINFORCE) | REINFORCE + K1-RS (divergence) |
@@ -962,8 +906,6 @@ These estimators define **how IS weights and rejection masks are computed**. The
 | **Geo-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="geometric"` | Geometric filter + token IS weights | Ratio-based length normalization + lower variance IS |
 | **K3-RS** | `rollout_rs="k3"` | Rejects on K3 KL divergence | Small KL values; more stable than K1 |
 | **K3-RS-Token-TIS** | `rollout_is="token"` + `rollout_rs="k3"` | K3 filter + token IS weights | Small KL + lower variance IS |
-| **Group-K1-RS** | `rollout_rs="group_k1"` | Rejects entire groups on K1 divergence | Best-of-N sampling; multi-response scenarios |
-| **Group-K3-RS** | `rollout_rs="group_k3"` | Rejects entire groups on K3 divergence | Best-of-N with small KL; multi-response scenarios |
 
 **Note:** Each estimator can be used with either:
 - **Decoupled PPO** (`bypass_mode=false`): Three policies with PPO clipping
