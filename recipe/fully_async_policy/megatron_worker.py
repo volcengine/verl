@@ -28,7 +28,7 @@ from verl.utils.device import (
     get_device_name,
     get_torch_device,
 )
-from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
+from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 from .checkpoint_engine import CheckpointEngine
@@ -202,17 +202,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 class DetachActorWorker(DetachNcclSync):
     def _get_actor_params_generator(self):
         assert self._is_actor
-        if self.bridge is not None:
-            generator = self.bridge.export_weights(self.actor.actor_module)
-        else:
-            generator = per_tensor_generator(
-                self.actor.actor_module,
-                self.actor_model_config,
-                self.weight_converter,
-                self.tf_config,
-                self.layer_name_mapping,
-            )
-
+        generator = self.bridge.export_weights(self.actor.actor_module)
         return generator
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
