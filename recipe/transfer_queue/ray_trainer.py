@@ -733,6 +733,7 @@ class RayPPOTrainer:
             if self.val_reward_fn is None:
                 raise ValueError("val_reward_fn must be provided for validation.")
 
+            # TODO (TQ): Support PR https://github.com/volcengine/verl/pull/4581
             compute_reward_fields = [
                 "responses",
                 "prompts",
@@ -740,8 +741,8 @@ class RayPPOTrainer:
                 "reward_model",
                 "data_source",
             ]
-            if "rm_scores" in batch_meta.field_names:
-                compute_reward_fields = ["rm_scores"]
+            # if "rm_scores" in batch_meta.field_names:
+            #     compute_reward_fields = ["rm_scores"]
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
             result = compute_val_reward_decorated(self.val_reward_fn, val_reward_meta, return_dict=True)
