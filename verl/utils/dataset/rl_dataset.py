@@ -443,12 +443,12 @@ def get_dataset_class(data_config: DictConfig):
 
         total_samples = len(self.dataframe)
         print(f"total_samples: {total_samples}")
-        if total_samples == 0 or total_samples % num_splits != 0:
+        if total_samples == 0:
+            raise ValueError("Cannot split an empty dataset")
+        if total_samples % num_splits != 0:
             raise ValueError(
-                f"Cannot split empty dataset or dataset size {total_samples}"
-                f" is not divisible by num_splits {num_splits}"
+                f"Cannot split dataset size {total_samples} into {num_splits} splits"
             )
-
         split_size = total_samples // num_splits
         splits = []
 
