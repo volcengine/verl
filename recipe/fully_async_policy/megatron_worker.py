@@ -154,8 +154,6 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             load_megatron_model_to_gpu(self.actor_module)
         load_duration = time.time() - load_start_time
 
-        from ray.util.collective import collective
-
         # Cache actor weights to CPU and measure the time taken
         cache_start_time = time.time()
         self.cache_actor_weights_to_cpu()
@@ -206,6 +204,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
                 f" offload model to cpu cost {offload_duration} seconds"
             )
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_weight_sync_group(self, master_addr, master_port, rank_offset: int, actor_num: int, rollout_num: int):
         current_rank = torch.distributed.get_rank() + rank_offset

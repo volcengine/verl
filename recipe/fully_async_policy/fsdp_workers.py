@@ -200,7 +200,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
                 f" offload model to cpu cost {offload_duration} seconds"
             )
-        
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_weight_sync_group(self, master_addr, master_port, rank_offset: int, actor_num: int, rollout_num: int):
         current_rank = torch.distributed.get_rank() + rank_offset
@@ -213,8 +213,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             current_rank,
             len(actor_ranks) + len(rollout_ranks),
             get_torch_device().current_device(),
-
-
+        )
 
 
 class DetachActorWorker(DetachNcclSync):
