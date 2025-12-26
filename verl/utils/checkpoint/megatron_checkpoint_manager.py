@@ -644,6 +644,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=dist_checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
                     hdfs_io.copy(src=hf_config_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
+
+            # update latest_checkpointed_iteration.txt when async_save is True
             if not self.checkpoint_config.async_save:
                 return
             head_node = None
@@ -653,12 +655,22 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     head_node = node
                     break
             current_node_id = ray.get_runtime_context().get_node_id()
-            if head_node is not None and head_node.node_id == current_node_id:
+            ray_local_world_size = int(os.getenv("RAY_LOCAL_WORLD_SIZE", -1))
+            if ray_local_world_size == -1:
+                nnodes = int(os.getenv("NNODES", 1))
+                ray_local_world_size = torch.distributed.get_world_size() / nnodes
+            if head_node is not None and head_node.node_id == current_node_id and self.rank % ray_local_world_size == 0:
+                log_with_rank(
+                    f"Dist checkpointing async save completed, update latest_checkpointed_iteration.txt to step {global_step}",
+                    rank=self.rank,
+                    logger=logger,
+                )
                 local_latest_checkpointed_iteration = os.path.join(
                     os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
                 )
                 with open(local_latest_checkpointed_iteration, "w") as f:
                     f.write(str(global_step))
+
             # remove previous local_path
             self.previous_saved_paths.append(local_path)
             if (
