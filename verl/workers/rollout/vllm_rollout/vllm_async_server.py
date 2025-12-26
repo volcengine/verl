@@ -715,6 +715,7 @@ class vLLMReplica(RolloutReplica):
                     soft=False,
                 ),
                 name=name,
+                runtime_env={"env_vars": {"VLLM_SERVER_DEV_MODE": "1"}},
             ).remote(
                 config=self.config,
                 model_config=self.model_config,

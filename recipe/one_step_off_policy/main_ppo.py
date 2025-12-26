@@ -32,6 +32,8 @@ from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import auto_set_ascend_device_name
 
+from .ckpt_engine_worker import CkptEngineWorker
+
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     """
@@ -68,6 +70,14 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
         resource_pool_spec["rollout_pool"] = rollout_pool
         mapping[Role.Rollout] = "rollout_pool"
+
+    if Role.CkptEngine in roles:
+        assert config.rollout.n_gpus_per_node > 0, "ckpt_engine config.rollout.n_gpus_per_node must be greater than 0"
+        assert config.rollout.nnodes > 0, "ckpt_engine config.rollout.nnodes must be greater than 0"
+        # the same as rollout pool
+        ckpt_engine_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
+        resource_pool_spec["ckpt_engine_pool"] = ckpt_engine_pool
+        mapping[Role.CkptEngine] = "ckpt_engine_pool"
 
     return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
@@ -111,6 +121,7 @@ def create_role_worker_mapping(config):
         Role.Actor: ray.remote(DetachActorWorker),
         Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
         Role.Critic: ray.remote(CriticWorker),
+        Role.CkptEngine: ray.remote(CkptEngineWorker),
     }
 
     if config.reward_model.enable:
@@ -139,6 +150,9 @@ class OneStepTaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
+
+        if os.environ.get("ASCEND_RT_VISIBLE_DEVICES", None) is not None:
+            del os.environ["ASCEND_RT_VISIBLE_DEVICES"]
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 

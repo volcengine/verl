@@ -18,11 +18,11 @@ import os
 
 import torch
 import torch.distributed
+from checkpoint_engine.ps import ParameterServer
 from omegaconf import DictConfig
 from ray.util.collective import collective
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
@@ -52,17 +52,6 @@ __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker", "Rew
 class DetachSync(AsyncActorRolloutRefWorker):
     def _get_actor_params(self):
         pass
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def create_weight_sync_group(self, master_address, master_port, rank_offset, world_size):
-        rank = torch.distributed.get_rank() + rank_offset
-        self._weight_sync_group = vllm_stateless_init_process_group(
-            master_address,
-            master_port,
-            rank,
-            world_size,
-            get_torch_device().current_device(),
-        )
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights(self):
@@ -127,6 +116,59 @@ class DetachSync(AsyncActorRolloutRefWorker):
 
 
 class DetachActorWorker(DetachSync):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
+        ActorRolloutRefWorker.__init__(self, config, role)
+
+        if role == "actor":
+            self.ps_rank_offset = kwargs.get("rank_offset", self.rank)
+            self.ps_world_size = kwargs.get("ps_world_size", self.world_size)
+            self.ps = ParameterServer(rank=self.rank, world_size=self.ps_world_size)
+            self.index = 0
+
+    def init_process_group(self):
+        os.environ["HCCL_NPU_SOCKET_PORT_RANGE"] = "61020"
+        self.ps.init_process_group(device_index=0, master_port=60010)
+        del os.environ["HCCL_NPU_SOCKET_PORT_RANGE"]
+
+    def split_tensors(self) -> dict[str, torch.Tensor]:
+        assert self._is_actor and not self.config.hybrid_engine
+        assert hasattr(self, "_weights_info") and self._weights_info is not None
+
+        if self._is_actor and self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        params = self._get_actor_params()
+
+        named_tensors = {}
+
+        world_size = self.world_size
+        rank = self.rank
+
+        weights_per_rank = (len(self._weights_info) + world_size - 1) // world_size
+        for index, (key, _, _) in enumerate(self._weights_info):
+            assert key in params
+            tensor = params[key].full_tensor()
+            if index >= rank * weights_per_rank and index < (rank + 1) * weights_per_rank:
+                named_tensors[key] = tensor.to("cpu", non_blocking=True)
+
+        get_torch_device().synchronize()
+
+        return named_tensors
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def sync_rollout_weights_by_ckpt_engine(self):
+        def req_func(socket_paths: list[tuple[str, str]]):
+            return
+
+        self.init_process_group()
+        named_tensors = self.split_tensors()
+        checkpoint_name = f"sync_{self.index}"
+
+        self.ps.register_checkpoint(checkpoint_name=checkpoint_name, named_tensors=named_tensors)
+        self.ps.gather_metas(checkpoint_name)
+        self.ps.update(checkpoint_name, req_func, ranks=list(range(self.ps_rank_offset, self.ps_world_size)))
+
+        self.index += 1
+
     def _get_actor_params(self):
         assert self._is_actor
         params = self.actor_module_fsdp.state_dict()
@@ -159,8 +201,7 @@ class DetachActorWorker(DetachSync):
 
 
 class DetachAsyncRolloutWorker(DetachSync):
-    def __init__(self, config: DictConfig, role: str):
-        print(f"[DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
+    def __init__(self, config: DictConfig, role: str, **kwargs):
         ActorRolloutRefWorker.__init__(self, config, role)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
