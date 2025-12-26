@@ -17,7 +17,7 @@ import inspect
 import json
 import logging
 import os
-import uuid
+from uuid import uuid4
 from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
@@ -735,7 +735,7 @@ class vLLMReplica(RolloutReplica):
                 if not self.is_reward_model
                 else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
             )
-            name = name + f"_{uuid.uuid4().hex[:8]}"
+            name = name + f"_{uuid4().hex[:8]}"
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
