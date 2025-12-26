@@ -269,8 +269,8 @@ Per-token veto for catastrophic outliers. Default: `null`
 - Checks **unclamped per-token ratios** before safety bounds
 - If ANY token has ratio < threshold, entire sequence is rejected
 - Independent of `rollout_is` and `rollout_rs` settings
-- Typical values: `1e-4` to `1e-6` when enabled
-- Example: `1e-4` catches tokens 10,000x less likely
+- Typical values: `1e2` to `1e4` when enabled
+- Example: `1e4` catches tokens 10,000x less likely
 
 ### `rollout_is_batch_normalize` (bool)
 Apply batch normalization to IS weights. Default: `False`
@@ -477,7 +477,7 @@ algorithm:
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.decoupled_k1_rs(rs_threshold=0.001, veto_threshold=1e-4)
+config = RolloutCorrectionConfig.decoupled_k1_rs(rs_threshold=0.001, veto_threshold=1e4)
 ```
 
 **Components:**
@@ -494,7 +494,7 @@ algorithm:
     rollout_is: null
     rollout_rs: k1
     rollout_rs_threshold: 0.001
-    rollout_token_veto_threshold: 1e-4
+    rollout_token_veto_threshold: 1e4
     bypass_mode: false  # Decoupled mode
 ```
 
@@ -525,7 +525,7 @@ A threshold of 0.001 rejects sequences with average per-token log-deviation > 0.
 config = RolloutCorrectionConfig.decoupled_k1_rs_token_tis(
     is_threshold=2.0,
     rs_threshold=0.001,
-    veto_threshold=1e-4
+    veto_threshold=1e4
 )
 ```
 
@@ -544,7 +544,7 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: k1
     rollout_rs_threshold: 0.001
-    rollout_token_veto_threshold: 1e-4
+    rollout_token_veto_threshold: 1e4
     bypass_mode: false  # Decoupled mode
 ```
 
@@ -600,7 +600,7 @@ algorithm:
 ```python
 config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs(
     rs_threshold=0.001,
-    veto_threshold=1e-4
+    veto_threshold=1e4
 )
 ```
 
@@ -618,7 +618,7 @@ algorithm:
     rollout_is: null
     rollout_rs: k1
     rollout_rs_threshold: 0.001
-    rollout_token_veto_threshold: 1e-4
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: ppo_clip
 ```
@@ -677,7 +677,7 @@ algorithm:
 ```python
 config = RolloutCorrectionConfig.bypass_pg_k1_rs(
     rs_threshold=0.001,
-    veto_threshold=1e-4
+    veto_threshold=1e4
 )
 ```
 
@@ -695,7 +695,7 @@ algorithm:
     rollout_is: null
     rollout_rs: k1
     rollout_rs_threshold: 0.001
-    rollout_token_veto_threshold: 1e-4
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: reinforce
 ```
@@ -719,7 +719,7 @@ algorithm:
 config = RolloutCorrectionConfig.bypass_pg_k1_rs_token_tis(
     is_threshold=2.0,
     rs_threshold=0.001,
-    veto_threshold=1e-4
+    veto_threshold=1e4
 )
 ```
 
@@ -738,7 +738,7 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: k1
     rollout_rs_threshold: 0.001
-    rollout_token_veto_threshold: 1e-4
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: reinforce
 ```
@@ -1012,9 +1012,9 @@ These metrics cover both:
   - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
     - Decoupled mode: π_old(t)/π_rollout(t)
     - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
-  - Detects catastrophic tokens (true ratio < veto_threshold, e.g., < 1e-4)
+  - Detects catastrophic tokens (true abs(ratio) > veto_threshold, e.g., > 1e4)
 
-- **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens below veto threshold
+- **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens above veto threshold
   - Identifies problematic tokens before sequence-level veto is applied
   - Checks **unclamped per-token ratios** (true ratios, not safety-bounded)
   - Each catastrophic token causes its entire sequence to be rejected
@@ -1132,7 +1132,7 @@ weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_
     rollout_rs="token",  # Enable rejection sampling at token level
     rollout_rs_threshold=2.0,
     rollout_rs_threshold_lower=0.5,
-    rollout_token_veto_threshold=1e-4,  # Enable veto for catastrophic outliers
+    rollout_token_veto_threshold=1e4,  # Enable veto for catastrophic outliers
 )
 
 # Extract IS weights (processed, zeroed at padding)
@@ -1324,7 +1324,7 @@ algorithm:
     rollout_rs: token
     rollout_rs_threshold: 2.0
     rollout_rs_threshold_lower: 0.5
-    rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
+    rollout_token_veto_threshold: 1e4  # Veto catastrophic tokens
 ```
 
 ### Example 5: Bypass Mode with PPO-clip (Default)
@@ -1383,7 +1383,7 @@ algorithm:
    ```yaml
    algorithm:
      rollout_correction:
-       rollout_token_veto_threshold: 1e-3
+       rollout_token_veto_threshold: 1e5
    ```
 2. Check for numerical issues in log prob computation
 3. Verify policies aren't completely different

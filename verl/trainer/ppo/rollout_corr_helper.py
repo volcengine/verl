@@ -683,8 +683,9 @@ def compute_rollout_correction_and_rejection_mask(
             Default 2.0.
         rollout_rs_threshold_lower: Lower threshold for rejection sampling (used if rollout_rs is set).
             Defaults to 1/rollout_rs_threshold if None. Ignored for "k3" mode.
-        rollout_token_veto_threshold: Minimum allowed token-level IS weight. Sequences containing
-            any token below this threshold are fully rejected. Set to None to disable veto.
+        rollout_token_veto_threshold: Symmetric per-token veto on the IS ratio magnitude. If any valid token has
+            abs(π_train/π_rollout) > threshold, the entire sequence is rejected.
+            Threshold must be > 1.0; setting ≤ 1.0 will veto all sequences. Set to None to disable veto.
         rollout_is_batch_normalize: Whether to normalize IS weights to have mean=1.0 per batch.
             Default: False.
 
@@ -753,8 +754,10 @@ def compute_rollout_correction_and_rejection_mask(
 
         # Compute log threshold for numerical stability
         log_veto_threshold: torch.Tensor = torch.log(torch.tensor(rollout_token_veto_threshold, device=device))
-        # Identify catastrophic tokens (log ratio below threshold + valid mask)
-        catastrophic_tokens: torch.Tensor = (log_ratio < log_veto_threshold) & response_mask.bool()
+        # Compute absolute log ratio for veto
+        log_ratio_abs: torch.Tensor = torch.abs(log_ratio)
+        # Identify catastrophic tokens (log ratio abs above threshold + valid mask)
+        catastrophic_tokens: torch.Tensor = (log_ratio_abs > log_veto_threshold) & response_mask.bool()
         # Check if sequence contains any catastrophic token
         has_catastrophic: torch.Tensor = catastrophic_tokens.any(dim=-1, keepdim=True)
         # Create veto mask (0=reject sequence, 1=keep)

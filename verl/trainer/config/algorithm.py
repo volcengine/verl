@@ -114,9 +114,10 @@ class RolloutCorrectionConfig(BaseConfig):
 
         rollout_token_veto_threshold (Optional[float]): Per-token veto for catastrophic outliers.
             - Checks unclamped per-token ratios before safety bounds
-            - If ANY token has ratio < threshold, entire sequence is rejected
+            - If ANY token has abs(π_train/π_rollout) > threshold, the entire sequence is rejected
+            - Threshold must be > 1.0; values ≤ 1.0 veto every sequence
             - Independent of rollout_is and rollout_rs settings
-            - Typical values: 1e-4 to 1e-6 when enabled
+            - Typical values: 1e2-1e4 when enabled (tune per use case)
             Default: None (disabled)
 
         bypass_mode (bool): Operating mode - bypass or decoupled.

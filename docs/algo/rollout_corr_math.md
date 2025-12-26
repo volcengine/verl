@@ -601,7 +601,7 @@ An **independent** safety layer that rejects sequences with catastrophically low
 
 **Configuration:**
 ```python
-rollout_token_veto_threshold = 1e-4  # null = disabled
+rollout_token_veto_threshold = 1e4  # null = disabled
 ```
 
 **Veto condition:**
