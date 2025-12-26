@@ -409,7 +409,7 @@ class SOAP(optim.Optimizer):
                 continue
             try:
                 _, Q = torch.linalg.eigh(m + 1e-30 * torch.eye(m.shape[0], device=m.device))
-            except:
+            except Exception:
                 _, Q = torch.linalg.eigh(m.to(torch.float64) + 1e-30 * torch.eye(m.shape[0], device=m.device))
                 Q = Q.to(m.dtype)
             Q = torch.flip(Q, [1])
@@ -429,7 +429,7 @@ class SOAP(optim.Optimizer):
 
         matrix = []
         orth_matrix = []
-        for m, o in zip(precond_list, orth_list):
+        for m, o in zip(precond_list, orth_list, strict=False):
             if len(m) == 0:
                 matrix.append([])
                 orth_matrix.append([])
@@ -454,7 +454,7 @@ class SOAP(optim.Optimizer):
             exp_avg_sq = state["exp_avg_sq"]
 
         final = []
-        for ind, (m, o) in enumerate(zip(matrix, orth_matrix)):
+        for ind, (m, o) in enumerate(zip(matrix, orth_matrix, strict=False)):
             if len(m) == 0:
                 final.append([])
                 continue
