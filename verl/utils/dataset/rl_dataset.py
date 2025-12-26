@@ -487,7 +487,8 @@ class RLHFDataset(Dataset):
         print(f"total_samples: {total_samples}")
         if total_samples == 0 or total_samples % num_splits != 0:
             raise ValueError(
-                f"Cannot split empty dataset or dataset size {total_samples} is not divisible by num_splits {num_splits}"
+                f"Cannot split empty dataset or dataset size {total_samples}"
+                f" is not divisible by num_splits {num_splits}"
             )
 
         split_size = total_samples // num_splits
