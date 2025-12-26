@@ -141,6 +141,12 @@ class FSDPSFTTrainer:
 
         self.device_name = self.config.trainer.device
 
+        self.save_best = getattr(self.config.trainer, "save_best", False)
+        if self.save_best:
+            assert self.config.trainer.save_freq % self.config.trainer.test_freq == 0, (
+                "save_freq must be divisible by test_freq when save_best is True"
+            )
+
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
         if self.device_mesh.get_rank() == 0:
@@ -528,6 +534,7 @@ class FSDPSFTTrainer:
             "train/loss": step_loss.detach().item(),
             "train/lr(1e-3)": lr * 1e3,
             "train/time(s)": spend_time_per_step,
+            "train/grad_norm": grad_norm,
         }
 
     def validation_step(self, batch: TensorDict):
@@ -541,7 +548,7 @@ class FSDPSFTTrainer:
                 loss /= self.device_mesh.size(0)
         return loss
 
-    def save_checkpoint(self, step):
+    def save_checkpoint(self, step, val_loss):
         """Save checkpoint using FSDPCheckpointManager with improved tracking"""
         from verl.utils.fs import local_mkdir_safe
 
@@ -556,7 +563,10 @@ class FSDPSFTTrainer:
 
         # Use checkpoint manager to save
         self.checkpoint_manager.save_checkpoint(
-            local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
+            local_path=local_global_step_folder,
+            global_step=step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
+            current_val_loss=(val_loss if self.save_best else None),
         )
 
         # Save dataloader state
@@ -776,6 +786,8 @@ class FSDPSFTTrainer:
                 is_valid_step = global_step % self.config.trainer.test_freq == 0
                 is_save_step = global_step % self.config.trainer.save_freq == 0
 
+                val_loss = None
+
                 # early exit or validation step
                 if is_last_step or (self.config.trainer.test_freq > 0 and is_valid_step):
                     # Perform validation
@@ -786,15 +798,17 @@ class FSDPSFTTrainer:
                         )
                         val_loss = self.validation_step(val_data)
                         val_losses.append(val_loss)
+
+                    val_loss = torch.mean(torch.stack(val_losses))
                     if rank == 0:
-                        val_loss = torch.mean(torch.stack(val_losses))
                         metric = {"val/loss": val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
                         last_valid_metric = metric
                     torch.distributed.barrier()
 
                 if is_last_step or (self.config.trainer.save_freq > 0 and is_save_step):
-                    self.save_checkpoint(step=global_step)
+                    # val_loss will be set if save_best, as save_freq is a multiple of test_freq
+                    self.save_checkpoint(step=global_step, val_loss=float(val_loss))
 
                 if is_last_step:
                     if rank == 0:

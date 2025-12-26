@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import bisect
 import json
 import logging
 import os
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 import torch
@@ -51,6 +52,14 @@ class FSDPConfig:
 
     FSDP_version: int
     world_size: int
+
+
+@dataclass(order=True)
+class _CheckpointState:
+    """State of a checkpoint, used for sorting."""
+
+    val_loss: float
+    local_path: str = field(compare=False)
 
 
 class FSDPCheckpointManager(BaseCheckpointManager):
@@ -94,6 +103,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             processing_class=processing_class,
             checkpoint_config=checkpoint_config,
         )
+
+        self.previous_val_loss: list[_CheckpointState] = []  # [_CheckpointState]
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         """
@@ -177,7 +188,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # wait for everyone to load checkpoints
         torch.distributed.barrier()
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None, current_val_loss=None
+    ):
         """
         Save an FSDP checkpoint for this rank.
 
@@ -201,19 +214,44 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # record the previous global step
         self.previous_global_step = global_step
 
+        max_ckpt_defined = max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0
+        save_best = current_val_loss and isinstance(current_val_loss, float)
+
+        local_path = local_mkdir_safe(local_path)
+
+        if self.rank == 0 and save_best:
+            if not max_ckpt_defined and current_val_loss > self.previous_val_loss[0].val_loss:
+                # by default, only save the best model yet.
+                return
+
+            elif len(self.previous_saved_paths) >= max_ckpt_to_keep:
+                # if we have more than necessary, remove the worst excess
+                # regardless of whether we save the current
+                if len(self.previous_saved_paths) > max_ckpt_to_keep:
+                    n_remove = len(self.previous_saved_paths) - max_ckpt_to_keep
+                    ckpts_to_remove = self.previous_val_loss[-n_remove:]
+                    for ckpt in ckpts_to_remove:
+                        self.previous_saved_paths.remove(ckpt.local_path)
+                        self.remove_previous_save_local_path(ckpt.local_path)
+
+                    self.previous_val_loss = self.previous_val_loss[:-n_remove]
+
+                worst_saved_ckpt = self.previous_val_loss[-1]
+                # n saved == n keep
+                if current_val_loss > worst_saved_ckpt.val_loss:
+                    return
+
+                self.remove_previous_save_local_path(worst_saved_ckpt.local_path)
+                self.previous_saved_paths.remove(worst_saved_ckpt.local_path)
+                self.previous_val_loss.pop()
+            bisect.insort(self.previous_val_loss, _CheckpointState(current_val_loss, local_path))
+
         # remove previous local_path, only rank 0 should do this
-        if (
-            self.rank == 0
-            and max_ckpt_to_keep
-            and isinstance(max_ckpt_to_keep, int)
-            and max_ckpt_to_keep > 0
-            and len(self.previous_saved_paths) >= max_ckpt_to_keep
-        ):
+        elif self.rank == 0 and max_ckpt_defined and len(self.previous_saved_paths) >= max_ckpt_to_keep:
             keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
-        local_path = local_mkdir_safe(local_path)
         torch.distributed.barrier()
 
         # check if the checkpoint_save_contents is valid
