@@ -59,9 +59,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
     def setUpClass(cls):
         """Set up distributed environment"""
         if get_device_name() == "cuda":
-            backend_name = "hccl"
-        elif get_device_name() == "npu":
             backend_name = "nccl"
+        elif get_device_name() == "npu":
+            backend_name = "hccl"
         else:
             backend_name = "gloo"
 
