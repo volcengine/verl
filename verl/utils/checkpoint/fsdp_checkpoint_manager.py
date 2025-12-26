@@ -217,33 +217,21 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         max_ckpt_defined = max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0
         save_best = current_val_loss and isinstance(current_val_loss, float)
 
-        local_path = local_mkdir_safe(local_path)
-
         if self.rank == 0 and save_best:
-            if not max_ckpt_defined and current_val_loss > self.previous_val_loss[0].val_loss:
-                # by default, only save the best model yet.
+            num_to_keep = max_ckpt_to_keep if max_ckpt_defined else 1
+
+            # Don't save if we have enough checkpoints and the current one is not better than the worst saved one.
+            if len(self.previous_val_loss) >= num_to_keep and current_val_loss >= self.previous_val_loss[-1].val_loss:
                 return
 
-            elif len(self.previous_saved_paths) >= max_ckpt_to_keep:
-                # if we have more than necessary, remove the worst excess
-                # regardless of whether we save the current
-                if len(self.previous_saved_paths) > max_ckpt_to_keep:
-                    n_remove = len(self.previous_saved_paths) - max_ckpt_to_keep
-                    ckpts_to_remove = self.previous_val_loss[-n_remove:]
-                    for ckpt in ckpts_to_remove:
-                        self.previous_saved_paths.remove(ckpt.local_path)
-                        self.remove_previous_save_local_path(ckpt.local_path)
+            # If we are going to save, make space if the list is full.
+            # This also handles cases where num_to_keep is reduced mid-training.
+            while len(self.previous_val_loss) >= num_to_keep:
+                ckpt_to_remove = self.previous_val_loss.pop()  # remove worst
+                if ckpt_to_remove.local_path in self.previous_saved_paths:
+                    self.previous_saved_paths.remove(ckpt_to_remove.local_path)
+                self.remove_previous_save_local_path(ckpt_to_remove.local_path)
 
-                    self.previous_val_loss = self.previous_val_loss[:-n_remove]
-
-                worst_saved_ckpt = self.previous_val_loss[-1]
-                # n saved == n keep
-                if current_val_loss > worst_saved_ckpt.val_loss:
-                    return
-
-                self.remove_previous_save_local_path(worst_saved_ckpt.local_path)
-                self.previous_saved_paths.remove(worst_saved_ckpt.local_path)
-                self.previous_val_loss.pop()
             bisect.insort(self.previous_val_loss, _CheckpointState(current_val_loss, local_path))
 
         # remove previous local_path, only rank 0 should do this
@@ -252,6 +240,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
+        local_path = local_mkdir_safe(local_path)
         torch.distributed.barrier()
 
         # check if the checkpoint_save_contents is valid
