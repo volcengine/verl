@@ -648,17 +648,20 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             # update latest_checkpointed_iteration.txt when async_save is True
             if not self.checkpoint_config.async_save:
                 return
+
             head_node = None
             nodes = api.list_nodes()
             for node in nodes:
                 if node.is_head_node:
                     head_node = node
                     break
+
             current_node_id = ray.get_runtime_context().get_node_id()
             ray_local_world_size = int(os.getenv("RAY_LOCAL_WORLD_SIZE", -1))
             if ray_local_world_size == -1:
                 nnodes = int(os.getenv("NNODES", 1))
                 ray_local_world_size = torch.distributed.get_world_size() / nnodes
+
             if head_node is not None and head_node.node_id == current_node_id and self.rank % ray_local_world_size == 0:
                 log_with_rank(
                     f"Update latest_checkpointed_iteration.txt to step {global_step}",
@@ -673,6 +676,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
             # remove previous local_path
             self.previous_saved_paths.append(local_path)
+
             if (
                 max_ckpt_to_keep
                 and isinstance(max_ckpt_to_keep, int)
