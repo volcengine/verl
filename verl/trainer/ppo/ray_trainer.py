@@ -760,28 +760,28 @@ class RayPPOTrainer:
         return metric_dict
 
     def _merge_validation_results(self, result_a, result_b):
-    if result_a is None and result_b is None:
-        return {}
-    if result_a is None:
-        result_a = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
-    if result_b is None:
-        result_b = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
+        if result_a is None and result_b is None:
+            return {}
+        if result_a is None:
+            result_a = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
+        if result_b is None:
+            result_b = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
 
-    if not result_a.get("data_sources") and not result_b.get("data_sources"):
-        return {}
+        if not result_a.get("data_sources") and not result_b.get("data_sources"):
+            return {}
 
-    data_sources = np.concatenate(result_a["data_sources"] + result_b["data_sources"], axis=0)
-    sample_uids = result_a["sample_uids"] + result_b["sample_uids"]
-    sample_turns = result_a["sample_turns"] + result_b["sample_turns"]
-    
-    reward_extra_infos_dict = {}
-    all_keys = set(result_a["reward_extra_infos_dict"].keys()) | set(result_b["reward_extra_infos_dict"].keys())
-    for key in all_keys:
-        list_a = result_a["reward_extra_infos_dict"].get(key, [])
-        list_b = result_b["reward_extra_infos_dict"].get(key, [])
-        reward_extra_infos_dict[key] = list_a + list_b
+        data_sources = np.concatenate(result_a["data_sources"] + result_b["data_sources"], axis=0)
+        sample_uids = result_a["sample_uids"] + result_b["sample_uids"]
+        sample_turns = result_a["sample_turns"] + result_b["sample_turns"]
+        
+        reward_extra_infos_dict = {}
+        all_keys = set(result_a["reward_extra_infos_dict"].keys()) | set(result_b["reward_extra_infos_dict"].keys())
+        for key in all_keys:
+            list_a = result_a["reward_extra_infos_dict"].get(key, [])
+            list_b = result_b["reward_extra_infos_dict"].get(key, [])
+            reward_extra_infos_dict[key] = list_a + list_b
 
-    return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
 
