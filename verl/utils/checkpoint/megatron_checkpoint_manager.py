@@ -661,7 +661,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 ray_local_world_size = torch.distributed.get_world_size() / nnodes
             if head_node is not None and head_node.node_id == current_node_id and self.rank % ray_local_world_size == 0:
                 log_with_rank(
-                    f"Dist checkpointing async save completed, update latest_checkpointed_iteration.txt to step {global_step}",
+                    f"Update latest_checkpointed_iteration.txt to step {global_step}",
                     rank=self.rank,
                     logger=logger,
                 )
