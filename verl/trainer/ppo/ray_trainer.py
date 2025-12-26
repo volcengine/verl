@@ -605,7 +605,7 @@ class RayPPOTrainer:
 
         return gen_batch
 
-    def _validate(self):
+    def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -721,8 +721,18 @@ class RayPPOTrainer:
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
+        if merged:
+            print("_merge_validation_results validate result will be merged")
+            return {
+                "data_sources": data_source_lst,
+                "sample_uids": sample_uids,
+                "sample_turns": sample_turns,
+                "reward_extra_infos_dict": reward_extra_infos_dict,
+            }
         data_sources = np.concatenate(data_source_lst, axis=0)
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
 
+    def _val_metrics_update(self, data_sources, sample_uids, reward_extra_infos_dict, sample_turns):
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
@@ -748,6 +758,20 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
         return metric_dict
+
+    def _merge_validation_results(self, result_a, result_b):
+        if result_a is None and result_b is None:
+            raise NotImplementedError("result_a and result_b are None, this is not expected")
+        data_sources = np.concatenate(result_a["data_sources"] + result_b["data_sources"], axis=0)
+        sample_uids = result_a["sample_uids"] + result_b["sample_uids"]
+        sample_turns = result_a["sample_turns"] + result_b["sample_turns"]
+        reward_extra_infos_dict = {}
+        for key in result_a["reward_extra_infos_dict"].keys():
+            reward_extra_infos_dict[key] = (
+                result_a["reward_extra_infos_dict"][key] + result_b["reward_extra_infos_dict"][key]
+            )
+
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
 
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.

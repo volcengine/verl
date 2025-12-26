@@ -923,7 +923,7 @@ class AgentLoopManager:
             node_id = node_ids[i % len(node_ids)]
             self.agent_loop_workers.append(
                 self.agent_loop_workers_class.options(
-                    name=f"agent_loop_worker_{i}",
+                    name=f"agent_loop_worker_{i}" + f"_{os.getpid()}",
                     scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=True
                     ),
