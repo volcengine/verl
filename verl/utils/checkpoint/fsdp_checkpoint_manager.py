@@ -190,7 +190,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
     def save_checkpoint(
         self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None, current_val_loss=None
-    ):
+    ) -> bool:
         """
         Save an FSDP checkpoint for this rank.
 
@@ -207,9 +207,12 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             hdfs_path: Unused (for API compatibility).
             global_step: Current training step (used for bookkeeping).
             max_ckpt_to_keep: Number of recent checkpoints to retain.
+            current_val_loss: Validation loss of current model. Used for save best functionality
+        Returns:
+            Boolean value for whether the checkpoint was saved
         """
         if local_path is None:
-            return
+            return False
 
         # record the previous global step
         self.previous_global_step = global_step
@@ -222,7 +225,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
 
             # Don't save if we have enough checkpoints and the current one is not better than the worst saved one.
             if len(self.previous_val_loss) >= num_to_keep and current_val_loss >= self.previous_val_loss[-1].val_loss:
-                return
+                return False
 
             # If we are going to save, make space if the list is full.
             # This also handles cases where num_to_keep is reduced mid-training.
@@ -395,3 +398,4 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)
+        return True

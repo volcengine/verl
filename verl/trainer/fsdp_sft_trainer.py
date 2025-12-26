@@ -564,35 +564,36 @@ class FSDPSFTTrainer:
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
 
         # Use checkpoint manager to save
-        self.checkpoint_manager.save_checkpoint(
+        save = self.checkpoint_manager.save_checkpoint(
             local_path=local_global_step_folder,
             global_step=step,
             max_ckpt_to_keep=max_ckpt_to_keep,
             current_val_loss=(val_loss if self.save_best else None),
         )
 
-        # Save dataloader state
-        if self.device_mesh.get_rank() == 0:
-            local_mkdir_safe(local_global_step_folder)
-            dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
+        if save:
+            # Save dataloader state
+            if self.device_mesh.get_rank() == 0:
+                local_mkdir_safe(local_global_step_folder)
+                dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
 
-            # Use StatefulDataLoader's built-in state dict functionality
-            dataloader_state_dict = self.train_dataloader.state_dict()
-            torch.save(dataloader_state_dict, dataloader_local_path)
-            print(f"Saved dataloader state to: {dataloader_local_path}")
+                # Use StatefulDataLoader's built-in state dict functionality
+                dataloader_state_dict = self.train_dataloader.state_dict()
+                torch.save(dataloader_state_dict, dataloader_local_path)
+                print(f"Saved dataloader state to: {dataloader_local_path}")
 
-            # Update latest checkpoint tracker (atomic write)
-            tracker_file = get_checkpoint_tracker_filename(self.config.trainer.default_local_dir)
-            temp_tracker_file = tracker_file + ".tmp"
-            with open(temp_tracker_file, "w") as f:
-                f.write(str(step))
-            os.rename(temp_tracker_file, tracker_file)
-            print(f"Updated checkpoint tracker: {tracker_file}")
+                # Update latest checkpoint tracker (atomic write)
+                tracker_file = get_checkpoint_tracker_filename(self.config.trainer.default_local_dir)
+                temp_tracker_file = tracker_file + ".tmp"
+                with open(temp_tracker_file, "w") as f:
+                    f.write(str(step))
+                os.rename(temp_tracker_file, tracker_file)
+                print(f"Updated checkpoint tracker: {tracker_file}")
 
-        # Copy to HDFS if configured
-        if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
-            hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
-            hdfs_io.copy(src=local_global_step_folder, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+            # Copy to HDFS if configured
+            if self.device_mesh.get_rank() == 0 and getattr(self.config.trainer, "default_hdfs_dir", None):
+                hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                hdfs_io.copy(src=local_global_step_folder, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
 
         torch.distributed.barrier()
 
