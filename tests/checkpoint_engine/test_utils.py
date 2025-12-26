@@ -18,51 +18,95 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from verl.checkpoint_engine import CheckpointEngineRegistry
+from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.utils.fs import copy_to_local
+from verl.workers.config import FSDPEngineConfig, HFModelConfig
+from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
 
 
-@ray.remote(num_gpus=1)
-class Worker:
-    def __init__(
-        self,
-        role: str,
-        checkpoint_backend: str,
-        checkpoint_kwargs: dict,
-        rank: int,
-        world_size: int,
-        master_addr: str = "127.0.0.1",
-        master_port: str = "12345",
-    ) -> None:
-        assert role in ["trainer", "rollout"], f"role must be trainer or rollout, but got {role}"
-        self.role = role
-        self.rank = rank
-        self.world_size = world_size
-        self.master_addr = master_addr
-        self.master_port = master_port
-
-        model_path = os.environ["HDFS_ROOT"] + "/model/Qwen3-8B-Base"
-        local_path = copy_to_local(model_path)
-        self.model = AutoModelForCausalLM.from_pretrained(local_path, torch_dtype=torch.bfloat16)
-        self.model.to("cuda")
+class TrainingWorkerTest(TrainingWorker):
+    def __init__(self, config: TrainingWorkerConfig, checkpoint_backend: str, checkpoint_kwargs: dict) -> None:
+        super().__init__(config)
+        if torch.distributed.get_rank() == 0 and checkpoint_backend == "nccl":
+            checkpoint_kwargs["is_master"] = True
         self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
-        self.received_weights: dict[str, torch.Tensor] = {}
 
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    async def update_weights(self):
+        per_tensor_param, _ = self.engine.get_per_tensor_param()
+        await self.checkpoint_engine.send_weights(per_tensor_param)
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
     def execute_checkpoint_engine(self, method: str, *args, **kwargs):
         return getattr(self.checkpoint_engine, method)(*args, **kwargs)
 
+
+class RolloutWorkerTest:
+    def __init__(self, model_path, checkpoint_backend: str, checkpoint_kwargs: dict, device: str = "cuda") -> None:
+        self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
+        local_path = copy_to_local(model_path)
+        self.model = AutoModelForCausalLM.from_pretrained(local_path, torch_dtype=torch.bfloat16)
+        self.model.to(device)
+        self.received_weights: dict[str, torch.Tensor] = {}
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self):
-        if self.role == "trainer":
-            await self.checkpoint_engine.send_weights(self.model.state_dict().items())
-            return
-
         async for name, weight in self.checkpoint_engine.receive_weights():
-            self.received_weights[name] = weight.clone()
+            self.received_weights[name] = weight.clone().to(torch.bfloat16)
 
+    @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
+    def execute_checkpoint_engine(self, method: str, *args, **kwargs):
+        return getattr(self.checkpoint_engine, method)(*args, **kwargs)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def check_weights(self):
-        if self.role == "trainer":
-            return
-
         for name, weight in self.model.state_dict().items():
             assert name in self.received_weights, f"weight {name} not received"
             assert torch.allclose(weight, self.received_weights[name]), f"weight {name} not equal"
         self.received_weights.clear()
+
+
+def create_trainer_worker_group(
+    model_path: str, resource_pool: RayResourcePool, checkpoint_backend: str, checkpoint_kwargs: dict
+) -> RayWorkerGroup:
+    path = os.path.expanduser(model_path)
+    model_config = HFModelConfig(path=path, use_remove_padding=True)
+    engine_config = FSDPEngineConfig(forward_only=True, fsdp_size=resource_pool.world_size, strategy="fsdp")
+
+    trainer_config = TrainingWorkerConfig(
+        model_type="language_model",
+        model_config=model_config,
+        engine_config=engine_config,
+    )
+    ray_cls_with_init = RayClassWithInitArgs(
+        cls=ray.remote(TrainingWorkerTest),
+        config=trainer_config,
+        checkpoint_backend=checkpoint_backend,
+        checkpoint_kwargs=checkpoint_kwargs,
+    )
+    ray_cls_with_init.update_options(
+        {
+            "runtime_env": {
+                "env_vars": {
+                    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                }
+            }
+        }
+    )
+    wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
+    return wg
+
+
+def create_rollout_worker_group(
+    model_path: str, resource_pool: RayResourcePool, checkpoint_backend: str, checkpoint_kwargs: dict, **kwargs
+) -> RayWorkerGroup:
+    ray_cls_with_init = RayClassWithInitArgs(
+        cls=ray.remote(RolloutWorkerTest),
+        model_path=model_path,
+        checkpoint_backend=checkpoint_backend,
+        checkpoint_kwargs=checkpoint_kwargs,
+        **kwargs,
+    )
+    wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init)
+    return wg

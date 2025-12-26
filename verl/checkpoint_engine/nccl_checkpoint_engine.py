@@ -100,6 +100,7 @@ class NCCLCheckpointEngine(CheckpointEngine):
         group_name (str): The name of the NCCL process group. Defaults to "default".
         rebuild_group (bool): Whether to rebuild the NCCL process group in each update. Defaults to False.
         is_master (bool): Whether the current process is the master process. Defaults to False.
+        rollout_dtype (torch.dtype): The dtype of the weights received from rollout workers. Defaults to torch.bfloat16.
     """
 
     def __init__(
@@ -108,10 +109,12 @@ class NCCLCheckpointEngine(CheckpointEngine):
         group_name: str = "default",
         rebuild_group: bool = False,
         is_master: bool = False,
+        rollout_dtype: torch.dtype = torch.bfloat16,
     ) -> None:
         self.bucket_size = bucket_size
         self.group_name = group_name
         self.rebuild_group = rebuild_group
+        self.rollout_dtype = rollout_dtype
 
         # start zeromq server for broadcasting bucket tensor metadata
         self.is_master = is_master
@@ -220,6 +223,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
         bucket_meta: dict[str, TensorMeta] = {}
         offset = 0
         for name, weight in weights:
+            # model parameters are in fp32 full precsion
+            weight = weight.to(self.rollout_dtype)
+
             # fill the tensor bucket
             if offset + weight.nbytes > self.bucket_size:
                 torch.cuda.synchronize()

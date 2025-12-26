@@ -15,11 +15,16 @@
 import pytest
 import ray
 
-from tests.checkpoint_engine.test_utils import Worker
+from tests.checkpoint_engine.test_utils import create_rollout_worker_group, create_trainer_worker_group
+from verl.single_controller.ray.base import (
+    RayResourcePool,
+    split_resource_pool,
+)
 
 
-@pytest.mark.parametrize("num_rollout", [2, 4, 6])
-def test_nixl_checkpoint_engine(num_rollout):
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("num_trainer, num_rollout", [(2, 6)])
+def test_nixl_checkpoint_engine(num_trainer, num_rollout, device, num_nodes=1, num_gpus_per_node=8):
     ray.init(
         runtime_env={
             "env_vars": {
@@ -31,61 +36,60 @@ def test_nixl_checkpoint_engine(num_rollout):
         }
     )
 
-    bucket_size = 3 * 1024 * 1024 * 1024  # 3GB
-    trainer = [
-        Worker.options(
-            runtime_env={
-                "env_vars": {
-                    # "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-                }
-            }
-        ).remote("trainer", "nixl", {"bucket_size": bucket_size}, rank, 2)
-        for rank in range(2)
-    ]
+    model_path = "/mnt/hdfs/wuxibin_wl/model/Qwen3-8B-Base"
+    resource_pool = RayResourcePool(process_on_nodes=[num_gpus_per_node] * num_nodes)
+    trainer_pool, rollout_pool = split_resource_pool(resource_pool, [num_trainer, num_rollout])
+    checkpoint_kwargs = {
+        "bucket_size": 2 * 1024 * 1024 * 1024,  # 2GB
+        "device": device,
+    }
 
-    rollout = [
-        Worker.remote("rollout", "nixl", {"bucket_size": bucket_size}, rank, num_rollout) for rank in range(num_rollout)
-    ]
-    workers = trainer + rollout
+    trainer = create_trainer_worker_group(model_path, trainer_pool, "nixl", checkpoint_kwargs)
+    trainer.reset()
+    rollout = create_rollout_worker_group(model_path, rollout_pool, "nixl", checkpoint_kwargs, device=device)
 
     for _ in range(3):
         # 1. prepare all workers
-        metadata = ray.get([worker.execute_checkpoint_engine.remote("prepare") for worker in workers])
-        metadata = [metadata[0]] + metadata[-len(rollout) :]
-        kwargs = []
-        for rank in range(len(metadata)):
-            kwargs.append(
-                {
-                    "rank": rank,
-                    "world_size": len(metadata),
-                    "prev_agent_metadata": metadata[rank - 1] if rank > 0 else None,
-                    "next_agent_metadata": metadata[rank + 1] if rank < len(metadata) - 1 else None,
-                }
-            )
+        metadata = ray.get(
+            trainer.execute_checkpoint_engine(["prepare"] * trainer.world_size)
+            + rollout.execute_checkpoint_engine(["prepare"] * rollout.world_size)
+        )
 
-        dummy = {"rank": -1, "world_size": len(metadata), "prev_agent_metadata": None, "next_agent_metadata": None}
-        kwargs = [kwargs[0]] + [dummy] * (len(trainer) - 1) + kwargs[1:]
-        assert len(kwargs) == len(workers), f"kwargs length must be {len(workers)}, but got {len(kwargs)}"
+        trainer_kwargs = {
+            "method": ["init_process_group"] * trainer.world_size,
+            "rank": [0] + [-1] * (trainer.world_size - 1),
+            "world_size": [rollout.world_size + 1] * trainer.world_size,
+            "prev_agent_metadata": [None] * trainer.world_size,
+            "next_agent_metadata": [metadata[-rollout.world_size]] + [None] * (trainer.world_size - 1),
+        }
+
+        rollout_kwargs = {
+            "method": ["init_process_group"] * rollout.world_size,
+            "rank": list(range(1, rollout.world_size + 1)),
+            "world_size": [rollout.world_size + 1] * rollout.world_size,
+            "prev_agent_metadata": [metadata[0]] + metadata[-rollout.world_size : -1],
+            "next_agent_metadata": metadata[-rollout.world_size + 1 :] + [None],
+        }
 
         # 2. init process group between all workers
         ray.get(
-            [
-                worker.execute_checkpoint_engine.remote("init_process_group", **kwargs[rank])
-                for rank, worker in enumerate(workers)
-            ]
+            trainer.execute_checkpoint_engine(**trainer_kwargs) + rollout.execute_checkpoint_engine(**rollout_kwargs)
         )
 
         # 3. update weights of all workers
-        ray.get([worker.update_weights.remote() for worker in workers])
+        ray.get(trainer.update_weights() + rollout.update_weights())
 
         # 4. finish all workers
-        ray.get([worker.execute_checkpoint_engine.remote("finish") for worker in workers])
+        ray.get(
+            trainer.execute_checkpoint_engine(["finish"] * trainer.world_size)
+            + rollout.execute_checkpoint_engine(["finish"] * rollout.world_size)
+        )
 
-        # 5. check weights of all workers
-        ray.get([worker.check_weights.remote() for worker in workers])
+        # 5. check weights of rollout workers
+        rollout.check_weights()
 
     ray.shutdown()
 
 
 if __name__ == "__main__":
-    test_nixl_checkpoint_engine(14)
+    test_nixl_checkpoint_engine(num_trainer=2, num_rollout=30, device="cuda", num_nodes=4, num_gpus_per_node=8)

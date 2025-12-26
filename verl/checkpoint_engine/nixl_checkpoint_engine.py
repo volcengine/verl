@@ -20,6 +20,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import AsyncGenerator, Generator
 
+import cupy as cp
 import nixl._api as nixl_api
 import nixl._bindings as nixl_bindings
 import ray
@@ -126,7 +127,7 @@ class NixlAgent:
             notifs = self.agent.get_new_notifs()
             for remote_name, notif in notifs.items():
                 self.notifications[remote_name].extend(notif)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0)
         return self.notifications[remote_name].popleft()
 
 
@@ -218,7 +219,7 @@ class ReadOperation:
             elif state == "DONE":
                 break
             else:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0)
         self.agent.release_xfer_handle(self.xfer_handle)
         end_time = time.time()
         bandwidth = self.bucket_size / (end_time - self.start_time) / (1024 * 1024 * 1024)
@@ -233,11 +234,18 @@ class NIXLCheckpointEngine(CheckpointEngine):
         bucket_size (int): Bucket size in bytes to transfer multiple weights at one time. Note that we use
             two buffer to send and recv weights at same time, so the device memory overhead is 2 * bucket_size.
         device (str): The device to use for the checkpoint engine, "cpu" or "cuda".
+        rollout_dtype (torch.dtype): The dtype of the weights received from rollout workers. Defaults to torch.bfloat16.
     """
 
-    def __init__(self, bucket_size: int, device: str = "cuda"):
+    def __init__(
+        self,
+        bucket_size: int,
+        device: str = "cuda",
+        rollout_dtype: torch.dtype = torch.bfloat16,
+    ):
         self.bucket_size = bucket_size
         self.device = device
+        self.rollout_dtype = rollout_dtype
         self.agent = NixlAgent()
 
     def prepare(self) -> NixlAgentMetadata:
@@ -246,8 +254,16 @@ class NIXLCheckpointEngine(CheckpointEngine):
         Returns:
             NixlAgentMetadata: The metadata of the current nixl agent.
         """
-        self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
-        self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
+        # For master process, use cupy instead of torch to avoid memory register error
+        # when `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+        if self.device == "cuda":
+            send_buf = cp.zeros(self.bucket_size, dtype=cp.uint8)
+            recv_buf = cp.zeros(self.bucket_size, dtype=cp.uint8)
+            self.send_buf = torch.as_tensor(send_buf, dtype=torch.uint8)
+            self.recv_buf = torch.as_tensor(recv_buf, dtype=torch.uint8)
+        else:
+            self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device, pin_memory=True)
+            self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device, pin_memory=True)
         self.send_reg_descs = self.agent.register_memory(self.send_buf)
         self.recv_reg_descs = self.agent.register_memory(self.recv_buf)
         self.send_descs = self.agent.get_xfer_descs(self.send_buf)
@@ -266,6 +282,21 @@ class NIXLCheckpointEngine(CheckpointEngine):
             prev_agent_metadata (NixlAgentMetadata): The metadata of the previous nixl agent.
             next_agent_metadata (NixlAgentMetadata): The metadata of the next nixl agent.
         """
+        if rank < 0:
+            assert not prev_agent_metadata and not next_agent_metadata, (
+                f"rank {rank} should not have prev_agent_metadata or next_agent_metadata"
+            )
+        elif rank == 0:
+            assert not prev_agent_metadata and next_agent_metadata, f"rank {rank} should have next_agent_metadata"
+        elif 0 < rank < world_size - 1:
+            assert prev_agent_metadata and next_agent_metadata, (
+                f"rank {rank} should have prev_agent_metadata and next_agent_metadata"
+            )
+        elif rank == world_size - 1:
+            assert prev_agent_metadata and not next_agent_metadata, (
+                f"rank {rank} should have prev_agent_metadata and not next_agent_metadata"
+            )
+
         self.rank = rank
         self.world_size = world_size
         self.prev_agent = None
@@ -327,6 +358,9 @@ class NIXLCheckpointEngine(CheckpointEngine):
         bucket_meta: dict[str, TensorMeta] = {}
         offset = 0
         for name, weight in weights:
+            # model parameters are in fp32 full precision
+            weight = weight.to(self.rollout_dtype)
+
             # fill the tensor bucket
             if offset + weight.nbytes > self.bucket_size:
                 torch.cuda.synchronize()
