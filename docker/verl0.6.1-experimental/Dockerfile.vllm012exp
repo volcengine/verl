@@ -23,15 +23,15 @@ RUN pip install flash_attn
 
 RUN apt update && apt install numactl
 
-RUN wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_6/nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
-    apt-get update && apt-get install -y libxcb-cursor0
-
-RUN apt-get install -y ./nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb && \
+RUN NSIGHT_VERSION=2025.6.1_2025.6.1.190-1_$(if [ "$(uname -m)" = "aarch64" ]; then echo "arm64"; else echo "amd64"; fi) && \
+    wget https://developer.nvidia.com/downloads/assets/tools/secure/nsight-systems/2025_6/nsight-systems-${NSIGHT_VERSION}.deb && \
+    apt-get update && apt-get install -y libxcb-cursor0 && \
+    apt-get install -y ./nsight-systems-${NSIGHT_VERSION}.deb && \
     rm -rf /usr/local/cuda/bin/nsys && \
-    ln -s /opt/nvidia/nsight-systems/2025.6.1/target-linux-x64/nsys  /usr/local/cuda/bin/nsys && \
+    ln -s /opt/nvidia/nsight-systems/2025.6.1/nsys  /usr/local/cuda/bin/nsys && \
     rm -rf /usr/local/cuda/bin/nsys-ui && \
-    ln -s /opt/nvidia/nsight-systems/2025.6.1/target-linux-x64/nsys-ui /usr/local/cuda/bin/nsys-ui && \
-    rm nsight-systems-2025.6.1_2025.6.1.190-1_amd64.deb
+    ln -s /opt/nvidia/nsight-systems/2025.6.1/nsys-ui /usr/local/cuda/bin/nsys-ui && \
+    rm nsight-systems-${NSIGHT_VERSION}.deb
 
 
 # =========================
