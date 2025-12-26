@@ -592,3 +592,17 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                     f"Validation metrics: {val_metrics.metrics}"
                 )
         self.logger.log(data=val_metrics.timing_raw, step=val_metrics.param_version)
+
+    async def _validate_process(self):
+        if self.config.async_training.use_trainer_do_validate:
+            print(f"[FullyAsyncTrainer] _validate_process")
+            from verl.utils.profiler import marked_timer
+            timing_raw = {}
+            await self.async_rollout_manager.wake_up()
+            with marked_timer("trainer/validate_time", timing_raw):
+                self.train_val_metrics = self._validate(True)
+            await self.async_rollout_manager.sleep()
+            print(f"[FullyAsyncTrainer] validate timing_raw validate: {timing_raw['trainer/validate_time']}")
+        else:
+            self.train_val_metrics = None
+            print(f"[FullyAsyncTrainer] _validate_process without async_rollout_manager")
