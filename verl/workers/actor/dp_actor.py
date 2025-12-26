@@ -102,7 +102,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False, compute_sum_pi_squared=False
-    ) -> tuple[Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns:
             entropy: # (bs, response_len)
@@ -382,7 +382,7 @@ class DataParallelPPOActor(BasePPOActor):
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
-    def compute_log_prob(self, data: DataProto, calculate_entropy=False, compute_sum_pi_squared=False) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def compute_log_prob(self, data: DataProto, calculate_entropy=False, compute_sum_pi_squared=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
