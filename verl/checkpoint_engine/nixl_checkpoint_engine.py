@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import asyncio
 import logging
+import os
 import time
 import uuid
 from collections import defaultdict, deque
@@ -27,11 +27,11 @@ import torch
 import zmq
 import zmq.asyncio
 
-from verl.checkpoint_engine.base import CheckpointEngine, TensorMeta
+from verl.checkpoint_engine.base import CheckpointEngine, CheckpointEngineRegistry, TensorMeta
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 @dataclass
@@ -225,17 +225,26 @@ class ReadOperation:
         logger.debug(f"ReadOperation read data from {self.remote_agent} complete, bandwidth: {bandwidth:.2f} GB/s")
 
 
+@CheckpointEngineRegistry.register("nixl")
 class NIXLCheckpointEngine(CheckpointEngine):
-    def __init__(self, bucket_size: int, device: str):
+    """NIXL checkpoint engine with p2p communication, support various backends: ucx, uccl, mooncacke, etc.
+
+    Args:
+        bucket_size (int): Bucket size in bytes to transfer multiple weights at one time. Note that we use
+            two buffer to send and recv weights at same time, so the device memory overhead is 2 * bucket_size.
+        device (str): The device to use for the checkpoint engine, "cpu" or "cuda".
+    """
+
+    def __init__(self, bucket_size: int, device: str = "cuda"):
         self.bucket_size = bucket_size
         self.device = device
         self.agent = NixlAgent()
 
-    def prepare(self) -> bytes:
+    def prepare(self) -> NixlAgentMetadata:
         """Prepare send and recv bucket.
 
         Returns:
-            bytes: The metadata of the current nixl agent.
+            NixlAgentMetadata: The metadata of the current nixl agent.
         """
         self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
         self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device=self.device)
@@ -246,14 +255,16 @@ class NIXLCheckpointEngine(CheckpointEngine):
 
         return self.agent.get_agent_metadata()
 
-    def init_process_group(self, rank: int, world_size: int, prev_agent_metadata: bytes, next_agent_metadata: bytes):
+    def init_process_group(
+        self, rank: int, world_size: int, prev_agent_metadata: NixlAgentMetadata, next_agent_metadata: NixlAgentMetadata
+    ):
         """Setup the communication with the previous and next agent.
 
         Args:
             rank (int): The rank of the current process.
             world_size (int): The total number of processes.
-            prev_agent_metadata (bytes): The metadata of the previous nixl agent.
-            next_agent_metadata (bytes): The metadata of the next nixl agent.
+            prev_agent_metadata (NixlAgentMetadata): The metadata of the previous nixl agent.
+            next_agent_metadata (NixlAgentMetadata): The metadata of the next nixl agent.
         """
         self.rank = rank
         self.world_size = world_size
@@ -267,7 +278,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
             self.next_agent = self.agent.add_remote_agent(next_agent_metadata)
 
         logger.info(
-            f"Setup rank: {self.rank}, world_size: {self.world_size}, "
+            f"init_process_group rank: {self.rank}, world_size: {self.world_size}, "
             f"prev_agent: {self.prev_agent}, next_agent: {self.next_agent}"
         )
 
@@ -299,15 +310,18 @@ class NIXLCheckpointEngine(CheckpointEngine):
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
-        # For trainer rank other than 0, consume weights without sending.
-        if self.rank != 0:
+        assert self.rank <= 0, "Trainer workers other than rank 0 should not send weights."
+
+        # For trainer workers other than rank 0, just consume weights and do nothing.
+        if self.rank < 0:
             for name, weight in weights:
                 pass
             return
 
         assert self.next_agent is not None, "Next agent is not set."
-        send_buf = self.send_buf
-        send_descs = self.send_descs
+        send_buf, recv_buf = self.send_buf, self.recv_buf
+        send_descs, recv_descs = self.send_descs, self.recv_descs
+        readable_op = None
 
         start_time = time.time()
         bucket_meta: dict[str, TensorMeta] = {}
@@ -317,6 +331,10 @@ class NIXLCheckpointEngine(CheckpointEngine):
             if offset + weight.nbytes > self.bucket_size:
                 torch.cuda.synchronize()
 
+                # wait previous bucket to be received
+                if readable_op is not None:
+                    await readable_op.wait_for_complete()
+
                 # send bucket meta to next agent
                 readable_op = ReadableOperation(
                     self.agent,
@@ -324,9 +342,10 @@ class NIXLCheckpointEngine(CheckpointEngine):
                     send_descs,
                     {"bucket_meta": bucket_meta, "is_last": False},
                 )
-                await readable_op.wait_for_complete()
 
-                # reset bucket meta and offset
+                # swap send and recv buf
+                send_buf, recv_buf = recv_buf, send_buf
+                send_descs, recv_descs = recv_descs, send_descs
                 bucket_meta = {}
                 offset = 0
 
@@ -345,6 +364,9 @@ class NIXLCheckpointEngine(CheckpointEngine):
 
         # send last bucket meta to next agent
         torch.cuda.synchronize()
+        if readable_op is not None:
+            await readable_op.wait_for_complete()
+
         readable_op = ReadableOperation(
             self.agent, self.next_agent, send_descs, {"bucket_meta": bucket_meta, "is_last": True}
         )

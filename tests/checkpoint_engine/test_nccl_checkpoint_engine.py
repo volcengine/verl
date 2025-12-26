@@ -18,8 +18,8 @@ import ray
 from tests.checkpoint_engine.test_utils import Worker
 
 
-@pytest.mark.parametrize("num_rollout", [2, 4, 6])
-def test_nixl_checkpoint_engine(num_rollout):
+@pytest.mark.parametrize("rebuild_group, num_rollout", [(False, 6), (True, 6)])
+def test_nccl_checkpoint_engine(rebuild_group, num_rollout, num_nodes=1, num_gpus_per_node=8):
     ray.init(
         runtime_env={
             "env_vars": {
@@ -31,21 +31,22 @@ def test_nixl_checkpoint_engine(num_rollout):
         }
     )
 
-    bucket_size = 3 * 1024 * 1024 * 1024  # 3GB
+    checkpoint_kwargs = {
+        "bucket_size": 3 * 1024 * 1024 * 1024,  # 3GB
+        "rebuild_group": rebuild_group,
+    }
     trainer = [
         Worker.options(
             runtime_env={
                 "env_vars": {
-                    # "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
                 }
             }
-        ).remote("trainer", "nixl", {"bucket_size": bucket_size}, rank, 2)
+        ).remote("trainer", "nccl", {**checkpoint_kwargs, "is_master": rank == 0}, rank, 2)
         for rank in range(2)
     ]
 
-    rollout = [
-        Worker.remote("rollout", "nixl", {"bucket_size": bucket_size}, rank, num_rollout) for rank in range(num_rollout)
-    ]
+    rollout = [Worker.remote("rollout", "nccl", checkpoint_kwargs, rank, num_rollout) for rank in range(num_rollout)]
     workers = trainer + rollout
 
     for _ in range(3):
@@ -58,12 +59,11 @@ def test_nixl_checkpoint_engine(num_rollout):
                 {
                     "rank": rank,
                     "world_size": len(metadata),
-                    "prev_agent_metadata": metadata[rank - 1] if rank > 0 else None,
-                    "next_agent_metadata": metadata[rank + 1] if rank < len(metadata) - 1 else None,
+                    "master_metadata": metadata[0],
                 }
             )
 
-        dummy = {"rank": -1, "world_size": len(metadata), "prev_agent_metadata": None, "next_agent_metadata": None}
+        dummy = {"rank": -1, "world_size": len(metadata), "master_metadata": metadata[0]}
         kwargs = [kwargs[0]] + [dummy] * (len(trainer) - 1) + kwargs[1:]
         assert len(kwargs) == len(workers), f"kwargs length must be {len(workers)}, but got {len(kwargs)}"
 
@@ -88,4 +88,4 @@ def test_nixl_checkpoint_engine(num_rollout):
 
 
 if __name__ == "__main__":
-    test_nixl_checkpoint_engine(14)
+    test_nccl_checkpoint_engine(14)

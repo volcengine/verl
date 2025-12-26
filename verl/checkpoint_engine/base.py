@@ -25,9 +25,57 @@ class TensorMeta(TypedDict):
     offset: int
 
 
+class CheckpointEngineRegistry:
+    """Checkpoint engine registry."""
+
+    _registry: dict[str, type["CheckpointEngine"]] = {}
+
+    def register(backend: str):
+        """Register a checkpoint engine.
+
+        Args:
+            backend: The backend of the checkpoint engine.
+        """
+
+        def wrapper(cls: type["CheckpointEngine"]):
+            CheckpointEngineRegistry._registry[backend] = cls
+            return cls
+
+        return wrapper
+
+    @classmethod
+    def new(cls, backend: str, *args, **kwargs) -> "CheckpointEngine":
+        """Create a new checkpoint engine instance.
+
+        Args:
+            backend: The backend of the checkpoint engine.
+            *args: Variable length argument pass to the checkpoint engine constructor.
+            **kwargs: Arbitrary keyword arguments pass to the checkpoint engine constructor.
+
+        Returns:
+            A new checkpoint engine instance.
+        """
+        if backend not in cls._registry:
+            raise ValueError(f"Checkpoint engine {backend} not registered")
+        return cls._registry[backend](*args, **kwargs)
+
+
 class CheckpointEngine(ABC):
+    """CheckpointEngine is an abstraction to transfer weights from trainer to rollout.
+
+    In trainer process:
+    >>> trainer = EngineRegistry.new(...) # FSDP, Megatron, VeOmini, TorchTitan, ...
+    >>> engine = CheckpointEngine.new(...) # NCCLCheckpointEngine, NIXLCheckpointEngine, ...
+    >>> await engine.send_weights(trainer.get_per_tensor_param())
+
+    In rollout process:
+    >>> engine = CheckpointEngine.new(...)
+    >>> server_adapter = ServerAdapter()
+    >>> await server_adapter.update_weights(engine.get_weights()) # update weights via cuda ipc
+    """
+
     @abstractmethod
-    def send_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
+    async def send_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
         """Send the weights of the model.
 
         Args:
@@ -36,7 +84,7 @@ class CheckpointEngine(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def receive_weights(self) -> Generator[tuple[str, torch.Tensor], None, None]:
+    async def receive_weights(self) -> Generator[tuple[str, torch.Tensor], None, None]:
         """Receive the weights of the model.
 
         Yields:
@@ -44,16 +92,22 @@ class CheckpointEngine(ABC):
         """
         raise NotImplementedError
 
-    def get_weights(self) -> Generator[tuple[str, torch.Tensor], None, None]:
-        """Get the weights of the model from cache: shm or disk.
+
+class CheckpointEngineWithCache(CheckpointEngine):
+    """Checkpoint engine with local cache: shm, disk, etc. This allow to synchronize weights without interrupting
+    rollout ongoing requests (partial rollout). After requests exhausted, rollout can get weights from local cache.
+
+    Laminar: https://arxiv.org/abs/2510.12633
+    """
+
+    @abstractmethod
+    async def get_weights(self) -> Generator[tuple[str, torch.Tensor], None, None]:
+        """Get the weights of the model from local cache.
 
         Yields:
             A tuple of the name of the weight tensor and the tensor itself.
         """
         raise NotImplementedError
-
-
-# TODO: add register for checkpoint engine
 
 
 class ColocatedCheckpointEngine(CheckpointEngine):
