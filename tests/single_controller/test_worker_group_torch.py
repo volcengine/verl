@@ -95,7 +95,7 @@ def test_all_gather_torch_v2():
     """
     In this test, we instantiate 4 GPUs in a group and test the all_gather
     """
-    ray.init(num_cpus=100)
+    ray.init()
 
     # create 4 workers, each hold a GPU
     resource_pool = RayResourcePool([4], use_gpu=True)

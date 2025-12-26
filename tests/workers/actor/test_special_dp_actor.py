@@ -58,9 +58,16 @@ class TestDataParallelPPOActor(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up distributed environment"""
+        if get_device_name() == "cuda":
+            backend_name = "hccl"
+        elif get_device_name() == "npu":
+            backend_name = "nccl"
+        else:
+            backend_name = "gloo"
+
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
-                backend=get_nccl_backend() if get_torch_device().is_available() else "gloo", init_method="env://"
+                backend=backend_name, init_method="env://"
             )
 
         cls.rank = torch.distributed.get_rank()
