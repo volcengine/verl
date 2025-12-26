@@ -808,7 +808,7 @@ class FSDPSFTTrainer:
 
                 if is_last_step or (self.config.trainer.save_freq > 0 and is_save_step):
                     # val_loss will be set if save_best, as save_freq is a multiple of test_freq
-                    self.save_checkpoint(step=global_step, val_loss=float(val_loss))
+                    self.save_checkpoint(step=global_step, val_loss=float(val_loss) if val_loss is not None else None)
 
                 if is_last_step:
                     if rank == 0:
