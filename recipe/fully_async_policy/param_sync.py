@@ -16,9 +16,6 @@ import logging
 import time
 
 import ray
-from ray.util.collective import collective
-
-from verl.utils.device import get_nccl_backend
 
 logger = logging.getLogger(__name__)
 
@@ -69,30 +66,34 @@ class ParameterSynchronizer:
 
     def _init_sync_group(self):
         print("[ParameterSynchronizer] Initializing parameter synchronization group...")
-        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-        collective.create_collective_group(
-            actor_rollout_workers,
-            len(actor_rollout_workers),
-            list(range(0, len(actor_rollout_workers))),
-            backend=get_nccl_backend(),
-            group_name=self.sync_group_name,
+        master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote()).strip("[]")
+        master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+        actor_init_handle = self.actor_wg.init_weight_sync_group(
+            master_address, master_port, 0, len(self.actor_wg.workers), len(self.rollout_wg.workers)
         )
+        rollout_init_handle = self.rollout_wg.init_weight_sync_group(
+            master_address,
+            master_port,
+            len(self.actor_wg.workers),
+            len(self.actor_wg.workers),
+            len(self.rollout_wg.workers),
+        )
+        ray.get(actor_init_handle)
+        ray.get(rollout_init_handle)
 
     def _init_actor_rollout_checkpoint_engine(self):
-        ray.get(
-            self.actor_wg.init_checkpoint_engine(
-                rank_offset=0,
-                actor_num=len(self.actor_wg.workers),
-                rollout_num=len(self.rollout_wg.workers),
-            )
+        actor_init_handle = self.actor_wg.init_checkpoint_engine(
+            rank_offset=0,
+            actor_num=len(self.actor_wg.workers),
+            rollout_num=len(self.rollout_wg.workers),
         )
-        ray.get(
-            self.rollout_wg.init_checkpoint_engine(
-                rank_offset=len(self.actor_wg.workers),
-                actor_num=len(self.actor_wg.workers),
-                rollout_num=len(self.rollout_wg.workers),
-            )
+        rollout_init_handle = self.rollout_wg.init_checkpoint_engine(
+            rank_offset=len(self.actor_wg.workers),
+            actor_num=len(self.actor_wg.workers),
+            rollout_num=len(self.rollout_wg.workers),
         )
+        ray.get(actor_init_handle)
+        ray.get(rollout_init_handle)
 
     def sync_weights(self, version, validate=False, global_steps=0):
         """Sync weights between trainer and rollouter, and update parameter version"""

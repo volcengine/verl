@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 import torch
 import zmq
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
-from ray.util.collective import collective
 
 from verl.utils.device import (
     get_device_name,
@@ -169,7 +168,11 @@ def get_ip() -> str:
 def npu_generate_uuid() -> str:
     """Generate uuid for each npu device"""
     str_pid = str(os.getpid())
-    npu_num = 8
+    # In A2 server, one x86 machine could have more than 8 cards.
+    if "910C" not in torch.npu.get_device_name():
+        npu_num = torch.npu.device_count()
+    else:
+        npu_num = 8
     try:
         for npu_id in range(npu_num):
             cmd = ["npu-smi", "info", "-t", "proc-mem", "-i", str(npu_id)]
@@ -182,6 +185,8 @@ def npu_generate_uuid() -> str:
                 search_after_pid = str_result[str_result.find(str_pid) + len(str_pid) :]
                 match_chip_id = re.search(r"Chip ID[^\d]*(\d+)", search_after_pid)
                 chip_id = int(match_chip_id.group(1))
+                # NOTE: get_ip could possibly fail due to hostname not bound to an IP address.
+                # We need a more robust way to generate uuid.
                 return f"{get_ip()}-{npu_id * chip_count + chip_id}"
         raise ValueError("The current process is not running on the npu device")
     except subprocess.CalledProcessError as e:
@@ -263,7 +268,12 @@ class CheckpointEngine:
     """
 
     def __init__(
-        self, current_rank: int, actor_ranks: list[int], rollout_ranks: list[int], device_buffer_size_M: int
+        self,
+        current_rank: int,
+        actor_ranks: list[int],
+        rollout_ranks: list[int],
+        device_buffer_size_M: int,
+        weight_sync_group,
     ) -> None:
         self.current_rank = current_rank
         self.actor_ranks = actor_ranks
@@ -279,6 +289,7 @@ class CheckpointEngine:
         self._zmq_addr_counter: int = 0
         device_index = self.current_rank % get_torch_device().device_count()
         self._device_uuid = _get_physical_device_id(device_index)
+        self._weight_sync_group = weight_sync_group
 
     def register_checkpoint(
         self, weights_info: list[tuple[str, torch.Size, torch.dtype]], cpu_named_params: dict[str, torch.Tensor]
@@ -479,6 +490,7 @@ class CheckpointEngine:
 
         gidx = 0
         local_buckets = self.global_buckets.get(self.current_rank, [])
+        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
 
         for i in range(max_h2d_iter):
             # Step 1: Each actor rank copy the parameter tensor into device memory
@@ -498,11 +510,13 @@ class CheckpointEngine:
                     buffer_b.data.copy_(h2d_buffer[: bucket.size])
 
                 # Broadcast the buffer to all ranks
-                collective.broadcast(buffer_b, src_rank=broadcast_rank, group_name=group_name)
+                self.weight_sync_group.broadcast(
+                    buffer_b, src=broadcast_rank, stream=get_torch_device().current_stream()
+                )
 
                 if overlap_broadcast_and_consume:
                     socket.recv()
-                    collective.barrier(group_name=group_name)
+                    self.weight_sync_group.all_reduce(dummy_tensor)
                     socket.send_pyobj(_to_flattened_tensor_meta(bucket.metas, start))
                 elif inference_model is not None:
                     named_tensor = _to_flattened_tensor_meta(bucket.metas, 0)
@@ -517,6 +531,7 @@ class CheckpointEngine:
             req_thread.join()
             socket.close()
 
-        collective.barrier(group_name=group_name)
+        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
+        self._weight_sync_group.all_reduce(dummy_tensor)
         # clear host memory cache
         self.memory_buffers = []
