@@ -143,6 +143,8 @@ class FSDPSFTTrainer:
 
         self.save_best = getattr(self.config.trainer, "save_best", False)
         if self.save_best:
+            assert self.config.trainer.test_freq > 0, "test_freq must be positive when save_best is True"
+
             assert self.config.trainer.save_freq % self.config.trainer.test_freq == 0, (
                 "save_freq must be divisible by test_freq when save_best is True"
             )

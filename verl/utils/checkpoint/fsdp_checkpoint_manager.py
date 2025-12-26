@@ -215,7 +215,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self.previous_global_step = global_step
 
         max_ckpt_defined = max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0
-        save_best = current_val_loss and isinstance(current_val_loss, float)
+        save_best = current_val_loss is not None
 
         if self.rank == 0 and save_best:
             num_to_keep = max_ckpt_to_keep if max_ckpt_defined else 1
