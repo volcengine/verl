@@ -102,7 +102,7 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False, compute_sum_pi_squared=False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[Optional[torch.Tensor], torch.Tensor, Optional[torch.Tensor]]:
         """
         Returns:
             entropy: # (bs, response_len)
