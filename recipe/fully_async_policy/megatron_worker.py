@@ -148,6 +148,14 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
+        # Load model to GPU
+        load_start_time = time.time()
+        if self._is_actor and self._is_offload_param:
+            load_megatron_model_to_gpu(self.actor_module)
+        load_duration = time.time() - load_start_time
+
+        from ray.util.collective import collective
+
         # Cache actor weights to CPU and measure the time taken
         cache_start_time = time.time()
         self.cache_actor_weights_to_cpu()
@@ -181,6 +189,11 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         update_end_time = time.time()
         update_duration = update_end_time - update_start_time
 
+        offload_start_time = time.time()
+        if self._is_actor and self._is_offload_param:
+            offload_megatron_model_to_cpu(self.actor_module)
+        offload_duration = time.time() - offload_start_time
+
         print(
             f"sync_rollout_weights_by_checkpoint finish!, rank:{torch.distributed.get_rank()},"
             f" is_actor:{self._is_actor}, is_rollout:{self._is_rollout},"
@@ -188,6 +201,11 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             f" register cost {register_duration} seconds, update cost {update_duration} seconds"
         )
 
+        if self._is_actor and self._is_offload_param:
+            print(
+                f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
+                f" offload model to cpu cost {offload_duration} seconds"
+            )
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_weight_sync_group(self, master_addr, master_port, rank_offset: int, actor_num: int, rollout_num: int):
         current_rank = torch.distributed.get_rank() + rank_offset
