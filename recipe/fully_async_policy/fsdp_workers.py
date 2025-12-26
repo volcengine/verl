@@ -15,6 +15,7 @@
 
 import logging
 import os
+import time
 
 import torch
 import torch.distributed
@@ -33,6 +34,8 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_model_to_cpu,
 )
 from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+
+from .checkpoint_engine import CheckpointEngine
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -64,11 +67,22 @@ def get_inference_model(rollout):
 
 
 class DetachNcclSync(AsyncActorRolloutRefWorker):
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
+        current_rank = torch.distributed.get_rank() + rank_offset
+        actor_ranks = list(range(actor_num))
+        rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
+        assert rank_offset == 0 or rank_offset == actor_num
+
+        self.checkpoint_engine = CheckpointEngine(
+            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
+        )
+
     def _get_actor_params(self):
         pass
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def sync_rollout_weights(self):
+    def sync_rollout_weights(self, sync_group_name="actor_rollout"):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
 
@@ -92,13 +106,92 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                     tensor.copy_(origin_data)
             from ray.util.collective import collective
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+            collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
 
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
+
+    def cache_actor_weights_to_cpu(self):
+        self.cpu_named_params = {}
+        if self._is_actor:
+            params = self._get_actor_params()
+            local_rank = torch.distributed.get_rank()
+            world_size = torch.distributed.get_world_size()
+
+            for tensor_idx, (key, _, _) in enumerate(self._weights_info):
+                origin_data = params[key]
+                if hasattr(origin_data, "full_tensor"):
+                    origin_data = origin_data.full_tensor()
+
+                if tensor_idx % world_size == local_rank:
+                    self.cpu_named_params[key] = origin_data.to("cpu", non_blocking=True)
+            get_torch_device().synchronize()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
+        assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
+        assert hasattr(self, "_weights_info") and self._weights_info is not None
+
+        # Load model to GPU
+        load_start_time = time.time()
+        if self._is_actor and self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        load_duration = time.time() - load_start_time
+
+        from ray.util.collective import collective
+
+        # Cache actor weights to CPU and measure the time taken
+        cache_start_time = time.time()
+        self.cache_actor_weights_to_cpu()
+        cache_end_time = time.time()
+        cache_duration = cache_end_time - cache_start_time
+
+        # Register the cached weights into the checkpoint engine
+        self.checkpoint_engine.register_checkpoint(self._weights_info, self.cpu_named_params)
+        register_end_time = time.time()
+        register_duration = register_end_time - cache_end_time
+        self.cpu_named_params = {}
+
+        collective.barrier(group_name=sync_group_name)
+        update_start_time = time.time()
+
+        inference_model = None
+        if self._is_rollout:
+            inference_model = get_inference_model(self.rollout)
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
+            patch_vllm_moe_model_weight_loader(inference_model)
+
+        # Update the checkpoint with the inference model and broadcast weights
+        self.checkpoint_engine.update_checkpoint(
+            inference_model=inference_model,
+            group_name=sync_group_name,
+            overlap_broadcast_and_consume=self.config.checkpoint_engine.overlap_broadcast_and_consume,
+        )
+
+        update_end_time = time.time()
+        update_duration = update_end_time - update_start_time
+
+        offload_start_time = time.time()
+        if self._is_actor and self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        offload_duration = time.time() - offload_start_time
+
+        print(
+            f"sync_rollout_weights_by_checkpoint finish!, rank:{torch.distributed.get_rank()},"
+            f" is_actor:{self._is_actor}, is_rollout:{self._is_rollout},"
+            f" total cost:{update_end_time - cache_start_time} seconds, while cache cost {cache_duration} seconds, "
+            f" register cost {register_duration} seconds, update cost {update_duration} seconds"
+        )
+
+        if self._is_actor and self._is_offload_param:
+            print(
+                f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
+                f" offload model to cpu cost {offload_duration} seconds"
+            )
 
 
 class DetachActorWorker(DetachNcclSync):
