@@ -332,6 +332,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self.ulysses_sequence_parallel_size > 1 and hasattr(actor_model_config, "vision_config"):
             actor_model_config.vision_config._attn_implementation = "eager"
 
+        # patch for qwen2.5-vl: when using flash_attention_3, set vision tower to use flash_attention_2
+        # because the vision tower does not support flash_attention_3
+        if (
+            getattr(actor_model_config, "model_type", None) == "qwen2_5_vl"
+            and attn_implementation == "flash_attention_3"
+            and hasattr(actor_model_config, "vision_config")
+        ):
+            actor_model_config.vision_config._attn_implementation = "flash_attention_2"
+
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
             actor_model_config.text_config.topk_method = "greedy"
