@@ -22,6 +22,7 @@ import time
 from typing import Any, Optional
 
 import psutil
+import ray
 import torch
 import torch.distributed
 from codetiming import Timer
@@ -963,8 +964,16 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     # ============================ vLLM related ============================
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def get_zeromq_address(self):
-        return self.rollout.get_zeromq_address()
+    def set_server_handle(self, server_handle: ray.actor.ActorHandle):
+        return self.rollout.set_server_handle(server_handle)
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def get_update_weights_zmq_handle(self):
+        return self.rollout.get_update_weights_zmq_handle()
+
+    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
+    def set_update_weights_zmq_handles(self, zmq_handles: dict[str, str]):
+        return self.rollout.set_update_weights_zmq_handles(zmq_handles)
 
     # ============================ SGLang related ============================
 
