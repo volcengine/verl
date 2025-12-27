@@ -17,6 +17,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from verl import DataProto
+from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.model import create_random_mask
 from verl.utils.seqlen_balancing import (
     ceildiv,
@@ -62,9 +63,9 @@ def test_dynamic_batch():
 
 def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
     # 1) init process group & CUDA
-    torch.cuda.set_device(rank)
+    get_torch_device().set_device(rank)
     dist.init_process_group(
-        backend="nccl",
+        backend=get_nccl_backend(),
         init_method=init_method,
         world_size=world_size,
         rank=rank,
@@ -72,7 +73,7 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
 
     # 2) build a small random batch (each rank different length to force mismatch)
     torch.manual_seed(42 + rank)
-    input_ids = torch.randint(0, 10, (20 + rank * 5, 100), device=f"cuda:{rank}")
+    input_ids = torch.randint(0, 10, (20 + rank * 5, 100), device=f"{get_device_name()}:{rank}")
     attention_mask = create_random_mask(
         input_ids=input_ids,
         max_ratio_of_left_padding=0.1,
@@ -102,7 +103,7 @@ def _worker(rank, world_size, init_method, max_token_len, use_same_dp, min_mb):
         assert len(micros) == expected
     if use_same_dp:
         # gather all local_counts
-        counts = [torch.zeros(1, device=f"cuda:{rank}") for _ in range(world_size)]
+        counts = [torch.zeros(1, device=f"{get_device_name()}:{rank}") for _ in range(world_size)]
         counts[rank].fill_(local)
         dist.all_gather(counts, counts[rank])
         expected = max(int(c.item()) for c in counts)

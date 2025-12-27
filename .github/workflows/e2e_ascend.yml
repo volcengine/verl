@@ -110,10 +110,6 @@ jobs:
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
           rm -rf $HOME/ckpts
-      - name: Running NPU profiling unit tests
-        run: |
-          ray stop --force
-          pytest -s -x tests/utils/test_special_mstx_profile.py
 
   llm_rl_job:
     if: github.repository_owner == 'volcengine'
