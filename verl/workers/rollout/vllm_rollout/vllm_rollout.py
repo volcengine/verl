@@ -191,7 +191,7 @@ class vLLMAsyncRollout(BaseRollout):
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         if self.config.quantization is not None:
-            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            _SUPPORTED_QUANTIZATION = ["fp8", "mxfp8", "torchao"]
             if self.config.quantization not in _SUPPORTED_QUANTIZATION:
                 raise ValueError(
                     f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {self.config.quantization}"
@@ -200,6 +200,9 @@ class vLLMAsyncRollout(BaseRollout):
             if self.config.quantization == "fp8":
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
+                apply_vllm_fp8_patches()
+            elif self.config.quantization == "mxfp8":
+                # TODO(slightwindsec): MXFP8 patches?
                 apply_vllm_fp8_patches()
 
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)

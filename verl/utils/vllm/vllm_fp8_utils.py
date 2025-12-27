@@ -35,6 +35,12 @@ FP8_BLOCK_QUANT_KWARGS = {
     "weight_block_size": [128, 128],
 }
 
+MXFP8_BLOCK_QUANT_KWARGS = {
+    "activation_scheme": "dynamic",
+    "fmt": "e4m3",
+    "quant_method": "mxfp8",
+    "weight_block_size": [1, 32],
+}
 
 # Ref: https://github.com/NVIDIA-NeMo/RL/commit/bc24887c72a6e1b2699a228bc87c588546dfe6b7
 @dataclass()
@@ -49,11 +55,28 @@ class FP8State:
 fp8_state: FP8State = FP8State()
 
 
+def is_mxfp8_vllm_ascend(quant_config):
+    try:
+        from vllm_ascend.quantization.quant_config import AscendQuantConfig
+        if isinstance(quant_config, AscendQuantConfig):
+            # Check if the specific quantization method is MXFP8
+            # AscendQuantConfig stores config in quant_description
+            quant_method = quant_config.quant_description.get("quant_method")
+            return quant_method in ["W8A8_MXFP8", "mxfp8"]
+    except ImportError:
+        pass
+
+    return False
+
+
 def is_fp8_model(vllm_config):
     from vllm.model_executor.layers.quantization.fp8 import Fp8Config
 
-    if hasattr(vllm_config, "quant_config") and isinstance(vllm_config.quant_config, Fp8Config):
-        return True
+    if hasattr(vllm_config, "quant_config"):
+        if isinstance(vllm_config.quant_config, Fp8Config):
+            return True
+        if is_mxfp8_vllm_ascend(vllm_config.quant_config):
+            return True
 
     return False
 
@@ -160,16 +183,24 @@ def scaled_fp8_blockwise(
 
 def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     weights_quantized = []
+    
+    # Determine block size
+    weight_block_size = None
+    if hasattr(quant_config, "weight_block_size"):
+        weight_block_size = quant_config.weight_block_size
+    elif is_mxfp8_vllm_ascend(quant_config):
+        weight_block_size = [1, 32]
+
     for k, v in weights:
         if not is_fp8_weight(k, model):
             weights_quantized.append((k, v))
             continue
         # Cast the weight into fp8 and its scale factor
-        if quant_config.weight_block_size is not None:
+        if weight_block_size is not None:
             logger.info("Using blockwise quantization")
             param_lp, param_scale = scaled_fp8_blockwise(
                 v.to(dtype),
-                weight_block_size=quant_config.weight_block_size,
+                weight_block_size=weight_block_size,
             )
             param_scale = param_scale.squeeze(-1)
             weights_quantized.append([k, param_lp])
