@@ -477,7 +477,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
             # 3.1 build rollout device mesh (sglang need only)
-            infer_tp = rollout_config.tensor_model_parallel_size * rollout_config.data_parallel_size
+            # Note: infer_tp should only be tensor_model_parallel_size, not multiplied by data_parallel_size
+            # data_parallel_size controls rollout DP sharding, not the infer_tp dimension
+            infer_tp = rollout_config.tensor_model_parallel_size
             infer_pp = rollout_config.pipeline_model_parallel_size
             infer_world_size = infer_tp * infer_pp
             dp = self.world_size // infer_world_size
