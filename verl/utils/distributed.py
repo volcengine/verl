@@ -43,7 +43,7 @@ def set_numa_affinity():
         handle = pynvml.nvmlDeviceGetHandleByIndex(local_rank)
         pynvml.nvmlDeviceSetCpuAffinity(handle)
     except ImportError:
-        print("Warning: pynvml not available, skipping NUMA affinity setup")
+        logger.warning("Warning: nvidia-ml-py not available, skipping NUMA affinity setup")
     except Exception as e:
         print(f"Warning: Failed to set NUMA affinity: {e}")
     finally:
