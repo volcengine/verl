@@ -271,6 +271,9 @@ class SGLangHttpServer:
             max_new_tokens = sampling_params.pop("max_tokens")
         else:
             max_new_tokens = response_length
+        assert max_new_tokens <= response_length, (
+            f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
+        )
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 

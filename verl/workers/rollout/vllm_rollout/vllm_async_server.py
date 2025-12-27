@@ -470,6 +470,9 @@ class vLLMHttpServerBase:
             max_tokens = sampling_params.pop("max_new_tokens")
         else:
             max_tokens = response_length
+        assert max_tokens <= response_length, (
+            f"max_tokens {max_tokens} exceeds available response_length {response_length}"
+        )
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
