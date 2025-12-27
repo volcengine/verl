@@ -444,6 +444,8 @@ def _load_hf_model(config, model_config, is_value_model):
             model = auto_cls.from_pretrained(
                 local_model_path,
                 torch_dtype="auto",
+                trust_remote_code=model_config.trust_remote_code,
+                config=model_config,
                 # device_map="auto", # disable auto device_map, the HF weight is only loaded to CPU in src_rank
                 # low_cpu_mem_usage=True
             )
