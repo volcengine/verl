@@ -984,13 +984,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = config_source.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = config_source.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
+        compute_sum_pi_squared = self.config.actor.get('compute_sum_pi_squared', False)
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             with adapter_ctx:
-                output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=not is_lora)
+                output, entropys, sum_pi_squareds = self.actor.compute_log_prob(
+                    data=data, calculate_entropy=not is_lora, compute_sum_pi_squared=compute_sum_pi_squared
+                )
             tensors = {"ref_log_prob": output} if is_lora else {"old_log_probs": output}
             if not is_lora:
                 tensors["entropys"] = entropys
+            if sum_pi_squareds is not None:
+                tensors["sum_pi_squared"] = sum_pi_squareds
             output = DataProto.from_dict(
                 tensors=tensors,
                 meta_info={"temperature": self.config.rollout.temperature},

@@ -105,6 +105,7 @@ class AdvantageEstimator(str, Enum):
     GPG = "gpg"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
+    OPTIMAL_TOKEN_BASELINE = "optimal_token_baseline"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -751,6 +752,107 @@ def compute_rloo_vectorized_outcome_advantage(
         adv = adv.unsqueeze(-1) * response_mask
 
     return adv, adv
+
+
+@register_adv_est(AdvantageEstimator.OPTIMAL_TOKEN_BASELINE)  # or simply: @register_adv_est("optimal_token_baseline")
+def compute_optimal_token_baseline_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    old_log_probs: torch.Tensor,
+    sum_pi_squared: torch.Tensor,
+    rollout_is_weights: torch.Tensor = None,
+    epsilon: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantages using Optimal Token Baseline (OTB).
+
+    Unlike the group mean based baseline which uses a single baseline per trajectory,
+    this computes a unique baseline for each timestep using cumulative path variance.
+
+    Theory:
+        For each timestep t in each prompt group:
+            B_t* = E[G_t × W_t] / E[W_t]
+        where W_t = Σ_{j=1}^t ||s_j||² (cumulative path-variance proxy)
+        and ||s_j||² = 1 - 2π_j + Σπ²
+
+    The cumulative sum W_t captures the "realized energy" of trajectory has been up to timestep t,
+    giving higher weight to predicting rewards on high-variance paths.
+
+    Args:
+        token_level_rewards: Rewards at each token position [shape: (bs, response_length)]
+        response_mask: Binary mask for valid tokens (1) vs padding (0) [shape: (bs, response_length)]
+        index: Prompt indices for grouping trajectories from same prompt [shape: (bs,)]
+        old_log_probs: Log probabilities from training policy during generation [shape: (bs, response_length)]
+        sum_pi_squared: Sum of squared probabilities over vocabulary Σπ² [shape: (bs, response_length)]
+        rollout_is_weights: Pre-computed IS weights for W correction [shape: (bs, response_length)], None if not using IS
+        epsilon: Small constant for numerical stability (default: 1e-8)
+
+    Returns:
+        advantages: OTB advantage estimates [shape: (bs, response_length)]
+        returns: Cumulative rewards (returns) from each position [shape: (bs, response_length)]
+
+    Note on Rollout Importance Sampling:
+        When rollout_is_weights is provided, W_t is scaled by ρ̄²(t) to minimize MSE under truncated IS:
+            B_t* = Σ[G_t × ρ̄²(t) × W_t] / Σ[ρ̄²(t) × W_t]
+    """
+    with torch.no_grad():
+        batch_size, seq_len = token_level_rewards.shape
+        device = token_level_rewards.device
+
+        # Compute returns (reward-to-go) for each timestep
+        returns = (token_level_rewards * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
+
+        # Step 1: Compute w_per_timestep = 1 - 2π_t + Σπ²)
+        pi_t = torch.exp(old_log_probs)
+        w_per_timestep = 1 - 2 * pi_t + sum_pi_squared
+
+        # Step 2: Apply rollout importance sampling correction (if enabled)
+        if rollout_is_weights is not None:
+            # Scale W by ρ̄² to minimize MSE under truncated IS
+            w_per_timestep = w_per_timestep * (rollout_is_weights**2)
+
+        # Step 3: Compute cumulative path-variance proxy: W_t = Σ_{j=1}^t w_j
+        # This measures accumulated variance from the start of the trajectory up to timestep t
+        w_cumulative = (w_per_timestep * response_mask).cumsum(dim=-1)
+
+        # Group trajectories by prompt
+        prompt_groups = defaultdict(list)
+        for i in range(batch_size):
+            prompt_groups[index[i]].append(i)
+
+        # Initialize baselines tensor [batch_size, seq_len]
+        baselines = torch.zeros_like(returns)
+
+        # Compute per-step baseline for each prompt group
+        for _, trajectory_indices in prompt_groups.items():
+            N = len(trajectory_indices)
+            if N == 1:
+                # Single trajectory - no baseline (advantage = return)
+                continue
+
+            traj_idx = torch.tensor(trajectory_indices, device=device)
+
+            # Extract group data [N, seq_len]
+            returns_group = returns[traj_idx]
+            w_cumulative_group = w_cumulative[traj_idx]
+            mask_group = response_mask[traj_idx]
+
+            # Compute per-timestep baseline: B_t = Σ[G_t × W_t] / Σ[W_t]
+            # where W_t = Σ_{j=1}^t ||s_j||² (cumulative path variance)
+            # Shape: [seq_len]
+            numerator = (returns_group * w_cumulative_group * mask_group).sum(dim=0)  # Sum over trajectories
+            denominator = (w_cumulative_group * mask_group).sum(dim=0) + epsilon
+
+            baseline_per_step = numerator / denominator  # [seq_len]
+
+            # Assign to all trajectories in this group
+            baselines[traj_idx] = baseline_per_step.unsqueeze(0).expand(N, -1)
+
+        # Compute advantages: A_t = G_t - B_t
+        advantages = (returns - baselines) * response_mask
+
+    return advantages, returns
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
