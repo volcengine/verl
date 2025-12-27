@@ -122,11 +122,10 @@ class vLLMAsyncRollout(BaseRollout):
         self.tokenizer = self.model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
         self.address = self._init_zeromq()
-        self.lora_config = (
-            {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
-            if self.model_config.lora_rank > 0
-            else {}
-        )
+        lora_rank = self.model_config.lora.get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = self.model_config.lora_rank
+        self.lora_config = {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(lora_rank)} if lora_rank > 0 else {}
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -242,11 +241,13 @@ class vLLMAsyncRollout(BaseRollout):
             # In async mode, make sure the old lora is removed before adding the new one
             self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
             weights = dict(weights)
+            # Support both dataclass and dict for peft_config
+            peft_config_dict = peft_config if isinstance(peft_config, dict) else asdict(peft_config)
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
-                peft_config=asdict(peft_config),
+                peft_config=peft_config_dict,
                 lora_tensors=weights,
             )
             self.inference_engine.worker.add_lora(lora_request)

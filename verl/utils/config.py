@@ -199,7 +199,10 @@ def validate_config(
         )
 
     # check LoRA rank in vLLM
-    if config.actor_rollout_ref.model.get("lora_rank", 0) > 0 and config.actor_rollout_ref.rollout.name == "vllm":
-        assert config.actor_rollout_ref.model.lora_rank <= 512, "LoRA rank in vLLM must be less than or equal to 512"
+    lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
+    if lora_rank <= 0:
+        lora_rank = config.actor_rollout_ref.model.get("lora_rank", 0)
+    if lora_rank > 0 and config.actor_rollout_ref.rollout.name == "vllm":
+        assert lora_rank <= 512, "LoRA rank in vLLM must be less than or equal to 512"
 
     print("[validate_config] All configuration checks passed successfully!")

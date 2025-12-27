@@ -29,10 +29,7 @@ import zmq
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.entrypoints.openai.api_server import (
-    build_app,
-    init_app_state,
-)
+from vllm.entrypoints.openai.api_server import build_app, init_app_state
 from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
@@ -342,12 +339,15 @@ class vLLMHttpServerBase:
             )
 
         # update lora-related args
-        if self.model_config.lora_rank > 0:
+        lora_rank = self.model_config.lora.get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = self.model_config.lora_rank
+        if lora_rank > 0:
             args.update(
                 {
                     "enable_lora": True,
                     "max_loras": 1,
-                    "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank),
+                    "max_lora_rank": get_vllm_max_lora_rank(lora_rank),
                 }
             )
 
@@ -483,7 +483,7 @@ class vLLMHttpServerBase:
 
         # Add lora request
         lora_request = None
-        if self.model_config.lora_rank > 0:
+        if self.model_config.lora_rank > 0 or self.model_config.lora.get("rank", 0) > 0:
             # Make sure we also check that the lora is already loaded in the engine
             lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
             if lora_loaded:
