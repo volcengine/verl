@@ -32,6 +32,7 @@ from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatr
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 from .checkpoint_engine import CheckpointEngine
+from .distributed_util import stateless_init_process_group
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -63,6 +64,10 @@ def get_inference_model(rollout):
 
 
 class DetachNcclSync(AsyncActorRolloutRefWorker):
+    def __init__(self, config: DictConfig, role: str, **kwargs):
+        super().__init__(config, role, **kwargs)
+        self._weight_sync_group = None
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
         current_rank = torch.distributed.get_rank() + rank_offset
@@ -71,7 +76,11 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert rank_offset == 0 or rank_offset == actor_num
 
         self.checkpoint_engine = CheckpointEngine(
-            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
+            current_rank,
+            actor_ranks,
+            rollout_ranks,
+            self.config.checkpoint_engine.device_buffer_size_M,
+            self._weight_sync_group,
         )
 
     def _get_actor_params(self):
@@ -99,9 +108,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
             if self._is_actor and torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
-            from ray.util.collective import collective
 
-            collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
+            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
         if self._is_actor and self._is_offload_param:
@@ -146,8 +154,6 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             load_megatron_model_to_gpu(self.actor_module)
         load_duration = time.time() - load_start_time
 
-        from ray.util.collective import collective
-
         # Cache actor weights to CPU and measure the time taken
         cache_start_time = time.time()
         self.cache_actor_weights_to_cpu()
@@ -160,7 +166,8 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         register_duration = register_end_time - cache_end_time
         self.cpu_named_params = {}
 
-        collective.barrier(group_name=sync_group_name)
+        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
+        self._weight_sync_group.all_reduce(dummy_tensor)
         update_start_time = time.time()
 
         inference_model = None
@@ -197,6 +204,20 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
                 f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
                 f" offload model to cpu cost {offload_duration} seconds"
             )
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def init_weight_sync_group(self, master_addr, master_port, rank_offset: int, actor_num: int, rollout_num: int):
+        current_rank = torch.distributed.get_rank() + rank_offset
+        actor_ranks = list(range(actor_num))
+        rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
+        assert rank_offset == 0 or rank_offset == actor_num
+        self._weight_sync_group = stateless_init_process_group(
+            master_addr,
+            master_port,
+            current_rank,
+            len(actor_ranks) + len(rollout_ranks),
+            get_torch_device().current_device(),
+        )
 
 
 class DetachActorWorker(DetachNcclSync):
