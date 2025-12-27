@@ -49,8 +49,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-@ray.remote(num_cpus=1)
-class SGLangHttpServer:
+class SGLangHttpServerBase:
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
     python -m sglang.launch_server --node-rank 0 --nnode 1 ...
@@ -119,6 +118,9 @@ class SGLangHttpServer:
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
 
+    def _get_enable_memory_saver(self) -> bool:
+        return True
+
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
@@ -151,7 +153,7 @@ class SGLangHttpServer:
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
-            "enable_memory_saver": True,
+            "enable_memory_saver": self._get_enable_memory_saver(),
             "base_gpu_id": 0,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,
@@ -296,10 +298,46 @@ class SGLangHttpServer:
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
 
+@ray.remote(num_cpus=1)
+class SGLangHttpServer(SGLangHttpServerBase):
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        rollout_mode: RolloutMode,
+        workers: list[ActorHandle],
+        replica_rank: int,
+        node_rank: int,
+        nnodes: int,
+        cuda_visible_devices: str,
+    ):
+        super().__init__(
+            config=config,
+            model_config=model_config,
+            rollout_mode=rollout_mode,
+            workers=workers,
+            replica_rank=replica_rank,
+            node_rank=node_rank,
+            nnodes=nnodes,
+            cuda_visible_devices=cuda_visible_devices,
+        )
+
+
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
 
 class SGLangReplica(RolloutReplica):
+    def __init__(
+        self,
+        replica_rank: int,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        gpus_per_node: int = 8,
+        is_reward_model: bool = False,
+    ):
+        super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
+        self.server_class = SGLangHttpServer
+
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
@@ -340,7 +378,7 @@ class SGLangReplica(RolloutReplica):
                 if not self.is_reward_model
                 else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
             )
-            server = SGLangHttpServer.options(
+            server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
