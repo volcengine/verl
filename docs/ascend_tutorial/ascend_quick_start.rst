@@ -1,9 +1,16 @@
 Ascend Quickstart
 ===================================
 
-Last updated: 12/4/2025.
+Last updated: 12/11/2025.
 
 我们在 verl 上增加对华为昇腾设备的支持。
+
+
+关键更新
+----------------------------------
+
+2025/12/11：verl 存量场景目前支持自动识别 NPU 设备类型， GPU 脚本在昇腾上运行，原则上不再需要显式设置 trainer.device=npu 参数，新增特性通过设置 trainer.device 仍可优先使用，逐步适配自动识别能力。
+
 
 硬件支持
 -----------------------------------
@@ -122,6 +129,9 @@ MindSpeed 源码安装指令：
         # （可选）如希望 shell 关闭，或系统重启后，PYTHONPATH 环境变量仍然生效，建议将它添加到 .bashrc 配置文件中
         echo "export PYTHONPATH=$PYTHONPATH:\"$(pwd)/Megatron-LM\"" >> ~/.bashrc
 
+        # 安装 mbridge
+        pip install mbridge
+
 MindSpeed 对应 Megatron-LM 后端使用场景，使用方式如下：
 
     1. 使能 verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。
@@ -213,8 +223,7 @@ verl 中昇腾暂不支持生态库如下：
             trainer.nnodes=1 \
             trainer.save_freq=-1 \
             trainer.test_freq=5 \
-            trainer.total_epochs=1 \
-            trainer.device=npu $@
+            trainer.total_epochs=1 $@
 
 
 算法支持现状

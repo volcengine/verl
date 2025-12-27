@@ -92,3 +92,23 @@ def set_expandable_segments(enable: bool) -> None:
     """
     if is_cuda_available:
         torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
+
+
+def auto_set_ascend_device_name(config):
+    if config and config.trainer and config.trainer.device:
+        if is_torch_npu_available():
+            if config.trainer.device != "npu":
+                logger.warning(
+                    f"Detect setting config.trainer.device to {config.trainer.device} for Ascend NPU, maybe"
+                    f"from default value in config file, automatically set to `npu` instead."
+                )
+
+            config.trainer.device = "npu"
+
+
+def get_device_capability(device_id: int = 0) -> tuple[int, int]:
+    major, minor = None, None
+    if is_cuda_available:
+        major, minor = torch.cuda.get_device_capability(device_id)
+
+    return major, minor

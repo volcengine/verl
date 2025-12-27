@@ -88,6 +88,7 @@ class HFModelConfig(BaseConfig):
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
     use_liger: bool = False
+    lora: dict = field(default_factory=dict)
 
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
@@ -104,7 +105,7 @@ class HFModelConfig(BaseConfig):
 
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
-        # constuct tokenizer
+        # construct tokenizer
         if self.load_tokenizer:
             self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
             self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)

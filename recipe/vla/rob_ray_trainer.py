@@ -110,6 +110,18 @@ class RobRayPPOTrainer(RayPPOTrainer):
     Supports various model architectures including FSDP, Megatron, vLLM, and SGLang integration.
     """
 
+    def _start_profiling(self, do_profile: bool) -> None:
+        """Start profiling for all worker groups including env workers."""
+        super()._start_profiling(do_profile)
+        if do_profile and hasattr(self, "env_wg"):
+            self.env_wg.start_profile(role="env", profile_step=self.global_steps)
+
+    def _stop_profiling(self, do_profile: bool) -> None:
+        """Stop profiling for all worker groups including env workers."""
+        super()._stop_profiling(do_profile)
+        if do_profile and hasattr(self, "env_wg"):
+            self.env_wg.stop_profile()
+
     def init_workers(self):
         self.resource_pool_manager.create_resource_pool()
 

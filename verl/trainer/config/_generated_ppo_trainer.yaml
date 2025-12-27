@@ -55,6 +55,8 @@ actor_rollout_ref:
     clip_ratio: 0.2
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
+    tau_pos: 1.0
+    tau_neg: 1.05
     freeze_vision_tower: false
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
@@ -75,6 +77,7 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl
     ppo_epochs: 1
     shuffle: false
+    data_loader_seed: 42
     checkpoint:
       _target_: verl.trainer.config.CheckpointConfig
       save_contents:
@@ -98,7 +101,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -141,7 +144,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -274,6 +277,8 @@ actor_rollout_ref:
       port: 9090
       file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    quantization: null
+    quantization_config_file: null
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -413,6 +418,7 @@ critic:
   forward_max_token_len_per_gpu: ${.ppo_max_token_len_per_gpu}
   ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
   shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
+  data_loader_seed: 42
   cliprange_value: 0.5
   loss_agg_mode: ${oc.select:actor_rollout_ref.actor.loss_agg_mode,token-mean}
   checkpoint:
@@ -437,7 +443,7 @@ critic:
       npu:
         _target_: verl.utils.profiler.config.NPUToolConfig
         contents: []
-        level: level1
+        level: level0
         analysis: true
         discrete: false
       torch:
@@ -455,7 +461,7 @@ critic:
 reward_model:
   enable: false
   enable_resource_pool: false
-  n_gpus_per_node: 0
+  n_gpus_per_node: 8
   nnodes: 0
   strategy: fsdp
   model:
@@ -481,6 +487,9 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  reward_loop_source: register
+  reward_loop_module_path: null
+  reward_loop_class_name: null
   launch_reward_fn_async: false
   sandbox_fusion:
     url: null
@@ -496,6 +505,7 @@ reward_model:
     tool_config: ${oc.select:actor_rollout_ref.actor.profiler.tool_config,null}
   ulysses_sequence_parallel_size: 1
   use_reward_loop: true
+  num_workers: 1
   rollout:
     _target_: verl.workers.config.RolloutConfig
     name: ???
@@ -516,9 +526,9 @@ reward_model:
     enable_chunked_prefill: true
     enable_prefix_caching: true
     disable_log_stats: true
-    skip_tokenizer_init: true
-    prompt_length: 512
-    response_length: 512
+    skip_tokenizer_init: false
+    prompt_length: 2048
+    response_length: 2048
 algorithm:
   rollout_correction:
     rollout_is: null
@@ -528,7 +538,7 @@ algorithm:
     rollout_rs_threshold_lower: null
     rollout_token_veto_threshold: null
     bypass_mode: false
-    use_policy_gradient: false
+    loss_type: ppo_clip
     rollout_is_batch_normalize: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
