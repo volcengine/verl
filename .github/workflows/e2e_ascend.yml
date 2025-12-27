@@ -232,15 +232,13 @@ jobs:
   recipe_job:
     if: github.repository_owner == 'volcengine'
     name: E2E Ascend testing for recipes
-    runs-on: linux-aarch64-a2-8
+    runs-on: linux-aarch64-a2-4
     timeout-minutes: 60
     container:
       image: swr.ap-southeast-1.myhuaweicloud.com/base_image/ascend-ci/verl/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
       options: >-
         --shm-size 16g
     env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
       NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
