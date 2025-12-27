@@ -45,6 +45,7 @@ class ParameterSynchronizer:
         self.sync_group_name = "actor_rollout"
         self.wait_last_update = None
         self.wait_last_resume = None
+        self.validate_task = None
 
         # Statistics
         self.current_version = 0
@@ -94,7 +95,7 @@ class ParameterSynchronizer:
             )
         )
 
-    def sync_weights(self, version, validate=False, global_steps=0):
+    def sync_weights(self, version, validate=False, global_steps=0, use_trainer_do_validate=False):
         """Sync weights between trainer and rollouter, and update parameter version"""
         start_time = time.time()
 
@@ -119,8 +120,18 @@ class ParameterSynchronizer:
             f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time:.2f} seconds, "
             f"pause:{pause_time - start_time:.2f}s, sync:{end_time - pause_time:.2f}s"
         )
+
+        # async train do validate
+        print(f"[ParameterSynchronizer] validate: {validate}, use_trainer_do_validate: {use_trainer_do_validate}")
+        if validate and use_trainer_do_validate:
+            print("[ParameterSynchronizer] use trainer to do validate")
+            self.validate_task = self.trainer._validate_process.remote()
+        else:
+            self.validate_task = None
         # Async Update rollout version & validation
-        self.wait_last_update = self.rollouter.update_param_version.remote(version, validate, global_steps)
+        self.wait_last_update = self.rollouter.update_param_version.remote(
+            version, validate, global_steps, use_trainer_do_validate
+        )
         self.wait_last_resume = self.rollouter.resume.remote(self.wait_last_update)
 
     def wait_last_valid(self):
@@ -130,6 +141,8 @@ class ParameterSynchronizer:
             ray.get(self.wait_last_update)
         if self.wait_last_resume:
             ray.get(self.wait_last_resume)
+        if self.validate_task:
+            ray.get(self.validate_task)
         print(f"[ParameterSynchronizer] Wait last validate cost: {time.time() - start_time:.2f} seconds")
 
     def rollouter_save_checkpoint(self, local_global_step_folder: str):

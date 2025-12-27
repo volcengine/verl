@@ -27,6 +27,10 @@ async_training:
   # compute_prox_log_prob
   compute_prox_log_prob: False
 
+  # whether to use trainer do_validate
+  use_trainer_do_validate: False
+
+
   # checkpoint_engine config for accelerating parameter synchronization between rollouter and trainer
   checkpoint_engine:
     # Whether to use checkpoint_engine
