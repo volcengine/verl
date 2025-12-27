@@ -143,30 +143,18 @@ class TaskRunner:
             self.mapping[role] = "global_pool"
             return actor_rollout_cls, ray_worker_group_cls
 
-        if config.actor_rollout_ref.rollout.mode == "sync":
-            raise ValueError(
-                "Rollout mode 'sync' has been removed. Please set "
-                "`actor_rollout_ref.rollout.mode=async` to use the native server rollout."
-            )
-
+        # Note: sync mode validation is now handled in RolloutConfig.__post_init__
+        # Always use async worker since sync mode is deprecated and rejected
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+            from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker
 
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
+            actor_rollout_cls = AsyncActorRolloutRefWorker
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker
+            from verl.workers.megatron_workers import AsyncActorRolloutRefWorker
 
-            actor_rollout_cls = (
-                AsyncActorRolloutRefWorker
-                if config.actor_rollout_ref.rollout.mode == "async"
-                else ActorRolloutRefWorker
-            )
+            actor_rollout_cls = AsyncActorRolloutRefWorker
             ray_worker_group_cls = RayWorkerGroup
 
         else:
