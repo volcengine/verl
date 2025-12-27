@@ -19,6 +19,7 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
+from ray.util.collective import collective
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
@@ -94,7 +95,10 @@ class DetachSync(AsyncActorRolloutRefWorker):
                 if torch.distributed.get_rank() == 0:
                     tensor.copy_(origin_data)
 
-            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+            if device_name == "npu":
+                self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+            else:
+                collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
 
             if self._is_rollout:
                 if rollout_name == "vllm":
