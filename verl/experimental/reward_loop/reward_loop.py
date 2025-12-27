@@ -69,7 +69,34 @@ class RewardLoopWorker:
             reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
             self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
         self.reward_fn = get_custom_reward_fn(self.config)
-        reward_manager_cls = get_reward_manager_cls(self.config.reward_model.reward_manager)
+
+        # Load reward loop manager class
+        # Support both registry and importlib loading methods
+        reward_loop_source = self.config.reward_model.get("reward_loop_source", "register")
+
+        if reward_loop_source == "register":
+            # Load from registry (default behavior)
+            reward_manager_cls = get_reward_manager_cls(self.config.reward_model.reward_manager)
+        elif reward_loop_source == "importlib":
+            # Load from external module using importlib
+            from verl.utils.import_utils import load_extern_object
+
+            reward_loop_module_path = self.config.reward_model.get("reward_loop_module_path", None)
+            reward_loop_class_name = self.config.reward_model.get("reward_loop_class_name", None)
+
+            assert reward_loop_module_path is not None, (
+                "reward_loop_module_path must be set when reward_loop_source='importlib'"
+            )
+            assert reward_loop_class_name is not None, (
+                "reward_loop_class_name must be set when reward_loop_source='importlib'"
+            )
+
+            reward_manager_cls = load_extern_object(
+                module_path=reward_loop_module_path, object_name=reward_loop_class_name
+            )
+        else:
+            raise ValueError(f"Unknown reward_loop_source: {reward_loop_source}. Must be 'register' or 'importlib'")
+
         self.reward_loop = reward_manager_cls(
             self.config, self.input_tokenizer, self.reward_fn, self.reward_router_address, self.reward_model_tokenizer
         )

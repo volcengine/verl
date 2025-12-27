@@ -104,3 +104,11 @@ def auto_set_ascend_device_name(config):
                 )
 
             config.trainer.device = "npu"
+
+
+def get_device_capability(device_id: int = 0) -> tuple[int, int]:
+    major, minor = None, None
+    if is_cuda_available:
+        major, minor = torch.cuda.get_device_capability(device_id)
+
+    return major, minor
