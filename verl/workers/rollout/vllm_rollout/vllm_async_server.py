@@ -53,6 +53,9 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
+    apply_shm_sender_cache,
+    create_shm_sender_cache,
+    generate_shm_names,
     get_vllm_max_lora_rank,
 )
 
@@ -75,13 +78,42 @@ logger.setLevel(logging.INFO)
 
 
 class ExternalZeroMQDistributedExecutor(Executor):
-    """An executor that engines are launched by external ray actors."""
+    """An executor that engines are launched by external ray actors.
+
+    This executor uses ZeroMQ for IPC between P0 (this executor in Engine) and P1 (Worker).
+    For multi-turn multi-modal workloads, it implements shared memory (SHM) based caching
+    for mm_features to avoid repeatedly transmitting large image/video tensors (~10MB each) over ZMQ.
+
+    The SHM cache follows vLLM's native implementation:
+    - P0 uses ShmObjectStoreSenderCache to write mm_features to shared memory
+    - P1 uses ShmObjectStoreReceiverCache to read from shared memory
+    - A file-based lock is used for cross-process synchronization (since Ray Actors
+      cannot share multiprocessing.Lock())
+    """
 
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
         dp_rank_local = self.vllm_config.parallel_config.data_parallel_rank_local
         tp_size = self.vllm_config.parallel_config.tensor_parallel_size
+
+        # Get SHM cache configuration from model config (set via engine_kwargs)
+        model_config = self.vllm_config.model_config
+        mm_config = model_config.get_multimodal_config()
+
+        # Only generate SHM names if cache is enabled
+        if mm_config and getattr(mm_config, "mm_processor_cache_gb", 0) > 0:
+            # Get config from vllm model config (should be set from RolloutConfig)
+            shm_name_prefix = getattr(mm_config, "mm_shm_cache_name_prefix", "VERL_MM_CACHE_SHM")
+            lock_file_prefix = getattr(mm_config, "mm_shm_cache_lock_prefix", "/dev/shm/verl_mm_cache")
+            max_object_size_mb = getattr(mm_config, "mm_shm_cache_max_object_size_mb", 100)
+
+            # Generate unique SHM names per DP rank AND process to avoid conflicts
+            self._shm_name, self._lock_file = generate_shm_names(dp_rank_local, shm_name_prefix, lock_file_prefix)
+        else:
+            self._shm_name = None
+            self._lock_file = None
+            max_object_size_mb = 100
 
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
         addresses = addresses[dp_rank_local * tp_size : (dp_rank_local + 1) * tp_size]
@@ -94,12 +126,26 @@ class ExternalZeroMQDistributedExecutor(Executor):
             socket.connect(address)
             self.sockets.append(socket)
 
+        # Initialize P0-side SHM cache for mm_features IPC optimization
+        self._mm_sender_cache = None
+        if self._shm_name:
+            self._mm_sender_cache = create_shm_sender_cache(
+                self.vllm_config, self._shm_name, self._lock_file, max_object_size_mb
+            )
+
         kwargs = dict(
             vllm_config=self.vllm_config,
             local_rank=None,
             rank=None,
             distributed_init_method="env://",
             is_driver_worker=True,
+            # Pass SHM config to Workers for receiver cache initialization
+            verl_shm_cache_config={
+                "shm_name": self._shm_name,
+                "lock_file": self._lock_file,
+                "max_object_size_mb": max_object_size_mb,
+                "enabled": self._mm_sender_cache is not None,
+            },
         )
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
@@ -110,6 +156,9 @@ class ExternalZeroMQDistributedExecutor(Executor):
         def execute_model(
             self, scheduler_output: "SchedulerOutput", non_block: bool = False
         ) -> "ModelRunnerOutput | None | Future[ModelRunnerOutput | None]":
+            # Apply SHM-based cache: store mm_features in shared memory
+            apply_shm_sender_cache(scheduler_output, self._mm_sender_cache)
+
             output = self.collective_rpc("execute_model", args=(scheduler_output,))
             result = output[0]
             if non_block:

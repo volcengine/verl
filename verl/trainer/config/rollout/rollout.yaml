@@ -37,6 +37,15 @@ ignore_eos: False
 # Whether to disable CUDA graph. Default False to best performance.
 enforce_eager: False
 
+# Multi-modal shared memory cache configuration for multi-turn multi-modal workloads.
+# When enabled (mm_shm_cache_gb > 0), vLLM uses shared memory instead of ZeroMQ
+# to transfer large image/video tensors between P0 (Engine) and P1 (Worker),
+# reducing IPC overhead by ~10x for multi-turn multi-modal workloads.
+mm_shm_cache_gb: 0  # Set to 2-4 GB for typical multi-modal workloads
+mm_shm_cache_max_object_size_mb: 100  # Max size for single cached object
+mm_shm_cache_name_prefix: VERL_MM_CACHE_SHM  # SHM segment name prefix
+mm_shm_cache_lock_prefix: /dev/shm/verl_mm_cache  # Lock file path prefix
+
 # batch size of cudagraph to capture. Require enforce_eager: False to use this option
 # Since cudagraph in inference engine can not be offloaded during update policy,
 # you can use smaller batch size to save memory used in cuda graph, eg: [1 ,2, 4, 8, 16, 32]
@@ -67,7 +76,8 @@ max_model_len: null
 # max length of sequences
 max_num_seqs: 1024
 
-# may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
+# may get higher throughput when set to True. When activated,
+# Please increase max_num_batched_tokens or decrease max_model_len.
 enable_chunked_prefill: True
 
 # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
@@ -77,7 +87,8 @@ enable_prefix_caching: True
 # safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
 load_format: dummy
 
-# [Will be deprecated, use log_prob_micro_batch_size_per_gpu] The batch size for one forward pass in the computation of log_prob. Global batch size.
+# [Will be deprecated, use log_prob_micro_batch_size_per_gpu]
+# The batch size for one forward pass in the computation of log_prob. Global batch size.
 log_prob_micro_batch_size: null
 
 # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
@@ -177,9 +188,12 @@ multi_turn:
   use_inference_chat_template: False
 
   # Tokenization is performed turn by turn and the resulting token ids are concatenated to form the full conversation.
-  # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end of each multi-turn rollout to compare the two sets of token ids.
-  # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
-  # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
+  # To ensure this matches the result of tokenizing the entire conversation at once, a sanity check is run at the end
+  # of each multi-turn rollout to compare the two sets of token ids.
+  # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once.
+  # This behavior has already been validated for them.
+  # To reduce excessive warnings, you can turn off the sanity check for these models
+  # if you are using their default chat template:
   # Qwen/QwQ-32B, Qwen/Qwen3-xxB
   # - disable: disable tokenization sanity check
   # - strict: enable strict tokenization sanity check (default)
@@ -264,7 +278,8 @@ trace:
   # Total traces per step = max_samples_per_step_per_worker * num_workers * n_rollouts_per_sample
   max_samples_per_step_per_worker: null
 
-# When enabled (True), the trainer will attempt to load previously generated rollout data from the specified directory instead of computing new rollouts.
+# When enabled (True), the trainer will attempt to load previously generated rollout data
+# from the specified directory instead of computing new rollouts.
 # If no cached data is found or loading fails, new rollouts will be generated and automatically saved.
 # This feature is useful for debugging or when you want to reuse computation results across multiple runs.
 skip_rollout: False

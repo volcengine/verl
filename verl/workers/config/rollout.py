@@ -185,6 +185,15 @@ class RolloutConfig(BaseConfig):
     # Extension point for custom configurations
     custom: Optional[dict] = None
 
+    # Multi-modal shared memory cache configuration for multi-turn multi-modal workloads.
+    # When enabled (mm_shm_cache_gb > 0), vLLM uses shared memory instead of ZeroMQ
+    # to transfer large image/video tensors between P0 (Engine) and P1 (Worker),
+    # reducing IPC overhead by ~10x for multi-turn multi-modal workloads.
+    mm_shm_cache_gb: float = 0.0  # Set to 2-4 GB for typical multi-modal workloads
+    mm_shm_cache_max_object_size_mb: int = 100  # Max size for single cached object
+    mm_shm_cache_name_prefix: str = "VERL_MM_CACHE_SHM"  # SHM segment name prefix
+    mm_shm_cache_lock_prefix: str = "/dev/shm/verl_mm_cache"  # Lock file path prefix
+
     update_weights_bucket_megabytes: int = 512
 
     skip_rollout: bool = False

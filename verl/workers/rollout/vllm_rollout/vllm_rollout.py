@@ -202,8 +202,76 @@ class vLLMAsyncRollout(BaseRollout):
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
 
+        # Extract verl-specific SHM config before passing to vLLM Worker
+        # vLLM Worker doesn't recognize this parameter, so we must remove it
+        # Make a copy to avoid modifying the original kwargs
+        verl_shm_config = all_kwargs[0].pop("verl_shm_cache_config", {})
+
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
+
+        # Enable SHM-based mm_receiver_cache for verl Worker
+        # verl uses ExternalZeroMQDistributedExecutor which creates a SHM sender cache on P0.
+        # We need to create a matching SHM receiver cache on P1 (this Worker) to read mm_features
+        # from shared memory instead of receiving them via ZMQ.
+        if verl_shm_config.get("enabled", False):
+            self._init_shm_receiver_cache(verl_shm_config)
+
+    def _init_shm_receiver_cache(self, shm_config: dict):
+        """Initialize SHM-based receiver cache to read mm_features from shared memory.
+
+        This MUST succeed - if SHM is enabled on P0, P1 must be able to connect.
+        Failure indicates a bug or misconfiguration.
+        """
+        from verl.workers.rollout.vllm_rollout.utils import (
+            create_shm_receiver_apply_fn,
+            create_shm_receiver_cache,
+        )
+
+        shm_name = shm_config.get("shm_name")
+        lock_file = shm_config.get("lock_file")
+        max_object_size_mb = shm_config.get("max_object_size_mb", 100)
+
+        if not shm_name or not lock_file:
+            raise ValueError("Invalid SHM config: missing shm_name or lock_file")
+
+        # Create the SHM receiver cache
+        shm_cache = create_shm_receiver_cache(self.vllm_config, shm_name, lock_file, max_object_size_mb)
+
+        # Store the SHM cache on the inference engine
+        self.inference_engine._verl_shm_cache = shm_cache
+        self.inference_engine.mm_receiver_cache = None  # We'll handle cache lookup ourselves
+
+        # P1-side cache statistics for monitoring
+        self._p1_shm_read_count = 0
+        self._p1_shm_touch_count = 0
+        self._p1_shm_read_errors = 0
+
+        # Monkey-patch the _apply_mm_cache method to use our SHM cache
+        self.inference_engine._apply_mm_cache = create_shm_receiver_apply_fn(shm_cache, self)
+
+        logger.info(f"[P1 SHM Cache] Initialized successfully: shm_name={shm_name}, lock_file={lock_file}")
+
+    def get_shm_cache_stats(self) -> dict:
+        """Get SHM cache performance statistics."""
+        if not hasattr(self, "_p1_shm_read_count"):
+            return {}
+
+        total_ops = self._p1_shm_read_count + self._p1_shm_read_errors
+        hit_rate = self._p1_shm_read_count / total_ops if total_ops > 0 else 0.0
+
+        return {
+            "p1_shm_read_count": self._p1_shm_read_count,
+            "p1_shm_touch_count": self._p1_shm_touch_count,
+            "p1_shm_read_errors": self._p1_shm_read_errors,
+            "cache_hit_rate": hit_rate,
+        }
+
+    def log_shm_cache_stats(self):
+        """Log SHM cache statistics."""
+        stats = self.get_shm_cache_stats()
+        if stats:
+            logger.info(f"[P1 SHM Cache] Stats: {stats}")
 
     def _load_model(self, *args, **kwargs):
         self.inference_engine.load_model(*args, **kwargs)
