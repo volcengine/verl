@@ -511,4 +511,4 @@ if __name__ == "__main__":
         test.verify_kernel_correctness()
         test.check_kernel_storage()
 
-    test.shutdown() 
+    test.shutdown()

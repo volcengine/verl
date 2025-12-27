@@ -20,7 +20,7 @@ from tensordict import TensorDict
 from transformers import AutoModelForCausalLM, Qwen3Config
 
 from verl import DataProto
-from verl.utils.device import get_nccl_backend, get_torch_device, get_device_name
+from verl.utils.device import get_device_name
 from verl.workers.actor.dp_actor import DataParallelPPOActor
 from verl.workers.config import FSDPActorConfig, OptimizerConfig
 
@@ -66,9 +66,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
             backend_name = "gloo"
 
         if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(
-                backend=backend_name, init_method="env://"
-            )
+            torch.distributed.init_process_group(backend=backend_name, init_method="env://")
 
         cls.rank = torch.distributed.get_rank()
         cls.world_size = torch.distributed.get_world_size()

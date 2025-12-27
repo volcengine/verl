@@ -39,17 +39,17 @@ def two_to_all_dispatch_fn(worker_group, *args, **kwargs):
     return args, kwargs
 
 
-def get_device_name_ray() -> str:
+def get_ray_remote_options() -> str:
     """Function that gets the torch.device based on the current machine.
     This currently only supports CPU, CUDA, NPU.
     Returns:
         device
     """
     if get_device_name() == "cuda":
-        return "GPU"
+        return dict(num_gpus=0.1)
     elif get_device_name() == "npu":
-        return "NPU"
-    return "CPU"
+        return dict(resources={"NPU": 0.1})
+    return dict(num_cpus=0.1)
 
 
 @ray.remote
@@ -79,7 +79,7 @@ class TestActor(Worker):
         return self._x + y + x
 
 
-@ray.remote(resources={get_device_name_ray(): 0.1})
+@ray.remote(**get_ray_remote_options())
 def remote_call_wg(worker_names):
     class_with_args = RayClassWithInitArgs(cls=TestActor, x=2)
     worker_group = RayWorkerGroup.from_detached(

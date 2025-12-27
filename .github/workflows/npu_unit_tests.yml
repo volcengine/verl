@@ -100,7 +100,7 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install --no-deps -e .[test]
-          pip install mlflow, pytest-asyncio
+          pip install mlflow pytest-asyncio
       - name: Check final pip list
         run: |
           pip list
