@@ -102,7 +102,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         mm_config = model_config.get_multimodal_config()
 
         # Only generate SHM names if cache is enabled
-        if mm_config and getattr(mm_config, "mm_processor_cache_gb", 0) > 0:
+        if mm_config and getattr(mm_config, "mm_shm_cache_gb", 0) > 0:
             # Get config from vllm model config (should be set from RolloutConfig)
             shm_name_prefix = getattr(mm_config, "mm_shm_cache_name_prefix", "VERL_MM_CACHE_SHM")
             lock_file_prefix = getattr(mm_config, "mm_shm_cache_lock_prefix", "/dev/shm/verl_mm_cache")
