@@ -114,18 +114,14 @@ def logprobs_from_logits_naive(logits, labels):
 
 
 def logprobs_from_logits_v2(logits: torch.FloatTensor, labels):
-    """
-    A memory efficient implementation of logprobs_from_logits
-    """
+    """A memory efficient implementation of logprobs_from_logits."""
     if logits.dtype in [torch.float32, torch.float64]:
         logits_labels = torch.gather(logits, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
-        # loop to reduce peak mem consumption
-        logsumexp_values = torch.stack([torch.logsumexp(logit, dim=-1) for logit in logits])
-        logprobs_labels = logits_labels - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
+        logsumexp_values = torch.logsumexp(logits, dim=-1)
+        logprobs_labels = logits_labels - logsumexp_values
     else:
-        # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
         logprobs_labels = []
-        for row_logits, row_labels in zip(logits, labels, strict=True):  # loop to reduce peak mem consumption
+        for row_logits, row_labels in zip(logits, labels, strict=True):
             row_logprobs = F.log_softmax(row_logits, dim=-1)
             row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
             logprobs_labels.append(row_logprobs_labels)
@@ -216,8 +212,13 @@ def masked_whiten(values, mask, shift_mean=True):
     Returns:
         torch.Tensor: Whitened tensor of same shape as `values`.
     """
-    mean, var = masked_mean(values, mask), masked_var(values, mask)
-    whitened = (values - mean) * torch.rsqrt(var + 1e-8)
+    mask_sum = mask.sum()
+    mean = masked_sum(values, mask) / (mask_sum + 1e-8)
+    centered = values - mean
+    var = masked_sum(centered**2, mask) / (mask_sum + 1e-8)
+    if mask_sum > 1:
+        var = var * mask_sum / (mask_sum - 1)
+    whitened = centered * torch.rsqrt(var + 1e-8)
     if not shift_mean:
         whitened += mean
     return whitened

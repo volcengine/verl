@@ -98,11 +98,14 @@ class AdvantageEstimator(str, Enum):
     GRPO = "grpo"
     REINFORCE_PLUS_PLUS = "reinforce_plus_plus"
     REINFORCE_PLUS_PLUS_BASELINE = "reinforce_plus_plus_baseline"
+    REINFORCE_PLUS_PLUS_BASELINE_VECTORIZED = "reinforce_plus_plus_baseline_vectorized"
     REMAX = "remax"
     RLOO = "rloo"
     OPO = "opo"
+    OPO_VECTORIZED = "opo_vectorized"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    GPG_VECTORIZED = "gpg_vectorized"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
 
@@ -751,6 +754,80 @@ def compute_rloo_vectorized_outcome_advantage(
         adv = adv.unsqueeze(-1) * response_mask
 
     return adv, adv
+
+
+@register_adv_est(AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE_VECTORIZED)
+def compute_reinforce_plus_plus_baseline_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Vectorized RF++-baseline advantage computation."""
+    with torch.no_grad():
+        scores = token_level_rewards.sum(dim=-1)
+        g = as_torch_index(index, device=scores.device)
+        mean_g, _, count_g = group_mean_std(scores, g, eps=epsilon)
+
+        scalars = torch.where(count_g[g] > 1, scores - mean_g[g], scores)
+        advantages = scalars.unsqueeze(-1) * response_mask
+        advantages = verl_F.masked_whiten(advantages, response_mask) * response_mask
+
+    return advantages, advantages
+
+
+@register_adv_est(AdvantageEstimator.OPO_VECTORIZED)
+def compute_opo_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Vectorized OPO advantage: baseline = length-weighted mean per group."""
+    with torch.no_grad():
+        scores = token_level_rewards.sum(dim=-1)
+        lengths = response_mask.sum(dim=-1)
+        g = as_torch_index(index, device=scores.device)
+
+        G = int(g.max().item()) + 1 if g.numel() > 0 else 0
+        weighted_sum = torch.zeros(G, device=scores.device, dtype=scores.dtype).index_add_(0, g, lengths * scores)
+        length_sum = torch.zeros(G, device=scores.device, dtype=scores.dtype).index_add_(0, g, lengths)
+        count_g = torch.bincount(g, minlength=G).to(scores.dtype)
+
+        baseline = torch.where(count_g > 1, weighted_sum / length_sum.clamp_min(epsilon), torch.zeros_like(weighted_sum))
+        advantages = (scores - baseline[g]).unsqueeze(-1) * response_mask
+
+    return advantages, advantages
+
+
+@register_adv_est(AdvantageEstimator.GPG_VECTORIZED)
+def compute_gpg_vectorized_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    f_norm: float = 1.0,
+    alpha: float = 1.0,
+    config: Optional[AlgoConfig] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Vectorized GPG advantage computation."""
+    with torch.no_grad():
+        scores = token_level_rewards.sum(dim=-1)
+        g = as_torch_index(index, device=scores.device)
+        mean_g, _, count_g = group_mean_std(scores, g, eps=epsilon)
+
+        m = torch.count_nonzero(scores)
+        alpha = scores.shape[0] / m.clamp(min=1)
+
+        scalars = torch.where(count_g[g] > 1, alpha * (scores - mean_g[g]) / f_norm, scores)
+        advantages = scalars.unsqueeze(-1) * response_mask
+
+    return advantages, advantages
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
