@@ -31,7 +31,7 @@ Performance Impact:
     - ~10x speedup for multi-turn multi-modal workloads with large images/videos
 
 Configuration:
-    Enable via RolloutConfig.mm_shm_cache_gb:
+    Enable via RolloutConfig.mm_processor_cache_gb:
     - Set to 0 to disable (default)
     - Set to 2-4 GB for typical multi-turn multi-modal workloads
     - Adjust mm_shm_cache_max_object_size_mb for very large images/videos
@@ -142,7 +142,7 @@ def generate_shm_names(dp_rank_local: int, shm_name_prefix: str, lock_file_prefi
 
 
 def create_shm_sender_cache(
-    vllm_config, shm_name: str, lock_file: str, max_object_size_mb: int = 100
+    vllm_config, shm_name: str, lock_file: str, max_object_size_mb: int = 128
 ) -> Optional["SingleWriterShmObjectStorage"]:
     """
     Create SHM-based sender cache for P0 (Engine side).
@@ -167,8 +167,8 @@ def create_shm_sender_cache(
         model_config = vllm_config.model_config
         mm_config = model_config.get_multimodal_config()
 
-        if mm_config is None or getattr(mm_config, "mm_shm_cache_gb", 0) <= 0:
-            logger.info("[P0 SHM Cache] DISABLED: mm_shm_cache_gb=0 or mm_config=None")
+        if mm_config is None or getattr(mm_config, "mm_processor_cache_gb", 0) <= 0:
+            logger.info("[P0 SHM Cache] DISABLED: mm_processor_cache_gb=0 or mm_config=None")
             return None
 
         from vllm.distributed.device_communicators.shm_object_storage import (
@@ -177,7 +177,7 @@ def create_shm_sender_cache(
             SingleWriterShmRingBuffer,
         )
 
-        cache_gb = mm_config.mm_shm_cache_gb
+        cache_gb = mm_config.mm_processor_cache_gb
         # Use provided max_object_size_mb, or get from mm_config, or default to 100
         max_obj_size_mb = getattr(mm_config, "mm_shm_cache_max_object_size_mb", max_object_size_mb)
         tp_size = vllm_config.parallel_config.tensor_parallel_size
@@ -224,7 +224,7 @@ def create_shm_sender_cache(
 
 
 def create_shm_receiver_cache(
-    vllm_config, shm_name: str, lock_file: str, max_object_size_mb: int = 100
+    vllm_config, shm_name: str, lock_file: str, max_object_size_mb: int = 128
 ) -> "SingleWriterShmObjectStorage":
     """
     Create SHM-based receiver cache for P1 (Worker side).
@@ -255,12 +255,12 @@ def create_shm_receiver_cache(
     if mm_config is None:
         raise RuntimeError("[P1 SHM Cache] mm_config is None but SHM cache is enabled")
 
-    if getattr(mm_config, "mm_shm_cache_gb", 0) <= 0:
+    if mm_config.mm_processor_cache_gb <= 0:
         raise RuntimeError(
-            f"[P1 SHM Cache] mm_shm_cache_gb={getattr(mm_config, 'mm_shm_cache_gb', 0)} but SHM cache is enabled"
+            f"[P1 SHM Cache] mm_processor_cache_gb={mm_config.mm_processor_cache_gb} but SHM cache is enabled"
         )
 
-    cache_gb = mm_config.mm_shm_cache_gb
+    cache_gb = mm_config.mm_processor_cache_gb
     # Use provided max_object_size_mb, or get from mm_config, or default to 100
     max_obj_size_mb = getattr(mm_config, "mm_shm_cache_max_object_size_mb", max_object_size_mb)
     tp_size = vllm_config.parallel_config.tensor_parallel_size

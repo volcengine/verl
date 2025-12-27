@@ -37,12 +37,12 @@ ignore_eos: False
 # Whether to disable CUDA graph. Default False to best performance.
 enforce_eager: False
 
-# Multi-modal shared memory cache configuration for multi-turn multi-modal workloads.
-# When enabled (mm_shm_cache_gb > 0), vLLM uses shared memory instead of ZeroMQ
+# Multi-modal processor cache configuration for multi-turn multi-modal workloads.
+# When enabled (mm_processor_cache_gb > 0), vLLM uses shared memory
 # to transfer large image/video tensors between P0 (Engine) and P1 (Worker),
 # reducing IPC overhead by ~10x for multi-turn multi-modal workloads.
-mm_shm_cache_gb: 0  # Set to 2-4 GB for typical multi-modal workloads
-mm_shm_cache_max_object_size_mb: 100  # Max size for single cached object
+mm_processor_cache_gb: 4  # Default: 4 GB (vLLM default), typical range: 2-4 GB
+mm_shm_cache_max_object_size_mb: 128  # Max size for single cached object
 mm_shm_cache_name_prefix: VERL_MM_CACHE_SHM  # SHM segment name prefix
 mm_shm_cache_lock_prefix: /dev/shm/verl_mm_cache  # Lock file path prefix
 

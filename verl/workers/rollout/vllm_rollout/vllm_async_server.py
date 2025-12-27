@@ -27,7 +27,6 @@ import ray
 import vllm.entrypoints.cli.serve
 import zmq
 from ray.actor import ActorHandle
-from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.openai.api_server import (
     build_app,
@@ -58,6 +57,7 @@ from verl.workers.rollout.vllm_rollout.utils import (
     generate_shm_names,
     get_vllm_max_lora_rank,
 )
+from vllm import SamplingParams
 
 if vllm.__version__ > "0.11.0":
     from vllm.utils.argparse_utils import FlexibleArgumentParser
@@ -102,18 +102,19 @@ class ExternalZeroMQDistributedExecutor(Executor):
         mm_config = model_config.get_multimodal_config()
 
         # Only generate SHM names if cache is enabled
-        if mm_config and getattr(mm_config, "mm_shm_cache_gb", 0) > 0:
-            # Get config from vllm model config (should be set from RolloutConfig)
+        if mm_config and getattr(mm_config, "mm_processor_cache_gb", 0) > 0:
+            # Get max_object_size_mb from config
+            max_object_size_mb = getattr(mm_config, "mm_shm_cache_max_object_size_mb", 128)
+
+            # For verl compatibility with ExternalZeroMQDistributedExecutor, we use custom SHM names
+            # to avoid conflicts between different DP ranks and processes
             shm_name_prefix = getattr(mm_config, "mm_shm_cache_name_prefix", "VERL_MM_CACHE_SHM")
             lock_file_prefix = getattr(mm_config, "mm_shm_cache_lock_prefix", "/dev/shm/verl_mm_cache")
-            max_object_size_mb = getattr(mm_config, "mm_shm_cache_max_object_size_mb", 100)
-
-            # Generate unique SHM names per DP rank AND process to avoid conflicts
             self._shm_name, self._lock_file = generate_shm_names(dp_rank_local, shm_name_prefix, lock_file_prefix)
         else:
             self._shm_name = None
             self._lock_file = None
-            max_object_size_mb = 100
+            max_object_size_mb = 128
 
         addresses = os.environ["VERL_VLLM_ZMQ_ADDRESSES"].split(",")
         addresses = addresses[dp_rank_local * tp_size : (dp_rank_local + 1) * tp_size]
@@ -336,6 +337,11 @@ class vLLMHttpServerBase:
 
         if quantization == "fp8":
             hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
+        # Add multi-modal processor cache configuration to hf_overrides
+        if self.config.mm_processor_cache_gb > 0:
+            hf_overrides["mm_processor_cache_gb"] = self.config.mm_processor_cache_gb
+            hf_overrides["mm_shm_cache_max_object_size_mb"] = self.config.mm_shm_cache_max_object_size_mb
 
         args = {
             "dtype": self.config.dtype,
