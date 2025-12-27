@@ -1065,24 +1065,24 @@ class RayPPOTrainer:
     def _start_profiling(self, do_profile: bool) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
         if do_profile:
-            self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
+            self.actor_rollout_wg.start_e2e_profiler(role="e2e", profile_step=self.global_steps)
             if self.use_reference_policy:
-                self.ref_policy_wg.start_profile(profile_step=self.global_steps)
+                self.ref_policy_wg.start_e2e_profiler(profile_step=self.global_steps)
             if self.use_critic:
-                self.critic_wg.start_profile(profile_step=self.global_steps)
+                self.critic_wg.start_e2e_profiler(profile_step=self.global_steps)
             if self.use_rm and not self.use_reward_loop:
-                self.rm_wg.start_profile(profile_step=self.global_steps)
+                self.rm_wg.start_e2e_profiler(profile_step=self.global_steps)
 
     def _stop_profiling(self, do_profile: bool) -> None:
         """Stop profiling for all worker groups if profiling is enabled."""
         if do_profile:
-            self.actor_rollout_wg.stop_profile()
+            self.actor_rollout_wg.stop_e2e_profiler()
             if self.use_reference_policy:
-                self.ref_policy_wg.stop_profile()
+                self.ref_policy_wg.stop_e2e_profiler()
             if self.use_critic:
-                self.critic_wg.stop_profile()
+                self.critic_wg.stop_e2e_profiler()
             if self.use_rm and not self.use_reward_loop:
-                self.rm_wg.stop_profile()
+                self.rm_wg.stop_e2e_profiler()
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""

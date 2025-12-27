@@ -33,6 +33,8 @@ from sglang.srt.utils import (
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
 
+from verl.utils.profiler import DistProfiler, DistProfilerExtension
+from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
@@ -83,7 +85,7 @@ sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 
 # because chatCompletion is an async method, it makes the whole ray actor be an async actor
 # which can not call loop.run_until_complete. So we need to make the engine to be an async class
-class ServerAdapter(BaseRollout):
+class ServerAdapter(BaseRollout, DistProfilerExtension):
     """SGLang server adapter used in native http server mode, serve as http client to request SGLang server
     to resume/release/update weights and kv_cache.
 
@@ -119,6 +121,15 @@ class ServerAdapter(BaseRollout):
         self.rollout_rank = rank % rollout_world_size
         self.node_rank = self.rollout_rank // local_world_size
         self.local_rank = self.rollout_rank % local_world_size
+
+        profiler_config = self.config.profiler
+        if profiler_config is not None and profiler_config.tool in ["npu", "torch"]:
+            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=rank, config=profiler_config, tool_config=tool_config)
+        )
 
     async def _init_server_adapter(self):
         if self._engine is not None:
@@ -191,3 +202,13 @@ class ServerAdapter(BaseRollout):
 
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self._engine.flush_cache()
+
+    async def start_async_rollout_profile(self, **kwargs):
+        """Start an on-demand profiling segment."""
+        if self.profiler.check_enable():
+            await self._engine.start_profiler(**kwargs)
+
+    async def stop_async_rollout_profile(self):
+        """Stop the on-demand profiling segment."""
+        if self.profiler.check_enable():
+            await self._engine.stop_profiler()
