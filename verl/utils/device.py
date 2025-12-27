@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 def is_torch_npu_available() -> bool:
-    """Check the availability of NPU"""
+    """Check the availability of Ascend NPU.
+
+    Returns:
+        bool: True if torch.npu is available and functional, False otherwise.
+    """
     try:
         if hasattr(torch, "npu") and callable(getattr(torch.npu, "is_available", None)):
             return torch.npu.is_available()
@@ -30,18 +34,22 @@ is_npu_available = is_torch_npu_available()
 
 
 def get_visible_devices_keyword() -> str:
-    """Function that gets visible devices keyword name.
+    """Get the environment variable name for visible devices.
+
     Returns:
-        'CUDA_VISIBLE_DEVICES' or `ASCEND_RT_VISIBLE_DEVICES`
+        str: 'CUDA_VISIBLE_DEVICES' for CUDA devices, 'ASCEND_RT_VISIBLE_DEVICES' for NPU.
     """
     return "CUDA_VISIBLE_DEVICES" if is_cuda_available else "ASCEND_RT_VISIBLE_DEVICES"
 
 
 def get_device_name() -> str:
-    """Function that gets the torch.device based on the current machine.
-    This currently only supports CPU, CUDA, NPU.
+    """Get the device type string based on available hardware.
+
+    This function detects the available accelerator and returns the appropriate
+    device name. Currently supports CUDA GPUs, Ascend NPUs, and CPU fallback.
+
     Returns:
-        device
+        str: The device type name ('cuda', 'npu', or 'cpu').
     """
     if is_cuda_available:
         device = "cuda"
@@ -52,10 +60,15 @@ def get_device_name() -> str:
     return device
 
 
-def get_torch_device() -> any:
-    """Return the corresponding torch attribute based on the device type string.
+def get_torch_device():
+    """Get the torch device module corresponding to the detected hardware.
+
+    Returns the appropriate torch device namespace (e.g., torch.cuda, torch.npu)
+    based on the detected hardware. Falls back to torch.cuda if the device
+    namespace is not found.
+
     Returns:
-        module: The corresponding torch device namespace, or torch.cuda if not found.
+        module: The torch device module (e.g., torch.cuda or torch.npu).
     """
     device_name = get_device_name()
     try:
@@ -66,17 +79,19 @@ def get_torch_device() -> any:
 
 
 def get_device_id() -> int:
-    """Return current device id based on the device type.
+    """Get the current device index.
+
     Returns:
-        device index
+        int: The index of the current device (e.g., GPU index).
     """
     return get_torch_device().current_device()
 
 
 def get_nccl_backend() -> str:
-    """Return nccl backend type based on the device type.
+    """Get the collective communication backend name for the current device.
+
     Returns:
-        nccl backend type string.
+        str: 'hccl' for Ascend NPU, 'nccl' for CUDA devices.
     """
     if is_npu_available:
         return "hccl"
@@ -94,7 +109,15 @@ def set_expandable_segments(enable: bool) -> None:
         torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
 
 
-def auto_set_ascend_device_name(config):
+def auto_set_ascend_device_name(config) -> None:
+    """Automatically set the device name to 'npu' when running on Ascend hardware.
+
+    If an Ascend NPU is detected and the config has a different device setting,
+    this function updates the config to use 'npu' and logs a warning.
+
+    Args:
+        config: Configuration object with trainer.device attribute.
+    """
     if config and config.trainer and config.trainer.device:
         if is_torch_npu_available():
             if config.trainer.device != "npu":
@@ -107,6 +130,15 @@ def auto_set_ascend_device_name(config):
 
 
 def get_device_capability(device_id: int = 0) -> tuple[int, int]:
+    """Get the compute capability of a CUDA device.
+
+    Args:
+        device_id (int): The device index to query. Defaults to 0.
+
+    Returns:
+        tuple[int, int]: A tuple of (major, minor) version numbers for CUDA devices,
+            or (None, None) if CUDA is not available.
+    """
     major, minor = None, None
     if is_cuda_available:
         major, minor = torch.cuda.get_device_capability(device_id)
