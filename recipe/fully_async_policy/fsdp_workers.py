@@ -218,11 +218,17 @@ class DetachActorWorker(DetachNcclSync):
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
                 state_dict_config=ShardedStateDictConfig(),
             )
+        # Load model to GPU before state_dict() if offloading is enabled
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
         params = self._get_actor_params()
         ret = []
         for key, tensor in params.items():
             ret.append((key, tensor.size(), tensor.dtype))
         self._weights_info = ret
+        # Offload model back to CPU after getting weights info
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         return ret
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
