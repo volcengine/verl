@@ -5,7 +5,6 @@ set -xeuo pipefail
 # This script runs one_step_off_policy with FSDP2
 # to ensure the asynchronous training mechanism works correctly
 
-NUM_GPUS=${NUM_GPUS:-8}
 ACTOR_STRATEGY="fsdp2"
 
 # Download model if not exists
@@ -51,7 +50,7 @@ n_npus_training=2
 exp_name="$(basename "${MODEL_ID,,}")-one-step-off-policy-${ACTOR_STRATEGY}-minimal"
 
 echo "Running one_step_off_policy with ${ACTOR_STRATEGY} strategy"
-echo "Total GPUs: ${NUM_GPUS}, Rollout GPUs: ${n_npus_rollout}, Training GPUs: ${n_npus_training}"
+echo "Rollout GPUs: ${n_npus_rollout}, Training GPUs: ${n_npus_training}"
 
 common_params=(
     data.train_files="${HOME}/data/gsm8k/train.parquet"
@@ -106,7 +105,6 @@ common_params=(
     trainer.resume_mode=disable
     trainer.nnodes=1
     trainer.n_gpus_per_node=${n_npus_training}
-    trainer.device=npu
     rollout.nnodes=1
     rollout.n_gpus_per_node=${n_npus_rollout}
 
@@ -121,7 +119,7 @@ actor_offload=False
 
 python3 -m recipe.one_step_off_policy.main_ppo \
     "${common_params[@]}" \
-    actor_rollout_ref.actor.strategy=fsdp2 \
+    actor_rollout_ref.actor.strategy=$ACTOR_STRATEGY \
     critic.strategy=fsdp2 \
     actor_rollout_ref.actor.grad_clip=1.0 \
     actor_rollout_ref.model.use_remove_padding=True \
