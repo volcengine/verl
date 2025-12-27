@@ -15,7 +15,7 @@
 import torch
 from transformers import PretrainedConfig
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_name, get_torch_device
 
 _DEVICE_FLOPS = {
     "CPU": 448e9,
