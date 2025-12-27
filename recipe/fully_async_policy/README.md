@@ -108,6 +108,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.checkpoint_engine.enable`| Whether to use checkpoint_engine for accelerating, default `True`|
 | `async_training.checkpoint_engine.overlap_broadcast_and_consume` | When use checkpoint_engine, whether to overlap broadcast and load_weights, default `False`|
 | `async_training.checkpoint_engine.device_buffer_size_M` | When use checkpoint_engine, the user-specific bucket size (MB), default `4096`|
+| `async_training.checkpoint_engine.bypass_cpu` | Whether bypass cpu memory when synchronizing parameters, default `False`|
 
 **Further Explanation:**
 
@@ -196,6 +197,9 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   * When disable `overlap_broadcast_and_consume`, the additional device memory overhead of 
     trainer rank is `2 * bucket_size`and rollout rank is `1 * bucket_size`。
 
+* `async_training.checkpoint_engine.bypass_cpu`
+
+  Bypassing the CPU memory when synchronizing parameters.
 
 ### Supported Modes
 

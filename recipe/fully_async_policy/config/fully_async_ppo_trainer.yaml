@@ -38,6 +38,9 @@ async_training:
     # Enable the pipeline for broadcasting and updating parameters, but it requires more device memory
     overlap_broadcast_and_consume: False
 
+    # Whether bypass cpu memory when synchronizing parameters
+    bypass_cpu: False
+
 # Rollout config
 rollout:
 

@@ -31,10 +31,7 @@ import zmq
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
 from ray.util.collective import collective
 
-from verl.utils.device import (
-    get_device_name,
-    get_torch_device,
-)
+from verl.utils.device import get_device_name, get_torch_device
 
 if TYPE_CHECKING:
     from typing import TypeVar
@@ -263,7 +260,12 @@ class CheckpointEngine:
     """
 
     def __init__(
-        self, current_rank: int, actor_ranks: list[int], rollout_ranks: list[int], device_buffer_size_M: int
+        self,
+        current_rank: int,
+        actor_ranks: list[int],
+        rollout_ranks: list[int],
+        device_buffer_size_M: int,
+        use_cpu_buffer: bool = True,
     ) -> None:
         self.current_rank = current_rank
         self.actor_ranks = actor_ranks
@@ -273,6 +275,7 @@ class CheckpointEngine:
         self.global_buckets: dict[int, list[MemoryBufferMeta]] = None
         # min device_buffer_size for h2d and broadcast
         self.device_buffer_size_M = device_buffer_size_M
+        self.use_cpu_buffer = use_cpu_buffer
 
         # ipc config for broadcast in pipeline mode
         self._zmq_ctx = zmq.Context()
@@ -342,6 +345,11 @@ class CheckpointEngine:
             buffer = torch.empty(size, dtype=torch.uint8, pin_memory=True)
             return idx, buffer
 
+        def register_gpu_memory(idx: int, size: int) -> tuple[int, torch.Tensor]:
+            """Allocate gpu memory for a bucket."""
+            buffer = torch.empty(size, dtype=torch.uint8, device=get_torch_device().current_device())
+            return idx, buffer
+
         def register_tensor(buffer: torch.Tensor, offset: int, tensor: torch.Tensor):
             """Copy a tensor into a pinned memory buffer."""
             buffer[offset : offset + tensor.nbytes] = tensor.view(-1).view(dtype=torch.uint8)
@@ -355,9 +363,16 @@ class CheckpointEngine:
 
             # Use thread pool to accelerate organize parameters into buckets
             with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
-                futures = [
-                    executor.submit(register_pin_memory, idx, bucket.size) for idx, bucket in enumerate(local_buckets)
-                ]
+                if self.use_cpu_buffer:
+                    futures = [
+                        executor.submit(register_pin_memory, idx, bucket.size)
+                        for idx, bucket in enumerate(local_buckets)
+                    ]
+                else:
+                    futures = [
+                        executor.submit(register_gpu_memory, idx, bucket.size)
+                        for idx, bucket in enumerate(local_buckets)
+                    ]
                 new_futures = []
                 for future in concurrent.futures.as_completed(futures):
                     idx, buffer = future.result()
@@ -424,11 +439,14 @@ class CheckpointEngine:
             for broadcasting and loading weights.
         """
         try:
-            h2d_buffer: torch.Tensor | None = (
-                None
-                if self.current_rank in self.rollout_ranks
-                else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_torch_device().current_device())
-            )
+            if self.use_cpu_buffer:
+                h2d_buffer: torch.Tensor | None = (
+                    None
+                    if self.current_rank in self.rollout_ranks
+                    else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_torch_device().current_device())
+                )
+            else:
+                h2d_buffer = None
             # for pipeline mode, we need to allocate 2x buffer size
             broadcast_load_buffer = torch.empty(
                 self.bucket_size * (2 if overlap_broadcast_and_consume else 1),
@@ -482,7 +500,7 @@ class CheckpointEngine:
 
         for i in range(max_h2d_iter):
             # Step 1: Each actor rank copy the parameter tensor into device memory
-            if i < len(self.memory_buffers):
+            if self.use_cpu_buffer and i < len(self.memory_buffers):
                 h2d_buffer[: local_buckets[i].size].data.copy_(self.memory_buffers[i].buffer)
 
             # Step 2: Broadcast the device data in turn
@@ -495,7 +513,10 @@ class CheckpointEngine:
                 start = gidx % 2 * self.bucket_size if overlap_broadcast_and_consume else 0
                 buffer_b: torch.Tensor = broadcast_load_buffer[start : start + bucket.size]
                 if broadcast_rank == self.current_rank:
-                    buffer_b.data.copy_(h2d_buffer[: bucket.size])
+                    if self.use_cpu_buffer:
+                        buffer_b.data.copy_(h2d_buffer[: bucket.size])
+                    else:
+                        buffer_b.data.copy_(self.memory_buffers[i].buffer)
 
                 # Broadcast the buffer to all ranks
                 collective.broadcast(buffer_b, src_rank=broadcast_rank, group_name=group_name)

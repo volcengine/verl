@@ -85,6 +85,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.checkpoint_engine.enable`| 是否开启checkpoint_engine模式的加速，默认值True |
 | `async_training.checkpoint_engine.overlap_broadcast_and_consume` | 启动checkpoint_engine时，是否在参数同步时在broadcast和加载之间使用流水，默认值False|
 | `async_training.checkpoint_engine.device_buffer_size_M` | 启动checkpoint_engine时，组装的bucket的大小(MB)，默认为4096 |
+| `async_training.checkpoint_engine.bypass_cpu` | 是否在参数同步时跳过作为中转的cpu内存，默认值False|
 
 **进一步的解释：**
 
@@ -156,6 +157,10 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   控制开启checkpoint engine后，用于同步的显存buffer大小。实际的`bucket_size` = `max(device_buffer_size_M, 最大参数tensor size)`
   * 在开启`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `3 * bucket_size`, rollout节点的临时额外显存开销为`2 * bucket_size`。
   * 在关闭`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `2 * bucket_size`, rollout节点的临时额外显存开销为`1 * bucket_size`。
+
+* `async_training.checkpoint_engine.bypass_cpu`
+
+  参数同步时跳过作为中转的CPU内存。
 
 ### 模式支持
 
