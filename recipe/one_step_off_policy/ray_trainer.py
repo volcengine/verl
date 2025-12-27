@@ -26,7 +26,6 @@ import numpy as np
 import ray
 import torch
 from omegaconf import OmegaConf
-from ray.util.collective import collective
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
 
@@ -255,19 +254,22 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._create_weight_sync_group()
 
     def _create_weight_sync_group(self):
-        # TODO: NPU support
-        from verl.utils.device import get_nccl_backend
-
-        actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-        n_workers = len(actor_rollout_workers)
-
-        # Create Ray collective group for fallback communication
-        collective.create_collective_group(
-            actor_rollout_workers,
-            n_workers,
-            list(range(0, n_workers)),
-            backend=get_nccl_backend(),
-            group_name="actor_rollout",
+        master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+        master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+        world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
+        self.actor_wg.create_weight_sync_group(
+            master_address,
+            master_port,
+            0,
+            world_size,
+        )
+        ray.get(
+            self.rollout_wg.create_weight_sync_group(
+                master_address,
+                master_port,
+                len(self.actor_wg.workers),
+                world_size,
+            )
         )
 
     def _init_async_rollout_manager(self):

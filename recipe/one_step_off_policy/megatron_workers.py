@@ -19,7 +19,6 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
-from ray.util.collective import collective
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
@@ -89,7 +88,7 @@ class DetachSync(AsyncActorRolloutRefWorker):
             if self._is_actor and torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
 
-            collective.broadcast(tensor, src_rank=0, group_name="actor_rollout")
+            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
 
             if self._is_rollout:
                 if rollout_name == "vllm":
