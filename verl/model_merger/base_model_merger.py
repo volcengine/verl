@@ -68,6 +68,24 @@ def parse_args():
     merge_parser.add_argument(
         "--private", action="store_true", help="Whether to upload the model to a private Hugging Face repository"
     )
+    merge_parser.add_argument(
+        "--merge-lora",
+        action="store_true",
+        default=True,
+        help="Merge LoRA weights into base model (default: True). Use --no-merge-lora to save adapter separately.",
+    )
+    merge_parser.add_argument(
+        "--no-merge-lora",
+        dest="merge_lora",
+        action="store_false",
+        help="Save LoRA weights as separate adapter instead of merging into base model.",
+    )
+    merge_parser.add_argument(
+        "--lora-alpha",
+        type=float,
+        default=None,
+        help="LoRA scaling factor (alpha). If not specified, uses the LoRA rank as alpha (scaling=1.0).",
+    )
 
     test_parser = subparsers.add_parser(
         "test", parents=[base_op_parser], help="Test merged model against a reference Hugging Face model"
@@ -100,6 +118,10 @@ class ModelMergerConfig:
         hf_model_config_path (Optional[str]): Path to HuggingFace model configuration files. Defaults to None.
         hf_upload (bool): Whether to upload to HuggingFace (computed automatically). Not for initialization.
         use_cpu_initialization (bool): Whether to use CPU initialization for large models. Defaults to False.
+        merge_lora (bool): Whether to merge LoRA weights into base model. Defaults to True.
+            If False, LoRA weights are saved separately as an adapter.
+        lora_alpha (Optional[float]): LoRA scaling factor (alpha/r). If None, defaults to 1.0.
+            This should match the lora_alpha used during training for proper weight scaling.
     """
 
     operation: str  # 'merge' or 'test'
@@ -115,6 +137,8 @@ class ModelMergerConfig:
     hf_model_config_path: Optional[str] = None
     hf_upload: bool = field(init=False)
     use_cpu_initialization: bool = False
+    merge_lora: bool = True
+    lora_alpha: Optional[float] = None
 
     def __post_init__(self):
         self.hf_upload = self.operation == "merge" and bool(self.hf_upload_path)
@@ -143,6 +167,8 @@ def generate_config_from_args(args: argparse.Namespace) -> ModelMergerConfig:
             hf_upload_path=args.hf_upload_path,
             private=args.private,
             test_hf_dir=None,
+            merge_lora=args.merge_lora,
+            lora_alpha=args.lora_alpha,
         )
         os.makedirs(config.target_dir, exist_ok=True)
     elif args.operation == "test":
@@ -232,15 +258,104 @@ class BaseModelMerger(ABC):
                 )
         return model
 
+    def merge_lora_weights(self, state_dict: dict[str, torch.Tensor]) -> bool:
+        """
+        Merge LoRA weights into base model weights.
+
+        The merged weight is computed as: W_merged = W_base + (lora_B @ lora_A) * scaling
+        where scaling = lora_alpha / r.
+
+        Args:
+            state_dict: Model state dict containing both base weights and LoRA weights.
+
+        Returns:
+            bool: True if LoRA weights were found and merged, False otherwise.
+
+        Note:
+            This function modifies 'state_dict' in place.
+        """
+        lora_params_names = [name for name in state_dict.keys() if "lora_" in name]
+
+        if len(lora_params_names) == 0:
+            return False
+
+        # Group LoRA params by their base layer
+        # Keys look like: base_model.model.layers.0.self_attn.q_proj.lora_A.default.weight
+        lora_groups = {}
+        for name in lora_params_names:
+            # Extract base path (e.g., base_model.model.layers.0.self_attn.q_proj)
+            if ".lora_A." in name:
+                base_path = name.split(".lora_A.")[0]
+                if base_path not in lora_groups:
+                    lora_groups[base_path] = {}
+                lora_groups[base_path]["lora_A"] = name
+            elif ".lora_B." in name:
+                base_path = name.split(".lora_B.")[0]
+                if base_path not in lora_groups:
+                    lora_groups[base_path] = {}
+                lora_groups[base_path]["lora_B"] = name
+
+        # Determine LoRA rank from first weight
+        first_lora_a_name = next((g["lora_A"] for g in lora_groups.values() if "lora_A" in g), None)
+        if first_lora_a_name:
+            lora_rank = state_dict[first_lora_a_name].shape[0]
+        else:
+            lora_rank = 1
+
+        # Determine scaling factor
+        # scaling = lora_alpha / r, default to 1.0 if lora_alpha not specified
+        lora_alpha = self.config.lora_alpha if self.config.lora_alpha is not None else lora_rank
+        scaling = lora_alpha / lora_rank
+        print(f"Merging LoRA weights with rank={lora_rank}, alpha={lora_alpha}, scaling={scaling}")
+
+        # Merge LoRA weights into base weights
+        merged_count = 0
+        for base_path, lora_names in lora_groups.items():
+            if "lora_A" not in lora_names or "lora_B" not in lora_names:
+                print(f"Warning: Incomplete LoRA pair for {base_path}, skipping")
+                continue
+
+            # Find the base layer weight
+            base_layer_key = base_path + ".base_layer.weight"
+            if base_layer_key not in state_dict:
+                print(f"Warning: Base layer weight not found for {base_path}, skipping")
+                continue
+
+            lora_A = state_dict.pop(lora_names["lora_A"])  # shape: (r, in_features)
+            lora_B = state_dict.pop(lora_names["lora_B"])  # shape: (out_features, r)
+            base_weight = state_dict[base_layer_key]
+
+            # Compute delta: lora_B @ lora_A with proper dtype handling
+            delta = (lora_B.to(base_weight.dtype) @ lora_A.to(base_weight.dtype)) * scaling
+
+            # Merge: W_merged = W_base + delta
+            state_dict[base_layer_key] = base_weight + delta
+            merged_count += 1
+
+        print(f"Merged {merged_count} LoRA weight pairs into base model")
+
+        # Rename remaining keys to standard HuggingFace format
+        for name in list(state_dict.keys()):
+            key = (
+                name.replace("base_model.model.", "")
+                .replace(".base_layer.weight", ".weight")
+                .replace(".base_layer.bias", ".bias")
+            )
+            if key != name:
+                state_dict[key] = state_dict.pop(name)
+
+        return True
+
     def save_lora_adapter(self, state_dict: dict[str, torch.Tensor]):
         """
-        Save lora adapter to safetensors.
+        Save lora adapter to safetensors without merging.
 
         Returns:
             lora_path: str, the path to the lora adapter. None if no lora adapter found.
 
         Note:
-            This function change the 'state_dict' in place.
+            This function changes the 'state_dict' in place by removing LoRA params
+            and renaming base layer keys.
         """
         lora_params_names = [name for name in state_dict.keys() if "lora_" in name]
 
@@ -263,9 +378,10 @@ class BaseModelMerger(ABC):
             lora_params[lora_key] = state_dict.pop(name)
 
         lora_rank = min(lora_params[lora_key].shape[0], lora_params[lora_key].shape[1])
+        lora_alpha = self.config.lora_alpha if self.config.lora_alpha is not None else lora_rank
         peft_dict = {
             "r": lora_rank,
-            "lora_alpha": 0,  # lora_alpha is not set. An error should be raised to inform the user to set it manually.
+            "lora_alpha": lora_alpha,
             "target_modules": list(target_modules),
         }
         peft_config = peft.LoraConfig(**peft_dict).to_dict()
@@ -298,9 +414,19 @@ class BaseModelMerger(ABC):
         model.to_empty(device="cpu")
         model = self.patch_model_generation_config(model)
 
-        lora_path = self.save_lora_adapter(state_dict)
-        if lora_path:
-            print(f"Saving lora adapter to {lora_path}")
+        # Handle LoRA weights: either merge into base model or save as separate adapter
+        has_lora = any("lora_" in name for name in state_dict.keys())
+        if has_lora:
+            if self.config.merge_lora:
+                # Merge LoRA weights into base model for a single merged checkpoint
+                merged = self.merge_lora_weights(state_dict)
+                if merged:
+                    print("LoRA weights merged into base model")
+            else:
+                # Save LoRA as separate adapter (legacy behavior)
+                lora_path = self.save_lora_adapter(state_dict)
+                if lora_path:
+                    print(f"Saving lora adapter to {lora_path}")
 
         print(f"Saving model to {self.config.target_dir}")
         model.save_pretrained(self.config.target_dir, state_dict=state_dict)
