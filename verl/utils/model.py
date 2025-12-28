@@ -724,12 +724,22 @@ def extract_multi_modal_inputs(
         if "image_bound" in inputs:
             has_image_bound = True
         for key, value in inputs.items():
-            if value is not None:
-                if key not in multi_modal_inputs_collected:
-                    multi_modal_inputs_collected[key] = []
-                multi_modal_inputs_collected[key].append(value)
+            # Skip None values and empty tensors/lists to handle text-only samples
+            # in mixed text/multi-modal batches
+            if value is None:
+                continue
+            if isinstance(value, torch.Tensor) and value.numel() == 0:
+                continue
+            if isinstance(value, (list, tuple)) and len(value) == 0:
+                continue
+            if key not in multi_modal_inputs_collected:
+                multi_modal_inputs_collected[key] = []
+            multi_modal_inputs_collected[key].append(value)
 
     for key, values in multi_modal_inputs_collected.items():
+        # Skip if no valid tensors were collected for this key
+        if not values:
+            continue
         if has_image_bound:  # minicpm-o logic
             multi_modal_inputs[key] = values
         else:
