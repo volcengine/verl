@@ -54,9 +54,11 @@ class Profiler:
         self.config = config
         self.tool_config = tool_config
         self.rank = torch.distributed.get_rank()
+
+        self.profile_ranks = self.config.ranks if self.config.ranks else []
         # we need to validate the config before using the profiler
         self._validate()
-        if self.rank in self.config.profile_ranks:
+        if self.rank in self.profile_ranks:
             print(f"[Profiler] Profiler init for rank {self.rank}")
 
             self.prof = torch.profiler.profile(
@@ -75,20 +77,42 @@ class Profiler:
             )
 
     def _validate(self):
-        if self.enable:
-            if self.config.profile_ranks is None:
-                print("[WARNING] Profile ranks is not set, default to rank 0")
-                self.config.profile_ranks = [0]
-            assert self.tool_config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
-            assert self.tool_config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
-            assert self.tool_config.step_start < self.tool_config.step_end, (
-                "[ERROR] Profile step start must be less than step end"
+        if not self.enable:
+            return
+            
+        if self.config.all_ranks and self.config.ranks:
+            raise ValueError(
+                f"[Profiler] Configuration Error: Ambiguous setup. "
+                f"'all_ranks' is set to True, but specific 'ranks' list ({self.config.ranks}) is also provided. "
+                "Please unset 'ranks' or set 'all_ranks' to False."
             )
+        
+        world_size = torch.distributed.get_world_size()
+
+        if self.config.all_ranks:
+            self.profile_ranks = list(range(world_size))
+            print("[Profiler] all_ranks=True, profiling all ranks")
+        elif not self.profile_ranks:  # covers None and empty list
+            self.profile_ranks = [0]
+            print("[Profiler] Profile ranks is not set, default to rank 0")
+
+        invalid_ranks = [r for r in self.profile_ranks if r < 0 or r >= world_size]
+        if invalid_ranks:
+            raise ValueError(
+                f"[Profiler] Configuration Error: Invalid ranks provided {invalid_ranks}. "
+                f"Current world size is {world_size} (valid ranks: 0-{world_size - 1})."
+            )
+
+        assert self.tool_config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
+        assert self.tool_config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
+        assert self.tool_config.step_start < self.tool_config.step_end, (
+            "[ERROR] Profile step start must be less than step end"
+        )
 
     def check(self):
         return self.prof is not None and self.enable
 
-    def start(self):
+    def start(self, **kwargs):
         if self.check():
             print(f"[Profiler] started for rank {self.rank}")
             self.prof.start()
@@ -97,25 +121,32 @@ class Profiler:
         if self.check():
             self.prof.step()
 
-    def stop(self):
+    def stop(self, **kwargs):
         if self.check():
             print(f"[Profiler] stopped for rank {self.rank}")
             self.prof.stop()
 
     def save(self):
+        if not self.enable:
+            return
+        if self.rank == 0:
+            os.makedirs(self.config.save_path, exist_ok=True)
+
+        torch.distributed.barrier()
+
         if self.prof is not None and not self.saved:
-            if not os.path.exists(self.config.save_path):
-                os.makedirs(self.config.save_path)
-            save_file_name = f"/prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
+            save_file_name = f"/prof_start_{self.tool_config.step_start}_end_{self.tool_config.step_end}_rank_{self.rank}.json"
             print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
             self.prof.export_chrome_trace(self.config.save_path + save_file_name)
-            self.enable = False
-            self.saved = True
+
+        self.enable = False
+        self.saved = True
+
+        torch.distributed.barrier()
 
     def stop_and_save(self):
-        if self.check():
-            self.stop()
-            self.save()
+        self.stop()
+        self.save()
 
     def stop_trace(self):
         if self.check():
