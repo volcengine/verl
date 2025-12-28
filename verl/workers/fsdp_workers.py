@@ -1329,13 +1329,15 @@ class CriticWorker(Worker, DistProfilerExtension):
                 critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
                 peft_config = critic_module.peft_config["default"]
                 # Ensure task_type is TaskType enum, not string
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 if isinstance(peft_config.task_type, str):
-                    peft_config.task_type = TaskType.CAUSAL_LM
+                    peft_config.task_type = TaskType.TOKEN_CLS
 
             else:
                 # Convert config to regular Python types before creating PEFT model
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
+                    "task_type": TaskType.TOKEN_CLS,
                     "r": self.config.model.lora_rank,
                     "lora_alpha": self.config.model.lora_alpha,
                     "target_modules": convert_to_regular_types(self.config.model.target_modules),
