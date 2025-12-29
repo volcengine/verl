@@ -463,7 +463,8 @@ class vLLMHttpServerBase:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
         # Use min() to respect the configured response_length and avoid over-generation
-        response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        # Subtract 1 to reserve space for EOS token, use max(0, ...) to handle long prompts gracefully
+        response_length = min(self.config.response_length, max(0, self.config.max_model_len - len(prompt_ids) - 1))
         if "max_tokens" in sampling_params:
             max_tokens = sampling_params.pop("max_tokens")
         elif "max_new_tokens" in sampling_params:

@@ -263,7 +263,8 @@ class SGLangHttpServer:
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        # Subtract 1 to reserve space for EOS token, use max(0, ...) to handle long prompts gracefully
+        response_length = min(self.config.response_length, max(0, self.config.max_model_len - len(prompt_ids) - 1))
         if "max_new_tokens" in sampling_params:
             max_new_tokens = sampling_params.pop("max_new_tokens")
         elif "max_tokens" in sampling_params:
