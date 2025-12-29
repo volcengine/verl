@@ -181,15 +181,92 @@ def scaled_fp8_blockwise(
     return fp_data, descale_fp
 
 
+def npu_scaled_mxfp8_blockwise(
+    data_hp: torch.Tensor,
+    weight_block_size: int = 32,
+):
+    if isinstance(weight_block_size, (list, tuple)):
+        block_size = weight_block_size[1]
+    else:
+        block_size = weight_block_size
+
+    # Constants for MXFP8 / NPU
+    FP32_MIN_NORMAL = torch.finfo(torch.float32).tiny
+    MAX_NORM = torch.finfo(torch.float8_e4m3fn).max  # 2 ** 8 * 1.75
+    EMAX = 8  # 2 ** (4 - 1)
+    SCALE_EMAX = 127  # 2 ** (8 - 1) - 1
+
+    data_hp = data_hp.float()
+    original_shape = data_hp.shape
+    assert data_hp.dim() == 2, "Only 2D tensors supported (M, N)"
+    M, N = original_shape
+    assert N % block_size == 0, f"Last dimension {N} must be divisible by block_size {block_size}"
+
+    # Reshape to (M, N // block_size, block_size)
+    num_blocks_n = N // block_size
+    data_blocked = data_hp.reshape(M, num_blocks_n, block_size)
+
+    # Calculate max absolute value per block
+    max_val = torch.amax(torch.abs(data_blocked), dim=-1)
+
+    # Shared exponent calculation
+    # Handle zero/tiny values to avoid log2(0) -> -inf
+    max_val_safe = torch.where(max_val == 0, FP32_MIN_NORMAL, max_val)
+    shared_exp = torch.floor(torch.log2(max_val_safe)) - EMAX
+
+    # Handle overflow/NaNs
+    shared_exp[shared_exp > SCALE_EMAX] = float("NaN")
+
+    # Apply scaling
+    shared_exp_expanded = shared_exp.unsqueeze(-1)
+    scale_factor = torch.pow(2.0, shared_exp_expanded)
+    data_normalized = data_blocked / scale_factor
+
+    # Private exponent for quantization (E4M3 specific logic)
+    abs_norm = torch.abs(data_normalized)
+    private_exp = torch.floor(torch.log2(abs_norm + (abs_norm == 0).float()))
+
+    # Quantization Logic (Inline _quant)
+    min_exp = -6
+    private_exp = private_exp.clamp(min=min_exp)
+
+    mantissa_scale = 8.0  # 2 ** (5 - 2)
+
+    scale_private = torch.pow(2.0, private_exp)
+    scaled = data_normalized / scale_private * mantissa_scale
+
+    # Round half away from zero: sign * floor(abs + 0.5)
+    data_quant = torch.sign(scaled) * torch.floor(torch.abs(scaled) + 0.5)
+    data_quant = data_quant / mantissa_scale * scale_private
+
+    # Clamp and Handle Specials (Inline _clamp_out)
+    data_quant = torch.clamp(data_quant, min=-MAX_NORM, max=MAX_NORM)
+
+    # Restore Inf/NaN
+    data_quant = torch.where(torch.isinf(data_normalized), data_normalized, data_quant)
+    data_quant = torch.where(torch.isnan(data_normalized), data_normalized, data_quant)
+
+    # Convert to FP8
+    fp_data = data_quant.reshape(original_shape).to(torch.float8_e4m3fn)
+
+    # Encode scale/exponent for NPU (uint8)
+    shared_exp_fixed = torch.nan_to_num(shared_exp, nan=-127.0)
+    descale_fp = torch.clamp(shared_exp_fixed + 127, 0, 255).round().to(torch.uint8)
+
+    return fp_data, descale_fp
+
+
 def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
     weights_quantized = []
-    
+
     # Determine block size
     weight_block_size = None
+    is_mxfp8_npu = is_mxfp8_vllm_ascend(quant_config)
+
     if hasattr(quant_config, "weight_block_size"):
         weight_block_size = quant_config.weight_block_size
-    elif is_mxfp8_vllm_ascend(quant_config):
-        weight_block_size = [1, 32]
+    elif is_mxfp8_npu:
+        weight_block_size = MXFP8_BLOCK_QUANT_KWARGS["weight_block_size"]
 
     for k, v in weights:
         if not is_fp8_weight(k, model):
@@ -198,10 +275,17 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
         # Cast the weight into fp8 and its scale factor
         if weight_block_size is not None:
             logger.info("Using blockwise quantization")
-            param_lp, param_scale = scaled_fp8_blockwise(
-                v.to(dtype),
-                weight_block_size=weight_block_size,
-            )
+            if is_mxfp8_npu:
+                param_lp, param_scale = npu_scaled_mxfp8_blockwise(
+                    v.to(dtype),
+                    weight_block_size=weight_block_size,
+                )
+            else:
+                param_lp, param_scale = scaled_fp8_blockwise(
+                    v.to(dtype),
+                    weight_block_size=weight_block_size,
+                )
+
             param_scale = param_scale.squeeze(-1)
             weights_quantized.append([k, param_lp])
             if vllm.__version__ >= "0.11.0":

@@ -278,8 +278,8 @@ class vLLMHttpServerBase:
             elif quantization == "mxfp8":
                 from verl.utils.vllm.vllm_fp8_utils import MXFP8_BLOCK_QUANT_KWARGS
                 fp8_block_quant_kwargs = dict(MXFP8_BLOCK_QUANT_KWARGS)
-                # TODO(slightwindsec): MXFP8 patches?
-                apply_vllm_fp8_patches()
+                # TODO(slightwindsec): apply MXFP8 patches?
+                pass
 
         hf_overrides = {}
         if quantization is not None and self.config.quantization_config_file is not None:
