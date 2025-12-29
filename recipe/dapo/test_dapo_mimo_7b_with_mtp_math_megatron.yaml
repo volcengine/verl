@@ -17,6 +17,7 @@ env_vars:
   PYTHONPATH: "/tmp/hf_home_mimo/modules/"
   PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:256"
   RAY_DEDUP_LOGS: "0"
+  VERL_LOGGING_LEVEL: "DEBUG"
 
 #  RAY_DEBUG_POST_MORTEM: "1"
 #  HF_DATASETS_CACHE: "/tmp/datasets_cache_mimo"

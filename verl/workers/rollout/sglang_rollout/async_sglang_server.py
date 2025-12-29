@@ -199,11 +199,20 @@ class SGLangHttpServer:
             args["speculative_eagle_topk"] = self.config.mtp.speculative_eagle_topk
             args["speculative_num_draft_tokens"] = self.config.mtp.speculative_num_draft_tokens
 
+            args['log_level'] = 'info'
+            args['load_format'] = "auto"
+
+            # args['enable_memory_saver'] = False
+            # enable_memory_saver = False MTP success but memory can't be release
+
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         server_args = ServerArgs(**args)
+
+        print(f"server_args: {server_args}")
+
         self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
             server_args=server_args
         )

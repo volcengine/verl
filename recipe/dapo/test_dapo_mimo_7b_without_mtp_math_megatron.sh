@@ -31,7 +31,6 @@ NNODES=1
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
 MODEL_PATH=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/model/XiaomiMiMo/MiMo-7B-RL
-#MODEL_PATH=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/model/Qwen2___5-Math-7B
 TRAIN_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/train.parquet
 TEST_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/test.parquet
 
@@ -46,9 +45,9 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
-gen_tp=4
-train_tp=4
-train_pp=2
+gen_tp=1
+train_tp=8
+train_pp=1
 
 python -m verl.trainer.main_ppo \
     --config-path=config \
