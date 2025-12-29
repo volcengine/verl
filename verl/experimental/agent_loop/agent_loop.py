@@ -739,11 +739,17 @@ class AgentLoopManager:
             self.sleep()
 
     def _initialize_llm_servers(self):
-        rollout_world_size = (
-            self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
-            * self.config.actor_rollout_ref.rollout.data_parallel_size
-            * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
-        )
+        if self.config.actor_rollout_ref.rollout.name == "sglang":
+            rollout_world_size = (
+                self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+            )
+        else:
+            rollout_world_size = (
+                self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
+                * self.config.actor_rollout_ref.rollout.data_parallel_size
+                * self.config.actor_rollout_ref.rollout.pipeline_model_parallel_size
+            ) 
         world_size = (
             self.worker_group.world_size
             if self.worker_group

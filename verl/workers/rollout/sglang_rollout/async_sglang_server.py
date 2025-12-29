@@ -40,6 +40,11 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import (
+    get_torch_device,
+    get_visible_devices_keyword,
+    is_npu_available,
+)
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
@@ -48,6 +53,7 @@ from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
+device_keyword = get_visible_devices_keyword()
 
 @ray.remote(num_cpus=1)
 class SGLangHttpServer:
@@ -75,10 +81,10 @@ class SGLangHttpServer:
         node_rank: int,
         nnodes: int,
         cuda_visible_devices: str,
+        gpus_per_node: int,
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
         os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
-        assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -89,6 +95,7 @@ class SGLangHttpServer:
         self.replica_rank = replica_rank
         self.node_rank = node_rank
         self.nnodes = nnodes
+        self.gpus_per_node = gpus_per_node
 
         if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
             logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
@@ -152,7 +159,7 @@ class SGLangHttpServer:
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
             "enable_memory_saver": True,
-            "base_gpu_id": 0,
+            "base_gpu_id": (0 + self.replica_rank * self.config.tensor_model_parallel_size) % self.gpus_per_node,
             "gpu_id_step": 1,
             "tp_size": self.config.tensor_model_parallel_size,
             "dp_size": self.config.data_parallel_size,
@@ -317,7 +324,7 @@ class SGLangReplica(RolloutReplica):
         worker_infos = await asyncio.gather(
             *[
                 worker.__ray_call__.remote(
-                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ["CUDA_VISIBLE_DEVICES"])
+                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ[device_keyword])
                 )
                 for worker in self.workers
             ]
@@ -327,11 +334,11 @@ class SGLangReplica(RolloutReplica):
 
         # create server actor in each node with node affinity and cuda visible devices
         for node_rank in range(self.nnodes):
-            workers = self.workers[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+            workers = self.workers[node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node]
             node_cuda_visible_devices = ",".join(
-                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                worker_cuda_visible_devices[node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node]
             )
-            node_id = worker_node_ids[node_rank * self.gpus_per_node]
+            node_id = worker_node_ids[node_rank * self.gpus_per_replica_node]
             name = (
                 f"sglang_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
@@ -342,7 +349,7 @@ class SGLangReplica(RolloutReplica):
                     node_id=node_id,
                     soft=False,
                 ),
-                runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
+                runtime_env={"env_vars": {f"RAY_EXPERIMENTAL_NOSET_{device_keyword}": "1"}},
                 name=name,
             ).remote(
                 config=self.config,
@@ -353,6 +360,7 @@ class SGLangReplica(RolloutReplica):
                 node_rank=node_rank,
                 nnodes=self.nnodes,
                 cuda_visible_devices=node_cuda_visible_devices,
+                gpus_per_node=self.gpus_per_node,
             )
             self.servers.append(server)
 

@@ -594,7 +594,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self.model_config = model_config
 
         # 2. build rollout device mesh
-        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
+        if self.config.rollout.name == "sglang":
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+        else:
+            infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         infer_pp = self.config.rollout.pipeline_model_parallel_size
         infer_world_size = infer_tp * infer_pp
         dp = self.world_size // infer_world_size
