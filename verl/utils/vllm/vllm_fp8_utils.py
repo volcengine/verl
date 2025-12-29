@@ -182,13 +182,12 @@ def scaled_fp8_blockwise(
 
 
 def npu_scaled_mxfp8_blockwise(
-    data_hp: torch.Tensor,
-    weight_block_size: int = 32,
+    data_hp,
+    weight_block_size,
 ):
-    if isinstance(weight_block_size, (list, tuple)):
-        block_size = weight_block_size[1]
-    else:
-        block_size = weight_block_size
+    assert data_hp.dim() == 2, "Only 2D tensors supported (M, N)"
+
+    block_size = weight_block_size[1]
 
     # Constants for MXFP8 / NPU
     FP32_MIN_NORMAL = torch.finfo(torch.float32).tiny
@@ -198,7 +197,6 @@ def npu_scaled_mxfp8_blockwise(
 
     data_hp = data_hp.float()
     original_shape = data_hp.shape
-    assert data_hp.dim() == 2, "Only 2D tensors supported (M, N)"
     M, N = original_shape
     assert N % block_size == 0, f"Last dimension {N} must be divisible by block_size {block_size}"
 
@@ -214,19 +212,13 @@ def npu_scaled_mxfp8_blockwise(
     max_val_safe = torch.where(max_val == 0, FP32_MIN_NORMAL, max_val)
     shared_exp = torch.floor(torch.log2(max_val_safe)) - EMAX
 
-    # Handle overflow/NaNs
     shared_exp[shared_exp > SCALE_EMAX] = float("NaN")
 
-    # Apply scaling
     shared_exp_expanded = shared_exp.unsqueeze(-1)
     scale_factor = torch.pow(2.0, shared_exp_expanded)
     data_normalized = data_blocked / scale_factor
-
-    # Private exponent for quantization (E4M3 specific logic)
     abs_norm = torch.abs(data_normalized)
     private_exp = torch.floor(torch.log2(abs_norm + (abs_norm == 0).float()))
-
-    # Quantization Logic (Inline _quant)
     min_exp = -6
     private_exp = private_exp.clamp(min=min_exp)
 
@@ -238,15 +230,12 @@ def npu_scaled_mxfp8_blockwise(
     # Round half away from zero: sign * floor(abs + 0.5)
     data_quant = torch.sign(scaled) * torch.floor(torch.abs(scaled) + 0.5)
     data_quant = data_quant / mantissa_scale * scale_private
-
-    # Clamp and Handle Specials (Inline _clamp_out)
     data_quant = torch.clamp(data_quant, min=-MAX_NORM, max=MAX_NORM)
 
     # Restore Inf/NaN
     data_quant = torch.where(torch.isinf(data_normalized), data_normalized, data_quant)
     data_quant = torch.where(torch.isnan(data_normalized), data_normalized, data_quant)
 
-    # Convert to FP8
     fp_data = data_quant.reshape(original_shape).to(torch.float8_e4m3fn)
 
     # Encode scale/exponent for NPU (uint8)
