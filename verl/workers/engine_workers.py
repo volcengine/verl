@@ -477,7 +477,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
             # 3.1 build rollout device mesh (sglang need only)
-            infer_tp = rollout_config.tensor_model_parallel_size * rollout_config.data_parallel_size
+            # infer_tp represents tensor parallelism WITHIN each sglang server, not across all servers.
+            # data_parallel_size controls the number of DP groups (separate sglang servers).
+            # The mesh shape (dp, infer_tp, infer_pp) ensures each server's weight sync guard
+            # (device_mesh["infer_tp"].get_local_rank() == 0) correctly identifies one rank per server.
+            infer_tp = rollout_config.tensor_model_parallel_size
             infer_pp = rollout_config.pipeline_model_parallel_size
             infer_world_size = infer_tp * infer_pp
             dp = self.world_size // infer_world_size
