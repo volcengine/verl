@@ -417,6 +417,7 @@ class NIXLCheckpointEngine(CheckpointEngine):
         assert self.prev_agent is not None, "Previous agent is not set."
         send_buf, recv_buf = self.send_buf, self.recv_buf
         send_descs, recv_descs = self.send_descs, self.recv_descs
+        total_bytes, total_params = 0, 0
 
         # receive first bucket from previous agent
         start_time = time.time()
@@ -424,6 +425,8 @@ class NIXLCheckpointEngine(CheckpointEngine):
         metadata = await read_op.read_metadata()
         read_op.begin_read()
         await read_op.wait_for_complete()
+        total_bytes += self.bucket_size
+        total_params += len(metadata["bucket_meta"])
 
         # swap send and recv buf
         send_buf, recv_buf = recv_buf, send_buf
@@ -455,6 +458,8 @@ class NIXLCheckpointEngine(CheckpointEngine):
             if readable_op is not None:
                 await readable_op.wait_for_complete()
             await read_op.wait_for_complete()
+            total_bytes += self.bucket_size
+            total_params += len(next_metadata["bucket_meta"])
 
             # 5. swap send and recv buf
             torch.cuda.synchronize()  # sync non-blocking copy
@@ -482,4 +487,9 @@ class NIXLCheckpointEngine(CheckpointEngine):
         # wait for next agent read complete
         if readable_op is not None:
             await readable_op.wait_for_complete()
-        logger.info(f"Rank {self.rank} receive weights done, time cost: {time.time() - start_time:.2f}s")
+        time_cost = time.time() - start_time
+        bandwidth = total_bytes / time_cost / (1024 * 1024 * 1024)
+        logger.info(
+            f"Rank {self.rank} receive weights done, total_params: {total_params}, "
+            f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
+        )

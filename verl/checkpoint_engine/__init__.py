@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import CheckpointEngine, CheckpointEngineRegistry, TensorMeta
+from .base import CheckpointEngine, CheckpointEngineRegistry, ColocatedCheckpointEngine, TensorMeta
 
-__all__ = ["CheckpointEngine", "CheckpointEngineRegistry", "TensorMeta"]
+__all__ = ["CheckpointEngine", "CheckpointEngineRegistry", "TensorMeta", "ColocatedCheckpointEngine"]
 
 try:
     from .nccl_checkpoint_engine import NCCLCheckpointEngine

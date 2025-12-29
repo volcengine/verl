@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import os
 
 import pytest
 import ray
@@ -24,11 +25,28 @@ from verl.single_controller.ray.base import (
 
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
 @pytest.mark.parametrize("num_trainer, num_rollout", [(2, 6)])
-def test_nixl_checkpoint_engine(num_trainer, num_rollout, device, num_nodes=1, num_gpus_per_node=8):
+def test_nixl_checkpoint_engine(
+    num_trainer,
+    num_rollout,
+    device,
+    num_nodes=1,
+    num_gpus_per_node=8,
+    check_allclose=True,
+    model_path="~/models/Qwen/Qwen3-8B-Base",
+):
+    model_path = os.path.expanduser(model_path)
     ray.init(
         runtime_env={
             "env_vars": {
-                "UCX_TLS": "rc,tcp,cuda",
+                # TODO: it's pretty hard to set these environment variables right, please consult
+                # with your network admin. Maybe auto adjust UCX_* according to NCCL_IB_*?
+                "UCX_TLS": "rc,ud,cuda",
+                # "UCX_IB_GID_INDEX": "3", # NCCL_IB_GID_INDEX
+                # "UCX_IB_DEVICES": "mlx5_1:1,mlx5_2:1,mlx5_3:1", # NCCL_IB_HCA
+                "UCX_RC_TIMEOUT": "30s",  # NCCL_IB_TIMEOUT
+                "UCX_RC_RETRY_COUNT": "7",  # NCCL_IB_RETRY_COUNT
+                "UCX_KEEPALIVE_INTERVAL": "1s",
+                "UCX_KEEPALIVE_NUM_EPS": "10",
                 "UCX_MAX_RNDV_RAILS": "4",
                 "UCX_LOG_LEVEL": "INFO",
                 "VERL_LOGGING_LEVEL": "DEBUG",
@@ -36,8 +54,7 @@ def test_nixl_checkpoint_engine(num_trainer, num_rollout, device, num_nodes=1, n
         }
     )
 
-    model_path = "/mnt/hdfs/wuxibin_wl/model/Qwen3-8B-Base"
-    resource_pool = RayResourcePool(process_on_nodes=[num_gpus_per_node] * num_nodes)
+    resource_pool = RayResourcePool(process_on_nodes=[num_gpus_per_node] * num_nodes, max_colocate_count=3)
     trainer_pool, rollout_pool = split_resource_pool(resource_pool, [num_trainer, num_rollout])
     checkpoint_kwargs = {
         "bucket_size": 2 * 1024 * 1024 * 1024,  # 2GB
@@ -46,7 +63,9 @@ def test_nixl_checkpoint_engine(num_trainer, num_rollout, device, num_nodes=1, n
 
     trainer = create_trainer_worker_group(model_path, trainer_pool, "nixl", checkpoint_kwargs)
     trainer.reset()
-    rollout = create_rollout_worker_group(model_path, rollout_pool, "nixl", checkpoint_kwargs, device=device)
+    rollout = create_rollout_worker_group(
+        model_path, rollout_pool, "nixl", checkpoint_kwargs, device=device, check_allclose=check_allclose
+    )
 
     for _ in range(3):
         # 1. prepare all workers
@@ -92,4 +111,12 @@ def test_nixl_checkpoint_engine(num_trainer, num_rollout, device, num_nodes=1, n
 
 
 if __name__ == "__main__":
-    test_nixl_checkpoint_engine(num_trainer=2, num_rollout=30, device="cuda", num_nodes=4, num_gpus_per_node=8)
+    test_nixl_checkpoint_engine(
+        num_trainer=2,
+        num_rollout=30,
+        device="cuda",
+        num_nodes=4,
+        num_gpus_per_node=8,
+        check_allclose=False,
+        model_path=os.environ["HDFS_ROOT"] + "/model/Qwen3-30B-A3B-Base",
+    )

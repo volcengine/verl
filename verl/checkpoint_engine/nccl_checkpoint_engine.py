@@ -286,6 +286,7 @@ class NCCLCheckpointEngine(CheckpointEngine):
         """
         assert self.rank > 0, "Rank 0 should not receive weights."
         send_buf, recv_buf = self.send_buf, self.recv_buf
+        total_bytes, total_params = 0, 0
 
         # receive first bucket
         start_time = time.time()
@@ -298,6 +299,8 @@ class NCCLCheckpointEngine(CheckpointEngine):
             topic=self.topic,
         )
         metadata = await broadcast_op.wait_for_complete()
+        total_bytes += self.bucket_size
+        total_params += len(metadata["bucket_meta"])
 
         # swap send_buf and recv_buf
         send_buf, recv_buf = recv_buf, send_buf
@@ -321,8 +324,10 @@ class NCCLCheckpointEngine(CheckpointEngine):
 
             # 3. wait for next bucket broadcast finish
             metadata = await broadcast_op.wait_for_complete()
+            total_bytes += self.bucket_size
+            total_params += len(metadata["bucket_meta"])
 
-            # swap send_buf and recv_buf
+            # 4. swap send_buf and recv_buf
             torch.cuda.synchronize()  # sync non-blocking copy
             send_buf, recv_buf = recv_buf, send_buf
 
@@ -333,4 +338,9 @@ class NCCLCheckpointEngine(CheckpointEngine):
             tensor = send_buf[meta["offset"] : meta["offset"] + size].view(dtype=dtype).view(shape)
             yield name, tensor
 
-        logger.info(f"Rank {self.rank} receive weights done, time cost: {time.time() - start_time:.2f}s")
+        time_cost = time.time() - start_time
+        bandwidth = total_bytes / time_cost / (1024 * 1024 * 1024)
+        logger.info(
+            f"Rank {self.rank} receive weights done, total_params: {total_params}, "
+            f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
+        )

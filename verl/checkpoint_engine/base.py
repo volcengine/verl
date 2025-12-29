@@ -110,6 +110,7 @@ class CheckpointEngineWithCache(CheckpointEngine):
         raise NotImplementedError
 
 
+@CheckpointEngineRegistry.register("naive")
 class ColocatedCheckpointEngine(CheckpointEngine):
     """Checkpoint engine for trainer and rollout colocated on same GPU.
 
