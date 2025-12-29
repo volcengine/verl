@@ -92,3 +92,21 @@ def test_decorator_returns_original_class(setup):
 
     assert OriginalClass().method() == 42
     assert REWARD_MANAGER_REGISTRY["return_test"] == OriginalClass
+
+
+def test_idempotent_registration_same_class(setup):
+    """Test that registering the same class twice is idempotent (no error).
+
+    This is important for distributed environments like Ray where modules
+    may be imported multiple times across workers.
+    """
+
+    @register("idempotent_test")
+    class IdempotentManager:
+        pass
+
+    # Register the same class again - should not raise
+    decorated = register("idempotent_test")(IdempotentManager)
+
+    assert decorated == IdempotentManager
+    assert REWARD_MANAGER_REGISTRY["idempotent_test"] == IdempotentManager

@@ -21,19 +21,41 @@ __all__ = ["register", "get_reward_manager_cls"]
 REWARD_MANAGER_REGISTRY: dict[str, type[AbstractRewardManager]] = {}
 
 
+def _get_class_identifier(cls: type) -> str:
+    """Get a unique identifier for a class based on its module and qualified name.
+
+    This is used instead of direct class comparison because in distributed environments
+    (like Ray), the same class may be imported multiple times with different object ids.
+    """
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
 def register(name: str) -> Callable[[type[AbstractRewardManager]], type[AbstractRewardManager]]:
     """Decorator to register a reward manager class with a given name.
 
     Args:
         name: `(str)`
             The name of the reward manager.
+
+    Note:
+        Registration is idempotent - registering the same class multiple times
+        (identified by module and qualname) will not raise an error. This is
+        necessary for distributed environments like Ray where modules may be
+        imported multiple times across workers.
     """
 
     def decorator(cls: type[AbstractRewardManager]) -> type[AbstractRewardManager]:
-        if name in REWARD_MANAGER_REGISTRY and REWARD_MANAGER_REGISTRY[name] != cls:
-            raise ValueError(
-                f"Reward manager {name} has already been registered: {REWARD_MANAGER_REGISTRY[name]} vs {cls}"
-            )
+        if name in REWARD_MANAGER_REGISTRY:
+            existing_cls = REWARD_MANAGER_REGISTRY[name]
+            existing_id = _get_class_identifier(existing_cls)
+            new_id = _get_class_identifier(cls)
+            if existing_id != new_id:
+                raise ValueError(
+                    f"Reward manager '{name}' has already been registered with a different class: "
+                    f"{existing_id} vs {new_id}"
+                )
+            # Same class (by qualname) - idempotent registration, skip silently
+            return cls
         REWARD_MANAGER_REGISTRY[name] = cls
         return cls
 
