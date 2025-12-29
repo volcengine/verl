@@ -332,6 +332,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self.ulysses_sequence_parallel_size > 1 and hasattr(actor_model_config, "vision_config"):
             actor_model_config.vision_config._attn_implementation = "eager"
 
+        # patch for qwen2.5-vl: when using flash_attention_3, set vision tower to use flash_attention_2
+        # because the vision tower does not support flash_attention_3
+        if (
+            getattr(actor_model_config, "model_type", None) == "qwen2_5_vl"
+            and attn_implementation == "flash_attention_3"
+            and hasattr(actor_model_config, "vision_config")
+        ):
+            actor_model_config.vision_config._attn_implementation = "flash_attention_2"
+
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
             actor_model_config.text_config.topk_method = "greedy"
@@ -653,11 +662,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
-        # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
-        if rollout_config.mode == "sync" and self._is_actor:
-            loop = get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+        # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
@@ -1329,13 +1335,15 @@ class CriticWorker(Worker, DistProfilerExtension):
                 critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
                 peft_config = critic_module.peft_config["default"]
                 # Ensure task_type is TaskType enum, not string
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 if isinstance(peft_config.task_type, str):
-                    peft_config.task_type = TaskType.CAUSAL_LM
+                    peft_config.task_type = TaskType.TOKEN_CLS
 
             else:
                 # Convert config to regular Python types before creating PEFT model
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
+                    "task_type": TaskType.TOKEN_CLS,
                     "r": self.config.model.lora_rank,
                     "lora_alpha": self.config.model.lora_alpha,
                     "target_modules": convert_to_regular_types(self.config.model.target_modules),
