@@ -32,12 +32,13 @@ from transformers import AutoProcessor, AutoTokenizer
 
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
-from verl.experimental.reward import RewardLoopWorker
+from verl.experimental.reward_loop import RewardLoopWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.ray_utils import get_event_loop
 from verl.utils.rollout_trace import (
     RolloutTraceConfig,
     rollout_trace_attr,
@@ -206,7 +207,7 @@ class AgentLoopBase(ABC):
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
-        self.loop = asyncio.get_running_loop()
+        self.loop = get_event_loop()
 
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -719,10 +720,8 @@ class AgentLoopManager:
         self.reward_model_manager = None
         self.reward_router_address = None
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            from verl.experimental.reward import RewardModelManager
+            from verl.experimental.reward_loop import RewardModelManager
 
-            # TODO (dyy): current rm is colocated with the legacy fsdp/megatron rm
-            # future pr will depericate fsdp/megatron rm and init RewardModelManager in standalone mode
             self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()
 

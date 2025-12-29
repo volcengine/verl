@@ -57,7 +57,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install the current repository
         run: |
-          pip install -e .
+          pip3 install --no-deps -e .
       - name: Set ruff --output-format=github
         run: |
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml
@@ -77,7 +77,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2
+      image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -85,7 +85,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,sglang]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare gsm8k dataset with tool
         run: |
           ray stop --force
@@ -110,7 +111,7 @@ jobs:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
     container:
-      image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2
+      image: verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest
       options: --gpus all --shm-size=10g
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -118,7 +119,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,geo,gpu,sglang]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare geo3k dataset with tool
         run: |
           ray stop --force

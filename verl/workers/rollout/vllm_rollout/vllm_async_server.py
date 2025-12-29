@@ -263,7 +263,12 @@ class vLLMHttpServerBase:
             set_expandable_segments(True)
 
         quantization = self.config.quantization
+
         if quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
+
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
@@ -275,8 +280,14 @@ class vLLMHttpServerBase:
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+
+        hf_overrides = {}
+        if quantization is not None and self.config.quantization_config_file is not None:
+            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
+
+        if quantization == "fp8":
+            hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -296,7 +307,7 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": hf_overrides,
             **engine_kwargs,
         }
 
@@ -450,8 +461,27 @@ class vLLMHttpServerBase:
         image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
-        # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
+        # Calculate the maximum possible new tokens based on available context space
+        # This serves as a safety upper bound
+        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+
+        # Determine max_tokens from sampling_params or use configured response_length as default
+        if "max_tokens" in sampling_params:
+            max_tokens = sampling_params.pop("max_tokens")
+        elif "max_new_tokens" in sampling_params:
+            # support sglang-style 'max_new_tokens' param
+            max_tokens = sampling_params.pop("max_new_tokens")
+        else:
+            # Default to configured response_length, not the remaining context space
+            # This ensures short prompts don't cause over-generation
+            max_tokens = self.config.response_length
+
+        # Apply safety clamp: ensure max_tokens doesn't exceed available context space
+        max_tokens = min(max_tokens, max_possible_tokens)
+
+        assert max_tokens <= max_possible_tokens, (
+            f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"
+        )
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)

@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,15 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .registry import get_reward_loop_manager_cls, register  # noqa: I001
-from .dapo import DAPORewardLoopManager
-from .naive import NaiveRewardLoopManager
-from .limited import RateLimitedRewardLoopManager
+from .transformer_impl import VeOmniEngine, VeOmniEngineWithLMHead
 
-__all__ = [
-    "DAPORewardLoopManager",
-    "NaiveRewardLoopManager",
-    "RateLimitedRewardLoopManager",
-    "register",
-    "get_reward_loop_manager_cls",
-]
+__all__ = ["VeOmniEngine", "VeOmniEngineWithLMHead"]
