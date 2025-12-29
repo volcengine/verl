@@ -17,10 +17,10 @@ import inspect
 import json
 import logging
 import os
-from uuid import uuid4
 from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
+from uuid import uuid4
 
 import cloudpickle as pickle
 import numpy as np

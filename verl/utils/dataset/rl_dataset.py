@@ -446,9 +446,7 @@ def get_dataset_class(data_config: DictConfig):
         if total_samples == 0:
             raise ValueError("Cannot split an empty dataset")
         if total_samples % num_splits != 0:
-            raise ValueError(
-                f"Cannot split dataset size {total_samples} into {num_splits} splits"
-            )
+            raise ValueError(f"Cannot split dataset size {total_samples} into {num_splits} splits")
         split_size = total_samples // num_splits
         splits = []
 
