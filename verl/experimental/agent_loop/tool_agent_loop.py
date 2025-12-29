@@ -59,6 +59,7 @@ class AgentData:
         self,
         messages: list[dict[str, Any]],
         image_data: Any,
+        video_data: Any,
         metrics: dict[str, Any],
         request_id: str,
         tools_kwargs: dict[str, Any],
@@ -67,6 +68,7 @@ class AgentData:
     ):
         self.messages = messages
         self.image_data = image_data
+        self.video_data = video_data
         self.metrics = metrics
         self.request_id = request_id
         self.tools_kwargs = tools_kwargs
@@ -134,6 +136,7 @@ class ToolAgentLoop(AgentLoopBase):
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
         image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
+        video_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("video", None))
         metrics = {}
         request_id = uuid4().hex
         tools_kwargs = kwargs.get("tools_kwargs", {})
@@ -157,6 +160,7 @@ class ToolAgentLoop(AgentLoopBase):
         agent_data = AgentData(
             messages=messages,
             image_data=image_data,
+            video_data=video_data,
             metrics=metrics,
             request_id=request_id,
             tools_kwargs=tools_kwargs,
@@ -182,7 +186,11 @@ class ToolAgentLoop(AgentLoopBase):
         # Finalize output
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
         prompt_ids = agent_data.prompt_ids[: len(agent_data.prompt_ids) - len(agent_data.response_mask)]
-        multi_modal_data = {"image": agent_data.image_data} if agent_data.image_data is not None else {}
+        multi_modal_data = {}
+        if agent_data.image_data is not None:
+            multi_modal_data["image"] = agent_data.image_data
+        if agent_data.video_data is not None:
+            multi_modal_data["video"] = agent_data.video_data
         output = AgentLoopOutput(
             prompt_ids=prompt_ids,
             response_ids=response_ids[: self.response_length],
@@ -211,7 +219,16 @@ class ToolAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-            model_inputs = self.processor(text=[raw_prompt], images=agent_data.image_data, return_tensors="pt")
+            images, videos = agent_data.image_data, agent_data.video_data
+            if videos is not None:
+                videos, video_metadatas = zip(*videos, strict=False)
+                videos, video_metadatas = list(videos), list(video_metadatas)
+                videos_kwargs = {"video_metadata": video_metadatas, "do_sample_frames": False}
+            else:
+                videos_kwargs = {}
+            model_inputs = self.processor(
+                text=[raw_prompt], images=images, videos=videos, return_tensors="pt", do_resize=False, **videos_kwargs
+            )
             agent_data.prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             agent_data.prompt_ids = await self.loop.run_in_executor(
@@ -238,6 +255,7 @@ class ToolAgentLoop(AgentLoopBase):
                 prompt_ids=agent_data.prompt_ids,
                 sampling_params=sampling_params,
                 image_data=agent_data.image_data,
+                video_data=agent_data.video_data,
             )
 
         agent_data.assistant_turns += 1
