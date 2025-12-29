@@ -106,6 +106,7 @@ class AdvantageEstimator(str, Enum):
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
     OPTIMAL_TOKEN_BASELINE = "optimal_token_baseline"
+    TIR_OPTIMAL_TOKEN_BASELINE = "tir_optimal_token_baseline"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -754,7 +755,7 @@ def compute_rloo_vectorized_outcome_advantage(
     return adv, adv
 
 
-@register_adv_est(AdvantageEstimator.OPTIMAL_TOKEN_BASELINE)  # or simply: @register_adv_est("optimal_token_baseline")
+@register_adv_est(AdvantageEstimator.OPTIMAL_TOKEN_BASELINE)
 def compute_optimal_token_baseline_advantage(
     token_level_rewards: torch.Tensor,
     response_mask: torch.Tensor,
@@ -853,6 +854,123 @@ def compute_optimal_token_baseline_advantage(
         advantages = (returns - baselines) * response_mask
 
     return advantages, returns
+
+
+@register_adv_est(AdvantageEstimator.TIR_OPTIMAL_TOKEN_BASELINE)
+def compute_multi_turn_optimal_token_baseline_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    old_log_probs: torch.Tensor,
+    sum_pi_squared: torch.Tensor,
+    rollout_is_weights: torch.Tensor = None,
+    epsilon: float = 1e-8,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantages using Optimal Token Baseline (OTB).
+
+    Unlike the group mean based baseline which uses a single baseline per trajectory,
+    this computes a unique baseline for each timestep using cumulative path variance.
+
+    Theory:
+        For each timestep t in each prompt group:
+            B_t* = E[G_t × W_t] / E[W_t]
+        where W_t = Σ_{j=1}^t ||s_j||² (cumulative path-variance proxy)
+        and ||s_j||² = 1 - 2π_j + Σπ²
+
+    The cumulative sum W_t captures the "realized energy" of trajectory has been up to timestep t,
+    giving higher weight to predicting rewards on high-variance paths.
+
+    Args:
+        token_level_rewards: Rewards at each token position [shape: (bs, response_length)]
+        response_mask: Binary mask for valid tokens (1) vs padding (0) [shape: (bs, response_length)]
+        index: Prompt indices for grouping trajectories from same prompt [shape: (bs,)]
+        old_log_probs: Log probabilities from training policy during generation [shape: (bs, response_length)]
+        sum_pi_squared: Sum of squared probabilities over vocabulary Σπ² [shape: (bs, response_length)]
+        rollout_is_weights: Pre-computed IS weights for W correction [shape: (bs, response_length)], None if not using IS
+        epsilon: Small constant for numerical stability (default: 1e-8)
+
+    Returns:
+        advantages: OTB advantage estimates [shape: (bs, response_length)]
+        returns: Cumulative rewards (returns) from each position [shape: (bs, response_length)]
+
+    Note on Rollout Importance Sampling:
+        When rollout_is_weights is provided, W_t is scaled by ρ̄²(t) to minimize MSE under truncated IS:
+            B_t* = Σ[G_t × ρ̄²(t) × W_t] / Σ[ρ̄²(t) × W_t]
+    """
+    with torch.no_grad():
+
+        # Compute returns (reward-to-go) for each timestep
+        token_returns = (token_level_rewards * response_mask).flip(dims=[-1]).cumsum(dim=-1).flip(dims=[-1])
+
+        # Step 1: Compute w_per_timestep = 1 - 2π_t + Σπ²)
+        pi_t = torch.exp(old_log_probs)
+        w_per_timestep = 1 - 2 * pi_t + sum_pi_squared
+
+        # Step 2: Apply rollout importance sampling correction (if enabled)
+        if rollout_is_weights is not None:
+            # Scale W by ρ̄² to minimize MSE under truncated IS
+            w_per_timestep = w_per_timestep * (rollout_is_weights**2)
+
+        # Step 3: Compute cumulative path-variance proxy: W_t = Σ_{j=1}^t w_j
+        # This measures accumulated variance from the start of the trajectory up to timestep t
+        w_cumulative = (w_per_timestep * response_mask).cumsum(dim=-1)
+
+        # Step 4: Concatenate returns and w_cumulative for each trajectory
+        # This allows us to compute baseline per timestep for each trajectory
+        response_lengths = response_mask.sum(dim=-1).to(dtype=torch.long)  # [shape: (bs * n, )]
+        max_response_length = (
+            int(response_lengths.max().item()) if response_lengths.numel() > 0 else 0
+        )
+        all_w_values = w_cumulative.new_zeros((len(response_lengths), max_response_length))  # [shape: (bs * n, max_response_length)]
+        all_returns = torch.zeros_like(all_w_values)
+        for i in range(len(response_lengths)):
+            length = int(response_lengths[i].item())
+            if length == 0:
+                continue
+            mask = response_mask[i].bool()
+            all_w_values[i, :length] = w_cumulative[i, mask]
+            all_returns[i, :length] = token_returns[i, mask]
+
+        # Group trajectories by prompt
+        prompt_groups = defaultdict(list)
+        for i in range(len(response_lengths)):
+            if response_lengths[i] == 0:
+                continue
+            prompt_groups[index[i]].append(i)
+
+        # Compute optimal baseline for each prompt group
+        baselines = torch.zeros_like(all_returns)
+
+        for _, trajectory_indices in prompt_groups.items():
+            N = len(trajectory_indices)
+            traj_idx = torch.tensor(trajectory_indices, device=all_returns.device)
+
+            if N == 1:
+                # Single trajectory - no baseline (keep original reward as advantage)
+                baselines[traj_idx[0]] = 0.0
+                continue
+
+            # Extract group data
+            w_group = all_w_values[traj_idx]  # [shape: (N, max_response_length)]
+            R_group = all_returns[traj_idx]  # [shape: (N, max_response_length)]
+            # Direct optimal baseline - single value for all in group
+            b_star = (R_group * w_group).sum(dim=0) / (w_group.sum(dim=0) + epsilon)
+            # Convert to match baselines dtype (epsilon can cause float64 promotion)
+            baselines[traj_idx] = b_star.to(baselines.dtype)
+
+        # Compute advantages
+        all_advantages = all_returns - baselines # [shape: (bs * n, max_response_length)]
+
+        advantages = torch.zeros_like(token_returns) # [shape: (bs * n, turn * response_length)]
+        for i in range(len(response_lengths)):
+            if response_lengths[i] == 0:
+                continue
+            advantages[i, response_mask[i].bool()] = all_advantages[i, :response_lengths[i]]
+
+        advantages = advantages * response_mask  # [shape: (bs * n * turn, response_length)]
+
+    return advantages, token_returns
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
