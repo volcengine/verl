@@ -210,6 +210,12 @@ class DetachActorWorker(DetachNcclSync):
         assert self._is_actor
         if hasattr(self, "_weights_info"):
             return self._weights_info
+
+        # When parameter offloading is enabled, we need to load params to GPU
+        # before accessing state_dict, as FSDP requires tensors on GPU
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+
         if fsdp_version(self.actor_module_fsdp) == 1:
             from torch.distributed.fsdp.api import ShardedStateDictConfig, StateDictType
 
@@ -223,6 +229,12 @@ class DetachActorWorker(DetachNcclSync):
         for key, tensor in params.items():
             ret.append((key, tensor.size(), tensor.dtype))
         self._weights_info = ret
+
+        # Note: We don't offload back to CPU here because this function is
+        # typically called at initialization, immediately followed by
+        # sync_rollout_weights which also requires GPU access.
+        # The offload will happen at the end of sync_rollout_weights.
+
         return ret
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
