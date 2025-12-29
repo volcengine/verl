@@ -22,11 +22,11 @@ import numpy as np
 
 def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
     """
-    Reduces a dictionary of metric lists by computing the sum, max, or min of each list.
+    Reduces a dictionary of metric lists by computing the mean, max, or min of each list.
     The reduce operation is determined by the key name:
     - If the key contains "max", np.max is used
     - If the key contains "min", np.min is used
-    - Otherwise, np.sum is used
+    - Otherwise, np.mean is used
 
     Args:
         metrics: A dictionary mapping metric names to lists of metric values.
@@ -50,5 +50,5 @@ def reduce_metrics(metrics: dict[str, list[Any]]) -> dict[str, Any]:
         elif "min" in key:
             metrics[key] = np.min(val)
         else:
-            metrics[key] = np.sum(val)
+            metrics[key] = np.mean(val)
     return metrics
