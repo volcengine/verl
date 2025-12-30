@@ -356,13 +356,21 @@ def apply_monkey_patch(
             Qwen3VLMoeTextModel,
         )
 
-        from verl.models.transformers.qwen3_vl import forward_with_normal_backend, qwen3_vl_base_forward
+        from verl.models.transformers.qwen3_vl import (
+            forward_with_normal_backend,
+            patch_qwen3_vl_moe_sparse_moe_block_forward,
+            qwen3_vl_base_forward,
+        )
 
         Qwen3VLModel.forward = qwen3_vl_base_forward
         Qwen3VLMoeModel.forward = qwen3_vl_base_forward
         Qwen3VLForConditionalGeneration.forward = forward_with_normal_backend
         Qwen3VLMoeForConditionalGeneration.forward = forward_with_normal_backend
         print(f"Monkey patch {model.__class__.__name__} model forward")
+
+        # Step 1.5: patch Qwen3VLMoeTextSparseMoeBlock to fix transformers 4.57.3 bug
+        if model.config.model_type == "qwen3_vl_moe" and is_transformers_version_in_range(max_version="4.57.3"):
+            patch_qwen3_vl_moe_sparse_moe_block_forward()
 
         # Step 2: patch input for multimodal sequence parallelism
         if ulysses_sp_size > 1:

@@ -13,6 +13,7 @@
 # limitations under the License.
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -254,8 +255,20 @@ class vLLMHttpServerBase:
             max_new_tokens=self.config.response_length,
         )
         logger.info(f"override_generation_config: {override_generation_config}")
+
+        logger.info(f"enable_sleep_mode: {self.config.enable_sleep_mode}")
+        if not self.config.enable_sleep_mode:
+            from verl.utils.device import set_expandable_segments
+
+            set_expandable_segments(True)
+
         quantization = self.config.quantization
+
         if quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
+
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
@@ -267,8 +280,14 @@ class vLLMHttpServerBase:
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+
+        hf_overrides = {}
+        if quantization is not None and self.config.quantization_config_file is not None:
+            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
+
+        if quantization == "fp8":
+            hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -279,7 +298,7 @@ class vLLMHttpServerBase:
             "enable_chunked_prefill": self.config.enable_chunked_prefill,
             "max_num_batched_tokens": self.config.max_num_batched_tokens,
             "enable_prefix_caching": self.config.enable_prefix_caching,
-            "enable_sleep_mode": True,
+            "enable_sleep_mode": self.config.enable_sleep_mode,
             "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
@@ -288,7 +307,7 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": hf_overrides,
             **engine_kwargs,
         }
 
@@ -393,12 +412,14 @@ class vLLMHttpServerBase:
         vllm_config = engine_args.create_engine_config(usage_context=usage_context)
         vllm_config.parallel_config.data_parallel_master_port = self._dp_master_port
 
-        engine_client = AsyncLLM.from_vllm_config(
-            vllm_config=vllm_config,
-            usage_context=usage_context,
-            enable_log_requests=engine_args.enable_log_requests,
-            disable_log_stats=engine_args.disable_log_stats,
-        )
+        fn_args = set(dict(inspect.signature(AsyncLLM.from_vllm_config).parameters).keys())
+        kwargs = {}
+        if "enable_log_requests" in fn_args:
+            kwargs["enable_log_requests"] = engine_args.enable_log_requests
+        if "disable_log_stats" in fn_args:
+            kwargs["disable_log_stats"] = engine_args.disable_log_stats
+
+        engine_client = AsyncLLM.from_vllm_config(vllm_config=vllm_config, usage_context=usage_context, **kwargs)
 
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
@@ -448,8 +469,27 @@ class vLLMHttpServerBase:
         image_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
-        # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
+        # Calculate the maximum possible new tokens based on available context space
+        # This serves as a safety upper bound
+        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+
+        # Determine max_tokens from sampling_params or use configured response_length as default
+        if "max_tokens" in sampling_params:
+            max_tokens = sampling_params.pop("max_tokens")
+        elif "max_new_tokens" in sampling_params:
+            # support sglang-style 'max_new_tokens' param
+            max_tokens = sampling_params.pop("max_new_tokens")
+        else:
+            # Default to configured response_length, not the remaining context space
+            # This ensures short prompts don't cause over-generation
+            max_tokens = self.config.response_length
+
+        # Apply safety clamp: ensure max_tokens doesn't exceed available context space
+        max_tokens = min(max_tokens, max_possible_tokens)
+
+        assert max_tokens <= max_possible_tokens, (
+            f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"
+        )
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
@@ -530,7 +570,7 @@ class vLLMHttpServerBase:
     async def wait_for_requests_to_drain(self):
         await self.engine.wait_for_requests_to_drain()
 
-    async def abort_all_requests(self) -> dict[str, Any]:
+    async def abort_all_requests(self, reset_prefix_cache: bool = True) -> dict[str, Any]:
         """Abort all ongoing generation requests.
 
         Returns:
@@ -560,6 +600,11 @@ class vLLMHttpServerBase:
             self.engine.output_processor.abort_requests(request_ids)
             await self.engine.engine_core.abort_requests_async(request_ids)
 
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info("Prefix cache reset after abort")
+
             logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
             return {"aborted_count": len(request_ids), "request_ids": request_ids}
 
@@ -567,7 +612,7 @@ class vLLMHttpServerBase:
             logger.error(f"Error aborting requests: {e}")
             return {"aborted_count": 0, "request_ids": [], "error": str(e)}
 
-    async def abort_request(self, request_id: str) -> dict[str, Any]:
+    async def abort_request(self, request_id: str, reset_prefix_cache: bool = True) -> dict[str, Any]:
         """Abort a specific generation request.
 
         Args:
@@ -594,6 +639,11 @@ class vLLMHttpServerBase:
             # Abort in output processor and engine core
             self.engine.output_processor.abort_requests([request_id])
             await self.engine.engine_core.abort_requests_async([request_id])
+
+            # Try to reset prefix cache to ensure clean state
+            if reset_prefix_cache:
+                await self.clear_kv_cache()
+                logger.info(f"Prefix cache reset after abort request {request_id}")
 
             logger.info(f"Aborted request: {request_id}")
             return {"aborted": True, "request_id": request_id}

@@ -294,7 +294,10 @@ def ulysses_pad(input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torc
 
 
 def ulysses_pad_and_slice_inputs(
-    input_ids_rmpad: torch.Tensor, position_ids_rmpad: Optional[torch.Tensor] = None, sp_size: int = 1
+    input_ids_rmpad: torch.Tensor,
+    position_ids_rmpad: Optional[torch.Tensor] = None,
+    sp_size: int = 1,
+    skip_position_ids_rmpad: bool = False,
 ):
     """
     Pad and slice input_ids to be divisible by sp_size
@@ -308,6 +311,7 @@ def ulysses_pad_and_slice_inputs(
         input_ids_rmpad: shape of [bsz, seqlen]
         position_ids_rmpad: shape of [bsz, seqlen], where bsz must be 1
         sp_size (int): ulysses sequence parallelism size
+        skip_position_ids_rmpad: whether to skip position_ids_rmpad for VeOmniEngine
 
     Returns:
         torch.Tensor: padded and sliced input_ids
@@ -316,7 +320,7 @@ def ulysses_pad_and_slice_inputs(
     """
     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad(input_ids_rmpad, position_ids_rmpad, sp_size)
     input_ids_rmpad = slice_input_tensor(input_ids_rmpad, dim=1, padding=False)
-    if position_ids_rmpad is not None:
+    if position_ids_rmpad is not None and not skip_position_ids_rmpad:
         position_ids_rmpad = slice_input_tensor(position_ids_rmpad, dim=1, padding=False)
     return input_ids_rmpad, position_ids_rmpad, pad_size
 

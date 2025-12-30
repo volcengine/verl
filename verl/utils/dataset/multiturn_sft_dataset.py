@@ -292,6 +292,18 @@ class MultiTurnSFTDataset(Dataset):
         )
         self.sanity_check(input_ids, messages, tools, enable_thinking)
 
+        # Since the tokenizer may return user-customized results, we need to filter out inconsistent tensor shapes
+        keys_to_remove = []
+        for k, v in multi_modal_inputs.items():
+            if len(v) > 0 and v[0] is not None and isinstance(v[0], torch.Tensor):
+                # Check if all tensors in the list have the same shape
+                first_shape = v[0].shape[1:]
+                if not all(tensor.shape[1:] == first_shape for tensor in v):
+                    keys_to_remove.append(k)
+
+        for k in keys_to_remove:
+            del multi_modal_inputs[k]
+
         for k, v in multi_modal_inputs.items():
             multi_modal_inputs[k] = torch.concat(v, dim=0)
 
@@ -345,13 +357,15 @@ class MultiTurnSFTDataset(Dataset):
                 else:
                     raise ValueError(f"Unknown truncation method {self.truncation}")
 
-            return {
+            res = {
                 "input_ids": input_ids,
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
-                **multi_modal_inputs,
             }
+            if len(multi_modal_inputs) > 0:
+                res["multi_modal_inputs"] = multi_modal_inputs
+            return res
         elif self.pad_mode == DatasetPadMode.NO_PADDING:
             # truncate input_ids if it is longer than max_length
             if len(input_ids) > self.max_length:
@@ -360,12 +374,14 @@ class MultiTurnSFTDataset(Dataset):
                 position_ids = position_ids[..., : self.max_length]
 
             # return nested tensor with out padding
-            return {
+            res = {
                 "input_ids": input_ids,
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
-                **multi_modal_inputs,
             }
+            if len(multi_modal_inputs) > 0:
+                res["multi_modal_inputs"] = multi_modal_inputs
+            return res
         else:
             raise ValueError(f"Unknown pad mode {self.pad_mode}")
 

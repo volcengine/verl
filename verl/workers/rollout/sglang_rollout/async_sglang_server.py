@@ -199,10 +199,10 @@ class SGLangHttpServer:
             args["speculative_eagle_topk"] = self.config.mtp.speculative_eagle_topk
             args["speculative_num_draft_tokens"] = self.config.mtp.speculative_num_draft_tokens
 
-            args['log_level'] = 'info'
-            args['load_format'] = "auto"
+            args["log_level"] = "info"
+            args["load_format"] = "auto"
             # args['enable_weights_cpu_backup'] = False
-            args['enable_draft_weights_cpu_backup'] = True
+            args["enable_draft_weights_cpu_backup"] = True
 
             # args['enable_memory_saver'] = False
             # enable_memory_saver = False MTP success but memory can't be release
@@ -232,12 +232,10 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
 
-        # Set warmup_thread_args to avoid AttributeError in lifespan function
-        app.warmup_thread_args = (
-            server_args,
-            None,
-            None,
-        )
+        # Set warmup_thread_{kw}args to avoid AttributeError in lifespan function
+        app.server_args = server_args
+        app.warmup_thread_kwargs = {"server_args": server_args}
+        app.warmup_thread_args = (server_args, None, None)
 
         # Manually add Prometheus middleware before starting server
         # This ensures /metrics endpoint is available immediately
@@ -283,7 +281,17 @@ class SGLangHttpServer:
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        if "max_new_tokens" in sampling_params:
+            max_new_tokens = sampling_params.pop("max_new_tokens")
+        elif "max_tokens" in sampling_params:
+            # support vllm-style 'max_tokens' param
+            max_new_tokens = sampling_params.pop("max_tokens")
+        else:
+            max_new_tokens = response_length
+        assert max_new_tokens <= response_length, (
+            f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
+        )
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 

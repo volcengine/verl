@@ -24,10 +24,12 @@ from recipe.vla.workers.env.env_manager import EnvManager
 from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_name,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig
 
 
 def put_tensor_cpu(data_dict):
@@ -67,7 +69,7 @@ def create_env_batch_dataproto(obs, rews, terminations, truncations, infos, meta
     return output
 
 
-class EnvWorker(Worker):
+class EnvWorker(Worker, DistProfilerExtension):
     def __init__(self, config: DictConfig):
         Worker.__init__(self)
         self.cfg = config
@@ -85,7 +87,21 @@ class EnvWorker(Worker):
         env_device_mesh = init_device_mesh(device_name, mesh_shape=(self.world_size, 1), mesh_dim_names=["dp", "tp"])
         self._register_dispatch_collect_info("env", dp_rank=env_device_mesh["dp"].get_local_rank(), is_collect=True)
 
+        # Initialize profiler
+        omega_profiler_config = config.train.get("profiler", {})
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    @DistProfiler.annotate(color="green", role="env_init")
     def init_worker(self):
         if self.cfg.train.simulator_type == "libero":
             from recipe.vla.envs.libero_env.libero_env import LiberoEnv
@@ -116,12 +132,14 @@ class EnvWorker(Worker):
             raise NotImplementedError(f"Simulator type {self.cfg.train.simulator_type} not implemented")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    @DistProfiler.annotate(color="green", role="env_init_simulator")
     def init_simulator(self):
         for i in range(self.stage_num):
             self.simulator_list[i].start_simulator()
         return
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
+    @DistProfiler.annotate(color="red", role="env_interact_step")
     def env_interact_step(self, data: DataProto) -> dict:
         """
         This function is used to interact with the environment.
@@ -164,6 +182,7 @@ class EnvWorker(Worker):
         return state_ids
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="env"), blocking=False)
+    @DistProfiler.annotate(color="blue", role="env_reset_envs_to_state_ids")
     def reset_envs_to_state_ids(self, data: DataProto):
         """Reset environments to specified state IDs.
 
@@ -214,6 +233,7 @@ class EnvWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    @DistProfiler.annotate(color="gray", role="env_finish_rollout")
     def finish_rollout(self, mode="train"):
         # reset
         if mode == "train":

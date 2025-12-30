@@ -26,7 +26,6 @@ When working with Megatron:
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
 
-import asyncio
 import getpass
 import logging
 import os
@@ -43,6 +42,8 @@ import zmq.asyncio
 from filelock import FileLock
 from torch.distributed.device_mesh import DeviceMesh
 from vllm.config import LoRAConfig
+
+from verl.utils.ray_utils import get_event_loop
 
 try:
     from vllm.worker.worker_base import WorkerWrapperBase
@@ -157,7 +158,7 @@ class vLLMAsyncRollout(BaseRollout):
                     address = f"tcp://{ip}:{port}"
             self.socket.bind(address)
 
-        loop = asyncio.get_running_loop()
+        loop = get_event_loop()
         self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
@@ -190,12 +191,17 @@ class vLLMAsyncRollout(BaseRollout):
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         if self.config.quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if self.config.quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(
+                    f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {self.config.quantization}"
+                )
+
             if self.config.quantization == "fp8":
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
+
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
@@ -235,12 +241,13 @@ class vLLMAsyncRollout(BaseRollout):
         if peft_config and base_sync_done:
             # In async mode, make sure the old lora is removed before adding the new one
             self.inference_engine.worker.remove_lora(VLLM_LORA_INT_ID)
+            weights = dict(weights)
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
                 peft_config=asdict(peft_config),
-                lora_tensors=dict(weights),
+                lora_tensors=weights,
             )
             self.inference_engine.worker.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
@@ -263,8 +270,22 @@ class vLLMAsyncRollout(BaseRollout):
                 model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Batch generate sequences in sync mode."""
-        raise NotImplementedError
+        """Batch generate sequences in sync mode.
+
+        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        generation. Since SPMD mode was retired (PR #4411), the generation workflow
+        should use the async server interface instead.
+
+        Raises:
+            NotImplementedError: Always raised as sync generation is not supported.
+        """
+        raise NotImplementedError(
+            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
+            "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
+            "or use HFRollout for synchronous generation. "
+            "See https://github.com/volcengine/verl/issues/4682 for more details."
+        )
 
     # ==================== server mode public methods ====================
 

@@ -48,7 +48,6 @@ on:
       # Entrypoints
       - ".github/workflows/model.yml"
       - "tests/special_distributed/test_fsdp_ckpt.py"
-      - "tests/special_distributed/test_mcore_config_converter.py"
       - "tests/special_distributed/test_tensor_dict.py"
       - "tests/models/**"
       - "tests/special_distributed/run_all.sh"
@@ -64,7 +63,7 @@ concurrency:
 
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm012.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -99,7 +98,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers(4.54.0)/flash_attn, transformers 4.55.0 has strange behavior with model backward
         run: |
-          pip3 install -e .[test]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
@@ -139,39 +139,12 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
-          pip3 install -e .[test]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
 
-  mcore_config_converter:
-    needs: setup
-    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
-    timeout-minutes: 20 # Increase this timeout value as needed
-    env:
-      HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
-      HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
-      NO_PROXY: "localhost,127.0.0.1,hf-mirror.com"
-      HF_ENDPOINT: "https://hf-mirror.com"
-      HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Install the current repository
-        run: |
-          pip3 install -e .[test]
-#      - name: Download model config files
-#        run: |
-#          hf download Qwen/Qwen2.5-7B config.json --local-dir $HOME/configs/Qwen/Qwen2.5-7B
-#          hf download Qwen/Qwen3-8B config.json --local-dir $HOME/configs/Qwen/Qwen3-8B
-#          hf download deepseek-ai/deepseek-coder-1.3b-instruct config.json --local-dir $HOME/configs/deepseek-ai/deepseek-coder-1.3b-instruct
-#          hf download Qwen/Qwen2-57B-A14B config.json --local-dir $HOME/configs/Qwen/Qwen2-57B-A14B
-#          hf download Qwen/Qwen3-30B-A3B config.json --local-dir $HOME/configs/Qwen/Qwen3-30B-A3B
-#          hf download deepseek-ai/DeepSeek-V3-Base config.json --local-dir $HOME/configs/deepseek-ai/DeepSeek-V3-Base
-      - name: Running mcore config converter tests on 8 L20 GPUs
-        run: |
-          torchrun --nproc_per_node=8 tests/special_distributed/test_mcore_config_converter.py
 
   model_engine:
     needs: setup
@@ -189,7 +162,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,mcore]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Download model config files
         run: |
           hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct
@@ -206,7 +180,6 @@ jobs:
         setup,
         model_rmpad,
         model_rmpad_fsdp2_unstable,
-        mcore_config_converter,
         model_engine
       ]
     if: always()
