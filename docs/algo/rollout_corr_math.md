@@ -597,7 +597,7 @@ rollout_rs_threshold_lower = 0.5  # Lower threshold (auto-reciprocal if null)
 
 ### 3.5 Veto Mechanism
 
-An **independent** safety layer that rejects sequences with catastrophically low token probabilities.
+An **independent** safety layer that rejects sequences with catastrophic token.
 
 **Configuration:**
 ```python
@@ -607,14 +607,14 @@ rollout_token_veto_threshold = 1e4  # null = disabled
 **Veto condition:**
 
 $$
-\text{Reject entire sequence if } \exists t \in T \text{ such that } \rho_t < C_{\text{veto}}
+\text{Reject entire sequence if } \exists t \in T \text{ such that } |\rho_t| > C_{\text{veto}}
 $$
 
 **Properties:**
-- Prevents catastrophic updates from tokens with near-zero probability
+- Prevents catastrophic updates from tokens with probability $\rho_t \gg 1$ or $\rho_t \ll 1$
 - **Independent** of IS/RS settings (always applied if enabled)
-- Checks **unclamped per-token ratios** before safety bounds
-- Typical values: $10^{-4}$ to $10^{-6}$
+- Checks **unclamped per-token absolute ratios** before safety bounds
+- Typical values: $10^{2}$ to $10^{4}$
 
 **Implementation:** [rollout_corr_helper.py](../../verl/trainer/ppo/rollout_corr_helper.py#L620-L640)
 

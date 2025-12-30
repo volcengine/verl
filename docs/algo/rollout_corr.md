@@ -266,8 +266,8 @@ Lower threshold for rejection sampling. Default: `null`
 
 ### `rollout_token_veto_threshold` (float or null)
 Per-token veto for catastrophic outliers. Default: `null`
-- Checks **unclamped per-token ratios** before safety bounds
-- If ANY token has ratio < threshold, entire sequence is rejected
+- Checks **unclamped per-token absolute ratios** before safety bounds
+- If ANY token has an absolute ratio > threshold, entire sequence is rejected
 - Independent of `rollout_is` and `rollout_rs` settings
 - Typical values: `1e2` to `1e4` when enabled
 - Example: `1e4` catches tokens 10,000x less likely
@@ -829,7 +829,7 @@ IS weights (`rollout_is_weights`) go through a fixed processing pipeline:
 Rejection sampling modifies `response_mask` (NOT weights) through `compute_rollout_rejection_mask()`:
 - Computes safety-bounded ratios independently
 - Creates binary mask: tokens/sequences outside [lower_threshold, upper_threshold] → 0 (rejected)
-- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
+- Veto: Checks **unclamped per-token absolute ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
 - Modified mask used for loss aggregation (rejected samples excluded from training)
 
 ## Operation Modes
@@ -1009,14 +1009,14 @@ These metrics cover both:
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
   - **Important**: Sequences are rejected via `response_mask=0`, NOT by modifying IS weights
   - **IS weights unchanged by veto**: Already safety-bounded and truncated
-  - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
-    - Decoupled mode: π_old(t)/π_rollout(t)
-    - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
+  - Veto checks **unclamped per-token absolute ratios** (true absolute ratios before safety bound)
+    - Decoupled mode: |π_old(t)/π_rollout(t)|
+    - Bypass/Pure IS mode: |π_θ(t)/π_rollout(t)|
   - Detects catastrophic tokens (true abs(ratio) > veto_threshold, e.g., > 1e4)
 
 - **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens above veto threshold
   - Identifies problematic tokens before sequence-level veto is applied
-  - Checks **unclamped per-token ratios** (true ratios, not safety-bounded)
+  - Checks **unclamped per-token absolute ratios** (true absolute ratios, not safety-bounded)
   - Each catastrophic token causes its entire sequence to be rejected
 
 #### **Threshold Exceedance Metrics**
@@ -1146,8 +1146,8 @@ is_weights = weights_proto.batch["rollout_is_weights"]
 
 # modified_response_mask has rejection applied (since rollout_rs="token"):
 # 1. RS rejection: tokens outside [0.5, 2.0] masked to 0 via response_mask
-# 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
-# Note: Veto checks unclamped per-token ratios (before safety bounds)
+# 2. Veto rejection: sequences with catastrophic tokens (abs ratio > 1e4) masked to 0
+# Note: Veto checks unclamped per-token absolute ratios (before safety bounds)
 # Note: RS and IS are separate mechanisms - both can be enabled independently
 
 # All metrics have 'rollout_corr/' prefix
