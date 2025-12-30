@@ -40,10 +40,11 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import get_device_name, get_torch_device, is_npu_available
 from verl.utils.vllm import VLLMHijack, is_version_ge
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.vllm_rollout.utils import npu_generate_uuid
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -102,7 +103,7 @@ class ServerAdapter(BaseRollout):
 
         from vllm.platforms import current_platform
 
-        self.device_uuid = current_platform.get_device_uuid(0)
+        self.device_uuid = npu_generate_uuid(rank) if is_npu_available else current_platform.get_device_uuid(0)
         self.zmq_context = zmq.Context()
         self.zmq_address_counter = 0
         self.zmq_handles: dict[str, str] = None
