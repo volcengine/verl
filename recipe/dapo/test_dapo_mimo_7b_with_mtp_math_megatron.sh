@@ -46,7 +46,7 @@ actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=1
-train_tp=8
+train_tp=2
 train_pp=1
 
 rm -rf ${TENSORBOARD_DIR}
@@ -127,7 +127,12 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
     actor_rollout_ref.model.mtp.enable=True \
     actor_rollout_ref.model.mtp.enable_train=True \
-    actor_rollout_ref.model.mtp.enable_rollout=True \
-    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1
+    actor_rollout_ref.model.mtp.enable_rollout=False \
+    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1 \
+    actor_rollout_ref.model.mtp.speculative_num_steps=3 \
+    actor_rollout_ref.model.mtp.speculative_eagle_topk=1 \
+    actor_rollout_ref.model.mtp.speculative_num_draft_tokens=4
+
+
 #    actor_rollout_ref.rollout.max_num_seqs=32 \
 #    +actor_rollout_ref.rollout.engine_kwargs.sglang.cuda_graph_max_bs=32

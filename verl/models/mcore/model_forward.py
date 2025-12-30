@@ -81,17 +81,17 @@ def model_forward_gen(vision_model: bool = False):
                 model_kwargs["labels"] = args["label"].contiguous()
                 model_kwargs["loss_mask"] = args["label_mask"].contiguous()
 
-                print(
-                    f"hzg model_forward\n"
-                    f"\t pre_process {pre_process}\n"
-                    f"\t input_ids: {input_ids.shape}\n"
-                    f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
-                    f"\t position_ids: {position_ids.shape}\n"
-                    f"\t labels {logits_processor_args['label'].shape}\n"
-                    f"\t labels_rmpad {model_kwargs['labels'].shape}\n"
-                    f"\t loss_mask {logits_processor_args['label_mask'].shape}\n"
-                    f"\t loss_mask_rmpad {model_kwargs['loss_mask'].shape}\n"
-                )
+                # print(
+                #     f"hzg model_forward\n"
+                #     f"\t pre_process {pre_process}\n"
+                #     f"\t input_ids: {input_ids.shape}\n"
+                #     f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
+                #     f"\t position_ids: {position_ids.shape}\n"
+                #     f"\t labels {logits_processor_args['label'].shape}\n"
+                #     f"\t labels_rmpad {model_kwargs['labels'].shape}\n"
+                #     f"\t loss_mask {logits_processor_args['label_mask'].shape}\n"
+                #     f"\t loss_mask_rmpad {model_kwargs['loss_mask'].shape}\n"
+                # )
 
             input_args = dict(
                 input_ids=input_ids_rmpad,

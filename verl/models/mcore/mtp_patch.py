@@ -81,21 +81,21 @@ def _megatron_gptmodel_postprocess(
     the output layer, and computes language model loss when labels are provided.
     """
 
-    if labels is not None:
-        print(
-            f"hzg _megatron_gptmodel_postprocess\n"
-            f"\t input_ids: {input_ids.shape}\n"
-            f"\t position_ids: {position_ids.shape}\n"
-            f"\t labels: {labels.shape}\n"
-            f"\t hidden states: {hidden_states.shape}\n"
-        )
-    else:
-        print(
-            f"hzg _megatron_gptmodel_postprocess\n"
-            f"\t input_ids: {input_ids.shape}\n"
-            f"\t position_ids: {position_ids.shape}\n"
-            f"\t hidden states: {hidden_states.shape}\n"
-        )
+    # if labels is not None:
+    #     print(
+    #         f"hzg _megatron_gptmodel_postprocess\n"
+    #         f"\t input_ids: {input_ids.shape}\n"
+    #         f"\t position_ids: {position_ids.shape}\n"
+    #         f"\t labels: {labels.shape}\n"
+    #         f"\t hidden states: {hidden_states.shape}\n"
+    #     )
+    # else:
+    #     print(
+    #         f"hzg _megatron_gptmodel_postprocess\n"
+    #         f"\t input_ids: {input_ids.shape}\n"
+    #         f"\t position_ids: {position_ids.shape}\n"
+    #         f"\t hidden states: {hidden_states.shape}\n"
+    #     )
 
     # logits and loss
     output_weight = None
@@ -117,12 +117,12 @@ def _megatron_gptmodel_postprocess(
             embedding=self.embedding,
             **(extra_block_kwargs or {}),
         )
-        print(
-            f"hzg mtp_in_postprocess\n"
-            f"\tinput_ids {input_ids.shape}\n"
-            f"\thidden states: {hidden_states.shape}\n"
-            f"\tself.post_process: {self.post_process}\n"
-        )
+        # print(
+        #     f"hzg mtp_in_postprocess\n"
+        #     f"\tinput_ids {input_ids.shape}\n"
+        #     f"\thidden states: {hidden_states.shape}\n"
+        #     f"\tself.post_process: {self.post_process}\n"
+        # )
 
     if not self.post_process:
         return hidden_states
@@ -248,12 +248,12 @@ def _patched_get_embeddings_for_detach(
     This is a modified version that you can customize according to your needs.
     The original implementation is preserved below with modifications.
     """
-    print(
-        f"hzg _patched_get_embeddings\n"
-        f"\t input_ids: {input_ids.shape}\n"
-        f"\t position_ids: {position_ids.shape}\n"
-        f"\t hidden states: {hidden_states.shape}\n"
-    )
+    # print(
+    #     f"hzg _patched_get_embeddings\n"
+    #     f"\t input_ids: {input_ids.shape}\n"
+    #     f"\t position_ids: {position_ids.shape}\n"
+    #     f"\t hidden states: {hidden_states.shape}\n"
+    # )
 
     # You can modify the logic here as needed
     # For example, you could:

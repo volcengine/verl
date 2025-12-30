@@ -589,7 +589,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-        print(f"hzg {self.config.model} {HFModelConfig}")
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
         self.model_config = model_config
 
