@@ -79,14 +79,14 @@ class Profiler:
     def _validate(self):
         if not self.enable:
             return
-            
+
         if self.config.all_ranks and self.config.ranks:
             raise ValueError(
                 f"[Profiler] Configuration Error: Ambiguous setup. "
                 f"'all_ranks' is set to True, but specific 'ranks' list ({self.config.ranks}) is also provided. "
                 "Please unset 'ranks' or set 'all_ranks' to False."
             )
-        
+
         world_size = torch.distributed.get_world_size()
 
         if self.config.all_ranks:
@@ -135,7 +135,9 @@ class Profiler:
         torch.distributed.barrier()
 
         if self.prof is not None and not self.saved:
-            save_file_name = f"/prof_start_{self.tool_config.step_start}_end_{self.tool_config.step_end}_rank_{self.rank}.json"
+            save_file_name = (
+                f"/prof_start_{self.tool_config.step_start}_end_{self.tool_config.step_end}_rank_{self.rank}.json"
+            )
             print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
             self.prof.export_chrome_trace(self.config.save_path + save_file_name)
 
