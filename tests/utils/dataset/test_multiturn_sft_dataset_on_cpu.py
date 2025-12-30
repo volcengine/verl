@@ -333,7 +333,6 @@ def vlm_data_file():
 
 def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    custom_model_prefix = Path("~/models").expanduser().resolve()
     model_path = f"{custom_model_prefix}/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
@@ -390,7 +389,7 @@ def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
 
 def test_multiturn_sft_vlm_dataloader_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    model_path = "~/models/Qwen/Qwen3-VL-2B-Instruct"
+    model_path = f"{custom_model_prefix}/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
     config = {"max_length": 512, "pad_mode": "no_padding", "truncation": "error", "messages_key": "messages"}
