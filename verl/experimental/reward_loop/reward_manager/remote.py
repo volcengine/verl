@@ -26,9 +26,9 @@ from verl.utils.reward_score import default_compute_score
 @ray.remote
 class RewardComputeWorker:
     def __init__(self, config):
-        # since the reward function may not be pickleable, we need to init the worker
+        # since the reward function may not be pickleable, we need to init it in the worker
         self.compute_score_fn = get_custom_reward_fn(config) or default_compute_score
-        self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
+        self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score_fn)
 
     async def compute_score(self, **kwargs) -> dict:
         if self.is_async_reward_score:
@@ -38,14 +38,14 @@ class RewardComputeWorker:
             return self.compute_score_fn(**kwargs)
 
 
-@register("process")
-class ProcessPoolRewardManager(RewardManagerBase):
+@register("remote")
+class RemoteRewardManager(RewardManagerBase):
     """
     The reward manager.
     Some errors exist when using default thread pool to compute reward score, e.g., math-verify.
     https://github.com/volcengine/verl/issues/3407
-    In this reward manager, we use process pool to compute reward score.
-    Moreover, process pool may be more suitable for cpu-intensive requests.
+    To avoid the above issues, we use a separate process to compute reward score.
+    Moreover, process may be more suitable for cpu-intensive requests.
     """
 
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
@@ -66,7 +66,7 @@ class ProcessPoolRewardManager(RewardManagerBase):
             ).remote(config)
             for _ in range(num_reward_workers)
         ]
-        self._curr_worker_idx = 0
+        self._curr_worker_idx = -1
 
     def choose_reward_worker(self):
         self._curr_worker_idx = (self._curr_worker_idx + 1) % len(self.reward_worker)
@@ -105,25 +105,26 @@ class ProcessPoolRewardManager(RewardManagerBase):
             else {}
         )
 
-        if self.is_async_reward_score:
-            result = await self.compute_score(
+        # reward_worker = self.choose_reward_worker()
+        # result = await reward_worker.compute_score.remote(
+        #     data_source=data_source,
+        #     solution_str=response_str,
+        #     ground_truth=ground_truth,
+        #     extra_info=extra_info,
+        #     **extra_reward_kwargs,
+        # )
+        from verl.utils.ray_utils import get_event_loop
+        loop = get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.compute_score(
                 data_source=data_source,
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
                 **extra_reward_kwargs,
-            )
-        else:
-            result = await self.loop.run_in_executor(
-                None,
-                lambda: self.compute_score(
-                    data_source=data_source,
-                    solution_str=response_str,
-                    ground_truth=ground_truth,
-                    extra_info=extra_info,
-                    **extra_reward_kwargs,
-                ),
-            )
+            ),
+        )
 
         reward_extra_info = {}
 

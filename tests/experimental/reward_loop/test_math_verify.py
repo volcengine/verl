@@ -57,7 +57,8 @@ def test_agent_loop_reward_manager():
     config.trainer.n_gpus_per_node = 8
     config.trainer.nnodes = 1
 
-    config.reward_model.reward_manager = "process"
+    config.reward_model.reward_manager = "remote"
+    config.reward_model.num_workers = 2
     config.custom_reward_function.path = "tests/experimental/reward_loop/reward_fn.py"
     config.custom_reward_function.name = "compute_score_math_verify"
 
