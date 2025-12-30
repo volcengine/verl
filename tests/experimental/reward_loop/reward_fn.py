@@ -82,3 +82,19 @@ async def compute_score_gsm8k(
     except Exception:
         score = 0
     return {"score": score, "acc": score == 10, "genrm_response": grm_response}
+
+
+def compute_score_math_verify(
+    data_source: str,
+    solution_str: str,
+    ground_truth: str,
+    extra_info: dict,
+    **kwargs,
+):
+    """Compute the reward score."""
+    from verl.utils.reward_score.math_verify import compute_score
+
+    return compute_score(
+        model_output=solution_str,
+        ground_truth=ground_truth,
+    )
