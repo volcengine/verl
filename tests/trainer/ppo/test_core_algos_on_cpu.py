@@ -22,8 +22,14 @@ import torch
 import verl.trainer.ppo.core_algos
 from verl.trainer.ppo.core_algos import (
     compute_gae_advantage_return,
+    compute_gpg_outcome_advantage,
+    compute_gpg_vectorized_outcome_advantage,
     compute_grpo_outcome_advantage,
     compute_grpo_vectorized_outcome_advantage,
+    compute_opo_outcome_advantage,
+    compute_opo_vectorized_outcome_advantage,
+    compute_reinforce_plus_plus_baseline_outcome_advantage,
+    compute_reinforce_plus_plus_baseline_vectorized_outcome_advantage,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
     get_adv_estimator_fn,
@@ -311,6 +317,99 @@ def test_grpo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_grou
     assert ret1.shape == ret2.shape == (batch_size, seq_len)
     assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
     assert torch.allclose(ret1, ret2, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_reinforce_pp_baseline_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = _rand_mask(batch_size, seq_len)
+    token_level_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32) * response_mask
+
+    adv1, ret1 = compute_reinforce_plus_plus_baseline_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+    adv2, ret2 = compute_reinforce_plus_plus_baseline_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    print(f"[RF++_BASELINE] seed={seed} groups={num_groups} adv_max_diff={adv_max_diff:.3e}")
+
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_opo_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = _rand_mask(batch_size, seq_len)
+    token_level_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32) * response_mask
+
+    adv1, ret1 = compute_opo_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+    adv2, ret2 = compute_opo_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    print(f"[OPO] seed={seed} groups={num_groups} adv_max_diff={adv_max_diff:.3e}")
+
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "batch_size,seq_len,num_groups,seed",
+    [
+        (64, 128, 5, 0),
+        (128, 256, 8, 1),
+        (512, 512, 10, 2),
+    ],
+)
+def test_gpg_and_vectorized_equivalence(batch_size: int, seq_len: int, num_groups: int, seed: int):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    index = _make_group_index(batch_size, num_groups)
+    response_mask = _rand_mask(batch_size, seq_len)
+    token_level_rewards = torch.randn(batch_size, seq_len, dtype=torch.float32) * response_mask
+
+    adv1, ret1 = compute_gpg_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+    adv2, ret2 = compute_gpg_vectorized_outcome_advantage(
+        token_level_rewards=token_level_rewards, response_mask=response_mask, index=index
+    )
+
+    adv_max_diff = (adv1 - adv2).abs().max().item()
+    print(f"[GPG] seed={seed} groups={num_groups} adv_max_diff={adv_max_diff:.3e}")
+
+    assert adv1.shape == adv2.shape == (batch_size, seq_len)
+    assert torch.allclose(adv1, adv2, rtol=1e-5, atol=1e-6)
 
 
 if __name__ == "__main__":
