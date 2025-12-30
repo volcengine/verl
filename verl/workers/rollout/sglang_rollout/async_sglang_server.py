@@ -260,6 +260,7 @@ class SGLangHttpServer:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
@@ -283,6 +284,8 @@ class SGLangHttpServer:
             sampling_params=sampling_params,
             return_logprob=return_logprob,
             image_data=image_data,
+            # TODO: support video input for sglang
+            # video_data=video_data,
         )
         output = await self.tokenizer_manager.generate_request(request, None).__anext__()
         if return_logprob:
