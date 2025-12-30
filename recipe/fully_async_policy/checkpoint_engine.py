@@ -17,10 +17,7 @@ This logic is largely copied from:
 """
 
 import concurrent.futures
-import os
-import re
 import socket
-import subprocess
 import threading
 from collections.abc import Callable
 from functools import lru_cache
@@ -155,41 +152,28 @@ def _align_size(dtype: torch.dtype, shape: torch.Size) -> int:
 
 @lru_cache(maxsize=1)
 def get_ip() -> str:
-    try:
-        # try to get ip from network interface
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception as e:  # noqa: BLE001
-        # fallback to get ip from hostname
-        print(f"fail to get ip from network interface, fallback to get ip from hostname: {e}")
-        return socket.gethostbyname(socket.gethostname())
+    # List of address families to try, in priority order (IPv6 first, then IPv4)
+    address_families = [
+        (socket.AF_INET6, "2600::", "IPv6"),
+        (socket.AF_INET, "8.8.8.8", "IPv4"),
+    ]
+
+    for family, addr, name in address_families:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as s:
+                s.connect((addr, 80))
+                return s.getsockname()[0]
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to get {name} address: {e}")
+
+    # Final fallback to hostname if all address family attempts fail
+    print("All address family attempts failed, falling back to hostname")
+    return socket.gethostbyname(socket.gethostname())
 
 
 def npu_generate_uuid() -> str:
     """Generate uuid for each npu device"""
-    str_pid = str(os.getpid())
-    # In A2 server, one x86 machine could have more than 8 cards.
-    if "910C" not in torch.npu.get_device_name():
-        npu_num = torch.npu.device_count()
-    else:
-        npu_num = 8
-    try:
-        for npu_id in range(npu_num):
-            cmd = ["npu-smi", "info", "-t", "proc-mem", "-i", str(npu_id)]
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
-            str_result = str(result.stdout)
-            if str_pid in str_result:
-                # In A3 server, one NPU has two chips.
-                match_chip_count = re.search(r"Chip Count[^\d]*(\d+)", str_result)
-                chip_count = int(match_chip_count.group(1))
-                search_after_pid = str_result[str_result.find(str_pid) + len(str_pid) :]
-                match_chip_id = re.search(r"Chip ID[^\d]*(\d+)", search_after_pid)
-                chip_id = int(match_chip_id.group(1))
-                return f"{get_ip()}-{npu_id * chip_count + chip_id}"
-        raise ValueError("The current process is not running on the npu device")
-    except subprocess.CalledProcessError as e:
-        raise ValueError("The current process is not running on the npu device") from e
+    return f"{get_ip()}-{get_device_id()}"
 
 
 def _get_physical_device_id(device_index: int | None = None) -> str:
