@@ -763,6 +763,7 @@ def compute_optimal_token_baseline_advantage(
     old_log_probs: torch.Tensor,
     sum_pi_squared: torch.Tensor,
     rollout_is_weights: torch.Tensor = None,
+    handle_zero_tail: bool = False,
     epsilon: float = 1e-8,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -787,6 +788,9 @@ def compute_optimal_token_baseline_advantage(
         old_log_probs: Log probabilities from training policy during generation [shape: (bs, response_length)]
         sum_pi_squared: Sum of squared probabilities over vocabulary Σπ² [shape: (bs, response_length)]
         rollout_is_weights: Pre-computed IS weights for W correction [shape: (bs, response_length)], None if not using IS
+        handle_zero_tail: If True, zero baselines will be set in the portion of the longest trajectory
+            that extends beyond the second-longest trajectory in the prompt group.
+            Default: False
         epsilon: Small constant for numerical stability (default: 1e-8)
 
     Returns:
@@ -850,6 +854,18 @@ def compute_optimal_token_baseline_advantage(
             # Assign to all trajectories in this group
             baselines[traj_idx] = baseline_per_step.unsqueeze(0).expand(N, -1)
 
+            if handle_zero_tail:
+                # Optionally zero out the portion of the longest trajectory that extends
+                # beyond the second-longest trajectory in the prompt group.
+                response_lengths = mask_group.sum(dim=-1)
+                sorted_lengths, _ = torch.sort(response_lengths)
+                max_length = int(sorted_lengths[-1].item())
+                second_max_length = int(sorted_lengths[-2].item())
+                max_length_idx = (response_lengths == max_length).nonzero(as_tuple=True)[0]
+                if max_length_idx.numel() == 1 and max_length > second_max_length:
+                    max_length_traj_idx = trajectory_indices[int(max_length_idx[0])]
+                    baselines[max_length_traj_idx, second_max_length:] = 0.0
+
         # Compute advantages: A_t = G_t - B_t
         advantages = (returns - baselines) * response_mask
 
@@ -864,6 +880,7 @@ def compute_multi_turn_optimal_token_baseline_advantage(
     old_log_probs: torch.Tensor,
     sum_pi_squared: torch.Tensor,
     rollout_is_weights: torch.Tensor = None,
+    handle_zero_tail: bool = True,
     epsilon: float = 1e-8,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -888,6 +905,9 @@ def compute_multi_turn_optimal_token_baseline_advantage(
         old_log_probs: Log probabilities from training policy during generation [shape: (bs, response_length)]
         sum_pi_squared: Sum of squared probabilities over vocabulary Σπ² [shape: (bs, response_length)]
         rollout_is_weights: Pre-computed IS weights for W correction [shape: (bs, response_length)], None if not using IS
+        handle_zero_tail: If True, zero baselines will be set in the portion of the longest trajectory
+            that extends beyond the second-longest trajectory in the prompt group.
+            Default: False
         epsilon: Small constant for numerical stability (default: 1e-8)
 
     Returns:
@@ -958,6 +978,18 @@ def compute_multi_turn_optimal_token_baseline_advantage(
             b_star = (R_group * w_group).sum(dim=0) / (w_group.sum(dim=0) + epsilon)
             # Convert to match baselines dtype (epsilon can cause float64 promotion)
             baselines[traj_idx] = b_star.to(baselines.dtype)
+
+            if handle_zero_tail:
+                # Optionally zero out the portion of the longest trajectory that extends
+                # beyond the second-longest trajectory in the prompt group.
+                response_lengths_group = response_lengths[traj_idx]
+                sorted_lengths, _ = torch.sort(response_lengths_group)
+                max_length = int(sorted_lengths[-1].item())
+                second_max_length = int(sorted_lengths[-2].item())
+                max_length_idx = (response_lengths_group == max_length).nonzero(as_tuple=True)[0]
+                if max_length_idx.numel() == 1 and max_length > second_max_length:
+                    max_length_traj_idx = trajectory_indices[int(max_length_idx[0])]
+                    baselines[max_length_traj_idx, second_max_length:] = 0.0
 
         # Compute advantages
         all_advantages = all_returns - baselines # [shape: (bs * n, max_response_length)]
