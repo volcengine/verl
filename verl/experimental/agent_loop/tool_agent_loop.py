@@ -357,6 +357,7 @@ class ToolAgentLoop(AgentLoopBase):
             current_images = new_images_this_turn if new_images_this_turn else None  # Using local variable
             model_inputs = self.processor(text=[raw_tool_response], images=current_images, return_tensors="pt")
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+            response_ids = response_ids[len(self.system_prompt) :]
         else:
             if self.tool_parser_name == "gpt-oss":
                 logger.info("manually format tool responses for gpt-oss")
