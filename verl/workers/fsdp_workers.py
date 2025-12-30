@@ -611,10 +611,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if rollout_name == "hf":
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:
-            is_collect = (
-                rollout_device_mesh["infer_tp"].get_local_rank() == 0
-                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
-            )
+            # For sglang async mode, mesh only has ["dp", "infer_tp"], no "infer_pp"
+            if self.config.rollout.mode == "async" and self.config.rollout.name == "sglang":
+                is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+            else:
+                is_collect = (
+                    rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                    and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+                )
             self._register_dispatch_collect_info(
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )

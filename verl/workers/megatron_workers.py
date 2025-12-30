@@ -169,7 +169,7 @@ class MegatronWorker(Worker):
             if self.vanilla_bridge:
                 from verl.models.mcore.mbridge import AutoBridge
 
-                bridge = AutoBridge.from_config(hf_config, dtype=dtype)
+                bridge = AutoBridge.from_config(hf_config)
                 bridge.set_extra_args(**override_transformer_config)
                 tf_config = bridge.config
                 tf_config.fp16 = fp16
@@ -519,10 +519,17 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
             )
 
-        is_collect = (
-            rollout_device_mesh["infer_tp"].get_local_rank() == 0
-            and rollout_device_mesh["infer_pp"].get_local_rank() == 0
-        )
+        self.rollout_device_mesh = rollout_device_mesh
+
+        if self.config.rollout.mode == "async" and self.config.rollout.name == "sglang":
+            # For sglang async mode, only check infer_tp
+            is_collect = rollout_device_mesh["infer_tp"].get_local_rank() == 0
+        else:
+            is_collect = (
+                rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+            )
+
         self._register_dispatch_collect_info(
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
         )
