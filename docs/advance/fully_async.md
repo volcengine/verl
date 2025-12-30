@@ -105,6 +105,7 @@ but the overlap in their time consumption reduces the end-to-end time consumptio
 | `async_training.checkpoint_engine.enable`                        | Whether to use checkpoint_engine for accelerating, default `True`                              |
 | `async_training.checkpoint_engine.overlap_broadcast_and_consume` | When use checkpoint_engine, whether to overlap broadcast and load_weights, default `False`     |
 | `async_training.checkpoint_engine.device_buffer_size_M`          | When use checkpoint_engine, the user-specific bucket size (MB), default `4096`                 |
+| `async_training.use_trainer_do_validate`                         | Whether use trainer node to do validate process, default `False`|
 
 **Further Explanation:**
 
@@ -193,6 +194,13 @@ but the overlap in their time consumption reduces the end-to-end time consumptio
     trainer rank is `3 * bucket_size`and rollout rank is `2 * bucket_size`。
   - When disable `overlap_broadcast_and_consume`, the additional device memory overhead of
     trainer rank is `2 * bucket_size`and rollout rank is `1 * bucket_size`。
+
+* `async_training.use_trainer_do_validate`
+
+  It controls whether to use the trainer's `do_validate` method for validation.
+  If set to True, the trainer will perform validation after each parameter update. It can reduce the validation time
+  overhead and trainer node idle time.
+  If set to False, the trainer will not perform validation.
 
 ### Supported Modes
 
@@ -476,6 +484,36 @@ We tested the single-step parameter synchronization time of the checkpoint-engin
 | Qwen3-30B-A3B | 16 | 16 | True | 4.38s |
 | Qwen3-235B-A22B | 64 | 64 | False | 58.57s |
 | Qwen3-235B-A22B | 64 | 64 | True | 23.70s |
+
+### use_trainer_do_validate Experiment
+
+We tested the effect of setting `use_trainer_do_validate=True` on the training process. The results show that setting
+this parameter to True can reduce the validation time overhead and trainer node idle time.
+We used Qwen2.5-Math-7B to verify the benefits of `use_trainer_do_validate=True` on the training process, we achieved about 2x performance improvement on validation time, and the trainer node idle time is reduced by about 40%.
+
+* Machine: H20
+* Model: Qwen2.5-Math-7B
+* Rollout length: max_response_length FSDP2: 10K tokens;
+* Algorithm: DAPO
+* Dataset: TRAIN_FILE: dapo-math-17k.parquet TEST_FILE: aime-2024.parquet
+* Engine: vllm+FSDP2
+* rollout.n: 16
+* ppo_mini_batch_size: 32
+* test_freq: 10
+
+* fully_async_policy
+    * total_rollout_steps: 512*400
+    * require_batches: 4
+    * trigger_parameter_sync_step: 4
+    * staleness_threshold: 0.5
+    * partial_rollout: True
+
+|  training mode  | resource allocation | step  |  gen  | old_log_prob | update_actor | validate time | total time<br>50 step | acc/mean@2 |
+|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|
+| colocate sync      | 16  |  484.623  |  52.939	 |   0	 |   430.263   |  205.080  	 |     7h9m  	 |     22.6     |
+| fully_async_policy | 8:8 |  489.953  |  52.622	 |   0	 |   435.874   |  95.699  	 |     7h2m  	 |     21.0    |
+| fully_async_policy_opt_validate | 8:8 |    |  	 |   0	 |      |    	 |       	 |        |
+
 
 ## Multi-Turn Tool Calling
 
