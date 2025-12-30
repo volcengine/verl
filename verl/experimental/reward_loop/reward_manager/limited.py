@@ -307,7 +307,25 @@ class RateLimitedRewardManager(RewardManagerBase):
 
         cls._class_initialized = True
 
-    def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
+    def __init__(
+        self,
+        config: DictConfig | None = None,
+        tokenizer: AutoTokenizer | None = None,
+        compute_score=None,
+        reward_router_address=None,
+        reward_model_tokenizer=None,
+        # Legacy (AbstractRewardManager) kwargs for compatibility. Not used.
+        num_examine: int | None = None,
+        reward_fn_key: str | None = None,
+        **kwargs,
+    ):
+        # When called via the legacy AbstractRewardManager signature, `config` may be absent.
+        # In that case we fall back to an empty config so training can proceed.
+        if config is None:
+            config = DictConfig({"reward_model": {}})
+        if tokenizer is None:
+            raise TypeError("RateLimitedRewardManager requires `tokenizer`.")
+
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
