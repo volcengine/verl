@@ -12,26 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ipaddress
 import socket
 from datetime import timedelta
 
 from torch.distributed import TCPStore
 
 from verl.utils.device import is_npu_available
-
-
-def is_ipv6(address: str) -> bool:
-    """
-    判断字符串是否为合法的IPv6地址
-    :param address: 待判断的地址字符串
-    :return: 合法返回True，否则False
-    """
-    try:
-        ipaddress.IPv6Address(address)
-        return True
-    except ValueError:
-        return False
+from verl.utils.net_utils import is_ipv6
 
 
 def stateless_init_process_group(master_address, master_port, rank, world_size, device):
@@ -52,7 +39,7 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
         from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
     from vllm.distributed.utils import StatelessProcessGroup
 
-    def my_create(
+    def create_process_group(
         host: str,
         port: int,
         rank: int,
@@ -60,21 +47,7 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
         data_expiration_seconds: int = 3600,
         store_timeout: int = 300,
     ) -> "StatelessProcessGroup":
-        """A replacement for `torch.distributed.init_process_group` that does not
-        pollute the global state.
-
-        If we have process A and process B called `torch.distributed.init_process_group`
-        to form a group, and then we want to form another group with process A, B, C,
-        D, it is not possible in PyTorch, because process A and process B have already
-        formed a group, and process C and process D cannot join that group. This
-        function is a workaround for this issue.
-
-        `torch.distributed.init_process_group` is a global call, while this function
-        is a stateless call. It will return a `StatelessProcessGroup` object that can be
-        used for exchanging metadata. With this function, process A and process B
-        can call `StatelessProcessGroup.create` to form a group, and then process A, B,
-        C, and D can call `StatelessProcessGroup.create` to form another group.
-        """  # noqa
+        """This is copied from vllm project to support ipv6 stateless communication groups."""
         launch_server = rank == 0
         if launch_server:
             # listen on the specified interface (instead of 0.0.0.0)
@@ -108,7 +81,7 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
             data_expiration_seconds=data_expiration_seconds,
         )
 
-    pg = my_create(host=master_address, port=master_port, rank=rank, world_size=world_size)
+    pg = create_process_group(host=master_address, port=master_port, rank=rank, world_size=world_size)
 
     pynccl = PyNcclCommunicator(pg, device=device)
     return pynccl

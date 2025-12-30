@@ -25,6 +25,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
+    get_device_id,
     get_device_name,
     get_torch_device,
 )
@@ -105,7 +106,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
             patch_vllm_moe_model_weight_loader(inference_model)
         for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
+            tensor = torch.empty(shape, dtype=dtype, device=get_device_id())
             if self._is_actor:
                 assert key in params
                 origin_data = params[key]
@@ -161,8 +162,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         register_duration = register_end_time - cache_end_time
         self.cpu_named_params = {}
 
-        # collective.barrier(group_name=sync_group_name)
-        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
+        dummy_tensor = torch.tensor([1.0], device=get_device_id())
         self._weight_sync_group.all_reduce(dummy_tensor)
         update_start_time = time.time()
 
@@ -212,7 +212,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             master_port,
             current_rank,
             len(actor_ranks) + len(rollout_ranks),
-            get_torch_device().current_device(),
+            get_device_id(),
         )
 
 

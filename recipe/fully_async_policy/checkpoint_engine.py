@@ -31,6 +31,7 @@ import zmq
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
 
 from verl.utils.device import (
+    get_device_id,
     get_device_name,
     get_torch_device,
 )
@@ -185,8 +186,6 @@ def npu_generate_uuid() -> str:
                 search_after_pid = str_result[str_result.find(str_pid) + len(str_pid) :]
                 match_chip_id = re.search(r"Chip ID[^\d]*(\d+)", search_after_pid)
                 chip_id = int(match_chip_id.group(1))
-                # NOTE: get_ip could possibly fail due to hostname not bound to an IP address.
-                # We need a more robust way to generate uuid.
                 return f"{get_ip()}-{npu_id * chip_count + chip_id}"
         raise ValueError("The current process is not running on the npu device")
     except subprocess.CalledProcessError as e:
@@ -438,13 +437,13 @@ class CheckpointEngine:
             h2d_buffer: torch.Tensor | None = (
                 None
                 if self.current_rank in self.rollout_ranks
-                else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_torch_device().current_device())
+                else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_device_id())
             )
             # for pipeline mode, we need to allocate 2x buffer size
             broadcast_load_buffer = torch.empty(
                 self.bucket_size * (2 if overlap_broadcast_and_consume else 1),
                 dtype=torch.uint8,
-                device=get_torch_device().current_device(),
+                device=get_device_id(),
             )
         except Exception:
             print(
@@ -490,7 +489,7 @@ class CheckpointEngine:
 
         gidx = 0
         local_buckets = self.global_buckets.get(self.current_rank, [])
-        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
+        dummy_tensor = torch.tensor([1.0], device=get_device_id())
 
         for i in range(max_h2d_iter):
             # Step 1: Each actor rank copy the parameter tensor into device memory
@@ -531,7 +530,7 @@ class CheckpointEngine:
             req_thread.join()
             socket.close()
 
-        dummy_tensor = torch.tensor([1.0], device=get_torch_device().current_device())
+        dummy_tensor = torch.tensor([1.0], device=get_device_id())
         self._weight_sync_group.all_reduce(dummy_tensor)
         # clear host memory cache
         self.memory_buffers = []
