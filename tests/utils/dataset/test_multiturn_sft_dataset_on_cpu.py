@@ -36,9 +36,9 @@ from verl.utils.model import extract_multi_modal_inputs
 @pytest.mark.parametrize(
     "model_path",
     [
-        "Qwen/Qwen2.5-0.5B",
-        "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        "~/models/Qwen/Qwen2.5-0.5B",
+        "~/models/Qwen/Qwen2.5-Coder-7B-Instruct",
+        "~/models/Qwen/Qwen3-30B-A3B-Instruct-2507",
         # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to last turn.
     ],
 )
@@ -330,7 +330,7 @@ def vlm_data_file():
 
 def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    model_path = "Qwen/Qwen3-VL-2B-Instruct"
+    model_path = "~/models/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
     config = {"max_length": 512, "pad_mode": "no_padding", "truncation": "error", "messages_key": "messages"}
@@ -386,7 +386,7 @@ def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
 
 def test_multiturn_sft_vlm_dataloader_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    model_path = "Qwen/Qwen3-VL-2B-Instruct"
+    model_path = "~/models/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
     config = {"max_length": 512, "pad_mode": "no_padding", "truncation": "error", "messages_key": "messages"}
