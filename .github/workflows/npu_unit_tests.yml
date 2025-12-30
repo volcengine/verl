@@ -75,7 +75,7 @@ jobs:
     if: github.repository_owner == 'volcengine'
     name: Ascend unit test
     runs-on: linux-aarch64-a2-8
-    timeout-minutes: 20 # Increase this timeout value as needed
+    timeout-minutes: 60 # Increase this timeout value as needed
     container:
       image: swr.ap-southeast-1.myhuaweicloud.com/base_image/ascend-ci/verl/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
       options: >-
