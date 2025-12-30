@@ -99,7 +99,7 @@ jobs:
           pip3 install --no-deps -e .
       - name: Download datasets
         run: |
-          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ~/verl-data/gsm8k
+          huggingface-cli download verl-team/gsm8k-v0.4.1 --repo-type dataset --local-dir ${HOME}/models/hf_data/gsm8k
           python3 examples/data_preprocess/geo3k.py
       - name: Running CPU unit tests
         run: |
