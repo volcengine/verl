@@ -108,7 +108,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # ==================== fully async config ====================
 
-        self.total_rollout_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+        self.total_rollout_steps = len(self.train_dataloader) * self.config.rollout.total_epochs
         if self.config.rollout.total_rollout_steps is not None:
             self.total_rollout_steps = min(self.config.rollout.total_rollout_steps, self.total_rollout_steps)
         print(f"[FullyAsyncRollouter] Total rollout steps: {self.total_rollout_steps}")
