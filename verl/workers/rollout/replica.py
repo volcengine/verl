@@ -97,11 +97,12 @@ class RolloutReplica(ABC):
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
-        self.gpus_per_node = min(gpus_per_node, self.world_size)
-        assert self.world_size % self.gpus_per_node == 0, (
-            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
+        self.gpus_per_node = gpus_per_node
+        self.gpus_per_replica_node = min(gpus_per_node, self.world_size)
+        assert self.world_size % self.gpus_per_replica_node == 0, (
+            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_replica_node}"
         )
-        self.nnodes = self.world_size // self.gpus_per_node
+        self.nnodes = self.world_size // self.gpus_per_replica_node
         self.is_reward_model = is_reward_model
 
         self.rollout_mode: RolloutMode = None
