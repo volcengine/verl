@@ -14,7 +14,7 @@
 
 import ray
 import inspect
-import concurrent
+import asyncio
 
 from verl import DataProto
 from verl.trainer.ppo.reward import get_custom_reward_fn
@@ -25,18 +25,15 @@ from verl.utils.reward_score import default_compute_score
 
 @ray.remote
 class RewardComputeWorker:
-    def __init__(self, config):
+    """
+    WARNING: This class cannot have async methods.
+    """
+    def __init__(self, compute_score_fn):
         # since the reward function may not be pickleable, we need to init it in the worker
-        self.compute_score_fn = get_custom_reward_fn(config) or default_compute_score
-        self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score_fn)
+        self.compute_score_fn = compute_score_fn
 
-    async def compute_score(self, **kwargs) -> dict:
-        if self.is_async_reward_score:
-            return await self.compute_score_fn(**kwargs)
-        else:
-            # it will not block the main process, as it run in ray actor
-            return self.compute_score_fn(**kwargs)
-
+    def compute_score(self, **kwargs) -> dict:
+        return self.compute_score_fn(**kwargs)
 
 @register("remote")
 class RemoteRewardManager(RewardManagerBase):
@@ -51,6 +48,10 @@ class RemoteRewardManager(RewardManagerBase):
     def __init__(self, config, tokenizer, compute_score=None, reward_router_address=None, reward_model_tokenizer=None):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
+        self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
+        assert not self.is_async_reward_score, (
+            "Async reward score is not supported in remote reward manager. "
+        )
         self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
         num_reward_workers = config.reward_model.num_workers
@@ -63,7 +64,7 @@ class RemoteRewardManager(RewardManagerBase):
                     node_id=ray.get_runtime_context().get_node_id(),
                     soft=False,
                 ),
-            ).remote(config)
+            ).remote(self.compute_score)
             for _ in range(num_reward_workers)
         ]
         self._curr_worker_idx = -1
@@ -105,25 +106,13 @@ class RemoteRewardManager(RewardManagerBase):
             else {}
         )
 
-        # reward_worker = self.choose_reward_worker()
-        # result = await reward_worker.compute_score.remote(
-        #     data_source=data_source,
-        #     solution_str=response_str,
-        #     ground_truth=ground_truth,
-        #     extra_info=extra_info,
-        #     **extra_reward_kwargs,
-        # )
-        from verl.utils.ray_utils import get_event_loop
-        loop = get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: self.compute_score(
-                data_source=data_source,
-                solution_str=response_str,
-                ground_truth=ground_truth,
-                extra_info=extra_info,
-                **extra_reward_kwargs,
-            ),
+        reward_worker = self.choose_reward_worker()
+        result = await reward_worker.compute_score.remote(
+            data_source=data_source,
+            solution_str=response_str,
+            ground_truth=ground_truth,
+            extra_info=extra_info,
+            **extra_reward_kwargs,
         )
 
         reward_extra_info = {}
