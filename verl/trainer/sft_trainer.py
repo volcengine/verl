@@ -102,7 +102,6 @@ class SFTTrainer:
         self.profiler_interval = self.config.trainer.profile_interval
         self._validate_profiler_interval()
 
-
     def _validate_profiler_interval(self):
         assert len(self.profiler_interval) == 2
         self.start_profile_step = self.profiler_interval[0]
@@ -123,7 +122,7 @@ class SFTTrainer:
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
             checkpoint_config=self.checkpoint_config,
-            profiler_config=self.profiler_config
+            profiler_config=self.profiler_config,
         )
 
         self.training_client = TrainingWorker(config=config)

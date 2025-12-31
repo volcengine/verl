@@ -42,8 +42,6 @@ from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, Train
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
 
-from verl.utils.profiler import Profiler
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -77,8 +75,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool)
 
         DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=self.profiler_config,
-                               tool_config=self.profiler_tool_config)
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=self.profiler_tool_config)
         )
 
         self.engine: BaseEngine = EngineRegistry.new(

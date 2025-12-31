@@ -40,10 +40,9 @@ class Profiler:
         config: Configuration object containing profiling parameters
     """
 
-    def __init__(self,
-                 config: ProfilerConfig,
-                 tool_config: Optional[TorchProfilerToolConfig] = None,
-                 save_file_prefix=None):
+    def __init__(
+        self, config: ProfilerConfig, tool_config: Optional[TorchProfilerToolConfig] = None, save_file_prefix=None
+    ):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
         if not config:
             config = ProfilerConfig(ranks=[], enable=False)
@@ -93,7 +92,6 @@ class Profiler:
         prof.export_chrome_trace(save_path)
         self.enable = False
         self.saved = True
-
 
     def _validate(self):
         if self.enable:
@@ -209,7 +207,6 @@ class DistProfiler:
 
         if tool_config is None:
             tool_config = config.tool_config
-
 
         self._impl = None
         self._tool = getattr(config, "tool", None)

@@ -19,10 +19,9 @@ from typing import Any, Literal, Optional
 from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
 
+from ...utils.profiler import ProfilerConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
-
-from ...utils.profiler import ProfilerConfig
 
 __all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig", "VeOmniEngineConfig"]
 

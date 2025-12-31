@@ -116,7 +116,7 @@ class SFTTrainer:
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
             checkpoint_config=self.checkpoint_config,
-            profiler_config=self.profiler_config
+            profiler_config=self.profiler_config,
         )
 
         # create resource pool and worker group
