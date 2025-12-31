@@ -40,10 +40,16 @@ class Profiler:
         config: Configuration object containing profiling parameters
     """
 
-    def __init__(self, config: ProfilerConfig, tool_config: Optional[TorchProfilerToolConfig] = None):
+    def __init__(self,
+                 config: ProfilerConfig,
+                 tool_config: Optional[TorchProfilerToolConfig] = None,
+                 save_file_prefix=None):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
         if not config:
             config = ProfilerConfig(ranks=[], enable=False)
+
+        self.save_file_prefix = save_file_prefix
+
         if not tool_config:
             assert not config.enable, "tool_config must be provided when profiler is enabled"
         self.prof = None
@@ -56,7 +62,8 @@ class Profiler:
         self.rank = torch.distributed.get_rank()
         # we need to validate the config before using the profiler
         self._validate()
-        if self.rank in self.config.profile_ranks:
+
+        if self.rank in self.config.ranks or self.config.all_ranks:
             print(f"[Profiler] Profiler init for rank {self.rank}")
 
             self.prof = torch.profiler.profile(
@@ -72,13 +79,27 @@ class Profiler:
                 ),
                 record_shapes=True,
                 with_stack=True,
+                on_trace_ready=self._trace_handler if not self.tool_config.manual_save else None,
             )
+
+    def _trace_handler(self, prof):
+        if not os.path.exists(self.config.save_path):
+            os.makedirs(self.config.save_path)
+        save_file_name = f"prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
+        if self.save_file_prefix is not None:
+            save_file_name = self.save_file_prefix + "_" + save_file_name
+        save_path = os.path.join(self.config.save_path, save_file_name)
+        print(f"[Profiler] Saving trace to {save_path}")
+        prof.export_chrome_trace(save_path)
+        self.enable = False
+        self.saved = True
+
 
     def _validate(self):
         if self.enable:
-            if self.config.profile_ranks is None:
+            if self.config.ranks is None:
                 print("[WARNING] Profile ranks is not set, default to rank 0")
-                self.config.profile_ranks = [0]
+                self.config.ranks = [0]
             assert self.tool_config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
             assert self.tool_config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
             assert self.tool_config.step_start < self.tool_config.step_end, (
@@ -103,14 +124,8 @@ class Profiler:
             self.prof.stop()
 
     def save(self):
-        if self.prof is not None and not self.saved:
-            if not os.path.exists(self.config.save_path):
-                os.makedirs(self.config.save_path)
-            save_file_name = f"/prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
-            print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
-            self.prof.export_chrome_trace(self.config.save_path + save_file_name)
-            self.enable = False
-            self.saved = True
+        if self.prof is not None and not self.saved and self.tool_config.manual_save:
+            self._trace_handler(prof=self.prof)
 
     def stop_and_save(self):
         if self.check():
@@ -188,7 +203,11 @@ class DistProfiler:
     ):
         # Default config
         if not config:
-            config = ProfilerConfig(ranks=[], enable=False)
+            config = ProfilerConfig(ranks=[], enable=False, tool_config=None)
+
+        if tool_config is None:
+            tool_config = config.tool_config
+
 
         self._impl = None
         self._tool = getattr(config, "tool", None)

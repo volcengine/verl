@@ -22,6 +22,8 @@ from verl.trainer.config import CheckpointConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
+from ...utils.profiler import ProfilerConfig
+
 __all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig", "VeOmniEngineConfig"]
 
 
@@ -273,3 +275,4 @@ class TrainingWorkerConfig(BaseConfig):
     engine_config: EngineConfig = None
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
+    profiler_config: ProfilerConfig = None

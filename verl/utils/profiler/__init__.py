@@ -15,7 +15,7 @@
 from ..device import is_npu_available
 from ..import_utils import is_nvtx_available
 from .performance import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
-from .profile import DistProfiler, DistProfilerExtension, ProfilerConfig
+from .profile import DistProfiler, DistProfilerExtension, ProfilerConfig, Profiler
 
 # Select marker implementations by availability, but keep DistProfiler as our dispatcher
 if is_nvtx_available():
