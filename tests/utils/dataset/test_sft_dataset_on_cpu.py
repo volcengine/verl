@@ -19,7 +19,7 @@ from verl.utils.dataset.sft_dataset import SFTDataset
 
 def get_gsm8k_data():
     # prepare test dataset
-    local_folder = os.path.expanduser("~/models/hf_data/gsm8k/")
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     local_path = os.path.join(local_folder, "train.parquet")
     return local_path
 

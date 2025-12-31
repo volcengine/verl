@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 
 def get_gsm8k_data():
     # prepare test dataset
-    local_folder = os.path.expanduser("~/models/hf_data/gsm8k/")
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
