@@ -198,6 +198,13 @@ CONFIG = {
         # seqlen_square_sum: 180355072 (calculated with sliding window logic)
         # attn flops: 12 * 180355072 * 256 * 16 = 8864812498944
         # total: 283517065887744 / 1e12 = 283.517065887744
+        #
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 12772147200 * 12288 = 941664868761600
+        # seqlen_square_sum: 905969664 (calculated with sliding window logic)
+        # attn flops: 12 * 905969664 * 256 * 16 = 44530220924928
+        # total: 986195089686528 / 1e12 = 986.195089686528
+        "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
     },
     "gpt_oss": {
         "config": {
