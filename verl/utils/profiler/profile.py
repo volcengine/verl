@@ -79,13 +79,13 @@ class Profiler:
                 ),
                 record_shapes=True,
                 with_stack=True,
-                on_trace_ready=self._trace_handler if not self.tool_config.manual_save else None,
             )
 
     def _trace_handler(self, prof):
         if not os.path.exists(self.config.save_path):
             os.makedirs(self.config.save_path)
-        save_file_name = f"prof_start_{self.config.step_start}_end_{self.config.step_end}_rank_{self.rank}.json"
+
+        save_file_name = f"prof_rank-{self.rank}.json.gz"
         if self.save_file_prefix is not None:
             save_file_name = self.save_file_prefix + "_" + save_file_name
         save_path = os.path.join(self.config.save_path, save_file_name)
@@ -120,8 +120,10 @@ class Profiler:
 
     def stop(self):
         if self.check():
+            self.step()
             print(f"[Profiler] stopped for rank {self.rank}")
             self.prof.stop()
+            self.save()
 
     def save(self):
         if self.prof is not None and not self.saved and self.tool_config.manual_save:

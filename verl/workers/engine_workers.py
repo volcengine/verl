@@ -76,24 +76,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.profiler_config = self.config.profiler_config
         self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool)
 
-
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=self.profiler_config,
                                tool_config=self.profiler_tool_config)
         )
-
-        self.use_torch_profiler = self.config.profiler_config.tool == 'torch'
-        if self.use_torch_profiler:
-            tool_config = self.config.profiler_config.tool_config.get('torch', {})
-            self.infer_prof = Profiler(self.config.profiler_config,
-                                       tool_config=self.profiler_tool_config,
-                                       save_file_prefix="infer")
-            self.train_prof = Profiler(self.config.profiler_config,
-                                       tool_config=self.profiler_tool_config,
-                                       save_file_prefix="train")
-        else:
-            self.infer_prof = None
-            self.train_prof = None
 
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
@@ -266,9 +252,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
-        if self.train_prof is not None:
-            self.train_prof.start()
-
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         assert not self.engine_config.forward_only, "Can't run `train_batch` when forward_only is in the engine config."
         # global_token_num should be a list of number of tokens of each seq in this batch
@@ -315,16 +298,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
         else:
             final_output = None
 
-        if self.train_prof is not None:
-            self.train_prof.step()
-
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def infer_batch(self, data: TensorDict) -> TensorDict:
-        if self.infer_prof is not None:
-            self.infer_prof.start()
-
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
         compute_loss = tu.get(data, key="compute_loss", default=True)
@@ -358,9 +335,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
             ).cpu()
         else:
             final_output = None
-
-        if self.infer_prof is not None:
-            self.infer_prof.step()
 
         return final_output
 
