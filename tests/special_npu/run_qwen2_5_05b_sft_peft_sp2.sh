@@ -1,5 +1,17 @@
 set -x
 
+NUM_GPUS=${NUM_GPUS:-4}
+
+mode=${mode:-spmd}
+
+if [ "$mode" = "spmd" ]; then
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
+  COMMAND="torchrun --standalone --nnodes=${NNODES:-1} --nproc-per-node=${NUM_GPUS:-1} ${ENTRYPOINT}"
+else
+  ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer_ray"}
+  COMMAND="python ${ENTRYPOINT} trainer.nnodes=${NNODES:-1} trainer.n_gpus_per_node=${NUM_GPUS:-1}"
+fi
+
 RESUME_MODE=disable
 
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-fsdp}
@@ -11,10 +23,11 @@ DATASET_DIR=${DATASET_DIR:-$HOME/data/gsm8k_sft}
 TRAIN_FILES=${DATASET_DIR}/train.parquet
 VAL_FILES=${DATASET_DIR}/test.parquet
 
+exp_name=gsm8k-sft-qwen-2.5-0.5b-instruct-mode-${mode}
+
 mkdir -p "${ckpts_home}"
 
-torchrun --standalone --nnodes=1 --nproc_per_node=4 \
-     -m verl.trainer.sft_trainer \
+$COMMAND \
     data.train_files=$TRAIN_FILES \
     data.val_files=$VAL_FILES \
     data.pad_mode=no_padding \

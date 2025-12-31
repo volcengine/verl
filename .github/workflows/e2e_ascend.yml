@@ -68,7 +68,7 @@ jobs:
   non_rl_job:
     if: github.repository_owner == 'volcengine'
     name: E2E Ascend testing for non-RL algorithm scenarios
-    runs-on: linux-aarch64-a2-2
+    runs-on: linux-aarch64-a2-4
     timeout-minutes: 60
     container:
       image: swr.ap-southeast-1.myhuaweicloud.com/base_image/ascend-ci/verl/verl:verl-8.3.rc1-910b-ubuntu22.04-py3.11-latest
@@ -109,7 +109,10 @@ jobs:
         run: |
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
-          rm -rf $HOME/ckpts
+      - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU (ray mode)
+        run: |
+          ray stop --force
+          mode=ray bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
       - name: Running NPU profiling unit tests
         run: |
           ray stop --force
