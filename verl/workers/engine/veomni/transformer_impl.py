@@ -135,7 +135,6 @@ class VeOmniEngine(FSDPEngine):
             attn_implementation=self.engine_config.attn_implementation,
             moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
-            force_use_huggingface=self.engine_config.force_use_huggingface,
         )
 
         module_config = self.module.config
