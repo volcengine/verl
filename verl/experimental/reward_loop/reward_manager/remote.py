@@ -22,7 +22,7 @@ from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score
 
 
-@ray.remote
+@ray.remote(num_cpus=1)
 class RewardComputeWorker:
     """
     WARNING: This class cannot have async methods.
@@ -61,7 +61,7 @@ class RemoteRewardManager(RewardManagerBase):
             RewardComputeWorker.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=ray.get_runtime_context().get_node_id(),
-                    soft=False,
+                    soft=True,
                 ),
             ).remote(self.compute_score)
             for _ in range(num_reward_workers)
