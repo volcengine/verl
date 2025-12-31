@@ -324,8 +324,6 @@ def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
     moe_intermediate_size = config.intermediate_size
     num_experts = config.num_local_experts
     num_experts_per_tok = config.num_experts_per_tok
-
-    # if swiglu -> 3 matrices.
     mlp_matrices = 3
 
     # Head dim
@@ -334,7 +332,7 @@ def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
     k_size = num_key_value_heads * head_dim
     v_size = num_key_value_heads * head_dim
 
-    # 1. Attention Block (MLA/MHA)
+    # 1. Attention Block (GQA)
     attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
     # 2. MLP / MoE Block
     # Gate network
