@@ -25,7 +25,7 @@ def get_gsm8k_data():
 
 
 def test_sft_cot_dataset():
-    tokenizer = hf_tokenizer("deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"))
     local_path = get_gsm8k_data()
     from omegaconf import OmegaConf
 
@@ -50,7 +50,7 @@ def test_sft_cot_dataset():
 
 
 def test_sft_dataset():
-    tokenizer = hf_tokenizer("deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"))
     local_path = get_gsm8k_data()
     from omegaconf import OmegaConf
 
@@ -75,7 +75,7 @@ def test_sft_dataset():
 
 
 def test_sft_dataset_with_max_samples():
-    tokenizer = hf_tokenizer("deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"))
     local_path = get_gsm8k_data()
     from omegaconf import OmegaConf
 
