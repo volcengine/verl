@@ -34,6 +34,7 @@ def is_torch_npu_available() -> bool:
 
 is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
+is_mps_available = torch.backends.mps.is_available() and torch.backends.mps.is_built()
 
 
 def get_visible_devices_keyword() -> str:
@@ -62,6 +63,8 @@ def get_device_name() -> str:
         device = "cuda"
     elif is_npu_available:
         device = "npu"
+    elif is_mps_available:
+        device = "mps"
     else:
         device = "cpu"
     return device
@@ -91,7 +94,10 @@ def get_device_id() -> int:
     Returns:
         int: The current device index (e.g., 0 for 'cuda:0').
     """
-    return get_torch_device().current_device()
+    device_module = get_torch_device()
+    if hasattr(device_module, "current_device"):
+        return device_module.current_device()
+    return 0
 
 
 def get_nccl_backend() -> str:
@@ -105,6 +111,8 @@ def get_nccl_backend() -> str:
     """
     if is_npu_available:
         return "hccl"
+    elif is_mps_available:
+        return "gloo"
     else:
         # default to nccl
         return "nccl"
