@@ -477,7 +477,10 @@ class vLLMHttpServerBase:
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
-        prompt_ids = _qwen2_5_vl_dedup_vision_tokens(prompt_ids, self.model_config.processor)
+        if "Qwen3VLProcessor" in self.model_config.processor.__class__.__name__:
+            prompt_ids = _qwen3_vl_dedup_vision_tokens(prompt_ids, self.model_config.processor, video_data)
+        else:
+            prompt_ids = _qwen2_5_vl_dedup_vision_tokens(prompt_ids, self.model_config.processor)
         multi_modal_data = {}
         if image_data is not None:
             multi_modal_data["image"] = image_data
@@ -805,6 +808,10 @@ def _qwen2_5_vl_dedup_vision_tokens(prompt_ids: list[int], processor):
     <|vision_start|><|image_pad|><|image_pad|>...<|image_pad|><|vision_end|>
     =>
     <|vision_start|><|image_pad|><|vision_end|>
+
+    <|vision_start|><|video_pad|>...<|vision_end|>
+    =>
+    <|vision_start|><|video_pad|><|vision_end|>
     ```
     """
     if processor is not None and "Qwen2VLImageProcessor" in processor.image_processor.__class__.__name__:
@@ -822,3 +829,47 @@ def _qwen2_5_vl_dedup_vision_tokens(prompt_ids: list[int], processor):
         return prompt_ids[mask].tolist()
     else:
         return prompt_ids
+
+
+def _qwen3_vl_dedup_vision_tokens(prompt_ids: list[int], processor, video_data: Optional[list[Any]] = None):
+    """Deduplicate consecutive vision tokens (image or video) in prompt_ids for Qwen3-VL,
+    since vLLM will replicate the padding tokens by vision data.
+
+    For example,
+    ```
+    <|vision_start|><|image_pad|><|image_pad|>...<|image_pad|><|vision_end|>
+    =>
+    <|vision_start|><|image_pad|><|vision_end|>
+
+    <0.1 seconds><|vision_start|><|video_pad|>...<|vision_end|>
+    ...<11.3 seconds><|vision_start|><|video_pad|>...<|vision_end|>
+    =>
+    <|vision_start|><|video_pad|><|vision_end|>
+    ```
+    """
+
+    # dedup video placeholder
+    video_frames = []
+    if video_data is not None:
+        for video in video_data:
+            frame = video[0].shape[0] // 2
+            video_frames.append(frame)
+
+    import re
+
+    single_frame_pattern = r"<[\d.]+ seconds><\|vision_start\|>(?:<\|video_pad\|>)+<\|vision_end\|>"
+    prompt = processor.tokenizer.decode(prompt_ids)
+    current_prompt = prompt
+    for num_frames in video_frames:
+        # Match exactly num_frames repetitions of the single frame pattern
+        video_sequence_pattern = f"(?:{single_frame_pattern}){{{num_frames}}}"
+
+        current_prompt, count = re.subn(
+            video_sequence_pattern, "<|vision_start|><|video_pad|><|vision_end|>", current_prompt, count=1
+        )
+        if count != 1:
+            logger.warning(f"Expected to deduplicate {num_frames} frames, but found {count} matches.")
+
+    prompt_ids = processor.tokenizer.encode(current_prompt)
+
+    return _qwen2_5_vl_dedup_vision_tokens(prompt_ids, processor)

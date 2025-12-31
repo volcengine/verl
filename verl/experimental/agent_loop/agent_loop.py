@@ -525,7 +525,7 @@ class AgentLoopWorkerBase:
             # because np.array() only keeps the keys for BatchFeature.
             multi_modal_inputs = dict(multi_modal_inputs.convert_to_tensors("pt"))
         if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            if self.processor.__class__.__name__ == "Qwen3VLProcessor":
+            if "Qwen3VLProcessor" in self.processor.__class__.__name__:
                 from verl.models.transformers.qwen3_vl import get_rope_index
             else:
                 from verl.models.transformers.qwen2_vl import get_rope_index
