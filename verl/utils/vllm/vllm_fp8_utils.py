@@ -322,7 +322,7 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
 
     del layer.weight_scale_inv
 
-    maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
+    maybe_post_process_fp8_weight_block(layer)
 
 
 def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:

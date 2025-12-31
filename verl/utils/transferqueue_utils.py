@@ -30,6 +30,7 @@ try:
     from transfer_queue import (
         AsyncTransferQueueClient,
         BatchMeta,
+        TransferQueueClient,
     )
 
 except ImportError:
@@ -52,16 +53,20 @@ is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 def create_transferqueue_client(
     client_id: str,
     config,
-) -> "AsyncTransferQueueClient":
+    sync: bool = False,
+) -> "AsyncTransferQueueClient | TransferQueueClient":
     global _TRANSFER_QUEUE_CLIENT
     if _TRANSFER_QUEUE_CLIENT is None:
-        _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
+        if sync:
+            _TRANSFER_QUEUE_CLIENT = TransferQueueClient(client_id, config.controller_info)
+        else:
+            _TRANSFER_QUEUE_CLIENT = AsyncTransferQueueClient(client_id, config.controller_info)
         _TRANSFER_QUEUE_CLIENT.initialize_storage_manager(manager_type=config.storage_backend, config=config)
 
     return _TRANSFER_QUEUE_CLIENT
 
 
-def get_transferqueue_client() -> "AsyncTransferQueueClient":
+def get_transferqueue_client() -> "AsyncTransferQueueClient | TransferQueueClient":
     return _TRANSFER_QUEUE_CLIENT
 
 

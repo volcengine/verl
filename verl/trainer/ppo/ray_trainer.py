@@ -827,9 +827,8 @@ class RayPPOTrainer:
                 self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
         else:
             # reward loop handle hybrid reward scenario (rule, disrm, genrm, ...)
-            can_reward_loop_parallelize = self.config.actor_rollout_ref.rollout.mode == "async" and (
-                not self.use_rm or self.config.reward_model.enable_resource_pool
-            )
+            # Note: mode is always "async" since sync mode is deprecated
+            can_reward_loop_parallelize = not self.use_rm or self.config.reward_model.enable_resource_pool
             # judge if we can asynchronously parallelize reward model with actor rollout
             # two condition that we can parallelize reward model with actor rollout:
             # 1. reward model is not enabled (rule-based reward can parallelize)
@@ -915,26 +914,26 @@ class RayPPOTrainer:
             self.ref_policy_wg = self.actor_rollout_wg
 
         # create async rollout manager and request scheduler
-        self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async":
-            # Support custom AgentLoopManager via config
-            manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
-            if manager_class_fqn:
-                AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
-            else:
-                from verl.experimental.agent_loop import AgentLoopManager
+        # Note: mode is always "async" since sync mode is deprecated
+        self.async_rollout_mode = True
 
-            self.async_rollout_mode = True
-            if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-                rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            else:
-                rm_resource_pool = None
+        # Support custom AgentLoopManager via config
+        manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+        if manager_class_fqn:
+            AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
+        else:
+            from verl.experimental.agent_loop import AgentLoopManager
 
-            self.async_rollout_manager = AgentLoopManager(
-                config=self.config,
-                worker_group=self.actor_rollout_wg,
-                rm_resource_pool=rm_resource_pool,
-            )
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        else:
+            rm_resource_pool = None
+
+        self.async_rollout_manager = AgentLoopManager(
+            config=self.config,
+            worker_group=self.actor_rollout_wg,
+            rm_resource_pool=rm_resource_pool,
+        )
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
