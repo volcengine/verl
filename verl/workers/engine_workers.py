@@ -72,7 +72,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         # TODO: add DistProfilerExtension
         self.profiler_config = self.config.profiler_config
-        self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool)
+        if self.profiler_config is not None:
+            self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool, {})
+        else:
+            self.profiler_tool_config = None
 
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=self.profiler_tool_config)
