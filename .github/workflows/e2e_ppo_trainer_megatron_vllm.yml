@@ -93,7 +93,6 @@ permissions:
 env:
   IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm012.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
-  TRANSFORMERS_VERSION: "4.56.2"
 
 jobs:
   setup:
@@ -131,7 +130,7 @@ jobs:
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
           pip3 install mbridge
-          pip3 install math-verify transformers==$TRANSFORMERS_VERSION
+          pip3 install math-verify
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -186,7 +185,7 @@ jobs:
         run: |
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
-          pip3 install math-verify transformers==$TRANSFORMERS_VERSION
+          pip3 install math-verify
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
