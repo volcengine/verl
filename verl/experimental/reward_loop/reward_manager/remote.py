@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import itertools
 
 import ray
 
@@ -66,11 +67,10 @@ class RemoteRewardManager(RewardManagerBase):
             ).remote(self.compute_score)
             for _ in range(num_reward_workers)
         ]
-        self._curr_worker_idx = -1
+        self.reward_worker_pool = itertools.cycle(self.reward_worker)
 
     def choose_reward_worker(self):
-        self._curr_worker_idx = (self._curr_worker_idx + 1) % len(self.reward_worker)
-        return self.reward_worker[self._curr_worker_idx]
+        return next(self.reward_worker_pool)
 
     async def run_single(self, data: DataProto) -> dict:
         assert len(data) == 1, "Only support single data item"
