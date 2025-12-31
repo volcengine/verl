@@ -106,9 +106,9 @@ class Profiler:
         if self.prof is not None and not self.saved:
             if not os.path.exists(self.config.save_path):
                 os.makedirs(self.config.save_path)
-            save_file_name = f"/prof_start_{self.tool_config.step_start}_end_{self.tool_config.step_end}_rank_{self.rank}.json"
-            print(f"[Profiler] Saving trace to {self.config.save_path + save_file_name}")
-            self.prof.export_chrome_trace(self.config.save_path + save_file_name)
+            full_save_path = os.path.join(self.config.save_path, f"prof_start_{self.tool_config.step_start}_end_{self.tool_config.step_end}_rank_{self.rank}.json")
+            print(f"[Profiler] Saving trace to {full_save_path}")
+            self.prof.export_chrome_trace(full_save_path)
             self.enable = False
             self.saved = True
 
