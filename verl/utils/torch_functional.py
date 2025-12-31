@@ -200,9 +200,7 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels: torch.Tensor) -> 
     return logprobs_labels
 
 
-def clip_by_value(
-    x: torch.Tensor, tensor_min: torch.Tensor, tensor_max: torch.Tensor
-) -> torch.Tensor:
+def clip_by_value(x: torch.Tensor, tensor_min: torch.Tensor, tensor_max: torch.Tensor) -> torch.Tensor:
     """Clip tensor values to a range defined by tensor bounds.
 
     Extension of torch.clamp that supports tensor-valued min/max bounds
@@ -265,9 +263,7 @@ def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 20
     return entropy
 
 
-def masked_sum(
-    values: torch.Tensor, mask: torch.Tensor, axis: int | tuple[int, ...] | None = None
-) -> torch.Tensor:
+def masked_sum(values: torch.Tensor, mask: torch.Tensor, axis: int | tuple[int, ...] | None = None) -> torch.Tensor:
     """Compute sum of tensor values where mask is True.
 
     NaN values outside the mask are replaced with zeros to prevent
@@ -389,9 +385,7 @@ def compute_grad_norm(model: nn.Module) -> float:
     return total_grad_square
 
 
-def broadcast_dict_tensor(
-    tensors: dict[str, torch.Tensor] | TensorDict, src: int, group
-) -> None:
+def broadcast_dict_tensor(tensors: dict[str, torch.Tensor] | TensorDict, src: int, group) -> None:
     """Broadcast all tensors in a dictionary from source rank to all ranks.
 
     Iterates over all tensors in the dictionary and broadcasts each one
