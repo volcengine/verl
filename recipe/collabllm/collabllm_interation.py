@@ -172,7 +172,7 @@ class CollabLLMInteraction(BaseInteraction):
                         break
                     else:
                         logger.warning(
-                            f"[CollabLLMInteraction] got an invaild response {response} full_response {full_response}. \
+                            f"[CollabLLMInteraction] got an invalid response {response} full_response {full_response}. \
                                 Retrying..."
                         )
                         continue

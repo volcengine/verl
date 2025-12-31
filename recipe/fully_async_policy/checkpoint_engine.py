@@ -311,7 +311,7 @@ class CheckpointEngine:
         )
         print(
             f"set checkpoint_engine device buffer size: {self.device_buffer_size_M}M, "
-            f"and finally set it to {bucket_size >> 20}M considering the largest paramter tensor size"
+            f"and finally set it to {bucket_size >> 20}M considering the largest parameter tensor size"
         )
         self.bucket_size = bucket_size
 
