@@ -24,7 +24,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.device import get_device_name
 
 
-def calculate_workload(seqlen_list: torch.Tensor | list[int]) -> torch.Tensor:
+def calculate_workload(seqlen_list: torch.Tensor) -> torch.Tensor:
     """Calculate approximate computational workload for transformer attention.
 
     Estimates FLOPs for dense transformer blocks based on sequence length using
@@ -34,7 +34,7 @@ def calculate_workload(seqlen_list: torch.Tensor | list[int]) -> torch.Tensor:
     workload ∝ 24576 * seqlen + seqlen²
 
     Args:
-        seqlen_list: Sequence lengths as a tensor or list of integers.
+        seqlen_list: Sequence lengths as a tensor.
 
     Returns:
         torch.Tensor: Estimated workload values proportional to actual FLOPs.
