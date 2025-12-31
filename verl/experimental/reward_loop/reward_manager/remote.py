@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ray
 import inspect
-import asyncio
+
+import ray
 
 from verl import DataProto
-from verl.trainer.ppo.reward import get_custom_reward_fn
 from verl.experimental.reward_loop.reward_manager import register
 from verl.experimental.reward_loop.reward_manager.base import RewardManagerBase
 from verl.utils.reward_score import default_compute_score
@@ -28,12 +27,14 @@ class RewardComputeWorker:
     """
     WARNING: This class cannot have async methods.
     """
+
     def __init__(self, compute_score_fn):
         # since the reward function may not be pickleable, we need to init it in the worker
         self.compute_score_fn = compute_score_fn
 
     def compute_score(self, **kwargs) -> dict:
         return self.compute_score_fn(**kwargs)
+
 
 @register("remote")
 class RemoteRewardManager(RewardManagerBase):
@@ -49,9 +50,7 @@ class RemoteRewardManager(RewardManagerBase):
         super().__init__(config, tokenizer)
         self.compute_score = compute_score or default_compute_score
         self.is_async_reward_score = inspect.iscoroutinefunction(self.compute_score)
-        assert not self.is_async_reward_score, (
-            "Async reward score is not supported in remote reward manager. "
-        )
+        assert not self.is_async_reward_score, "Async reward score is not supported in remote reward manager. "
         self.reward_router_address = reward_router_address
         self.reward_model_tokenizer = reward_model_tokenizer
         num_reward_workers = config.reward_model.num_workers
