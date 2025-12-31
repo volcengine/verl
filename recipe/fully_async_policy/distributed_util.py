@@ -47,7 +47,9 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
         data_expiration_seconds: int = 3600,
         store_timeout: int = 300,
     ) -> "StatelessProcessGroup":
-        """This is copied from vllm project to support ipv6 stateless communication groups."""
+        """
+        This is copied from vllm/distributed/utils.py:StatelessProcessGroup.create
+        Modified to support ipv6 stateless communication groups."""
         launch_server = rank == 0
         if launch_server:
             # listen on the specified interface (instead of 0.0.0.0)
