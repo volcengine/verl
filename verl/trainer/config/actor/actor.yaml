@@ -51,6 +51,18 @@ tau_neg: 1.05
 # Whether to freeze vision model, if set true, it will be freeze vision model
 freeze_vision_tower: false
 
+# sft mode config
+sft:
+
+  # Target dataclass for this configuration
+  _target_: verl.workers.config.SFTConfig
+
+  # Whether to enable SFT mode
+  enabled: false
+
+  # Path to labels in row_dict for SFT training
+  label_keys: ['extra_info', 'answer']
+
 # policy loss config
 policy_loss:
 

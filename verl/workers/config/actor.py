@@ -79,6 +79,17 @@ class PolicyLossConfig(BaseConfig):
     kl_cov_ratio: float = 0.0002
     ppo_kl_coef: float = 0.1
 
+@dataclass
+class SFTConfig(BaseConfig):
+    """Configuration for Supervised Fine-Tuning (SFT) mode.
+
+    The inheritance from BaseConfig provides omegaconf.DictConfig-like interface for a dataclass config.
+
+    Args:
+        enabled (bool): Whether to enable SFT mode.
+    """
+
+    enabled: bool = False
 
 @dataclass
 class ActorConfig(BaseConfig):
@@ -140,6 +151,7 @@ class ActorConfig(BaseConfig):
     clip_ratio_high: float = 0.2
     freeze_vision_tower: bool = False
     policy_loss: PolicyLossConfig = field(default_factory=PolicyLossConfig)
+    sft: SFTConfig = field(default_factory=SFTConfig)
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     loss_scale_factor: Optional[int] = None

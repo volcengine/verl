@@ -1,3 +1,6 @@
+# SFT config
+sft: ${oc.select:actor_rollout_ref.actor.sft, {}}
+
 # Tokenizer class or path. If null, it will be inferred from the model.
 tokenizer: null
 
