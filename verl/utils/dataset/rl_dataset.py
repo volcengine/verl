@@ -101,6 +101,10 @@ class RLHFDataset(Dataset):
         self.processor = processor
         self.max_samples = max_samples
         self.config = config
+        self.sft_mode = config.sft.enabled
+        if self.sft_mode:
+            if self.processor is not None:
+                raise NotImplementedError("SFT mode with multi-modal inputs/targets is not supported yet.")
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
@@ -108,6 +112,7 @@ class RLHFDataset(Dataset):
         self.video_key = config.get("video_key", "videos")
         self.image_patch_size = config.get("image_patch_size", 14)
         self.max_prompt_length = config.get("max_prompt_length", 1024)
+        self.max_response_length = config.get("max_response_length", 512)
         self.return_raw_chat = config.get("return_raw_chat", False)
         self.return_full_prompt = config.get("return_full_prompt", False)
         self.truncation = config.get("truncation", "error")
@@ -242,19 +247,23 @@ class RLHFDataset(Dataset):
                         apply_kwargs = dict(**self.apply_chat_template_kwargs)
                         if self.tool_schemas is not None:
                             apply_kwargs["tools"] = self.tool_schemas
-
-                        return len(
-                            tokenizer.apply_chat_template(doc[prompt_key], add_generation_prompt=True, **apply_kwargs)
+                        prompt = doc[prompt_key]
+                        max_length = self.max_prompt_length
+                        if self.sft_mode:
+                            prompt = self.concatenate_prompt_and_response(prompt, doc)
+                            max_length += self.max_response_length
+                        prompt_length = len(
+                            tokenizer.apply_chat_template(prompt, add_generation_prompt=True, **apply_kwargs)
                         )
+                        return prompt_length <= max_length
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
-                        return self.max_prompt_length + 1
-
+                        return False
             dataframe = dataframe.filter(
-                lambda doc: doc2len(doc) <= self.max_prompt_length,
+                lambda doc: doc2len(doc),
                 num_proc=self.num_workers,
-                desc=f"Filtering prompts longer than {self.max_prompt_length} tokens",
+                desc=f"Filtering prompts longer than {self.max_prompt_length + self.max_response_length * self.sft_mode} tokens",
             )
 
             print(f"filter dataset len: {len(dataframe)}")
@@ -332,6 +341,17 @@ class RLHFDataset(Dataset):
         assert image_offset == len(images), f"image_offset {image_offset} != len(images) {len(images)}"
         assert video_offset == len(videos), f"video_offset {video_offset} != len(videos) {len(videos)}"
         return messages
+
+    def concatenate_prompt_and_response(self, prompt: str, row_dict: dict) -> str:
+        sft_response_path = self.config.sft.label_keys
+        sft_response = row_dict
+        for key in sft_response_path:
+            if key not in sft_response:
+                raise KeyError(f"SFT response key {key} not found in data row.")
+            sft_response = sft_response[key]
+        if not isinstance(sft_response, str):
+            raise ValueError(f"SFT response should be a string, but got {type(sft_response)}.")
+        return prompt + sft_response + self.tokenizer.eos_token
 
     def __getitem__(self, item):
         """For rollout, apply_chat_template has been moved to AgentLoop, so we only return raw_prompt here."""
