@@ -164,8 +164,8 @@ def video_data_file():
 
 
 def test_video_rl_data(video_data_file):
-    tokenizer = hf_tokenizer("Qwen/Qwen2-VL-2B-Instruct")
-    processor = hf_processor("Qwen/Qwen2-VL-2B-Instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/Qwen/Qwen2-VL-2B-Instruct"))
+    processor = hf_processor(os.path.expanduser("~/models/Qwen/Qwen2-VL-2B-Instruct"))
     config = OmegaConf.create(
         {
             "prompt_key": "prompt",
