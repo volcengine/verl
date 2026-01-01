@@ -338,6 +338,10 @@ class RLHFDataset(Dataset):
         row_dict: dict = self.dataframe[item]
         row_dict["raw_prompt"] = self._build_messages(row_dict)
 
+        # TODO(wuxibin): We still need a dummy tensor to make sure DataProto.batch is not empty.
+        # Remove this after deprecate DataProto by TensorDict.
+        row_dict["dummy_tensor"] = torch.tensor([0], dtype=torch.uint8)
+
         # add index for each prompt
         if "extra_info" not in row_dict or row_dict["extra_info"] is None:
             row_dict["extra_info"] = dict()
