@@ -90,6 +90,19 @@ class SFTTrainer:
         self.engine_config = omega_conf_to_dataclass(self.config.engine)
         self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+        self.profiler_config = omega_conf_to_dataclass(self.config.profiler)
+
+        # check profile interval
+        self.profiler_interval = self.config.trainer.profile_interval
+        self._validate_profiler_interval()
+
+    def _validate_profiler_interval(self):
+        assert len(self.profiler_interval) == 2
+        self.start_profile_step = self.profiler_interval[0]
+        self.end_profile_step = self.profiler_interval[1]
+        assert self.end_profile_step >= self.start_profile_step
+        if self.start_profile_step < 0:
+            assert self.end_profile_step < 0
 
     def _build_engine(self):
         from verl.workers.engine_workers import TrainingWorkerConfig
@@ -103,6 +116,7 @@ class SFTTrainer:
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
             checkpoint_config=self.checkpoint_config,
+            profiler_config=self.profiler_config,
         )
 
         # create resource pool and worker group
@@ -279,9 +293,15 @@ class SFTTrainer:
 
                 tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens)
 
+                # start profile in SPMD mode
+                if global_step == self.start_profile_step:
+                    self.training_client.start_profile()
                 # train for on batch
                 output = self.training_client.train_batch(data)
                 output = output.get()
+
+                if global_step == self.end_profile_step:
+                    self.training_client.stop_profile()
 
                 metrics = tu.get(output, "metrics")
 

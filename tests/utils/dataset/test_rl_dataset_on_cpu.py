@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 
 def get_gsm8k_data():
     # prepare test dataset
-    local_folder = os.path.expanduser("~/verl-data/gsm8k/")
+    local_folder = os.path.expanduser("~/data/gsm8k/")
     local_path = os.path.join(local_folder, "train.parquet")
     os.makedirs(local_folder, exist_ok=True)
     return local_path
@@ -30,7 +30,7 @@ def test_rl_dataset():
     from verl.utils import hf_tokenizer
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
-    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/deepseek-ai/deepseek-coder-1.3b-instruct"))
     local_path = get_gsm8k_data()
     config = OmegaConf.create(
         {
@@ -70,7 +70,7 @@ def test_rl_dataset_with_max_samples():
     from verl.utils import hf_tokenizer
     from verl.utils.dataset.rl_dataset import RLHFDataset
 
-    tokenizer = hf_tokenizer("deepseek-ai/deepseek-coder-1.3b-instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/deepseek-ai/deepseek-coder-1.3b-instruct"))
     local_path = get_gsm8k_data()
     config = OmegaConf.create(
         {
@@ -89,8 +89,8 @@ def test_image_rl_data():
     from verl.utils import hf_processor, hf_tokenizer
     from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn
 
-    tokenizer = hf_tokenizer("Qwen/Qwen2-VL-2B-Instruct")
-    processor = hf_processor("Qwen/Qwen2-VL-2B-Instruct")
+    tokenizer = hf_tokenizer(os.path.expanduser("~/models/Qwen/Qwen2-VL-2B-Instruct"))
+    processor = hf_processor(os.path.expanduser("~/models/Qwen/Qwen2-VL-2B-Instruct"))
     config = OmegaConf.create(
         {
             "prompt_key": "prompt",
