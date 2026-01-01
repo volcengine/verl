@@ -1441,42 +1441,41 @@ class RayPPOTrainer:
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
                     #   Note: π_old computed once per data batch, serves as stable reference during mini-batch updates
                     rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
-                    if not self.sft_mode:
-                        bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
-                        if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
-                            from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
+                    bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
+                    if bypass_recomputing_logprobs and not self.sft_mode:  # Use `rollout_log_probs`
+                        from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
 
-                            apply_bypass_mode(
-                                batch=batch,
-                                rollout_corr_config=rollout_corr_config,
-                                policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                        apply_bypass_mode(
+                            batch=batch,
+                            rollout_corr_config=rollout_corr_config,
+                            policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
+                        )
+                    elif not self.sft_mode:  # Recompute old_log_probs
+                        with marked_timer("old_log_prob", timing_raw, color="blue"):
+                            old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
+                            entropys = old_log_prob.batch["entropys"]
+                            response_masks = batch.batch["response_mask"]
+                            actor_config = self.config.actor_rollout_ref.actor
+                            entropy_agg = agg_loss(
+                                loss_mat=entropys,
+                                loss_mask=response_masks,
+                                loss_agg_mode=actor_config.loss_agg_mode,
+                                loss_scale_factor=actor_config.loss_scale_factor,
                             )
-                        else:  # Recompute old_log_probs
-                            with marked_timer("old_log_prob", timing_raw, color="blue"):
-                                old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
-                                entropys = old_log_prob.batch["entropys"]
-                                response_masks = batch.batch["response_mask"]
-                                actor_config = self.config.actor_rollout_ref.actor
-                                entropy_agg = agg_loss(
-                                    loss_mat=entropys,
-                                    loss_mask=response_masks,
-                                    loss_agg_mode=actor_config.loss_agg_mode,
-                                    loss_scale_factor=actor_config.loss_scale_factor,
-                                )
-                                old_log_prob_metrics = {
-                                    "actor/entropy": entropy_agg.detach().item(),
-                                    "perf/mfu/actor_infer": old_log_prob_mfu,
-                                }
-                                metrics.update(old_log_prob_metrics)
-                                old_log_prob.batch.pop("entropys")
-                                batch = batch.union(old_log_prob)
-                                if "rollout_log_probs" in batch.batch.keys():
-                                    # TODO: we may want to add diff of probs too.
-                                    from verl.utils.debug.metrics import calculate_debug_metrics
+                            old_log_prob_metrics = {
+                                "actor/entropy": entropy_agg.detach().item(),
+                                "perf/mfu/actor_infer": old_log_prob_mfu,
+                            }
+                            metrics.update(old_log_prob_metrics)
+                            old_log_prob.batch.pop("entropys")
+                            batch = batch.union(old_log_prob)
+                            if "rollout_log_probs" in batch.batch.keys():
+                                # TODO: we may want to add diff of probs too.
+                                from verl.utils.debug.metrics import calculate_debug_metrics
 
-                                    metrics.update(calculate_debug_metrics(batch))
+                                metrics.update(calculate_debug_metrics(batch))
 
-                            assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
+                        assert self.sft_mode or "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
 
                     if self.use_reference_policy:
                         # compute reference log_prob
