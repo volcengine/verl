@@ -91,6 +91,12 @@ class DataParallelPPOActor(BasePPOActor):
         else:
             self.scaler = None
 
+        if role == "Actor":
+            self.sft_mode = self.config.sft.enabled
+            if self.sft_mode:
+                if self.config.use_kl_loss:
+                    raise ValueError("SFT mode and KL loss cannot be enabled at the same time.")
+
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -407,9 +413,10 @@ class DataParallelPPOActor(BasePPOActor):
             "input_ids",
             "attention_mask",
             "position_ids",
-            "old_log_probs",
             "advantages",
         ]
+        if not self.sft_mode:
+            select_keys.append("old_log_probs")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         # Include pre-computed IS weights if present in batch
@@ -430,6 +437,16 @@ class DataParallelPPOActor(BasePPOActor):
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
+        if self.sft_mode and not on_policy:
+            if len(mini_batches) > 1:
+                raise ValueError(
+                    f"Got {len(mini_batches)=}, but SFT mode only supports on-policy update. "
+                    f"Verify that data.train_batch_size==actor_rollout_ref.actor.ppo_mini_batch_size"
+                )
+            if self.config.ppo_epochs > 1:
+                raise ValueError(
+                    f"Got {self.config.ppo_epochs=} > 1, but SFT mode only supports ppo_epochs==1."
+                )
 
         metrics = {
             "actor/pg_loss": 0.0,
@@ -453,7 +470,6 @@ class DataParallelPPOActor(BasePPOActor):
                     micro_batch_metrics = {}
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
                     response_mask = model_inputs["response_mask"]
-                    old_log_prob = model_inputs["old_log_probs"]
                     advantages = model_inputs["advantages"]
 
                     entropy_coeff = self.config.entropy_coeff
@@ -480,7 +496,10 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             old_log_prob = model_inputs["old_log_probs"]
 
-                    loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
+                    if self.sft_mode:
+                        loss_mode = "sft"
+                    else:
+                        loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
                     # vanilla -> verl.trainer.ppo.core_algos.compute_policy_loss_vanilla
 
                     # Extract pre-computed rollout correction weights if present
