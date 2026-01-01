@@ -1,17 +1,3 @@
-```bash
-DATA_DIR=/home/jacob.a.helwig/verl/data
-export HF_HOME=$DATA_DIR
-
-python -m examples.data_preprocess.gsm8k --local_save_dir /home/jacob.a.helwig/verl/data
-```
-
-Pre-commit:
-
-```bash
-export PATH="$CONDA_PREFIX/bin:$PATH"
-git commit -m "your commit message"
-```
-
 <div align="center">
  👋 Hi, everyone!
     verl is a RL training library initiated by <b>ByteDance Seed team</b> and maintained by the verl community.
