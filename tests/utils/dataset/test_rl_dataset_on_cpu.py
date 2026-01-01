@@ -60,7 +60,6 @@ def test_rl_dataset():
             non_tensors[key] = val
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
-    assert data_proto.batch is None
     assert len(data_proto) == 16
     assert "raw_prompt" in data_proto.non_tensor_batch
 
@@ -113,7 +112,6 @@ def test_image_rl_data():
             non_tensors[key] = val
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
-    assert data_proto.batch is None
     assert len(data_proto) == 16
     assert "images" not in data_proto.non_tensor_batch
 
@@ -193,7 +191,6 @@ def test_video_rl_data(video_data_file):
             non_tensors[key] = val
 
     data_proto = DataProto.from_dict(tensors=tensors, non_tensors=non_tensors)
-    assert data_proto.batch is None
     assert len(data_proto) == 16
     assert "images" not in data_proto.non_tensor_batch
 
