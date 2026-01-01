@@ -930,7 +930,7 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
+    def generate_sequences_agent(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 
         Args:
@@ -965,6 +965,36 @@ class AgentLoopManager:
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
+
+    def generate_sequences_sft(self, prompts: DataProto) -> DataProto:
+        prompt_ids = prompts.batch['input_ids']
+        prompt_response_ids = prompts.batch['sft_input_ids']
+        prompt_response_attention_mask = prompts.batch['sft_attention_mask']
+        prompt_response_position_ids = prompts.batch['sft_position_ids']
+        response_length = prompt_response_ids.shape[1] - prompt_ids.shape[1]
+        response_ids = prompt_response_ids[:, -response_length:]
+        response_mask = prompt_response_attention_mask[:, -response_length:]
+        output = DataProto.from_single_dict(
+            dict(
+                attention_mask=prompt_response_attention_mask,
+                input_ids=prompt_response_ids,
+                position_ids=prompt_response_position_ids,
+                prompts=prompt_ids,
+                response_mask=response_mask,
+                responses=response_ids,
+                rm_scores=torch.zeros_like(response_mask, dtype=torch.float32),
+            ),
+            meta_info=dict(timing={}),
+        )
+        return output
+
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
+        mode = prompts.meta_info.get("mode", None)
+        if mode not in ["train", "test"]:
+            raise ValueError(f"Unsupported {mode=} in prompts.meta_info")
+        if self.config.actor_rollout_ref.actor.sft.enabled and mode == "train":
+            return self.generate_sequences_sft(prompts)
+        return self.generate_sequences_agent(prompts)
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}

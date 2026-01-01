@@ -325,14 +325,16 @@ class RayPPOTrainer:
                 f"{role_worker_mapping.keys()=}"
             )
 
+        self.sft_mode = config.actor_rollout_ref.actor.sft.enabled
+
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(self.role_worker_mapping, self.sft_mode)
         # legacy reward model implementation
-        self.use_rm = need_reward_model(self.role_worker_mapping)
+        self.use_rm = need_reward_model(self.role_worker_mapping, self.sft_mode)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
 
-        self.use_critic = need_critic(self.config)
+        self.use_critic = need_critic(self.config, self.sft_mode)
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger(
@@ -604,6 +606,14 @@ class RayPPOTrainer:
 
         return gen_batch
 
+    def generate_sequences(self, batch: DataProto, mode: str) -> DataProto:
+        batch.meta_info["mode"] = mode
+        if not self.async_rollout_mode:
+            batch_output = self.actor_rollout_wg.generate_sequences(batch)
+        else:
+            batch_output = self.async_rollout_manager.generate_sequences(batch)
+        return batch_output
+
     def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
@@ -656,10 +666,7 @@ class RayPPOTrainer:
                 else self.config.actor_rollout_ref.rollout.agent.num_workers
             )
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            if not self.async_rollout_mode:
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-            else:
-                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+            test_output_gen_batch_padded = self.generate_sequences(test_gen_batch_padded, mode="test")
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -1357,11 +1364,7 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
-                        else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
-
+                        gen_batch_output = self.generate_sequences(gen_batch_output, "train")
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -1372,10 +1375,7 @@ class RayPPOTrainer:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            if not self.async_rollout_mode:
-                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-                            else:
-                                gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
+                            gen_baseline_output = self.generate_sequences(gen_baseline_batch, "train")
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None
@@ -1440,42 +1440,43 @@ class RayPPOTrainer:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
                     #   Note: π_old computed once per data batch, serves as stable reference during mini-batch updates
-                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
-                    bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
-                    if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
-                        from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
+                    if not self.sft_mode:
+                        rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
+                        bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
+                        if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
+                            from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
 
-                        apply_bypass_mode(
-                            batch=batch,
-                            rollout_corr_config=rollout_corr_config,
-                            policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
-                        )
-                    else:  # Recompute old_log_probs
-                        with marked_timer("old_log_prob", timing_raw, color="blue"):
-                            old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
-                            entropys = old_log_prob.batch["entropys"]
-                            response_masks = batch.batch["response_mask"]
-                            actor_config = self.config.actor_rollout_ref.actor
-                            entropy_agg = agg_loss(
-                                loss_mat=entropys,
-                                loss_mask=response_masks,
-                                loss_agg_mode=actor_config.loss_agg_mode,
-                                loss_scale_factor=actor_config.loss_scale_factor,
+                            apply_bypass_mode(
+                                batch=batch,
+                                rollout_corr_config=rollout_corr_config,
+                                policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
                             )
-                            old_log_prob_metrics = {
-                                "actor/entropy": entropy_agg.detach().item(),
-                                "perf/mfu/actor_infer": old_log_prob_mfu,
-                            }
-                            metrics.update(old_log_prob_metrics)
-                            old_log_prob.batch.pop("entropys")
-                            batch = batch.union(old_log_prob)
-                            if "rollout_log_probs" in batch.batch.keys():
-                                # TODO: we may want to add diff of probs too.
-                                from verl.utils.debug.metrics import calculate_debug_metrics
+                        else:  # Recompute old_log_probs
+                            with marked_timer("old_log_prob", timing_raw, color="blue"):
+                                old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
+                                entropys = old_log_prob.batch["entropys"]
+                                response_masks = batch.batch["response_mask"]
+                                actor_config = self.config.actor_rollout_ref.actor
+                                entropy_agg = agg_loss(
+                                    loss_mat=entropys,
+                                    loss_mask=response_masks,
+                                    loss_agg_mode=actor_config.loss_agg_mode,
+                                    loss_scale_factor=actor_config.loss_scale_factor,
+                                )
+                                old_log_prob_metrics = {
+                                    "actor/entropy": entropy_agg.detach().item(),
+                                    "perf/mfu/actor_infer": old_log_prob_mfu,
+                                }
+                                metrics.update(old_log_prob_metrics)
+                                old_log_prob.batch.pop("entropys")
+                                batch = batch.union(old_log_prob)
+                                if "rollout_log_probs" in batch.batch.keys():
+                                    # TODO: we may want to add diff of probs too.
+                                    from verl.utils.debug.metrics import calculate_debug_metrics
 
-                                metrics.update(calculate_debug_metrics(batch))
+                                    metrics.update(calculate_debug_metrics(batch))
 
-                    assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
+                            assert "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
 
                     if self.use_reference_policy:
                         # compute reference log_prob

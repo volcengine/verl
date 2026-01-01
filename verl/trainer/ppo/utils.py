@@ -71,20 +71,28 @@ class Role(Enum):
 
 def need_reference_policy(
     role_worker_mapping: dict[Role, WorkerType],
+    sft_mode: bool = False,
 ) -> bool:
     """Given a role worker mapping, do we need ref policy."""
+    if sft_mode:
+        return False
     return Role.RefPolicy in role_worker_mapping or Role.ActorRolloutRef in role_worker_mapping
 
 
 def need_reward_model(
     role_worker_mapping: dict[Role, WorkerType],
+    sft_mode: bool = False,
 ) -> bool:
     """Given a role worker mapping, do we need reward model."""
+    if sft_mode:
+        return False
     return Role.RewardModel in role_worker_mapping
 
 
-def need_critic(config: DictConfig) -> bool:
+def need_critic(config: DictConfig, sft_mode: bool = False) -> bool:
     """Given a config, do we need critic."""
+    if sft_mode:
+        return False
     if config.critic.enable is not None:
         return bool(config.critic.enable)
     elif config.algorithm.adv_estimator == AdvantageEstimator.GAE:
