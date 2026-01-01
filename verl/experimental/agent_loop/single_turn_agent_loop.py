@@ -33,6 +33,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
         self.prompt_length = self.config.actor_rollout_ref.rollout.prompt_length
         self.response_length = self.config.actor_rollout_ref.rollout.response_length
         self.apply_chat_template_kwargs = self.config.data.get("apply_chat_template_kwargs", {})
+        self.truncation = self.config.data.truncation
 
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
@@ -61,6 +62,18 @@ class SingleTurnAgentLoop(AgentLoopBase):
                     messages, add_generation_prompt=True, tokenize=True, **self.apply_chat_template_kwargs
                 ),
             )
+
+        if len(prompt_ids) > self.prompt_length:
+            if self.truncation == "left":
+                prompt_ids = prompt_ids[-self.prompt_length :]
+            elif self.truncation == "right":
+                prompt_ids = prompt_ids[: self.prompt_length]
+            elif self.truncation == "middle":
+                left_half = self.prompt_length // 2
+                right_half = self.prompt_length - left_half
+                prompt_ids = prompt_ids[:left_half] + prompt_ids[-right_half:]
+            elif self.truncation == "error":
+                raise RuntimeError(f"Prompt length {len(prompt_ids)} is longer than {self.max_prompt_length}.")
 
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
