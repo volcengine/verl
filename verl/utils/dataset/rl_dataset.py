@@ -248,14 +248,15 @@ class RLHFDataset(Dataset):
                         if self.tool_schemas is not None:
                             apply_kwargs["tools"] = self.tool_schemas
                         prompt = doc[prompt_key]
+                        prompt = tokenizer.apply_chat_template(
+                            prompt, add_generation_prompt=True, tokenize=False, **apply_kwargs
+                        )
                         max_length = self.max_prompt_length
                         if self.sft_mode:
                             prompt = self.concatenate_prompt_and_response(prompt, doc)
                             max_length += self.max_response_length
-                        prompt_length = len(
-                            tokenizer.apply_chat_template(prompt, add_generation_prompt=True, **apply_kwargs)
-                        )
-                        return prompt_length <= max_length
+                        prompt_ids = tokenizer(prompt, add_special_tokens=False)                     
+                        return len(prompt_ids) <= max_length
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()

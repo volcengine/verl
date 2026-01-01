@@ -441,7 +441,8 @@ class DataParallelPPOActor(BasePPOActor):
             if len(mini_batches) > 1:
                 raise ValueError(
                     f"Got {len(mini_batches)=}, but SFT mode only supports on-policy update. "
-                    f"Verify that data.train_batch_size==actor_rollout_ref.actor.ppo_mini_batch_size"
+                    f"Verify that data.train_batch_size==actor_rollout_ref.actor.ppo_mini_batch_size "
+                    f"and that actor_rollout_ref.rollout.n==1."
                 )
             if self.config.ppo_epochs > 1:
                 raise ValueError(

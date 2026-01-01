@@ -25,7 +25,7 @@ from .engine import FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
+__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig", "SFTConfig"]
 
 
 @dataclass
@@ -90,6 +90,7 @@ class SFTConfig(BaseConfig):
     """
 
     enabled: bool = False
+    label_keys: list[str] = field(default_factory=lambda: ["extra_info", "answer"])
 
 @dataclass
 class ActorConfig(BaseConfig):

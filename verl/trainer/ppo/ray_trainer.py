@@ -1440,8 +1440,8 @@ class RayPPOTrainer:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
                     #   Note: π_old computed once per data batch, serves as stable reference during mini-batch updates
+                    rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
                     if not self.sft_mode:
-                        rollout_corr_config = self.config.algorithm.get("rollout_correction", None)
                         bypass_recomputing_logprobs = rollout_corr_config and rollout_corr_config.get("bypass_mode", False)
                         if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
                             from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
