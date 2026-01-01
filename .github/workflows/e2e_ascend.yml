@@ -104,7 +104,7 @@ jobs:
           pip list
       - name: Preprocess gsm8k dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
       - name: Running gsm8k e2e training tests with peft sft on ASCEND NPU
         run: |
           ray stop --force
