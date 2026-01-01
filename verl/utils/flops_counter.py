@@ -313,6 +313,7 @@ def _estimate_apertus_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
     return flops_achieved
 
+
 def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
     hidden_size = config.hidden_size
     vocab_size = config.vocab_size
@@ -382,6 +383,7 @@ def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
     flops_all_token = dense_N_flops + attn_qkv_flops
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
     return flops_achieved
+
 
 def _estimate_unknown_flops(config, tokens_sum, batch_seqlens, delta_time):
     return 0
