@@ -329,12 +329,12 @@ class RayPPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping, self.sft_mode)
+        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
         # legacy reward model implementation
-        self.use_rm = need_reward_model(self.role_worker_mapping, self.sft_mode)
+        self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
 
-        self.use_critic = need_critic(self.config, self.sft_mode)
+        self.use_critic = need_critic(self.config)
         self.ray_worker_group_cls = ray_worker_group_cls
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger(
@@ -781,6 +781,8 @@ class RayPPOTrainer:
 
         # create critic
         if self.use_critic:
+            if self.sft_mode:
+                raise NotImplementedError
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
 
             from verl.workers.config import CriticConfig
@@ -812,6 +814,8 @@ class RayPPOTrainer:
 
         # create reference policy if needed
         if self.use_reference_policy and Role.RefPolicy in self.role_worker_mapping:
+            if self.sft_mode:
+                raise NotImplementedError
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
