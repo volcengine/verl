@@ -23,6 +23,7 @@ import ray
 import sglang
 import sglang.srt.entrypoints.engine
 import torch
+from packaging import version
 from ray.actor import ActorHandle
 from sglang.srt.entrypoints.http_server import (
     ServerArgs,
@@ -130,7 +131,9 @@ class SGLangHttpServer:
         quantization = self.config.get("quantization", None)
         if quantization is not None:
             if quantization == "fp8":
-                assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+                assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                    "sglang>=0.5.5 is required for FP8 quantization"
+                )
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
                     "fmt": "e4m3",

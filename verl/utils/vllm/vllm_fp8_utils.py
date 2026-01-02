@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import torch
 import vllm
+from packaging import version
 
 try:
     from vllm.model_executor.layers.fused_moe.layer import FusedMoE
@@ -173,7 +174,7 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
             )
             param_scale = param_scale.squeeze(-1)
             weights_quantized.append([k, param_lp])
-            if vllm.__version__ >= "0.11.0":
+            if version.parse(vllm.__version__) >= version.parse("0.11.0"):
                 if "expert" in k:
                     weights_quantized.append([k + "_scale_inv", param_scale])
                 else:
@@ -459,7 +460,7 @@ def apply_vllm_fp8_patches():
     patcher1 = patch(
         func1_path,
         process_weights_after_loading_for_vllm11
-        if vllm.__version__ >= "0.11.0"
+        if version.parse(vllm.__version__) >= version.parse("0.11.0")
         else process_weights_after_loading_for_vllm10,
     )
     patcher1.start()
@@ -467,7 +468,7 @@ def apply_vllm_fp8_patches():
     patcher2 = patch(
         func2_path,
         process_weights_after_loading_moe_for_vllm11
-        if vllm.__version__ >= "0.11.0"
+        if version.parse(vllm.__version__) >= version.parse("0.11.0")
         else process_weights_after_loading_moe_for_vllm10,
     )
     patcher2.start()

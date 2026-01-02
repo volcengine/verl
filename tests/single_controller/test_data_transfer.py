@@ -19,6 +19,7 @@ import ray
 import tensordict
 import torch
 from codetiming import Timer
+from packaging import version
 from torch import distributed as dist
 
 from verl import DataProto
@@ -38,7 +39,7 @@ class DummyWorker(Worker):
     def do_nothing(self, data):
         for key in data.batch.keys():
             data.batch[key] += 1
-        if tensordict.__version__ >= "0.5.0":
+        if version.parse(tensordict.__version__) >= version.parse("0.5.0"):
             data.batch = data.batch.consolidate()
         return data
 
@@ -69,7 +70,7 @@ def test_data_transfer():
 
     for i in range(wg.world_size):
         # consolidate is necessary
-        if tensordict.__version__ >= "0.5.0":
+        if version.parse(tensordict.__version__) >= version.parse("0.5.0"):
             data_list[i].batch = data_list[i].batch.consolidate()
 
     with Timer(name="ray.pickle", initial_text=True):

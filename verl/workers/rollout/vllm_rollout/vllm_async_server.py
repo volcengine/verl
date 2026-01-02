@@ -26,6 +26,7 @@ import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
 import zmq
+from packaging import version
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -56,17 +57,19 @@ from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
 
-if vllm.__version__ > "0.11.0":
+_VLLM_VERSION = version.parse(vllm.__version__)
+
+if _VLLM_VERSION > version.parse("0.11.0"):
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     from vllm.utils.network_utils import get_tcp_uri
 
-    if vllm.__version__ == "0.12.0":
+    if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
 
         get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
-if vllm.__version__ >= "0.12.0":
+if _VLLM_VERSION >= version.parse("0.12.0"):
     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
     from vllm.v1.outputs import ModelRunnerOutput
 
@@ -105,7 +108,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
-    if vllm.__version__ >= "0.12.0":
+    if _VLLM_VERSION >= version.parse("0.12.0"):
 
         def execute_model(
             self, scheduler_output: "SchedulerOutput", non_block: bool = False
@@ -418,7 +421,7 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        if vllm.__version__ > "0.11.0":
+        if _VLLM_VERSION > version.parse("0.11.0"):
             await init_app_state(engine_client, app.state, args)
         else:
             await init_app_state(engine_client, vllm_config, app.state, args)
