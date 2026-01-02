@@ -255,7 +255,7 @@ class RLHFDataset(Dataset):
                         if self.sft_mode:
                             prompt = self.concatenate_prompt_and_response(prompt, doc)
                             max_length += self.max_response_length
-                        prompt_ids = tokenizer(prompt, add_special_tokens=False)                     
+                        prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)                     
                         return len(prompt_ids) <= max_length
                     except Exception:
                         print("Error processing one of the samples, skipping...")
