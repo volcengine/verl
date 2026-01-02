@@ -104,7 +104,7 @@ class RLHFDataset(Dataset):
         self.sft_mode = config.sft.enabled
         if self.sft_mode:
             if self.processor is not None:
-                raise NotImplementedError("SFT mode with multi-modal inputs/targets is not supported yet.")
+                raise NotImplementedError("SFT mode with multi-modal inputs is not supported yet.")
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")

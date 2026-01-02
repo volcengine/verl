@@ -87,7 +87,7 @@ class SFTConfig(BaseConfig):
 
     Args:
         enabled (bool): Whether to enable SFT mode.
-        label_keys (list[str]): Path to SFT label(s) in each sample of SFT dataset. 
+        label_keys (list[str]): Path to SFT label(s) in each SFT example. 
     """
 
     enabled: bool = False
