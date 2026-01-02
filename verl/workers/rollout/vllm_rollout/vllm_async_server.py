@@ -24,9 +24,9 @@ from typing import Any, Callable, Optional
 import cloudpickle as pickle
 import numpy as np
 import ray
-from packaging import version
 import vllm.entrypoints.cli.serve
 import zmq
+from packaging import version
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
