@@ -433,14 +433,19 @@ class RayWorkerGroup(WorkerGroup):
 
     def _get_master_addr_port(self, pg):
         """Get master addr and port for this worker group"""
-        if self._master_addr is None and self._master_port is None:
-            self._master_addr, self._master_port = ray.get(
+
+        def _do_get_master_addr_port(pg):
+            master_addr, master_port = ray.get(
                 get_master_addr_port.options(
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
                         placement_group=pg, placement_group_bundle_index=0
                     ),
                 ).remote()
             )
+            return master_addr, master_port
+
+        if self._master_addr is None and self._master_port is None:
+            self._master_addr, self._master_port = _do_get_master_addr_port(pg)
         elif self._master_addr is not None and self._master_port is not None:
             logger.debug(f"{self._master_addr=} {self._master_port=}")
         else:
@@ -448,6 +453,7 @@ class RayWorkerGroup(WorkerGroup):
                 "Both 'master_addr' and 'master_port' must be provided if you intend to manually specify them, "
                 "or neither should be provided to use Ray's default assignment."
             )
+        self._master_addr_for_rollout, self._master_port_for_rollout = _do_get_master_addr_port(pg)
 
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.
@@ -539,6 +545,8 @@ class RayWorkerGroup(WorkerGroup):
             "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
             "MASTER_ADDR": self._master_addr,
             "MASTER_PORT": self._master_port,
+            "MASTER_ADDR_FOR_ROLLOUT": self._master_addr_for_rollout,
+            "MASTER_PORT_FOR_ROLLOUT": self._master_port_for_rollout,
         }
         if worker_env is not None:
             logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
