@@ -218,7 +218,7 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.reward_model.enable:
-            if config.actor_rollout_ref.actor.sft.enable:
+            if config.actor_rollout_ref.actor.sft.enabled:
                 raise NotImplementedError
             use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
             if use_legacy_worker_impl in ["auto", "enable", "disable"]:
@@ -252,7 +252,7 @@ class TaskRunner:
             return
 
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            if  config.actor_rollout_ref.actor.sft.enable:
+            if  config.actor_rollout_ref.actor.sft.enabled:
                 raise NotImplementedError
             self.role_worker_mapping[Role.RefPolicy] = ray.remote(ref_policy_cls)
             self.mapping[Role.RefPolicy] = "global_pool"

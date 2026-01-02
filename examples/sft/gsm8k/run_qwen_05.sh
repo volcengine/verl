@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=0
-export DATA_DIR=$PWD
-export HF_HOME=$DATA_DIR/data
+export DATA_DIR=$PWD/data
+export HF_HOME=$DATA_DIR
 export PATH="$CONDA_PREFIX/bin:$PATH"
 export VLLM_CACHE_ROOT=$DATA_DIR/vllm_cache
 set -x
