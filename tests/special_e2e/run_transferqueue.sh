@@ -8,8 +8,7 @@ ACTOR_STRATEGY=${ACTOR_STRATEGY:-"fsdp"}  # fsdp or megatron
 # Download model if not exists
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
-MODEL_PATH=/mnt/hdfs/wuxibin_hldy/model/Qwen2.5-1.5B-Instruct
-# huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
+huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 
 rollout_mode="async"
