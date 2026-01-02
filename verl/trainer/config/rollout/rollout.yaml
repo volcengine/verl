@@ -211,7 +211,7 @@ agent:
   # default agent loop to use if `agent_name` not set in RL dataset
   default_agent_loop: single_turn_agent
 
-  # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
+  # custom agent loop config path, which should contain list of configs to initialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
   #
   # - name: react_agent
