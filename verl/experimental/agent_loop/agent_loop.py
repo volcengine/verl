@@ -967,19 +967,19 @@ class AgentLoopManager:
         return output
 
     def generate_sequences_sft(self, prompts: DataProto) -> DataProto:
-        prompt_ids = prompts.batch['input_ids']
-        prompt_response_ids = prompts.batch['sft_input_ids']
-        prompt_response_attention_mask = prompts.batch['sft_attention_mask']
-        prompt_response_position_ids = prompts.batch['sft_position_ids']
-        response_length = prompt_response_ids.shape[1] - prompt_ids.shape[1]
-        response_ids = prompt_response_ids[:, -response_length:]
-        response_mask = prompt_response_attention_mask[:, -response_length:]
+        input_ids = prompts.batch['input_ids']
+        prompt_input_ids = prompts.batch['prompt_input_ids']
+        response_length = input_ids.shape[1] - prompt_input_ids.shape[1]
+        response_ids = input_ids[:, -response_length:]
+        attention_mask = prompts.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+        position_ids = prompts.batch['position_ids']
         output = DataProto.from_single_dict(
             dict(
-                attention_mask=prompt_response_attention_mask,
-                input_ids=prompt_response_ids,
-                position_ids=prompt_response_position_ids,
-                prompts=prompt_ids,
+                attention_mask=attention_mask,
+                input_ids=input_ids,
+                position_ids=position_ids,
+                prompts=prompt_input_ids,
                 response_mask=response_mask,
                 responses=response_ids,
                 rm_scores=torch.zeros_like(response_mask, dtype=torch.float32),

@@ -247,16 +247,16 @@ class RLHFDataset(Dataset):
                         apply_kwargs = dict(**self.apply_chat_template_kwargs)
                         if self.tool_schemas is not None:
                             apply_kwargs["tools"] = self.tool_schemas
-                        prompt = doc[prompt_key]
                         prompt = tokenizer.apply_chat_template(
-                            prompt, add_generation_prompt=True, tokenize=False, **apply_kwargs
+                            doc[prompt_key], add_generation_prompt=True, add_special_tokens=False, **apply_kwargs
                         )
-                        max_length = self.max_prompt_length
-                        if self.sft_mode:
-                            prompt = self.concatenate_prompt_and_response(prompt, doc)
-                            max_length += self.max_response_length
-                        prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)                     
-                        return len(prompt_ids) <= max_length
+                        if len(prompt) > self.max_prompt_length:
+                            return False
+                        if not self.sft_mode:
+                            return True
+                        response = self.get_sft_response(doc)
+                        response_ids = tokenizer.encode(response, add_special_tokens=False)                     
+                        return len(response_ids) <= self.max_response_length
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
@@ -343,16 +343,14 @@ class RLHFDataset(Dataset):
         assert video_offset == len(videos), f"video_offset {video_offset} != len(videos) {len(videos)}"
         return messages
 
-    def concatenate_prompt_and_response(self, prompt: str, row_dict: dict) -> str:
+    def get_sft_response(self, row_dict: dict) -> str:
         sft_response_path = self.config.sft.label_keys
         sft_response = row_dict
         for key in sft_response_path:
             if key not in sft_response:
                 raise KeyError(f"SFT response key {key} not found in data row.")
             sft_response = sft_response[key]
-        if not isinstance(sft_response, str):
-            raise ValueError(f"SFT response should be a string, but got {type(sft_response)}.")
-        return prompt + sft_response + self.tokenizer.eos_token
+        return sft_response + self.tokenizer.eos_token
 
     def __getitem__(self, item):
         """For rollout, apply_chat_template has been moved to AgentLoop, so we only return raw_prompt here."""
