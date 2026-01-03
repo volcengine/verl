@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+import os.path
 import time
 
 import pytest
@@ -159,7 +160,7 @@ class TestRateLimitedRewardManager:
     @pytest.fixture
     def tokenizer(self):
         """Load a simple tokenizer for testing."""
-        return AutoTokenizer.from_pretrained("gpt2")
+        return AutoTokenizer.from_pretrained(os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct"))
 
     @pytest.mark.asyncio
     async def test_basic_reward_computation(self, tokenizer):
