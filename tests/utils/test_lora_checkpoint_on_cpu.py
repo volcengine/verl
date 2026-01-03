@@ -24,14 +24,16 @@ from collections import OrderedDict
 import pytest
 import torch
 
-# Check if peft and safetensors are available
+# Check if peft, safetensors, and verl checkpoint dependencies are available
 try:
     import peft  # noqa: F401
     from safetensors.torch import save_file  # noqa: F401
+    from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 
-    HAS_PEFT = True
+    HAS_DEPS = True
 except ImportError:
-    HAS_PEFT = False
+    HAS_DEPS = False
+    FSDPCheckpointManager = None  # type: ignore[misc, assignment]
 
 
 class TestSaveLoraAdapter:
@@ -66,64 +68,14 @@ class TestSaveLoraAdapter:
         state_dict["model.layers.0.self_attn.v_proj.weight"] = torch.randn(512, 512)
         return state_dict
 
-    def _save_lora_adapter_standalone(self, state_dict: dict, target_dir: str):
-        """
-        Standalone implementation of _save_lora_adapter for testing.
-        This mirrors the implementation in FSDPCheckpointManager.
-        """
-        lora_params_names = [name for name in state_dict.keys() if "lora_" in name]
-        if len(lora_params_names) == 0:
-            return None
-
-        import peft
-        from safetensors.torch import save_file
-
-        lora_params = OrderedDict()
-        target_modules = set()
-        lora_key = None
-
-        for name in lora_params_names:
-            lora_key = name.replace(".default.weight", ".weight")
-            target_modules.add(lora_key.split(".")[-3])
-            lora_params[lora_key] = state_dict.pop(name)
-
-        lora_rank = min(lora_params[lora_key].shape[0], lora_params[lora_key].shape[1])
-        peft_dict = {
-            "r": lora_rank,
-            "lora_alpha": 0,
-            "target_modules": list(target_modules),
-        }
-        peft_config = peft.LoraConfig(**peft_dict).to_dict()
-        peft_config["task_type"] = peft_config["task_type"].value if peft_config["task_type"] else None
-        peft_config["peft_type"] = peft_config["peft_type"].value if peft_config["peft_type"] else None
-        peft_config["target_modules"] = list(peft_config["target_modules"])
-
-        lora_path = os.path.join(target_dir, "lora_adapter")
-        os.makedirs(lora_path, exist_ok=True)
-        with open(os.path.join(lora_path, "adapter_config.json"), "w", encoding="utf-8") as f:
-            json.dump(peft_config, f, ensure_ascii=False, indent=4)
-        save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
-
-        # Normalize remaining keys to standard HuggingFace format
-        for name in list(state_dict.keys()):
-            key = (
-                name.replace("base_model.model.", "")
-                .replace(".base_layer.weight", ".weight")
-                .replace(".base_layer.bias", ".bias")
-            )
-            if key != name:
-                state_dict[key] = state_dict.pop(name)
-
-        return lora_path
-
-    @pytest.mark.skipif(not HAS_PEFT, reason="peft and safetensors required")
+    @pytest.mark.skipif(not HAS_DEPS, reason="peft, safetensors, and verl checkpoint dependencies required")
     def test_lora_adapter_extraction(self):
         """Test that LoRA weights are correctly extracted and saved."""
         state_dict = self._create_mock_peft_state_dict()
         temp_dir = tempfile.mkdtemp()
 
         try:
-            lora_path = self._save_lora_adapter_standalone(state_dict, temp_dir)
+            lora_path = FSDPCheckpointManager._save_lora_adapter(state_dict, temp_dir)
 
             # Verify LoRA adapter was saved
             assert lora_path is not None
@@ -139,14 +91,14 @@ class TestSaveLoraAdapter:
         finally:
             shutil.rmtree(temp_dir)
 
-    @pytest.mark.skipif(not HAS_PEFT, reason="peft and safetensors required")
+    @pytest.mark.skipif(not HAS_DEPS, reason="peft, safetensors, and verl checkpoint dependencies required")
     def test_state_dict_key_normalization(self):
         """Test that state_dict keys are normalized to HuggingFace format."""
         state_dict = self._create_mock_peft_state_dict()
         temp_dir = tempfile.mkdtemp()
 
         try:
-            self._save_lora_adapter_standalone(state_dict, temp_dir)
+            FSDPCheckpointManager._save_lora_adapter(state_dict, temp_dir)
 
             # Verify keys are now in standard HF format
             expected_keys = {
@@ -172,6 +124,7 @@ class TestSaveLoraAdapter:
         finally:
             shutil.rmtree(temp_dir)
 
+    @pytest.mark.skipif(not HAS_DEPS, reason="peft, safetensors, and verl checkpoint dependencies required")
     def test_no_lora_passthrough(self):
         """Test that non-LoRA state_dicts are not modified."""
         state_dict = self._create_mock_standard_state_dict()
@@ -179,7 +132,7 @@ class TestSaveLoraAdapter:
         temp_dir = tempfile.mkdtemp()
 
         try:
-            lora_path = self._save_lora_adapter_standalone(state_dict, temp_dir)
+            lora_path = FSDPCheckpointManager._save_lora_adapter(state_dict, temp_dir)
 
             # Verify no LoRA adapter was created
             assert lora_path is None

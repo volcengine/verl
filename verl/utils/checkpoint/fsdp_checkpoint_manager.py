@@ -96,7 +96,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             checkpoint_config=checkpoint_config,
         )
 
-    def _save_lora_adapter(self, state_dict: dict[str, torch.Tensor], target_dir: str) -> Optional[str]:
+    @staticmethod
+    def _save_lora_adapter(state_dict: dict[str, torch.Tensor], target_dir: str) -> Optional[str]:
         """
         Save LoRA adapter weights separately and normalize base parameter names for HuggingFace consumers.
 
@@ -149,12 +150,20 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         save_file(lora_params, os.path.join(lora_path, "adapter_model.safetensors"))
 
         # Normalize remaining keys to standard HuggingFace format
+        # Use explicit prefix/suffix checks instead of replace() to avoid
+        # unintended substitutions if patterns appear in middle of key names
+        prefix = "base_model.model."
         for name in list(state_dict.keys()):
-            key = (
-                name.replace("base_model.model.", "")
-                .replace(".base_layer.weight", ".weight")
-                .replace(".base_layer.bias", ".bias")
-            )
+            key = name
+            # Remove "base_model.model." prefix if present at start
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+            # Replace ".base_layer.weight" suffix with ".weight"
+            if key.endswith(".base_layer.weight"):
+                key = key[: -len(".base_layer.weight")] + ".weight"
+            # Replace ".base_layer.bias" suffix with ".bias"
+            elif key.endswith(".base_layer.bias"):
+                key = key[: -len(".base_layer.bias")] + ".bias"
             if key != name:
                 state_dict[key] = state_dict.pop(name)
 
