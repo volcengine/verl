@@ -100,6 +100,7 @@ class RolloutCorrectionConfig(BaseConfig):
             - "k3": K3 KL estimator at sequence level: E[r - log(r) - 1]
               More stable than K1 for small KL values. K3 >= 0, so only
               upper threshold applies (typical: 0.001-0.01).
+            For details about "k{n}" KL estimators, see http://joschu.net/blog/kl-approx.html
             Default: None (use IS weights without rejection)
 
         rollout_rs_threshold (Optional[float]): Upper threshold for rejection sampling.
