@@ -30,7 +30,7 @@ from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.config import validate_config
-from verl.utils.device import auto_set_ascend_device_name
+from verl.utils.device import auto_set_device
 
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
@@ -225,7 +225,7 @@ def main(config):
     start_time = time()
 
     # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
-    auto_set_ascend_device_name(config)
+    auto_set_device(config)
 
     run_ppo(config, task_runner_class=OneStepTaskRunner)
     print(f"total time: {time() - start_time:.2f} seconds")

@@ -36,7 +36,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler, OrchestrationMode
 from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name
+from verl.utils.device import auto_set_device, get_device_name
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 from verl.workers.engine_workers import TrainingWorker
@@ -126,7 +126,11 @@ class SFTTrainer:
         nnodes = self.config.trainer.nnodes
         self.resource_pool = RayResourcePool(process_on_nodes=[n_gpus_per_node] * nnodes)
         ray_cls_with_init = RayClassWithInitArgs(ray.remote(TrainingWorker), config=config)
-        self.training_client = RayWorkerGroup(resource_pool=self.resource_pool, ray_cls_with_init=ray_cls_with_init)
+        self.training_client = RayWorkerGroup(
+            resource_pool=self.resource_pool,
+            ray_cls_with_init=ray_cls_with_init,
+            device_name=self.config.trainer.device,
+        )
         self.training_client.set_loss_fn(loss_fn=self.loss_fn)
         self.training_client.reset()
 
@@ -353,6 +357,8 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer_engine", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_device(config)
     run_sft(config)
 
 
