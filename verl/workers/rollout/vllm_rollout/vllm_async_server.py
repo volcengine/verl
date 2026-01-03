@@ -44,6 +44,7 @@ from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import get_visible_devices_keyword
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -101,7 +102,7 @@ class vLLMHttpServerBase:
             nnodes (int): number of nodes.
         """
         super().__init__()
-        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+        os.environ[get_visible_devices_keyword()] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -657,7 +658,7 @@ class vLLMReplica(RolloutReplica):
         worker_infos = await asyncio.gather(
             *[
                 worker.__ray_call__.remote(
-                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ["CUDA_VISIBLE_DEVICES"])
+                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ[get_visible_devices_keyword()])
                 )
                 for worker in self.workers
             ]
@@ -675,6 +676,7 @@ class vLLMReplica(RolloutReplica):
 
         env_vars = {
             "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            "RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES": "1",
             "WORLD_SIZE": str(global_world_size),
             "MASTER_ADDR": global_master_addr,
             "MASTER_PORT": global_master_port,

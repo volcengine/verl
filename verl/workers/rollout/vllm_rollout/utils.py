@@ -13,9 +13,12 @@
 # limitations under the License.
 
 import gc
+import hashlib
 import logging
 import os
+import socket
 from dataclasses import asdict
+from functools import lru_cache
 from types import MethodType
 from typing import Callable, TypedDict
 
@@ -23,7 +26,7 @@ import torch
 import zmq
 from vllm.lora.request import LoRARequest
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_torch_device, is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
@@ -35,6 +38,59 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 VLLM_LORA_INT_ID = 123
 VLLM_LORA_NAME = "123"
 VLLM_LORA_PATH = "simon_lora_path"
+
+
+@lru_cache(maxsize=1)
+def get_ip() -> str:
+    try:
+        # try to get ip from network interface
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception as e:  # noqa: BLE001
+        # fallback to get ip from hostname
+        logger.warning(f"fail to get ip from network interface, fallback to get ip from hostname: {e}")
+        return socket.gethostbyname(socket.gethostname())
+
+
+def npu_generate_uuid(rank: int) -> str:
+    hash_str = hashlib.md5(str(f"{get_ip()}-{rank}").encode(), usedforsecurity=False).hexdigest()
+    return "NPU-" + hash_str
+
+
+def get_npu_real_device_id(pytorch_device_id=0):
+    """
+    Get the actual physical device ID corresponding to a PyTorch device ID.
+
+    Args:
+        pytorch_device_id: Internal PyTorch device ID (default: 0)
+
+    Returns:
+        Actual physical device ID
+
+    Notes:
+        Uses the ASCEND_RT_VISIBLE_DEVICES environment variable which
+        works similarly to CUDA_VISIBLE_DEVICES for NPU devices.
+        If the environment variable is not set, returns the input ID directly.
+    """
+    npu_visible_devices = os.environ.get("ASCEND_RT_VISIBLE_DEVICES", "")
+
+    if not npu_visible_devices:
+        return pytorch_device_id
+
+    devices = []
+    for part in npu_visible_devices.split(","):
+        part = part.strip()
+        if part:
+            try:
+                devices.append(int(part))
+            except ValueError:
+                devices.append(part)
+
+    assert pytorch_device_id < len(devices), (
+        f"pytorch_device_id ({pytorch_device_id}) must less than len(devices) ({len(devices)})"
+    )
+    return devices[pytorch_device_id]
 
 
 def get_vllm_max_lora_rank(lora_rank: int):
@@ -212,5 +268,9 @@ class vLLMColocateWorkerExtension:
         """Report device ID for ZMQ handle."""
         from vllm.platforms import current_platform
 
-        self.device_uuid = current_platform.get_device_uuid(self.device.index)
+        if not hasattr(self, "device_uuid") or not self.device_uuid:
+            if is_npu_available:
+                self.device_uuid = npu_generate_uuid(get_npu_real_device_id(self.device.index))
+            else:
+                self.device_uuid = current_platform.get_device_uuid(self.device.index)
         return self.device_uuid
