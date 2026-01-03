@@ -108,13 +108,14 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
     response_mask = data["response_mask"].to(bool)
     # compute policy loss
-    old_log_prob = data["old_log_probs"]
+    sft_mode = config.sft.enabled
+    old_log_prob = None if sft_mode else data["old_log_probs"]
     advantages = data["advantages"]
     rollout_is_weights = data.get("rollout_is_weights", None)
 
     loss_agg_mode = config.loss_agg_mode
 
-    loss_mode = config.policy_loss.get("loss_mode", "vanilla")
+    loss_mode = "sft" if sft_mode else config.policy_loss.get("loss_mode", "vanilla")
 
     policy_loss_fn = get_policy_loss_fn(loss_mode)
     pg_loss, pg_metrics = policy_loss_fn(
