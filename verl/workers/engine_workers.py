@@ -469,7 +469,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 assert self.config.actor.ppo_max_token_len_per_gpu is not None
             else:
                 assert self.config.rollout.log_prob_micro_batch_size_per_gpu is not None
-                assert self.config.rollout.ppo_micro_batch_size_per_gpu is not None
+                assert self.config.actor.ppo_micro_batch_size_per_gpu is not None
 
             self.loss_fn = partial(ppo_loss, config=actor_config)
             self.actor = TrainingWorker(config=actor_training_config)
