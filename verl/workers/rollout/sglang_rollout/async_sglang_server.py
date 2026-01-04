@@ -269,6 +269,12 @@ class SGLangHttpServer:
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
         max_possible_tokens = self.config.max_model_len - len(prompt_ids)
 
+        if max_possible_tokens < 0:
+            raise ValueError(
+                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
+                f"({self.config.max_model_len})."
+            )
+
         if "max_new_tokens" in sampling_params:
             max_new_tokens = sampling_params.pop("max_new_tokens")
         elif "max_tokens" in sampling_params:
@@ -277,7 +283,8 @@ class SGLangHttpServer:
         else:
             max_new_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
 
-        max_new_tokens = min(max_new_tokens, max_possible_tokens)
+        # Clamp max_new_tokens to the valid range [0, max_possible_tokens]
+        max_new_tokens = max(0, min(max_new_tokens, max_possible_tokens))
 
         assert max_new_tokens <= max_possible_tokens, (
             f"max_new_tokens {max_new_tokens} exceeds available context space {max_possible_tokens}"
