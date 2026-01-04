@@ -199,7 +199,7 @@ def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
         new_key = f"{prefix}{key}" if not key.startswith(prefix) else key
         if new_key not in data:
             data[new_key] = Metric.init_list(val) if isinstance(val, Metric) else []
-        if isinstance(val, (list, Metric)):
+        if isinstance(val, list):
             data[new_key].extend(val)
         else:
             data[new_key].append(val)
