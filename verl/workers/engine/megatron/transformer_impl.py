@@ -536,8 +536,7 @@ class MegatronEngine(BaseEngine):
             return {}
 
     def get_per_tensor_param(self):
-        if self._is_offload_param:
-            load_megatron_model_to_gpu(self.module, load_grad=False)
+        load_megatron_model_to_gpu(self.module, load_grad=False)
         per_tensor_param = self.bridge.export_weights(self.module)
         # TODO: support megatron LoRA
         return per_tensor_param, None
