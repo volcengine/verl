@@ -104,6 +104,10 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
     config.global_batch_info["batch_num_tokens"] = data["batch_num_tokens"]
     config.global_batch_info["global_batch_size"] = data["global_batch_size"]
     config.global_batch_info["loss_scale_factor"] = config.loss_scale_factor
+
+    # assumes that if any of the global batch info is set, the policy_loss_fn will
+    # normalize using dp_size/global_bsz/global_token; in this case, metric aggregation should be SUM
+    # to reflect the mean loss over the global batch
     if (
         data["dp_size"] > 1
         or data["batch_num_tokens"] is not None
@@ -137,7 +141,11 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         rollout_is_weights=rollout_is_weights,
     )
 
-    metrics.update(MetricValue.from_dict(pg_metrics, aggregation=metric_aggregation))
+    # AggregationType.MEAN for pg metrics: assumes policy_loss_fn normalizes by local_bsz/local_tokens
+    # Ex: in compute_policy_loss_vanilla, pg_metrics are pg_clipfrac, ppo_kl, pg_clipfrac_lower
+    pg_metrics = MetricValue.from_dict(pg_metrics, aggregation=AggregationType.MEAN)
+
+    metrics.update(pg_metrics)
     metrics["actor/pg_loss"] = MetricValue(value=pg_loss, aggregation=metric_aggregation)
     policy_loss = pg_loss
 
