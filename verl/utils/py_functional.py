@@ -25,7 +25,7 @@ from functools import wraps
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator, Optional
 
-from verl.utils.metric import MetricList, MetricValue
+from verl.utils.metric import Metric
 
 
 # --- Top-level helper for multiprocessing timeout ---
@@ -198,8 +198,8 @@ def append_to_dict(data: dict, new_data: dict, prefix: str = ""):
     for key, val in new_data.items():
         new_key = f"{prefix}{key}" if not key.startswith(prefix) else key
         if new_key not in data:
-            data[new_key] = MetricValue.init_list(val) if isinstance(val, (MetricValue, MetricList)) else []
-        if isinstance(val, (list, MetricList)):
+            data[new_key] = Metric.init_list(val) if isinstance(val, Metric) else []
+        if isinstance(val, (list, Metric)):
             data[new_key].extend(val)
         else:
             data[new_key].append(val)

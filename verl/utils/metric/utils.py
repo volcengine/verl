@@ -22,7 +22,7 @@ import numpy as np
 import torch
 
 
-def reduce_metrics(metrics: dict[str, Union["MetricList", list[Any]]]) -> dict[str, Any]:
+def reduce_metrics(metrics: dict[str, Union["Metric", list[Any]]]) -> dict[str, Any]:
     """
     Reduces a dictionary of metric lists by computing the mean, max, or min of each list.
     The reduce operation is determined by the key name:
@@ -47,7 +47,7 @@ def reduce_metrics(metrics: dict[str, Union["MetricList", list[Any]]]) -> dict[s
         {"loss": 2.0, "accuracy": 0.8, "max_reward": 8.0, "min_error": 0.05}
     """
     for key, val in metrics.items():
-        if isinstance(val, MetricList):
+        if isinstance(val, Metric):
             metrics[key] = val.aggregate()
         elif "max" in key:
             metrics[key] = np.max(val)
@@ -69,61 +69,34 @@ NumericType = int, float, torch.Tensor
 Numeric = Union[*NumericType]
 
 
-def tensor_to_float(value: torch.Tensor) -> float:
-    if not isinstance(value, torch.Tensor):
-        raise ValueError(f"Expected torch.Tensor, got {type(value)}")
-    if value.numel() != 1:
-        raise ValueError("Only scalar tensors can be converted to float")
-    return value.detach().item()
-
-
-class MetricValue:
-    def __init__(self, value: Numeric, aggregation: str | AggregationType) -> None:
-        if isinstance(value, torch.Tensor):
-            value = tensor_to_float(value)
-        if not isinstance(value, NumericType):
-            raise ValueError(f"Unsupported value type: {type(value)}")
-        self.value = value
+class Metric:
+    def __init__(self, aggregation: str | AggregationType, value: Optional[Numeric | list[Numeric]] = None) -> None:
         if isinstance(aggregation, str):
             self.aggregation = AggregationType(aggregation)
         else:
             self.aggregation = aggregation
         if not isinstance(self.aggregation, AggregationType):
             raise ValueError(f"Unsupported aggregation type: {aggregation}")
+        self.values = []
+        if value is not None:
+            self.append(value)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Numeric], aggregation: str | AggregationType) -> dict[str, "MetricValue"]:
-        return {key: cls(value, aggregation) for key, value in data.items()}
-
-    def init_list(self) -> "MetricList":
-        return MetricList(aggregation=self.aggregation)
-
-
-class MetricList:
-    def __init__(self, aggregation: str | AggregationType, values: Optional[list[float]] = None) -> None:
-        if isinstance(aggregation, str):
-            self.aggregation = AggregationType(aggregation)
-        else:
-            self.aggregation = aggregation
-        if not isinstance(self.aggregation, AggregationType):
-            raise ValueError(f"Unsupported aggregation type: {aggregation}")
-        self.values = values if values is not None else []
-
-    def append(self, value: Numeric | MetricValue) -> None:
-        if isinstance(value, MetricValue):
-            if value.aggregation != self.aggregation:
-                raise AggregationTypeMismatchError(self.aggregation, value.aggregation)
-            value = value.value
+    def append(self, value: Numeric | "Metric") -> None:
+        if isinstance(value, Metric):
+            self.extend(value)
+            return
         if isinstance(value, torch.Tensor):
-            value = tensor_to_float(value)
+            if value.numel() != 1:
+                raise ValueError("Only scalar tensors can be converted to float")
+            value = value.detach().item()
         if not isinstance(value, NumericType):
             raise ValueError(f"Unsupported value type: {type(value)}")
         self.values.append(value)
 
-    def extend(self, values: Union["MetricList", list[float | MetricValue]]) -> None:
-        if isinstance(values, MetricList):
+    def extend(self, values: Union["Metric", list[Numeric]]) -> None:
+        if isinstance(values, Metric):
             if values.aggregation != self.aggregation:
-                raise AggregationTypeMismatchError(self.aggregation, values.aggregation)
+                raise ValueError(f"Aggregation type mismatch: {self.aggregation} != {values.aggregation}")
             values = values.values
         for value in values:
             self.append(value)
@@ -140,7 +113,7 @@ class MetricList:
                 return np.max(self.values)
 
     @classmethod
-    def chain(cls, metric_lists: list["MetricList"]) -> "MetricList":
+    def chain(cls, metric_lists: list["Metric"]) -> "Metric":
         if len(metric_lists) == 0:
             return cls(aggregation=AggregationType.MEAN)
         aggregation = metric_lists[0].aggregation
@@ -149,11 +122,9 @@ class MetricList:
             chained.extend(ml)
         return chained
 
-    def init_list(self) -> "MetricList":
-        return MetricList(aggregation=self.aggregation)
+    @classmethod
+    def from_dict(cls, data: dict[str, Numeric], aggregation: str | AggregationType) -> dict[str, "Metric"]:
+        return {key: cls(value=value, aggregation=aggregation) for key, value in data.items()}
 
-
-class AggregationTypeMismatchError(Exception):
-    def __init__(self, agg1: AggregationType, agg2: AggregationType):
-        msg = f"Aggregation type mismatch: {agg1.value} != {agg2.value}"
-        super().__init__(msg)
+    def init_list(self) -> "Metric":
+        return Metric(aggregation=self.aggregation)

@@ -35,7 +35,7 @@ from verl.utils.device import (
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
-from verl.utils.metric.utils import MetricList
+from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import allgather_dict_into_dict
@@ -244,9 +244,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
                         # flattn dp and micro batch
                         if isinstance(val, list):
                             output[key] = (
-                                MetricList.chain(val)
-                                if isinstance(val[0], MetricList)
-                                else list(chain.from_iterable(val))
+                                Metric.chain(val) if isinstance(val[0], Metric) else list(chain.from_iterable(val))
                             )
                     append_to_dict(metrics, output)
 

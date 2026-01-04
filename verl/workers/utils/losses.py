@@ -20,7 +20,7 @@ from tensordict import TensorDict
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
 from verl.utils import tensordict_utils as tu
 from verl.utils.dataset.dataset_utils import DatasetPadMode
-from verl.utils.metric import AggregationType, MetricValue
+from verl.utils.metric import AggregationType, Metric
 from verl.utils.torch_functional import masked_mean, masked_sum
 from verl.workers.config import ActorConfig, CriticConfig
 
@@ -143,10 +143,10 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
     # AggregationType.MEAN for pg metrics: assumes policy_loss_fn normalizes by local_bsz/local_tokens
     # Ex: in compute_policy_loss_vanilla, pg_metrics are pg_clipfrac, ppo_kl, pg_clipfrac_lower
-    pg_metrics = MetricValue.from_dict(pg_metrics, aggregation=AggregationType.MEAN)
+    pg_metrics = Metric.from_dict(pg_metrics, aggregation=AggregationType.MEAN)
 
     metrics.update(pg_metrics)
-    metrics["actor/pg_loss"] = MetricValue(value=pg_loss, aggregation=metric_aggregation)
+    metrics["actor/pg_loss"] = Metric(value=pg_loss, aggregation=metric_aggregation)
     policy_loss = pg_loss
 
     # add entropy loss
@@ -156,7 +156,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         )
         entropy_coeff = config.entropy_coeff
         policy_loss -= entropy_coeff * entropy_loss
-        metrics["actor/entropy_loss"] = MetricValue(value=entropy_loss, aggregation=metric_aggregation)
+        metrics["actor/entropy_loss"] = Metric(value=entropy_loss, aggregation=metric_aggregation)
 
     # add kl loss
     if config.use_kl_loss:
@@ -168,7 +168,7 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         )
 
         policy_loss += kl_loss * config.kl_loss_coef
-        metrics["kl_loss"] = MetricValue(value=kl_loss, aggregation=metric_aggregation)
+        metrics["kl_loss"] = Metric(value=kl_loss, aggregation=metric_aggregation)
         metrics["kl_coef"] = config.kl_loss_coef
 
     return policy_loss, metrics
