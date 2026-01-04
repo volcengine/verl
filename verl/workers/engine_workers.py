@@ -55,12 +55,16 @@ class TrainingWorker(Worker):
 
     def __init__(self, config: TrainingWorkerConfig):
         Worker.__init__(self)
+        # Store parameters as class attributes (defer actual initialization to init_worker)
+        self.config = config
+
+    def init_worker(self):
+        super().init_worker()
 
         from verl.workers.engine import BaseEngine, EngineRegistry
 
         initialize_global_process_group_ray(timeout_second=None)
 
-        self.config = config
         self.model_config = self.config.model_config
         self.engine_config = self.config.engine_config
         self.optimizer_config = self.config.optimizer_config
@@ -349,8 +353,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
+        # Store parameters as class attributes (defer actual initialization to init_worker)
         self.config = config
         self.role = role
+        self._init_kwargs = kwargs
+
+    def init_worker(self):
+        super().init_worker()
+
         self.actor: TrainingWorker = None
         self.ref: TrainingWorker = None
         self.rollout: BaseRollout = None
@@ -360,13 +370,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
         if self._is_actor:
-            omega_profiler_config = config.actor.get("profiler", {})
+            omega_profiler_config = self.config.actor.get("profiler", {})
         elif self._is_rollout:
             # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
             # This is for extendability in AsyncRL cases
-            omega_profiler_config = config.rollout.get("profiler", {})
+            omega_profiler_config = self.config.rollout.get("profiler", {})
         else:
-            omega_profiler_config = config.ref.get("profiler", {})
+            omega_profiler_config = self.config.ref.get("profiler", {})
 
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:

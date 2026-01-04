@@ -25,7 +25,7 @@ from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
 from verl.protocol import DataProto, _padding_size_key
-from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
+from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup, WorkerMeta
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
 from verl.utils.py_functional import temp_env_var
 
@@ -457,12 +457,24 @@ class RayWorkerGroup(WorkerGroup):
     def _init_with_resource_pool(self, resource_pool, ray_cls_with_init, bin_pack, detached, worker_env=None):
         """Initialize the worker group by creating new workers from a resource pool.
 
+        This method handles the complete worker initialization process including:
+        1. Creating workers with placement group scheduling
+        2. Collecting worker metadata (IP, node_id, gpu_ids)
+        3. Sorting workers by IP for correct topology (driver node first)
+        4. Adjusting ranks, local_ranks and visible devices
+        5. Calling init_worker for actual initialization
+
         Args:
             resource_pool: Resource pool for worker allocation
             ray_cls_with_init: Class with initialization arguments for workers
             bin_pack: Whether to use strict bin packing for resource allocation
             detached: Whether workers should be detached
+            worker_env: Optional environment variables for workers
         """
+        from collections import defaultdict
+
+        from verl.utils.net_utils import get_ip
+
         self.resource_pool = resource_pool
         pg = resource_pool.get_placement_group(device_name=self.device_name)
         world_size = resource_pool.world_size
@@ -470,12 +482,14 @@ class RayWorkerGroup(WorkerGroup):
         local_world_size = resource_pool.store[0]
         start_bundle_index = resource_pool.start_bundle_index
 
+        # Step 1: Create all workers
+        worker_meta_list: list[WorkerMeta] = []
         for rank in range(world_size):
             if rank == 0:
                 self._get_master_addr_port(pg, bundle_index=start_bundle_index)
 
             local_rank = rank % local_world_size
-            self._create_worker(
+            worker, worker_name = self._create_worker(
                 pg=pg,
                 bundle_index=start_bundle_index + rank,
                 rank=rank,
@@ -485,10 +499,72 @@ class RayWorkerGroup(WorkerGroup):
                 worker_env=worker_env,
                 detached=detached,
             )
+            worker_meta_list.append(WorkerMeta(worker=worker, worker_name=worker_name))
+
+        # Step 2: Collect worker metadata (IP, node_id, gpu_ids)
+        worker_infos = ray.get([meta.worker.get_worker_info.remote() for meta in worker_meta_list])
+        for meta, (ip, node_id, gpu_ids) in zip(worker_meta_list, worker_infos, strict=True):
+            meta.ip = ip
+            meta.node_id = node_id
+            meta.gpu_ids = [int(x) for x in gpu_ids]
+
+        # Step 3: Sort workers by IP for correct topology
+        driver_ip = get_ip()
+
+        ip_counts: dict[str, int] = {}
+        for ip, _, _ in worker_infos:
+            ip_counts[ip] = ip_counts.get(ip, 0) + 1
+
+        def sort_by_driver_then_worker_ip(item: WorkerMeta):
+            """
+            Sort the workers based on 3 properties:
+            1. If the worker is on the same node as the driver,
+                it should be placed first.
+            2. Then, if the worker is on a node with fewer workers, it should
+                be placed first.
+            3. Finally, if the worker is on a node with smaller IP address, it
+                should be placed first.
+            """
+            ip = item.ip
+            return (0 if ip == driver_ip else 1, ip_counts[ip], ip)
+
+        sorted_worker_meta = sorted(worker_meta_list, key=sort_by_driver_then_worker_ip)
+
+        # Step 4: Build final workers list
+        self._workers = [item.worker for item in sorted_worker_meta]
+        self._worker_names = [item.worker_name for item in sorted_worker_meta]
+
+        # Step 5: Build node_workers and node_gpus mappings
+        node_workers: dict[str, list[int]] = defaultdict(list)  # node id -> list of worker ranks
+        node_gpus: dict[str, list[int]] = defaultdict(list)  # node id -> list of gpu ids
+
+        for rank, item in enumerate(sorted_worker_meta):
+            node_workers[item.node_id].append(rank)
+            node_gpus[item.node_id].extend(item.gpu_ids)
+
+        for node_id, gpu_ids in node_gpus.items():
+            node_gpus[node_id] = sorted(set(gpu_ids))
+
+        # Step 6: Adjust rank, local_rank and visible_devices for each worker
+        adjust_rank_futures = []
+        for rank, item in enumerate(sorted_worker_meta):
+            local_rank = node_workers[item.node_id].index(rank)
+            visible_devices = ",".join(map(str, node_gpus[item.node_id]))
+            future = item.worker.adjust_rank_and_visible_devices.remote(rank, local_rank, visible_devices)
+            adjust_rank_futures.append(future)
+        ray.get(adjust_rank_futures)
+
+        # Step 7: Initialize all workers
+        ray.get([item.worker.init_worker.remote() for item in sorted_worker_meta])
 
     def _create_worker(
         self, pg, bundle_index, rank, local_rank, resource_pool, ray_cls_with_init, worker_env, detached
     ):
+        """Create a single worker actor.
+
+        Returns:
+            tuple: (worker_handle, worker_name)
+        """
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
         local_world_size = resource_pool.store[0]
@@ -520,6 +596,7 @@ class RayWorkerGroup(WorkerGroup):
         match = re.search(r"ActorClass\(([^)]+)\)", cia_name)  # ray.remote(Obj) -> "ActorClass(Obj)"
         cia_name = match.group(1) if match else cia_name  # "ActorClass(Obj)" -> "Obj"
         pg_idx = rank // local_world_size
+        # TODO: worker_name may be inaccurate after adjust_rank, need to fix
         name = f"{self.name_prefix}{cia_name}_{pg_idx}:{local_rank}"  # e.g. Worker_2:5
 
         if self.profile_steps and self.device_name == "cuda":
@@ -546,8 +623,7 @@ class RayWorkerGroup(WorkerGroup):
             num_gpus=num_gpus,
             device_name=self.device_name,
         )
-        self._workers.append(worker)
-        self._worker_names.append(name)
+        return worker, name
 
     @property
     def worker_names(self):
@@ -885,6 +961,37 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})
                     )
+
+        def adjust_rank_and_visible_devices(self, rank: int, local_rank: int, visible_devices: str):
+            """Adjust the rank, local_rank and visible devices for this WorkerDict and all its sub-workers.
+
+            Args:
+                rank: The new global rank for this worker.
+                local_rank: The new local rank for this worker.
+                visible_devices: The comma-separated visible device IDs for this worker.
+            """
+            # Call parent's adjust_rank_and_visible_devices
+            super().adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+
+            # Call adjust_rank_and_visible_devices on all sub-workers
+            for key, sub_worker in self.worker_dict.items():
+                assert hasattr(sub_worker, "adjust_rank_and_visible_devices"), (
+                    f"sub_worker {key} ({type(sub_worker).__name__}) must have adjust_rank_and_visible_devices method"
+                )
+                sub_worker.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+
+        def init_worker(self):
+            """Initialize all sub-workers after rank adjustment.
+
+            This calls init_worker on all sub-workers in the worker_dict.
+            """
+            super().init_worker()
+
+            for key, sub_worker in self.worker_dict.items():
+                assert hasattr(sub_worker, "init_worker"), (
+                    f"sub_worker {key} ({type(sub_worker).__name__}) must have init_worker method"
+                )
+                sub_worker.init_worker()
 
     # now monkey-patch the methods from inner class to WorkerDict
     for key, user_defined_cls in cls_dict.items():

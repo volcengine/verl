@@ -25,6 +25,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import ipaddress
+import socket
+import warnings
+
+
+def get_ip() -> str:
+    # try ipv4
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))  # Doesn't need to be reachable
+        return s.getsockname()[0]
+    except Exception:
+        pass
+
+    # try ipv6
+    try:
+        s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        # Google's public DNS server, see
+        # https://developers.google.com/speed/public-dns/docs/using#addresses
+        s.connect(("2001:4860:4860::8888", 80))  # Doesn't need to be reachable
+        return s.getsockname()[0]
+    except Exception:
+        pass
+
+    warnings.warn("Failed to get the IP address, using 0.0.0.0 by default.", stacklevel=2)
+    return "0.0.0.0"
 
 
 def is_ipv4(ip_str: str) -> bool:
