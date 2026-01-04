@@ -36,6 +36,7 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
+from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
@@ -240,8 +241,14 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
             if self.engine.is_mp_src_rank_with_outputs():
                 actor_output = [tu.get(output, "metrics") for output in output_lst]
-                assert len(actor_output) == 1
-                metrics = actor_output.pop()
+                metrics = {}
+                for output in actor_output:
+                    for key, val in output.items():
+                        # flattn dp and micro batch
+                        if isinstance(val, list) and val and isinstance(val[0], list):
+                            output[key] = list(chain.from_iterable(val))
+                    append_to_dict(metrics, output)
+
                 output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics}).cpu()
             else:
                 output = None
