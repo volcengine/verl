@@ -21,8 +21,10 @@ import os
 from typing import Generator
 
 import ray
-import sglang.srt.entrypoints.engine
 import torch
+from torch.distributed.device_mesh import DeviceMesh
+
+import sglang.srt.entrypoints.engine
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
     assert_pkg_version,
@@ -31,8 +33,6 @@ from sglang.srt.utils import (
     set_ulimit,
 )
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
-from torch.distributed.device_mesh import DeviceMesh
-
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
@@ -136,7 +136,11 @@ class ServerAdapter(BaseRollout):
         )
         host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
+            model_path=self.model_config.local_path,
+            host=host,
+            port=server_port,
+            launch_server=False,
+            trust_remote_code=self.model_config.trust_remote_code,
         )
 
     async def resume(self, tags: list[str]):

@@ -236,6 +236,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
+
         self.config = config
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
@@ -385,6 +386,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 wrap_with_ddp=True,
                 use_distributed_optimizer=self.config.actor.megatron.use_distributed_optimizer,
             )
+            logger.info(f"Start actor make_megatron_module, {self.rank=}")
             actor_module, updated_tf_config = make_megatron_module(
                 wrap_config=wrap_config,
                 tf_config=self.tf_config,
@@ -397,6 +399,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 peft_config=self.config.model.get("lora", None),
             )
             self.tf_config = updated_tf_config
+            logger.info(f"End actor make_megatron_module, {self.rank=}")
             print(f"actor_module: {len(actor_module)}")
             if self.config.actor.load_weight:
                 if self.config.actor.megatron.use_dist_checkpointing:
@@ -420,7 +423,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
             if self.rank == 0:
                 print_model_size(actor_module[0])
-            log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
+            log_gpu_memory_usage("After MegatronPPOActor init", logger=logger, level=logging.INFO)
         elif self._is_ref:
             wrap_config = McoreModuleWrapperConfig(
                 is_value_model=False,  # ref is not value model
@@ -428,6 +431,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 wrap_with_ddp=False,
                 use_distributed_optimizer=self.config.ref.megatron.use_distributed_optimizer,
             )
+            logger.info(f"Start ref make_megatron_module, {self.rank=}")
             ref_module, updated_tf_config = make_megatron_module(
                 wrap_config=wrap_config,
                 tf_config=self.tf_config,
@@ -437,6 +441,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 override_model_config=override_model_config,
             )
             self.tf_config = updated_tf_config
+            logger.info(f"End ref make_megatron_module, {self.rank=}")
             if self.config.ref.load_weight:  # should align with the actor:
                 assert self.config.actor.load_weight == self.config.ref.load_weight
                 print("load ref weight start")
@@ -458,7 +463,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                         load_megatron_gptmodel_weights(
                             self.config, self.hf_config, ref_module, params_dtype=self.dtype, is_value_model=False
                         )
-            log_gpu_memory_usage("After ref module init", logger=logger)
+            log_gpu_memory_usage("After ref module init", logger=logger, level=logging.INFO)
             return ref_module, self.hf_config
 
         # TODO: add more optimizer args into config
@@ -733,10 +738,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         micro_batch_size = self.config.actor.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
+
         dataloader = self.actor.make_minibatch_iterator(data=data)
+        logger.info(f"[update_actor] Starting update_policy on rank {self.rank}")
+
         with Timer(name="update_policy", logger=None) as timer:
             metrics = self.actor.update_policy(dataloader=dataloader)
+
         delta_time = timer.last
+        logger.info(f"[update_actor] update_policy completed in {delta_time:.2f}s on rank {self.rank}")
+
         global_num_tokens = data.meta_info["global_token_num"]
         estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
@@ -746,6 +757,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         from verl.utils.megatron.optimizer import get_megatron_last_lr
 
         metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
+
         self.actor_optimizer_scheduler.step(1)
 
         # TODO: here, we should return all metrics
@@ -760,6 +772,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("After offload actor optimizer during update_actor", logger=logger)
 
         aggressive_empty_cache(force_sync=True)
+        logger.info(f"[update_actor] Cache cleared, completing update_actor on rank {self.rank}")
         return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
@@ -1024,6 +1037,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
                 expert_model_parallel_size=self.config.megatron.expert_model_parallel_size,
                 expert_tensor_parallel_size=self.config.megatron.expert_tensor_parallel_size,
                 nccl_communicator_config_path=None,
+                distributed_timeout_minutes=60,
             )
 
         is_collect = (

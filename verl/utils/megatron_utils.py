@@ -449,7 +449,7 @@ def load_megatron_model_to_gpu(models, load_grad=True):
                         buffer.grad_data.storage().resize_(buffer.grad_data_size)
                         buffer.grad_data.zero_()
 
-                    if buffer.param_data.storage().size() == 0:
+                    if buffer.param_data.storage().size() == 0 and hasattr(buffer, "param_data_size"):
                         buffer.param_data.storage().resize_(buffer.param_data_size)
                         # copy data from cpu to cuda
                         buffer.param_data.copy_(buffer.param_data.cpu_data, non_blocking=True)
@@ -976,7 +976,7 @@ def per_tensor_generator(
             cur_name = cur_name[len("module.") :]
 
         # EP
-        if ".mlp.experts.linear_fc" in cur_name and ep_size > 1:
+        if (".mlp.experts.linear_fc" in cur_name or ".moe.experts.linear_fc" in cur_name) and ep_size > 1:
             num_experts = weight_converter.mcore_config.num_moe_experts
             num_experts_per_rank = num_experts // ep_size
             infer_params = [torch.empty_like(broad_pp_tensor) for _ in range(ep_size)]

@@ -54,6 +54,7 @@ from typing import Any, Callable, Optional
 
 import aiohttp
 import requests
+
 from sglang.srt.entrypoints.EngineBase import EngineBase
 from sglang.srt.entrypoints.http_server import launch_server
 from sglang.srt.managers.io_struct import (
@@ -136,7 +137,7 @@ def launch_server_process(
     """
     p = multiprocessing.Process(target=launch_server, args=(server_args,))
     if server_args.node_rank != 0 or not first_rank_in_node:
-        logger.info(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}", flush=True)
+        logger.info(f"Server process started with PID {p.pid} for node rank {server_args.node_rank}")
         return p
 
     p.start()
@@ -257,7 +258,8 @@ class HttpServerAdapter(EngineBase):
         self.max_start_wait_time: float = max_start_wait_time
 
         logger.info(
-            f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} with {first_rank_in_node}"
+            f"Launch HttpServerAdapter at: {self.server_args.host}:{self.server_args.port} "
+            f"with {first_rank_in_node}. {self.server_args=}"
         )
         if launch_server:
             self.process: multiprocessing.Process = launch_server_process(

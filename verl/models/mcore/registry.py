@@ -114,6 +114,7 @@ class SupportedModel(Enum):
     QWEN3 = "Qwen3ForCausalLM"  # tested
     QWEN3_MOE = "Qwen3MoeForCausalLM"  # tested
     GLM4_MOE = "Glm4MoeForCausalLM"
+    LONGCAT_FLASH = "LongcatFlashForCausalLM"
 
     QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
     LLAMA_TOKEN_CLASSIFICATION = "LlamaForTokenClassification"
@@ -169,6 +170,7 @@ MODEL_FORWARD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: model_forward_gen(),
     SupportedModel.LLAMA_TOKEN_CLASSIFICATION: model_forward_gen(),
     SupportedModel.GPT_OSS: model_forward_gen(),
+    SupportedModel.LONGCAT_FLASH: model_forward_gen(),
 }
 
 # Registry for model forward functions
@@ -188,6 +190,7 @@ MODEL_FORWARD_NOPAD_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.QWEN3_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
     SupportedModel.LLAMA_TOKEN_CLASSIFICATION: gptmodel_forward_no_padding,
     SupportedModel.GPT_OSS: gptmodel_forward_no_padding,
+    SupportedModel.LONGCAT_FLASH: gptmodel_forward_no_padding,
 }
 
 # Registry for model forward functions
@@ -205,6 +208,7 @@ MODEL_FORWARD_FUSED_REGISTRY: dict[SupportedModel, Callable] = {
     SupportedModel.DEEPSEEK_V3: fused_forward_model_gen(),
     SupportedModel.GLM4_MOE: fused_forward_model_gen(),
     SupportedModel.GPT_OSS: fused_forward_model_gen(),
+    SupportedModel.LONGCAT_FLASH: fused_forward_model_gen(),
 }
 
 # Registry for model weight converters
