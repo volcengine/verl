@@ -287,6 +287,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         role="actor",
         enable_activation_offload=False,
         use_prefix_grouper=False,
+        use_tiled_mlp=False,
+        tiled_mlp_shards=4,
     ):
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
@@ -301,6 +303,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         from verl.utils.torch_dtypes import PrecisionType
 
         assert role in ["actor", "ref"]
+
+        # TiledMLP requires FSDP2 for correct gradient computation
+        if use_tiled_mlp and self.config.actor.strategy == "fsdp":
+            raise ValueError("TiledMLP requires FSDP2. Set `actor_rollout_ref.actor.strategy=fsdp2`.")
 
         log_gpu_memory_usage(f"Before init {role} from HF AutoModel", logger=logger)
         local_path = model_path
@@ -417,6 +423,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 use_fused_kernels=use_fused_kernels,
                 fused_kernels_backend=fused_kernels_backend,
                 use_prefix_grouper=use_prefix_grouper,
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # some parameters may not in torch_dtype. TODO(zhangchi.usc1992) remove this after we switch to fsdp2
@@ -790,6 +798,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 fsdp_config = FSDPEngineConfig()
 
             local_path = copy_to_local(self.config.model.path, use_shm=use_shm)
+            # TiledMLP configuration for memory-efficient MLP computation
+            tiled_mlp_config = self.config.model.get("tiled_mlp", {})
+            use_tiled_mlp = tiled_mlp_config.get("enabled", False)
+            tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
+
             (
                 self.actor_module_fsdp,
                 self.actor_optimizer,
@@ -808,6 +821,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 role="actor",
                 enable_activation_offload=self.config.model.get("enable_activation_offload", False),
                 use_prefix_grouper=self.config.actor.get("use_prefix_grouper", False),
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # get the original unwrapped module
@@ -841,6 +856,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 print("reference model:", ref_model_path)
             local_path = copy_to_local(ref_model_path, use_shm=use_shm)
             use_prefix_grouper = hasattr(self.config, "actor") and self.config.actor.get("use_prefix_grouper", False)
+
+            # TiledMLP for ref model: use ref config if specified, otherwise use actor config
+            ref_tiled_mlp_config = self.config.ref.get("tiled_mlp", None)
+            if ref_tiled_mlp_config is None:
+                ref_tiled_mlp_config = self.config.model.get("tiled_mlp", {})
+            ref_use_tiled_mlp = ref_tiled_mlp_config.get("enabled", False)
+            ref_tiled_mlp_shards = ref_tiled_mlp_config.get("num_shards", 4)
+
             self.ref_module_fsdp = self._build_model_optimizer(
                 model_path=local_path,
                 fsdp_config=omega_conf_to_dataclass(self.config.ref.fsdp_config),
@@ -852,6 +875,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 use_liger=self.config.model.get("use_liger", False),
                 role="ref",
                 use_prefix_grouper=use_prefix_grouper,
+                use_tiled_mlp=ref_use_tiled_mlp,
+                tiled_mlp_shards=ref_tiled_mlp_shards,
             )[0]
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
@@ -1301,6 +1326,15 @@ class CriticWorker(Worker, DistProfilerExtension):
             use_meta_tensor=not critic_model_config.tie_word_embeddings, mesh=self.device_mesh
         )
 
+        # TiledMLP configuration for memory-efficient MLP computation
+        tiled_mlp_config = config.model.get("tiled_mlp", {})
+        use_tiled_mlp = tiled_mlp_config.get("enabled", False)
+        tiled_mlp_shards = tiled_mlp_config.get("num_shards", 4)
+
+        # TiledMLP requires FSDP2 for correct gradient computation
+        if use_tiled_mlp and config.strategy == "fsdp":
+            raise ValueError("TiledMLP requires FSDP2. Set `critic.strategy=fsdp2`.")
+
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             critic_model_config.classifier_dropout = 0.0
@@ -1320,6 +1354,8 @@ class CriticWorker(Worker, DistProfilerExtension):
                 model=critic_module,
                 use_remove_padding=use_remove_padding,
                 ulysses_sp_size=self.ulysses_sequence_parallel_size,
+                use_tiled_mlp=use_tiled_mlp,
+                tiled_mlp_shards=tiled_mlp_shards,
             )
 
             # some parameters may not in torch_dtype
