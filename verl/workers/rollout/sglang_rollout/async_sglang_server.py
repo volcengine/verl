@@ -155,16 +155,29 @@ class SGLangHttpServer:
         # used for NCCL process group
         if self.node_rank == 0:
             self._master_address = self._server_address
-            port_base = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_BASE", "12000"))
-            port_window = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_WINDOW", "50"))
-            port_start = port_base + int(self.replica_rank)
-            port_end = min(port_start + port_window, 65535)
-            try:
-                self._master_port, self._master_sock = get_free_port_in_range(
-                    self._server_address, port_start, port_end
-                )
-            except Exception:
+            port_base_env = os.environ.get("VERL_SGLANG_DIST_INIT_PORT_BASE")
+            port_window = max(1, int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_WINDOW", "50")))
+
+            if port_base_env is None:
                 self._master_port, self._master_sock = get_free_port(self._server_address)
+            else:
+                try:
+                    port_base = int(port_base_env)
+                except ValueError:
+                    logger.warning(
+                        "Invalid VERL_SGLANG_DIST_INIT_PORT_BASE=%r. Falling back to ephemeral port.",
+                        port_base_env,
+                    )
+                    self._master_port, self._master_sock = get_free_port(self._server_address)
+                else:
+                    port_start = port_base + int(self.replica_rank) * port_window
+                    port_end = min(port_start + port_window - 1, 65535)
+                    try:
+                        self._master_port, self._master_sock = get_free_port_in_range(
+                            self._server_address, port_start, port_end
+                        )
+                    except Exception:
+                        self._master_port, self._master_sock = get_free_port(self._server_address)
             logger.info(
                 f"SGLangHttpServer, replica_rank: {self.replica_rank}, "
                 f"master address: {self._master_address}, port: {self._master_port}"
