@@ -195,7 +195,7 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        self.config.max_model_len = self.model_config.hf_config.max_position_embeddings
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -479,7 +479,7 @@ class vLLMHttpServerBase:
         else:
             # Default to configured response_length, not the remaining context space
             # This ensures short prompts don't cause over-generation
-            max_tokens = self.config.response_length
+            max_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
 
         # Apply safety clamp: ensure max_tokens doesn't exceed available context space
         max_tokens = min(max_tokens, max_possible_tokens)
