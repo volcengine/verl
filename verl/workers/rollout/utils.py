@@ -37,12 +37,44 @@ def get_free_port(address: str) -> tuple[int, socket.socket]:
         family = socket.AF_INET6
 
     sock = socket.socket(family=family, type=socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    sock.bind((address, 0))
+    try:
+        sock.bind((address, 0))
+    except OSError:
+        logger.debug(
+            "Failed to bind to %s; falling back to wildcard bind for free-port allocation.",
+            address,
+            exc_info=True,
+        )
+        sock.bind(("", 0))
 
     port = sock.getsockname()[1]
     return port, sock
+
+
+def get_free_port_in_range(address: str, start_port: int, end_port: int) -> tuple[int, socket.socket]:
+    """Bind to the first available port within [start_port, end_port] and return (port, socket)"""
+    family = socket.AF_INET
+    if is_valid_ipv6_address(address):
+        family = socket.AF_INET6
+
+    last_err: Exception | None = None
+    for port in range(start_port, end_port + 1):
+        sock = socket.socket(family=family, type=socket.SOCK_STREAM)
+        try:
+            sock.bind((address, port))
+            return port, sock
+        except OSError:
+            try:
+                sock.bind(("", port))
+                return port, sock
+            except Exception as e:
+                last_err = e
+                sock.close()
+
+    raise OSError(
+        f"Failed to find a free port in range [{start_port}, {end_port}] for address={address!r}. "
+        f"Last error: {last_err!r}"
+    )
 
 
 async def run_unvicorn(app: FastAPI, server_args, server_address, max_retries=5) -> tuple[int, asyncio.Task]:
@@ -55,7 +87,7 @@ async def run_unvicorn(app: FastAPI, server_args, server_address, max_retries=5)
             config = uvicorn.Config(app, host=server_address, port=server_port, log_level="warning")
             server = uvicorn.Server(config)
             server.should_exit = True
-            await server.serve()
+            await server.serve(sockets=[sock])
             server_task = asyncio.create_task(server.main_loop())
             break
         except (OSError, SystemExit) as e:
