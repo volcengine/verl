@@ -606,8 +606,8 @@ class RayPPOTrainer:
 
         return gen_batch
 
-    def generate_sequences(self, batch: DataProto, mode: str) -> DataProto:
-        batch.meta_info["mode"] = mode
+    def generate_sequences(self, batch: DataProto, train_mode: bool) -> DataProto:
+        batch.meta_info["train_mode"] = train_mode
         if not self.async_rollout_mode:
             batch_output = self.actor_rollout_wg.generate_sequences(batch)
         else:
@@ -666,7 +666,7 @@ class RayPPOTrainer:
                 else self.config.actor_rollout_ref.rollout.agent.num_workers
             )
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            test_output_gen_batch_padded = self.generate_sequences(test_gen_batch_padded, mode="test")
+            test_output_gen_batch_padded = self.generate_sequences(test_gen_batch_padded, train_mode=False)
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -781,8 +781,6 @@ class RayPPOTrainer:
 
         # create critic
         if self.use_critic:
-            if self.sft_mode:
-                raise NotImplementedError
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.Critic)
 
             from verl.workers.config import CriticConfig
@@ -814,8 +812,6 @@ class RayPPOTrainer:
 
         # create reference policy if needed
         if self.use_reference_policy and Role.RefPolicy in self.role_worker_mapping:
-            if self.sft_mode:
-                raise NotImplementedError
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
@@ -1368,7 +1364,7 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        gen_batch_output = self.generate_sequences(gen_batch_output, "train")
+                        gen_batch_output = self.generate_sequences(gen_batch_output, train_mode=True)
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
 
@@ -1379,7 +1375,7 @@ class RayPPOTrainer:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            gen_baseline_output = self.generate_sequences(gen_baseline_batch, "train")
+                            gen_baseline_output = self.generate_sequences(gen_baseline_batch, train_mode=True)
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None
@@ -1479,7 +1475,9 @@ class RayPPOTrainer:
 
                                 metrics.update(calculate_debug_metrics(batch))
 
-                    assert self.sft_mode or "old_log_probs" in batch.batch, f'"old_log_prob" not in {batch.batch.keys()=}'
+                    assert self.sft_mode or "old_log_probs" in batch.batch, (
+                        f'"old_log_prob" not in {batch.batch.keys()=}'
+                    )
 
                     if self.use_reference_policy:
                         # compute reference log_prob

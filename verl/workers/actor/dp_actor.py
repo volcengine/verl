@@ -91,12 +91,6 @@ class DataParallelPPOActor(BasePPOActor):
         else:
             self.scaler = None
 
-        if role == "Actor":
-            self.sft_mode = self.config.sft.enabled
-            if self.sft_mode:
-                if self.config.use_kl_loss:
-                    raise ValueError("SFT mode and KL loss cannot be enabled at the same time.")
-
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -437,17 +431,6 @@ class DataParallelPPOActor(BasePPOActor):
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
-        if self.sft_mode and not on_policy:
-            if len(mini_batches) > 1:
-                raise ValueError(
-                    f"Got len(mini_batches)={len(mini_batches)}, but SFT mode only supports on-policy update. "
-                    f"Verify that data.train_batch_size==actor_rollout_ref.actor.ppo_mini_batch_size "
-                    f"and that actor_rollout_ref.rollout.n==1."
-                )
-            if self.config.ppo_epochs > 1:
-                raise ValueError(
-                    f"Got {self.config.ppo_epochs=} > 1, but SFT mode only supports ppo_epochs==1."
-                )
 
         metrics = {
             "actor/pg_loss": 0.0,

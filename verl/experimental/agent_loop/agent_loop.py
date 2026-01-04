@@ -439,7 +439,10 @@ class AgentLoopWorkerBase:
         # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch or self.config.actor_rollout_ref.actor.sft.enabled:
             if self.config.actor_rollout_ref.actor.sft.enabled:
-                default_agent_loop = "sft"
+                if batch.meta_info["train_mode"]:
+                    default_agent_loop = "sft"
+                else:
+                    default_agent_loop = "single_turn_agent"
             else:
                 default_agent_loop = config.agent.default_agent_loop
             batch.non_tensor_batch["agent_name"] = np.array([default_agent_loop] * len(batch), dtype=object)

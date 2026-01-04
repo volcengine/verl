@@ -112,6 +112,22 @@ def validate_config(
             f"({minimal_bsz})"
         )
 
+    if config.actor_rollout_ref.actor.sft.enabled:
+        if use_critic:
+            raise NotImplementedError("SFT mode with critic is not supported.")
+        if use_reference_policy:
+            raise NotImplementedError("SFT mode with reference policy is not supported.")
+        if config.reward_model.enable:
+            raise NotImplementedError("SFT mode with reward model is not supported.")
+        if config.actor_rollout_ref.rollout.n != 1:
+            raise NotImplementedError("SFT mode with multiple rollouts is not supported.")
+        if config.actor_rollout_ref.actor.ppo_mini_batch_size != config.data.train_batch_size:
+            raise NotImplementedError(
+                "SFT mode with PPO mini-batch size different from train batch size is not supported."
+            )
+        if config.actor_rollout_ref.actor.ppo_epochs != 1:
+            raise NotImplementedError("SFT mode with PPO epochs > 1 is not supported.")
+
     # A helper function to check "micro_batch_size" vs "micro_batch_size_per_gpu"
     # We throw an error if the user sets both. The new convention is "..._micro_batch_size_per_gpu".
     def check_mutually_exclusive(mbs, mbs_per_gpu, name: str):
