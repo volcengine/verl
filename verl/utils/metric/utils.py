@@ -148,6 +148,9 @@ class MetricList:
             chained.extend(ml)
         return chained
 
+    def init_list(self) -> "MetricList":
+        return MetricList(aggregation=self.aggregation)
+
 
 class AggregationTypeMismatchError(Exception):
     def __init__(self, agg1: AggregationType, agg2: AggregationType):
