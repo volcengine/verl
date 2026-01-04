@@ -303,6 +303,9 @@ actor_rollout_ref:
     use_fused_kernels: false
     fused_kernel_options:
       impl_backend: torch
+    tiled_mlp:
+      enabled: false
+      num_shards: 4
   hybrid_engine: true
   nccl_timeout: 600
 data:
@@ -407,6 +410,9 @@ critic:
     lora_rank: 0
     lora_alpha: 16
     target_modules: all-linear
+    tiled_mlp:
+      enabled: false
+      num_shards: 4
   _target_: verl.workers.config.FSDPCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: fsdp
