@@ -958,7 +958,9 @@ def compute_policy_loss_vanilla(
     # Clamp negative_approx_kl for stability
     negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
 
     pg_losses1 = -advantages * ratio
     if cliprange_low is None:
@@ -971,12 +973,20 @@ def compute_policy_loss_vanilla(
     clip_pg_losses1 = torch.maximum(
         pg_losses1, pg_losses2
     )  # max(-ratio * A, -clip(ratio, 1-cliprange, 1+cliprange) * A)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), response_mask)
+    pg_clipfrac = agg_loss(
+        loss_mat=torch.gt(pg_losses2, pg_losses1).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
 
     pg_losses3 = -advantages * clip_ratio_c
     clip_pg_losses2 = torch.min(pg_losses3, clip_pg_losses1)
-    pg_clipfrac_lower = verl_F.masked_mean(
-        torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(), response_mask
+    pg_clipfrac_lower = agg_loss(
+        loss_mat=torch.gt(clip_pg_losses1, pg_losses3) * (advantages < 0).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
     )
 
     pg_losses = torch.where(advantages < 0, clip_pg_losses2, clip_pg_losses1)
@@ -1061,10 +1071,17 @@ def compute_policy_loss_gspo(
     )
 
     # For compatibility, return zero for pg_clipfrac_lower (not used in standard GSPO)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses1).float(), response_mask)
+    pg_clipfrac = agg_loss(
+        loss_mat=torch.gt(pg_losses2, pg_losses1).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
     pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
 
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
     pg_metrics = {
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
         "actor/ppo_kl": ppo_kl.detach().item(),
@@ -1147,7 +1164,9 @@ def compute_policy_loss_sapo(
     pg_clipfrac = torch.tensor(0.0, device=pg_loss.device)
     pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
     # compute KL for metrics tracking
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
     # return metrics dict
     pg_metrics = {
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
@@ -1250,7 +1269,9 @@ def compute_policy_loss_clip_cov(
 
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
 
     pg_losses1 = -advantages * ratio
 
@@ -1281,7 +1302,9 @@ def compute_policy_loss_clip_cov(
 
     corr[top_k_idx[:, 0], top_k_idx[:, 1]] = 0
 
-    pg_clipfrac = verl_F.masked_mean((corr == 0).float(), response_mask)
+    pg_clipfrac = agg_loss(
+        loss_mat=(corr == 0).float(), loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
 
     pg_losses = torch.maximum(pg_losses1, pg_losses2) * corr
 
@@ -1343,7 +1366,12 @@ def compute_policy_loss_kl_cov(
     negative_approx_kl = log_prob - old_log_prob
     abs_kl = negative_approx_kl.abs()
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl_abs = verl_F.masked_mean(negative_approx_kl.abs(), response_mask)
+    ppo_kl_abs = agg_loss(
+        loss_mat=negative_approx_kl.abs(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
     pg_losses1 = -advantages * ratio
     pg_losses_kl = -advantages * ratio + ppo_kl_coef * abs_kl
     pg_losses = pg_losses1
@@ -1425,7 +1453,9 @@ def compute_policy_loss_geo_mean(
     negative_approx_kl = log_prob - old_log_prob
     # Clamp negative_approx_kl for stability (uncomment it if you like)
     # negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
 
     # Clipping at token-level & Clipping wider
     sgn_advantage = torch.sign(advantages)
@@ -1455,8 +1485,18 @@ def compute_policy_loss_geo_mean(
 
     # higher: ratio is too large that need clamp to clip_high (when adv > 0)
     clipped = torch.ne(negative_approx_kl, negative_approx_kl_clamp)
-    pg_clipfrac = verl_F.masked_mean((clipped * (advantages > 0)).float(), response_mask)
-    pg_clipfrac_lower = verl_F.masked_mean((clipped * (advantages < 0)).float(), response_mask)
+    pg_clipfrac = agg_loss(
+        loss_mat=(clipped * (advantages > 0)).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
+    pg_clipfrac_lower = agg_loss(
+        loss_mat=(clipped * (advantages < 0)).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
     pg_metrics = {
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
         "actor/ppo_kl": ppo_kl.detach().item(),
@@ -1491,7 +1531,9 @@ def compute_policy_loss_cispo(
     # Clamp for numerical stability
     negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    ppo_kl = agg_loss(
+        loss_mat=-negative_approx_kl, loss_mask=response_mask, loss_agg_mode="token-mean", **config.global_batch_info
+    )
 
     # CISPO: Clip the importance sampling weights
     # KEY: Apply stop gradient to the clipped ratio
@@ -1505,7 +1547,12 @@ def compute_policy_loss_cispo(
     pg_losses = -clipped_ratio_sg * advantages * log_prob
 
     # Track clipping statistics
-    pg_clipfrac = verl_F.masked_mean((ratio != clipped_ratio).float(), response_mask)
+    pg_clipfrac = agg_loss(
+        loss_mat=(ratio != clipped_ratio).float(),
+        loss_mask=response_mask,
+        loss_agg_mode="token-mean",
+        **config.global_batch_info,
+    )
 
     # Apply rollout importance sampling weights if provided
     if rollout_is_weights is not None:

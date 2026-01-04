@@ -150,7 +150,6 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
 
         policy_loss += kl_loss * config.kl_loss_coef
         metrics["kl_loss"] = kl_loss.detach().item()
-        metrics["kl_coef"] = config.kl_loss_coef
 
     return policy_loss, metrics
 

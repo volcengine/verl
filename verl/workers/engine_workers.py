@@ -36,7 +36,6 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
-from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
@@ -152,7 +151,11 @@ class TrainingWorker(Worker, DistProfilerExtension):
         lr = metrics.pop("lr", None)
 
         # For other metrics, we perform all gather in dp group
-        final_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
+        gathered_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
+        final_metrics = {}
+        for metric_name, metric_val in gathered_metrics.items():
+            metric_val = list(chain.from_iterable(metric_val))
+            final_metrics[metric_name] = sum(metric_val)
         final_metrics["loss"] = loss
         if grad_norm is not None:
             final_metrics["grad_norm"] = grad_norm
@@ -237,14 +240,8 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
             if self.engine.is_mp_src_rank_with_outputs():
                 actor_output = [tu.get(output, "metrics") for output in output_lst]
-                metrics = {}
-                for output in actor_output:
-                    for key, val in output.items():
-                        # flattn dp and micro batch
-                        if isinstance(val, list):
-                            output[key] = list(chain.from_iterable(val))
-                    append_to_dict(metrics, output)
-
+                assert len(actor_output) == 1
+                metrics = actor_output.pop()
                 output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics}).cpu()
             else:
                 output = None
