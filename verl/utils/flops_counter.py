@@ -164,7 +164,7 @@ def _estimate_qwen3_vl_flops(config,tokens_sum, batch_seqlens, delta_time, **kar
 
 def _estimate_qwen3_vit_flop(images_seqlens, config):
     """
-    Estimate the FLOPS of the vision encoder for Qwen2 and Qwen2.5
+    Estimate the FLOPS of the vision encoder for Qwen3-VL
     """
 
     if config is None:
