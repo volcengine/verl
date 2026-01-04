@@ -61,6 +61,10 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
         role = "Ref" if actor_optimizer is None else "Actor"
+        if role == "Actor":
+            self.sft_mode = self.config.sft.enabled
+        else:
+            self.sft_mode = False
 
         self.use_remove_padding = self.config.get("use_remove_padding", False)
         if torch.distributed.get_rank() == 0:
