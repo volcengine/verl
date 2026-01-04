@@ -129,6 +129,9 @@ MindSpeed 源码安装指令：
         # （可选）如希望 shell 关闭，或系统重启后，PYTHONPATH 环境变量仍然生效，建议将它添加到 .bashrc 配置文件中
         echo "export PYTHONPATH=$PYTHONPATH:\"$(pwd)/Megatron-LM\"" >> ~/.bashrc
 
+        # 安装 mbridge
+        pip install mbridge
+
 MindSpeed 对应 Megatron-LM 后端使用场景，使用方式如下：
 
     1. 使能 verl worker 模型 ``strategy`` 配置为 ``megatron`` ，例如 ``actor_rollout_ref.actor.strategy=megatron``。

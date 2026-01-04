@@ -17,7 +17,7 @@ FROM quay.io/ascend/cann:8.2.rc1-a3-openeuler22.03-py3.11
 ARG PIP_INDEX_URL="https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple"
 ARG COMPILE_CUSTOM_KERNELS=1
 
-# Define enviroments
+# Define environments
 ENV DEBIAN_FRONTED=noninteractive
 ENV COMPILE_CUSTOM_KERNELS=${COMPILE_CUSTOM_KERNELS}
 

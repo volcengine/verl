@@ -44,6 +44,7 @@ verl is fast with:
 </p>
 
 ## News
+- [2025/12] [Mind Lab](https://macaron.im/mindlab) successfully used [verl](https://github.com/volcengine/verl) and [Megatron-bridge](https://github.com/NVIDIA-NeMo/Megatron-Bridge) to train GRPO Lora for Trillion-parameter model on 64 H800 - See their [techblog](https://macaron.im/mindlab/research/building-trillion-parameter-reasoning-rl-with-10-gpus).
 - [2025/11] recipes have been moved to a new repository: [verl-recipe](https://github.com/verl-project/verl-recipe)
 - [2025/10] verl is presented in the [PyTorch Conference 2025](https://pytorch.org/event/pytorch-conference-2025/).
 - [2025/08] verl is presented in the [PyTorch Expert Exchange Webinar](https://www.youtube.com/watch?v=Vd79NmmqY3Q&t=2s). [Slides](https://github.com/eric-haibin-lin/verl-community/blob/main/slides/verl_talk_pytorch_2025_08.pdf) available.
@@ -246,6 +247,7 @@ verl is inspired by the design of Nemo-Aligner, Deepspeed-chat and OpenRLHF. The
 - [PokeeResearch](https://github.com/Pokee-AI/PokeeResearchOSS): PokeeResearch: State-of-the-art 7B DeepResearch Agent that leverages web search and content reading capabilities to answer complex questions using the most up-to-date information available online. ![Github Repo Stars](https://img.shields.io/github/stars/Pokee-AI/PokeeResearchOSS)
 - [Search Self-play](https://github.com/Alibaba-Quark/SSP): Pushing the Frontier of Agent Capability without Supervision ![GitHub Repo stars](https://img.shields.io/github/stars/Alibaba-Quark/SSP)
 - [OneThinker](https://github.com/tulerfeng/OneThinker): All-in-one Reasoning Model for Image and Video ![GitHub Repo stars](https://img.shields.io/github/stars/tulerfeng/OneThinker)
+- [OpenTinker](https://github.com/open-tinker/OpenTinker): Democratizing Agentic Reinforcement Learning as a Service ![GitHub Repo stars](https://img.shields.io/github/stars/open-tinker/OpenTinker)
 
 
 and many more awesome work listed in [recipe](recipe/README.md).

@@ -25,7 +25,7 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pprint import pprint
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import ray
@@ -55,6 +55,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
+from verl.utils.import_utils import load_class_from_fqn
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
 from verl.utils.rollout_skip import RolloutSkip
@@ -521,11 +522,77 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
+    def _compute_or_extract_reward(
+        self,
+        batch: DataProto,
+        reward_fn=None,
+        return_dict: bool = False,
+        sum_reward: bool = False,
+    ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor | dict[str, Any]:
+        """
+        Compute or extract reward from batch.
+
+        When use_reward_loop=True, rewards are already computed during generate_sequences
+        and stored in rm_scores. This method directly extracts them instead of calling
+        reward functions which would only perform format conversion.
+
+        Args:
+            batch: DataProto containing the batch data
+            reward_fn: Reward function to use if rm_scores doesn't exist (for training/validation)
+            return_dict: Whether to return dict format with reward_extra_info (for validation)
+            sum_reward: Whether to sum reward tensor along last dimension (for REMAX baseline)
+
+        Returns:
+            If return_dict=True: dict with "reward_tensor" and "reward_extra_info"
+            If return_dict=False and sum_reward=True: summed reward_tensor (1D tensor)
+            If return_dict=False and sum_reward=False: reward_tensor (2D tensor)
+        """
+        # When rm_scores already exists, extract it directly (format conversion only)
+        if "rm_scores" in batch.batch.keys():
+            reward_tensor = batch.batch["rm_scores"]
+            if sum_reward:
+                reward_tensor = reward_tensor.sum(dim=-1)
+
+            if return_dict:
+                # Extract reward_extra_info if available
+                reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
+                reward_extra_info = (
+                    {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
+                )
+                return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
+            else:
+                # If sum_reward=True, only return tensor (for REMAX baseline)
+                if sum_reward:
+                    return reward_tensor
+                # Otherwise, return tuple with reward_extra_info (for training loop)
+                reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
+                reward_extra_infos_dict = (
+                    {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
+                )
+                return reward_tensor, reward_extra_infos_dict
+
+        # Otherwise, compute reward using reward_fn
+        if reward_fn is None:
+            raise ValueError("reward_fn must be provided when rm_scores is not available.")
+
+        if return_dict:
+            result = reward_fn(batch, return_dict=True)
+            reward_tensor = result["reward_tensor"]
+            if sum_reward:
+                reward_tensor = reward_tensor.sum(dim=-1)
+            reward_extra_info = result.get("reward_extra_info", {})
+            return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
+        else:
+            reward_tensor, reward_extra_infos_dict = compute_reward(batch, reward_fn)
+            if sum_reward:
+                reward_tensor = reward_tensor.sum(dim=-1)
+            return reward_tensor, reward_extra_infos_dict
+
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+        batch_keys_to_pop = []
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -566,13 +633,6 @@ class RayPPOTrainer:
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
                 return {}
-
-            # Store original inputs
-            input_ids = test_batch.batch["input_ids"]
-            # TODO: Can we keep special tokens except for padding tokens?
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-            sample_uids.extend(test_batch.non_tensor_batch["uid"])
 
             ground_truths = [
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
@@ -615,18 +675,28 @@ class RayPPOTrainer:
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
+            # Store original inputs
+            input_ids = test_batch.batch["prompts"]
+            # TODO: Can we keep special tokens except for padding tokens?
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
+            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+
             # evaluate using reward_function
-            if self.val_reward_fn is None:
-                raise ValueError("val_reward_fn must be provided for validation.")
-            result = self.val_reward_fn(test_batch, return_dict=True)
+            result = self._compute_or_extract_reward(test_batch, reward_fn=self.val_reward_fn, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
-            if "reward_extra_info" in result:
-                for key, lst in result["reward_extra_info"].items():
-                    reward_extra_infos_dict[key].extend(lst)
+            reward_extra_info = result.get("reward_extra_info", {})
+            for key, values in reward_extra_info.items():
+                if key not in reward_extra_infos_dict:
+                    reward_extra_infos_dict[key] = []
+                if isinstance(values, np.ndarray):
+                    reward_extra_infos_dict[key].extend(values.tolist())
+                else:
+                    reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
 
             # collect num_turns of each prompt
             if "__num_turns__" in test_batch.non_tensor_batch:
@@ -758,9 +828,8 @@ class RayPPOTrainer:
                 self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
         else:
             # reward loop handle hybrid reward scenario (rule, disrm, genrm, ...)
-            can_reward_loop_parallelize = self.config.actor_rollout_ref.rollout.mode == "async" and (
-                not self.use_rm or self.config.reward_model.enable_resource_pool
-            )
+            # Note: mode is always "async" since sync mode is deprecated
+            can_reward_loop_parallelize = not self.use_rm or self.config.reward_model.enable_resource_pool
             # judge if we can asynchronously parallelize reward model with actor rollout
             # two condition that we can parallelize reward model with actor rollout:
             # 1. reward model is not enabled (rule-based reward can parallelize)
@@ -768,7 +837,7 @@ class RayPPOTrainer:
             # If we cannot parallelize, we should enable synchronous mode here, and launch a reward loop manager here
             # else for parallelize mode, we launch a reward worker for each rollout worker (in agent loop, not here)
             if not can_reward_loop_parallelize:
-                from verl.experimental.reward import RewardLoopManager
+                from verl.experimental.reward_loop import RewardLoopManager
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
@@ -846,21 +915,26 @@ class RayPPOTrainer:
             self.ref_policy_wg = self.actor_rollout_wg
 
         # create async rollout manager and request scheduler
-        self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async":
+        # Note: mode is always "async" since sync mode is deprecated
+        self.async_rollout_mode = True
+
+        # Support custom AgentLoopManager via config
+        manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+        if manager_class_fqn:
+            AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
+        else:
             from verl.experimental.agent_loop import AgentLoopManager
 
-            self.async_rollout_mode = True
-            if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-                rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            else:
-                rm_resource_pool = None
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        else:
+            rm_resource_pool = None
 
-            self.async_rollout_manager = AgentLoopManager(
-                config=self.config,
-                worker_group=self.actor_rollout_wg,
-                rm_resource_pool=rm_resource_pool,
-            )
+        self.async_rollout_manager = AgentLoopManager(
+            config=self.config,
+            worker_group=self.actor_rollout_wg,
+            rm_resource_pool=rm_resource_pool,
+        )
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1010,6 +1084,26 @@ class RayPPOTrainer:
             if self.use_rm and not self.use_reward_loop:
                 self.rm_wg.stop_profile()
 
+    def _get_dp_size(self, worker_group, role: str) -> int:
+        """Get data parallel size from worker group dispatch info.
+
+        This method retrieves the data parallel size by querying the dispatch info
+        for the specified role. The dispatch info is cached for subsequent calls.
+
+        Args:
+            worker_group: The worker group to query dispatch info from.
+            role: The role name (e.g., "actor", "critic") to get DP size for.
+
+        Returns:
+            The data parallel size (number of DP ranks).
+        """
+        if role not in worker_group._dispatch_info:
+            dp_rank_mapping = worker_group._query_dispatch_info(role)
+            worker_group._dispatch_info[role] = dp_rank_mapping
+        else:
+            dp_rank_mapping = worker_group._dispatch_info[role]
+        return max(dp_rank_mapping) + 1
+
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
@@ -1020,7 +1114,9 @@ class RayPPOTrainer:
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
         workload_lst = calculate_workload(global_seqlen_lst)
-        world_size = self.actor_rollout_wg.world_size
+        # Get dp_size from dispatch info to correctly balance across data parallel ranks
+        # Note: world_size may include tensor/pipeline parallel dimensions, but we only want DP
+        dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
 
         # Use group-level balancing for PrefixGrouper to keep same-uid samples together
         if getattr(self, "use_prefix_grouper", False) and "uid" in batch.non_tensor_batch:
@@ -1051,19 +1147,17 @@ class RayPPOTrainer:
             # Decouple the DP balancing and mini-batching.
             minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
             minibatch_num = len(workload_lst) // minibatch_size
-            global_partition_lst = [[] for _ in range(world_size)]
+            global_partition_lst = [[] for _ in range(dp_size)]
             for i in range(minibatch_num):
                 rearrange_minibatch_lst = get_seqlen_balanced_partitions(
                     workload_lst[i * minibatch_size : (i + 1) * minibatch_size],
-                    k_partitions=world_size,
+                    k_partitions=dp_size,
                     equal_size=True,
                 )
                 for j, part in enumerate(rearrange_minibatch_lst):
                     global_partition_lst[j].extend([x + minibatch_size * i for x in part])
         else:
-            global_partition_lst = get_seqlen_balanced_partitions(
-                workload_lst, k_partitions=world_size, equal_size=True
-            )
+            global_partition_lst = get_seqlen_balanced_partitions(workload_lst, k_partitions=dp_size, equal_size=True)
         # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
         # Skip reordering within partitions for PrefixGrouper to maintain uid grouping
         if not getattr(self, "use_prefix_grouper", False):
@@ -1326,8 +1420,11 @@ class RayPPOTrainer:
                                     assert self.reward_loop_manager is not None, "RewardLoopManager is None"
                                     rm_scores = self.reward_loop_manager.compute_rm_score(batch)
                                 batch = batch.union(rm_scores)
-                            reward_baseline_tensor, _ = compute_reward(batch, self.reward_fn)
-                            reward_baseline_tensor = reward_baseline_tensor.sum(dim=-1)
+
+                            # Compute or extract reward for REMAX baseline
+                            reward_baseline_tensor = self._compute_or_extract_reward(
+                                batch, reward_fn=self.reward_fn, sum_reward=True
+                            )
 
                             keys_to_pop = set(gen_baseline_output.batch.keys())
                             if rm_scores is not None:
@@ -1363,12 +1460,15 @@ class RayPPOTrainer:
                                 reward_tensor = self.reward_loop_manager.compute_rm_score(batch)
                             batch = batch.union(reward_tensor)
 
+                        # Compute or extract reward for training
                         if self.config.reward_model.launch_reward_fn_async:
                             future_reward = compute_reward_async.remote(
                                 data=batch, config=self.config, tokenizer=self.tokenizer
                             )
                         else:
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                            reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
+                                batch, reward_fn=self.reward_fn, return_dict=False
+                            )
 
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)

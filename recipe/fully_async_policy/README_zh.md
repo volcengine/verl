@@ -2,7 +2,7 @@
 
 **Author:**  `https://github.com/meituan-search`
 
-Last updated: 10/17/2025.
+Last updated: 12/15/2025.
 
 本文档介绍了完全异步PPO训练系统，该系统实现了 Trainer 和 Rollouter 的完全解耦，支持异步样本生成和训练。
 在该系统下，我们使用128卡训练qwen2.5-7B模型取得了2.35x-2.67x的性能提升,同时效果没有显著受到影响。
@@ -33,7 +33,7 @@ rollout的训练， 通过合理设置资源分配情况、参数同步频率等
 * **资源隔离**：与使用hybrid_engine不同，Rollouter和Trainer使用分离的计算资源，需要分别指定所占用的资源。
 * **生成与训练并行**：Trainer在训练的同时，Rollouter在生成新的样本。
 * **多步异步**: 相比 one step off policy 支持0.x步到多步的异步设定，异步方案更加灵活。
-* **nccl参数同步**：使用nccl通信原语进行Rollouter与Trainer参数的通信。
+* **nccl参数同步**：基于nccl通信原语，参考[checkpoint-engine](https://github.com/MoonshotAI/checkpoint-engine)实现Rollouter与Trainer间的高效参数同步。
 * **Stream推理与训练**：Rollouter逐样本生成数据，同时数据传输以单个sample为最小传输单位。
 * **异步训练与新鲜度控制**：通过设置参数async_training.staleness_threshold，支持使用旧参数生成的样本进行训练。
 * **PartialRollout**: Rollouter推理过程支持partial rollout逻辑，通过参数同步时，添加`sleep()`和`resume()`
@@ -82,6 +82,9 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
 | `async_training.partial_rollout`                     | 是否进行partial_rollout                                             |
 | `async_training.use_rollout_log_probs`               | 使用rollout产生的log_probs                                           |
 | `async_training.compute_prox_log_prob`（experimental） | 是否在train阶段，使用train模型的参数计算token的 log_prob                        |
+| `async_training.checkpoint_engine.enable`| 是否开启checkpoint_engine模式的加速，默认值True |
+| `async_training.checkpoint_engine.overlap_broadcast_and_consume` | 启动checkpoint_engine时，是否在参数同步时在broadcast和加载之间使用流水，默认值False|
+| `async_training.checkpoint_engine.device_buffer_size_M` | 启动checkpoint_engine时，组装的bucket的大小(MB)，默认为4096 |
 
 **进一步的解释：**
 
@@ -139,6 +142,20 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   重要性采样，缓解这一问题。为了使用 `Rollout Importance Sampling` 我们需要使用训练引擎使用当前的参数版本计算old_log_prob，此开关需要打开。
   此外，在 mode d (async stream pipeline with partial rollout) 的情况下开启 `compute_prox_log_prob` 以及
   `Rollout Importance Sampling` 后，我们的实现已近似Areal的 `Decoupled PPO`。
+
+* `async_training.checkpoint_engine.enable`
+  
+  开启checkpoint engine后，相较于原始的逐tensor的参数同步方式，同步时间开销普遍可以降低60%以上。但是组装bucket会带来额外的临时显存开销。
+
+* `async_training.checkpoint_engine.overlap_broadcast_and_consume`
+
+  开启参数broadcast和load_weights之间的流水后，会进一步额外申请更多显存。由于目前分析参数同步的主要耗时并非来自broadcast和load_weights阶段，而是在参数生成阶段（由megatron或FSDP），因此该开关默认关闭。
+
+* `async_training.checkpoint_engine.device_buffer_size_M`
+  
+  控制开启checkpoint engine后，用于同步的显存buffer大小。实际的`bucket_size` = `max(device_buffer_size_M, 最大参数tensor size)`
+  * 在开启`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `3 * bucket_size`, rollout节点的临时额外显存开销为`2 * bucket_size`。
+  * 在关闭`overlap_broadcast_and_consume`时，trainer节点的临时额外显存开销为 `2 * bucket_size`, rollout节点的临时额外显存开销为`1 * bucket_size`。
 
 ### 模式支持
 
@@ -373,6 +390,17 @@ GPU 数量整除，这使得资源调整的灵活性受到影响。此外，随�
 | Fully Async Policy   | 96:32              | 282.75  | 22.06  | \            | 50.05  | 206.63       | 6h 45m (2.01x)      | 14h 48m (1.88x)     | 1d 0h 9m (1.78x)    | 1d 10h 41m (1.72x)  | max: 0.3813<br>last: 0.3448 |
 
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-30B?nw=nwuserhouzg
+
+### checkpoint-engine参数同步消融实验
+我们在Qwen2.5-Math-7B，Qwen3-30B-A3B和Qwen3-235B-A22B三个模型上测试了checkpoint-engine参数同步的单步参数同步耗时，使用的参数均为默认参数配置。实验均在H20机器上完成，并使用megatron训练引擎。
+| model |  trainer rank 	  | rollout rank	  | checkpoint-engine 	 | total sync time 	 |
+|:-----------------:|:--------:|:-------:|:--------------:|:--------------:|
+| Qwen2.5-Math-7B   | 4        | 4       | False      | 0.12s      |
+| Qwen2.5-Math-7B   | 4        | 4       | True      | 0.02s      |
+|  Qwen3-30B-A3B     | 16        | 16       | False      | 15.76s   |
+|  Qwen3-30B-A3B     | 16        | 16       | True      | 4.38s   |
+|  Qwen3-235B-A22B    | 64        | 64       | False      | 58.57s   |
+|  Qwen3-235B-A22B    | 64        | 64       | True      | 23.70s   |
 
 ## 多轮工具调用
 

@@ -86,10 +86,17 @@ class Tracking:
             MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlruns.db")
             mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 
-            # Project_name is actually experiment_name in MLFlow
-            # If experiment does not exist, will create a new experiment
-            experiment = mlflow.set_experiment(project_name)
-            mlflow.start_run(experiment_id=experiment.experiment_id, run_name=experiment_name)
+            # Some cloud providers like Azure ML or Databricks automatically set MLFLOW_RUN_ID
+            # If set, attach to the existing run instead of creating a new one
+            run_id = os.environ.get("MLFLOW_RUN_ID")
+            if run_id:
+                mlflow.start_run(run_id=run_id)
+            else:
+                # Project_name is actually experiment_name in MLFlow
+                # If experiment does not exist, will create a new experiment
+                experiment = mlflow.set_experiment(project_name)
+                mlflow.start_run(experiment_id=experiment.experiment_id, run_name=experiment_name)
+
             mlflow.log_params(_compute_mlflow_params_from_objects(config))
             self.logger["mlflow"] = _MlflowLoggingAdapter()
 
@@ -391,7 +398,8 @@ class ValidationGenerationsLogger:
         new_table.add_data(*row_data)
 
         # Update reference and log
-        wandb.log({"val/generations": new_table}, step=step)
+        if wandb.run is not None:
+            wandb.log({"val/generations": new_table}, step=step)
         self.validation_table = new_table
 
     def log_generations_to_swanlab(self, samples, step):

@@ -33,7 +33,7 @@ from verl.experimental.agent_loop.agent_loop import (
 )
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.protocol import DataProto
-from verl.single_controller.ray import RayWorkerGroup
+from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 from verl.utils.rollout_trace import (
     rollout_trace_attr,
     rollout_trace_op,
@@ -209,7 +209,9 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
 
 
 class FullyAsyncAgentLoopManager(AgentLoopManager):
-    def __init__(self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
+    def __init__(
+        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+    ):
         self.config = config
         self.worker_group = worker_group
         self.reward_model_manager = None
@@ -217,23 +219,25 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         self.agent_loop_workers_class = FullyAsyncAgentLoopWorker
         self.rollout_replica_class = FullyAsyncvLLMReplica
 
-        self.rm_wg = rm_wg
+        self.rm_resource_pool = rm_resource_pool
         self.rollout_replicas = None
         self.server_handles = None
         self.server_addresses = None
         self.agent_loop_workers = None
 
     @classmethod
-    async def create(cls, config: DictConfig, worker_group: RayWorkerGroup = None, rm_wg: RayWorkerGroup = None):
-        instance = cls(config, worker_group, rm_wg)
+    async def create(
+        cls, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+    ):
+        instance = cls(config, worker_group, rm_resource_pool)
         await instance._async_init()
         return instance
 
     async def _async_init(self):
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            from verl.experimental.reward import RewardModelManager
+            from verl.experimental.reward_loop import RewardModelManager
 
-            self.reward_model_manager = RewardModelManager(self.config.reward_model, self.rm_wg)
+            self.reward_model_manager = RewardModelManager(self.config.reward_model, self.rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()
 
         await self._initialize_llm_servers_async()

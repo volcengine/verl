@@ -48,6 +48,9 @@ on:
       - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
   pull_request:
     branches:
       - main
@@ -67,6 +70,9 @@ on:
       - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
       # Entrypoints
       - "verl/worksers/rollout/sglang_rollout/*"
       - ".github/workflows/e2e_ppo_trainer_megatron_sglang.yml"
@@ -86,7 +92,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -121,7 +127,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,sglang]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
@@ -147,7 +154,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,geo,gpu,sglang] --no-deps
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       # Geo3k
       - name: Prepare GEO3K dataset
         run: |

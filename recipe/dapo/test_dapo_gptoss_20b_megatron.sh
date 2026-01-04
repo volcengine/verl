@@ -4,11 +4,11 @@ set -xeuo pipefail
 ################################################### document for gptoss ###################################################
 
 ####################### running environment: #######################
-# option 1: use a pre-built docker image dedicated for gptoss: `docker://iseekyan/verl:nemo.gptoss_vllm0.11.0`, which is 
-#           built upon nemo's dedicated image, see Dockerfile at https://github.com/volcengine/verl/blob/main/docker/verl0.6-cu128-torch2.8.0-fa2.7.4/Dockerfile.vllm011.mcore_gpt-oss
+# option 1: use pre-built images verlai/verl:vll012.exp or verlai/verl:sgl056.exp
 #
 # option 2: self build TE>=2.8 with CUDNN>=9.13.1, megatron with branch `core_dev_r0.15.0`, latest vllm or sglang
 #           you can modify the dockerfile to build the image, see Dockerfile at https://github.com/volcengine/verl/blob/main/docker/Dockerfile.stable.vllm or https://github.com/volcengine/verl/blob/main/docker/Dockerfile.stable.sglang
+
 
 ####################### before training: #######################
 # # install matched mbridge version

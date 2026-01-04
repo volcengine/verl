@@ -23,6 +23,7 @@ import ray
 import sglang
 import sglang.srt.entrypoints.engine
 import torch
+from packaging import version
 from ray.actor import ActorHandle
 from sglang.srt.entrypoints.http_server import (
     ServerArgs,
@@ -130,7 +131,9 @@ class SGLangHttpServer:
         quantization = self.config.get("quantization", None)
         if quantization is not None:
             if quantization == "fp8":
-                assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+                assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                    "sglang>=0.5.5 is required for FP8 quantization"
+                )
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
                     "fmt": "e4m3",
@@ -214,12 +217,10 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
 
-        # Set warmup_thread_args to avoid AttributeError in lifespan function
-        app.warmup_thread_args = (
-            server_args,
-            None,
-            None,
-        )
+        # Set warmup_thread_{kw}args to avoid AttributeError in lifespan function
+        app.server_args = server_args
+        app.warmup_thread_kwargs = {"server_args": server_args}
+        app.warmup_thread_args = (server_args, None, None)
 
         # Manually add Prometheus middleware before starting server
         # This ensures /metrics endpoint is available immediately
@@ -262,10 +263,21 @@ class SGLangHttpServer:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        response_length = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        if "max_new_tokens" in sampling_params:
+            max_new_tokens = sampling_params.pop("max_new_tokens")
+        elif "max_tokens" in sampling_params:
+            # support vllm-style 'max_tokens' param
+            max_new_tokens = sampling_params.pop("max_tokens")
+        else:
+            max_new_tokens = response_length
+        assert max_new_tokens <= response_length, (
+            f"max_new_tokens {max_new_tokens} exceeds available response_length {response_length}"
+        )
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 
@@ -275,6 +287,8 @@ class SGLangHttpServer:
             sampling_params=sampling_params,
             return_logprob=return_logprob,
             image_data=image_data,
+            # TODO: support video input for sglang
+            # video_data=video_data,
         )
         output = await self.tokenizer_manager.generate_request(request, None).__anext__()
         if return_logprob:

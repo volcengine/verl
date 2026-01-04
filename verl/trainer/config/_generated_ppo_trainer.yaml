@@ -55,6 +55,8 @@ actor_rollout_ref:
     clip_ratio: 0.2
     clip_ratio_low: 0.2
     clip_ratio_high: 0.2
+    tau_pos: 1.0
+    tau_neg: 1.05
     freeze_vision_tower: false
     policy_loss:
       _target_: verl.workers.config.PolicyLossConfig
@@ -100,7 +102,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -143,7 +145,7 @@ actor_rollout_ref:
         npu:
           _target_: verl.utils.profiler.config.NPUToolConfig
           contents: []
-          level: level1
+          level: level0
           analysis: true
           discrete: false
         torch:
@@ -208,6 +210,7 @@ actor_rollout_ref:
     max_num_seqs: 1024
     enable_chunked_prefill: true
     enable_prefix_caching: true
+    logprobs_mode: processed_logprobs
     load_format: dummy
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null
@@ -276,6 +279,8 @@ actor_rollout_ref:
       port: 9090
       file: /tmp/ray/session_latest/metrics/prometheus/prometheus.yml
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
+    quantization: null
+    quantization_config_file: null
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -440,7 +445,7 @@ critic:
       npu:
         _target_: verl.utils.profiler.config.NPUToolConfig
         contents: []
-        level: level1
+        level: level0
         analysis: true
         discrete: false
       torch:
@@ -484,6 +489,9 @@ reward_model:
   use_dynamic_bsz: ${critic.use_dynamic_bsz}
   forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
   reward_manager: naive
+  reward_loop_source: register
+  reward_loop_module_path: null
+  reward_loop_class_name: null
   launch_reward_fn_async: false
   sandbox_fusion:
     url: null

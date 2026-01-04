@@ -781,21 +781,15 @@ def agg_loss(
     """
     Aggregate the loss across global batch to ensure the loss is invariant to fsdp/megatron parallelism.
 
-    NOTE: ``dp_size``, ``batch_num_tokens``, and ``global_batch_size`` are only compatible with the new model engine
-        for now, while the legacy model engines conduct the aggregation outside ``agg_loss``.
-
     NOTE: The returned loss has different behaviors for different backend:
     - FSDP: the loss is directly used for backward.
     - Megatron: the loss should be scaled by `num_microbatches` and `cp_size` for pp schedule.
-
-    # TODO: Consider the numerical stability?
 
     Args:
         loss_mat: micro batch loss matrix, (bs, response_length)
         loss_mask: micro batch loss mask, (bs, response_length)
         loss_agg_mode: method to aggregate the loss matrix into a scalar
-        dp_size: data parallel size. When appling manual aggregation,
-            scaling up the ``loss`` by ``dp_size`` can cancel out FSDP averaging.
+        dp_size: data parallel size
         batch_num_tokens: number of valid tokens in global batch
         global_batch_size: global batch size
         loss_scale_factor: scale factor for "seq-mean-token-sum-norm" mode. If None, uses loss_mask.shape[-1].
@@ -805,39 +799,30 @@ def agg_loss(
         loss: `a scalar torch.Tensor`
             aggregated loss
     """
-    # NOTE: `masked_sum` is more robust than multiplying the `mask`.
     if loss_agg_mode == "token-mean":
         if batch_num_tokens is None:
             batch_num_tokens = loss_mask.sum()
         loss = verl_F.masked_sum(loss_mat, loss_mask) / batch_num_tokens * dp_size
-    elif loss_agg_mode.startswith("seq-mean"):
-        # TODO: Correct and unify the denominator logic.
-        if global_batch_size is not None:
-            seq_denominator = global_batch_size * dp_size
-        else:  # The default logic which is only correct when the batch sizes are even.
-            local_bsz = loss_mat.shape[0]
-            seq_denominator = local_bsz
-
-        if loss_agg_mode.startswith("seq-mean-token-sum"):
-            seq_losses = verl_F.masked_sum(loss_mat, loss_mask, axis=-1)  # token-sum per sequence
-
-            if loss_agg_mode == "seq-mean-token-sum":
-                pass  # TODO: Add assertation.
-            elif loss_agg_mode == "seq-mean-token-sum-norm":
-                if loss_scale_factor is None:
-                    loss_scale_factor = loss_mask.shape[-1]
-                seq_losses = seq_losses / loss_scale_factor
-            else:
-                raise ValueError(f"Invalid {loss_agg_mode=}")
-        elif loss_agg_mode == "seq-mean-token-mean":
-            token_counts = torch.sum(loss_mask, dim=-1)  # per-sequence token count
-            # token-mean per sequence
-            seq_losses = verl_F.masked_sum(loss_mat, loss_mask, axis=-1) / (token_counts + 1e-8)
-        else:
-            raise ValueError(f"Invalid {loss_agg_mode=}")
-        loss = torch.sum(seq_losses) / seq_denominator  # seq-mean
+    elif loss_agg_mode == "seq-mean-token-sum":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)  # token-sum
+        seq_mask = (torch.sum(loss_mask, dim=-1) > 0).float()  # exclude fully masked sequences
+        if global_batch_size is None:
+            global_batch_size = seq_mask.sum()
+        loss = verl_F.masked_sum(seq_losses, seq_mask) / global_batch_size * dp_size  # seq-mean
+    elif loss_agg_mode == "seq-mean-token-mean":
+        seq_mask = torch.sum(loss_mask, dim=-1)  # per-sequence token count
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1) / (seq_mask + 1e-8)  # token-mean
+        seq_mask = (seq_mask > 0).float()  # exclude fully masked sequences
+        if global_batch_size is None:
+            global_batch_size = seq_mask.sum()
+        loss = verl_F.masked_sum(seq_losses, seq_mask) / global_batch_size * dp_size  # seq-mean
+    elif loss_agg_mode == "seq-mean-token-sum-norm":
+        seq_losses = torch.sum(loss_mat * loss_mask, dim=-1)
+        if loss_scale_factor is None:
+            loss_scale_factor = loss_mask.shape[-1]
+        loss = torch.sum(seq_losses) / loss_scale_factor
     else:
-        raise ValueError(f"Invalid {loss_agg_mode=}")
+        raise ValueError(f"Invalid loss_agg_mode: {loss_agg_mode}")
 
     return loss
 
@@ -1085,6 +1070,91 @@ def compute_policy_loss_gspo(
         "actor/ppo_kl": ppo_kl.detach().item(),
         "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
     }
+    return pg_loss, pg_metrics
+
+
+@register_policy_loss("sapo")
+def compute_policy_loss_sapo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "seq-mean-token-mean",
+    config: Optional[ActorConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """
+    Compute the smoothed policy objective and related metrics for SAPO.
+
+    See https://arxiv.org/pdf/2511.20347 for more details.
+
+    Args:
+        old_log_prob (torch.Tensor):
+            Log-probabilities of actions under the old policy, shape (batch_size, response_length).
+        log_prob (torch.Tensor):
+            Log-probabilities of actions under the current policy, shape (batch_size, response_length).
+        advantages (torch.Tensor):
+            Advantage estimates for each action, shape (batch_size, response_length).
+        response_mask (torch.Tensor):
+            Mask indicating which tokens to include in the loss, shape (batch_size, response_length).
+        loss_agg_mode (str, optional):
+            Aggregation mode for `agg_loss`. For SAPO, it is recommended to use "seq-mean-token-mean".
+    """
+
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+
+    # temperature for positive and negative token updates
+    tau_pos = torch.as_tensor(config.tau_pos, dtype=advantages.dtype, device=advantages.device)
+    tau_neg = torch.as_tensor(config.tau_neg, dtype=advantages.dtype, device=advantages.device)
+
+    def gate_function(x, tau):
+        """The gating function used in SAPO"""
+        return torch.sigmoid(tau * (x - 1.0)) * (4.0 / tau)
+
+    # compute IS at token level:
+    # r_{i,t}(θ) = π_θ(y_{i,t}|x, y_{i,<t}) / π_θold(y_{i,t}|x, y_{i,<t})]
+    # In log space: log(r_{i,t}(θ)) = log_prob - ol_log_prob
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp negative_approx_kl for stability
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    # finally exp() to remove log and get r_{i,t}(θ)
+    ratio = torch.exp(negative_approx_kl)
+
+    # tau_{i,t} is tau_pos if adv > 0 else tau_neg
+    taus = torch.where(
+        condition=advantages > 0,
+        input=tau_pos,  # if A_{i,t} > 0 we set to tau_pos
+        other=tau_neg,  # if A_{i,t} <= 0 we set to tau_neg
+    )
+
+    # compute the gates f_{i,t}(r_{i,t}(θ)) at token level
+    gates = gate_function(ratio, taus)
+
+    # compute policy gradient loss
+    pg_losses = -gates * advantages
+
+    # Apply rollout correction weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
+    # for SAPO, we need to aggregate the loss at the sequence level (seq-mean-token-mean)
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode="seq-mean-token-mean", **config.global_batch_info
+    )
+
+    # For compatibility, return zero for both pg_clipfrac and pg_clipfrac_lower (not used in SAPO)
+    pg_clipfrac = torch.tensor(0.0, device=pg_loss.device)
+    pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
+    # compute KL for metrics tracking
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    # return metrics dict
+    pg_metrics = {
+        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+    }
+
     return pg_loss, pg_metrics
 
 
@@ -1387,6 +1457,67 @@ def compute_policy_loss_geo_mean(
     clipped = torch.ne(negative_approx_kl, negative_approx_kl_clamp)
     pg_clipfrac = verl_F.masked_mean((clipped * (advantages > 0)).float(), response_mask)
     pg_clipfrac_lower = verl_F.masked_mean((clipped * (advantages < 0)).float(), response_mask)
+    pg_metrics = {
+        "actor/pg_clipfrac": pg_clipfrac.detach().item(),
+        "actor/ppo_kl": ppo_kl.detach().item(),
+        "actor/pg_clipfrac_lower": pg_clipfrac_lower.detach().item(),
+    }
+    return pg_loss, pg_metrics
+
+
+@register_policy_loss("cispo")
+def compute_policy_loss_cispo(
+    old_log_prob: torch.Tensor,
+    log_prob: torch.Tensor,
+    advantages: torch.Tensor,
+    response_mask: torch.Tensor,
+    loss_agg_mode: str = "token-mean",
+    config: Optional[DictConfig | ActorConfig] = None,
+    rollout_is_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """
+    Compute the clipped policy objective and related metrics for CISPO.
+
+    See https://arxiv.org/pdf/2506.13585 for more details.
+    """
+
+    assert config is not None
+    assert isinstance(config, ActorConfig)
+    clip_ratio_low = config.clip_ratio_low if config.clip_ratio_low is not None else config.clip_ratio
+    clip_ratio_high = config.clip_ratio_high if config.clip_ratio_high is not None else config.clip_ratio
+
+    # Compute importance sampling ratio: π_θ / π_θ_old
+    negative_approx_kl = log_prob - old_log_prob
+    # Clamp for numerical stability
+    negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
+    ratio = torch.exp(negative_approx_kl)
+    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+
+    # CISPO: Clip the importance sampling weights
+    # KEY: Apply stop gradient to the clipped ratio
+    # This prevents gradients from flowing through the ratio computation and clipping
+    # Gradients only flow through log_prob in the final loss term
+    clipped_ratio = torch.clamp(ratio, 1 - clip_ratio_low, 1 + clip_ratio_high)
+    clipped_ratio_sg = clipped_ratio.detach()
+
+    # CISPO objective function (to maximize): J = sg(clip(ratio)) * A * log π_θ
+    # Loss function (to minimize): L = -J = -sg(clip(ratio)) * A * log_prob
+    pg_losses = -clipped_ratio_sg * advantages * log_prob
+
+    # Track clipping statistics
+    pg_clipfrac = verl_F.masked_mean((ratio != clipped_ratio).float(), response_mask)
+
+    # Apply rollout importance sampling weights if provided
+    if rollout_is_weights is not None:
+        pg_losses = pg_losses * rollout_is_weights
+
+    pg_loss = agg_loss(
+        loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode, **config.global_batch_info
+    )
+
+    # For compatibility, return zero for pg_clipfrac_lower (not used in CISPO)
+    pg_clipfrac_lower = torch.tensor(0.0, device=pg_loss.device)
+
     pg_metrics = {
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
         "actor/ppo_kl": ppo_kl.detach().item(),

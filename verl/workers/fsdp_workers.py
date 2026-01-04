@@ -106,13 +106,20 @@ def create_device_mesh(world_size, fsdp_size):
     return device_mesh
 
 
-def get_sharding_strategy(device_mesh):
+def get_sharding_strategy(device_mesh, zero3_enable=True):
     from torch.distributed.fsdp import ShardingStrategy
 
+    if zero3_enable:
+        fsdp_strategy = ShardingStrategy.FULL_SHARD
+        hsdp_strategy = ShardingStrategy.HYBRID_SHARD
+    else:
+        fsdp_strategy = ShardingStrategy.SHARD_GRAD_OP
+        hsdp_strategy = ShardingStrategy._HYBRID_SHARD_ZERO2
+
     if device_mesh.ndim == 1:
-        sharding_strategy = ShardingStrategy.FULL_SHARD
+        sharding_strategy = fsdp_strategy
     elif device_mesh.ndim == 2:
-        sharding_strategy = ShardingStrategy.HYBRID_SHARD
+        sharding_strategy = hsdp_strategy
     else:
         raise NotImplementedError(f"Get device mesh ndim={device_mesh.ndim}, but only support 1 or 2")
     return sharding_strategy
@@ -326,6 +333,15 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self.ulysses_sequence_parallel_size > 1 and hasattr(actor_model_config, "vision_config"):
             actor_model_config.vision_config._attn_implementation = "eager"
 
+        # patch for qwen2.5-vl: when using flash_attention_3, set vision tower to use flash_attention_2
+        # because the vision tower does not support flash_attention_3
+        if (
+            getattr(actor_model_config, "model_type", None) == "qwen2_5_vl"
+            and attn_implementation == "flash_attention_3"
+            and hasattr(actor_model_config, "vision_config")
+        ):
+            actor_model_config.vision_config._attn_implementation = "flash_attention_2"
+
         # patch for kimi-vl
         if getattr(actor_model_config, "model_type", None) == "kimi_vl":
             actor_model_config.text_config.topk_method = "greedy"
@@ -487,7 +503,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             print(f"wrap_policy: {auto_wrap_policy}")
 
         fsdp_mesh = self.device_mesh
-        sharding_strategy = get_sharding_strategy(fsdp_mesh)
+        fsdp_enable_zero3 = fsdp_config.reshard_after_forward
+        sharding_strategy = get_sharding_strategy(fsdp_mesh, fsdp_enable_zero3)
 
         # TODO: add transformer policy
         # We force reference policy to use CPUOffload to save memory.
@@ -647,11 +664,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
-        # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
-        if rollout_config.mode == "sync" and self._is_actor:
-            loop = get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+        # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
@@ -978,18 +992,22 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         is_lora = data.meta_info.pop("is_lora", False)
         adapter_ctx = self.actor.actor_module.disable_adapter() if is_lora else nullcontext()
         # we should always recompute old_log_probs when it is HybridEngine
-        data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
-        data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
+        config_source = self.config.ref if is_lora else self.config.rollout
+        data.meta_info["micro_batch_size"] = config_source.log_prob_micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = config_source.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = config_source.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
 
         data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         # perform recompute log_prob
         with self.ulysses_sharding_manager:
             with adapter_ctx:
-                output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+                output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=not is_lora)
+            tensors = {"ref_log_prob": output} if is_lora else {"old_log_probs": output}
+            if not is_lora:
+                tensors["entropys"] = entropys
             output = DataProto.from_dict(
-                tensors={"old_log_probs": output, "entropys": entropys},
+                tensors=tensors,
                 meta_info={"temperature": self.config.rollout.temperature},
             )
 
@@ -1012,10 +1030,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
             data.meta_info["is_lora"] = True
-            data = self.compute_log_prob(data)
-            # this old_log_probs is in fact ref_log_prob
-            data = DataProto.from_dict(tensors={"ref_log_prob": data.batch["old_log_probs"]})
-            return data
+            return self.compute_log_prob(data)
         assert self._is_ref
         # else:
         # otherwise, the class have a standalone ref model
@@ -1330,13 +1345,15 @@ class CriticWorker(Worker, DistProfilerExtension):
                 critic_module = PeftModel.from_pretrained(critic_module, local_adapter_path, is_trainable=True)
                 peft_config = critic_module.peft_config["default"]
                 # Ensure task_type is TaskType enum, not string
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 if isinstance(peft_config.task_type, str):
-                    peft_config.task_type = TaskType.CAUSAL_LM
+                    peft_config.task_type = TaskType.TOKEN_CLS
 
             else:
                 # Convert config to regular Python types before creating PEFT model
+                # Use TOKEN_CLS for Critic since it's loaded as AutoModelForTokenClassification
                 lora_config = {
-                    "task_type": TaskType.CAUSAL_LM,
+                    "task_type": TaskType.TOKEN_CLS,
                     "r": self.config.model.lora_rank,
                     "lora_alpha": self.config.model.lora_alpha,
                     "target_modules": convert_to_regular_types(self.config.model.target_modules),
@@ -1496,7 +1513,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
-    @DistProfiler.annotate(color="cyan")
+    @DistProfiler.annotate(color="cyan", role="compute_values")
     def compute_values(self, data: DataProto):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -1516,7 +1533,7 @@ class CriticWorker(Worker, DistProfilerExtension):
         return output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
-    @DistProfiler.annotate(color="pink")
+    @DistProfiler.annotate(color="pink", role="critic_update")
     def update_critic(self, data: DataProto):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -1884,7 +1901,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
         return DataProto.from_dict(rm_inputs)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="reward"))
-    @DistProfiler.annotate(color="brown")
+    @DistProfiler.annotate(color="brown", role="compute_rm_score")
     def compute_rm_score(self, data: DataProto):
         import itertools
 

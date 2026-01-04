@@ -32,12 +32,15 @@ class SupportedVLM(Enum):
     QWEN3_VL = "Qwen3VLForConditionalGeneration"
 
 
+supported_vlm = [member.value for member in SupportedVLM]
+
+
 def get_mcore_forward_fn(hf_config) -> Callable:
     """
     Get the forward function for given model architecture.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    if hf_config.architectures[0] in SupportedVLM:
+    if hf_config.architectures[0] in supported_vlm:
         return model_forward_gen(True)
     else:
         # default to language model
@@ -57,7 +60,7 @@ def get_mcore_forward_fused_fn(hf_config) -> Callable:
     Get the forward function for given model architecture.
     """
     assert len(hf_config.architectures) == 1, "Only one architecture is supported for now"
-    if hf_config.architectures[0] in SupportedVLM:
+    if hf_config.architectures[0] in supported_vlm:
         return fused_forward_model_gen(True)
     else:
         # default to language model
