@@ -637,8 +637,7 @@ class FSDPEngine(BaseEngine):
     def get_per_tensor_param(self, layered_summon=False, base_sync_done=False):
         log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
 
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.module)
+        load_fsdp_model_to_gpu(self.module)
 
         log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
 
