@@ -205,6 +205,11 @@ def load_quanted_weights(weights, model_runner):
             param.__class__ = param.subclass_type
     # Finally load the weights into vllm
     loaded_params = model.load_weights(weights_quantized)
+    # Need to call process_weights_after_loading to finalize the weight loading
+    vllm_config = model_runner.vllm_config
+    device = next(model.parameters()).device
+    from vllm.model_executor.model_loader.utils import process_weights_after_loading
+    process_weights_after_loading(model, vllm_config, device)
     # Undo the type change above to the original type
     for name, param in model.named_parameters():
         if hasattr(param, "subclass_type"):
