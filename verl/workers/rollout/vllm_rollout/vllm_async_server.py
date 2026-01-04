@@ -25,6 +25,7 @@ import cloudpickle as pickle
 import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
+import vllm.envs as envs_vllm
 import zmq
 from packaging import version
 from ray.actor import ActorHandle
@@ -82,6 +83,17 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
+class EnvsCopyToWorkers:
+    # environment variables needs to copy to vllm works
+    COPY_ENVS = ("VLLM_USE_MODELSCOPE", "VLLM_ALL2ALL_BACKEND")
+
+    def __iter__(self):
+        return iter(self.COPY_ENVS)
+
+    def __repr__(self):
+        return f"ConstantStringList({', '.join(self.COPY_ENVS)})"
+
+
 class ExternalZeroMQDistributedExecutor(Executor):
     """An executor that engines are launched by external ray actors."""
 
@@ -109,6 +121,8 @@ class ExternalZeroMQDistributedExecutor(Executor):
             distributed_init_method="env://",
             is_driver_worker=True,
         )
+        env_vars_to_copy = self.get_envs_copy_to_works()
+        self.collective_rpc("update_environment_variables", args=([env_vars_to_copy]))
         self.collective_rpc("init_worker", args=([kwargs],))
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
@@ -166,6 +180,13 @@ class ExternalZeroMQDistributedExecutor(Executor):
 
     def check_health(self):
         return
+
+    def get_envs_copy_to_works(self):
+        copy_envs_name = EnvsCopyToWorkers()
+        env_vars_to_copy = {
+            v: os.environ[v] for v in set(envs_vllm.environment_variables) if v in copy_envs_name and v in os.environ
+        }
+        return env_vars_to_copy
 
 
 class vLLMHttpServerBase:
