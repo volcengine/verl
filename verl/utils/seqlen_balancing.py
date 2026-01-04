@@ -68,6 +68,7 @@ def karmarkar_karp(seqlen_list: list[int], k_partitions: int, equal_size: bool) 
     Note:
         When equal_size=True, len(seqlen_list) must be divisible by k_partitions.
     """
+
     # see: https://en.wikipedia.org/wiki/Largest_differencing_method
     class Set:
         def __init__(self) -> None:

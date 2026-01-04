@@ -27,7 +27,7 @@ from omegaconf import OmegaConf
 
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.main_ppo import TaskRunner as TaskRunnerBase
-from verl.utils.device import auto_set_ascend_device_name, is_cuda_available
+from verl.utils.device import auto_set_device, is_cuda_available
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -41,7 +41,7 @@ def main(config):
         config_dict: Hydra configuration dictionary containing training parameters.
     """
     # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
-    auto_set_ascend_device_name(config)
+    auto_set_device(config)
 
     run_ppo(config)
 

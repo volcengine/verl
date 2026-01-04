@@ -26,6 +26,7 @@ import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
 import zmq
+from packaging import version
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -56,17 +57,19 @@ from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
 
-if vllm.__version__ > "0.11.0":
+_VLLM_VERSION = version.parse(vllm.__version__)
+
+if _VLLM_VERSION > version.parse("0.11.0"):
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     from vllm.utils.network_utils import get_tcp_uri
 
-    if vllm.__version__ == "0.12.0":
+    if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
 
         get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
-if vllm.__version__ >= "0.12.0":
+if _VLLM_VERSION >= version.parse("0.12.0"):
     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
     from vllm.v1.outputs import ModelRunnerOutput
 
@@ -105,7 +108,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
-    if vllm.__version__ >= "0.12.0":
+    if _VLLM_VERSION >= version.parse("0.12.0"):
 
         def execute_model(
             self, scheduler_output: "SchedulerOutput", non_block: bool = False
@@ -299,6 +302,7 @@ class vLLMHttpServerBase:
             "max_num_batched_tokens": self.config.max_num_batched_tokens,
             "enable_prefix_caching": self.config.enable_prefix_caching,
             "enable_sleep_mode": self.config.enable_sleep_mode,
+            "logprobs_mode": self.config.logprobs_mode,
             "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
@@ -417,7 +421,7 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        if vllm.__version__ > "0.11.0":
+        if _VLLM_VERSION > version.parse("0.11.0"):
             await init_app_state(engine_client, app.state, args)
         else:
             await init_app_state(engine_client, vllm_config, app.state, args)
@@ -459,6 +463,7 @@ class vLLMHttpServerBase:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # Calculate the maximum possible new tokens based on available context space
@@ -486,9 +491,13 @@ class vLLMHttpServerBase:
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
-        prompt = TokensPrompt(
-            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
-        )
+        multi_modal_data = {}
+        if image_data is not None:
+            multi_modal_data["image"] = image_data
+        if video_data is not None:
+            multi_modal_data["video"] = video_data
+
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
 
         # Add lora request
         lora_request = None
@@ -803,7 +812,7 @@ class vLLMReplica(RolloutReplica):
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
     """Deduplicate consecutive image tokens in prompt_ids for Qwen2.5-VL, since vLLM will replicate the
-    <|image_pad|> token by image_data.
+    <|image_pad|> and <|video_pad|> token by image_data.
 
     For example,
     ```
@@ -819,7 +828,7 @@ def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
         mask = np.ones(len(prompt_ids), dtype=bool)
 
         # Find where the array equals the value
-        is_value = prompt_ids == processor.image_token_id
+        is_value = (prompt_ids == processor.image_token_id) | (prompt_ids == processor.video_token_id)
 
         # Find consecutive duplicates by checking if previous element is also the value
         mask[1:] &= ~(is_value[1:] & is_value[:-1])

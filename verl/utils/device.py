@@ -127,25 +127,25 @@ def set_expandable_segments(enable: bool) -> None:
         torch.cuda.memory._set_allocator_settings(f"expandable_segments:{enable}")
 
 
-def auto_set_ascend_device_name(config) -> None:
-    """Automatically configure device name for Ascend NPU environments.
+def auto_set_device(config) -> None:
+    """Automatically configure device name for different accelerators.
 
-    If running on an Ascend NPU system, this function ensures the trainer
-    device configuration is set to 'npu'. Logs a warning if the config
-    was set to a different device type.
+    For example, on Ascend NPU, this function defaults the trainer device to "npu"
+    unless explicitly set to "cpu".
 
     Args:
         config: Configuration object with trainer.device attribute.
     """
-    if config and config.trainer and config.trainer.device:
+    if config and hasattr(config, "trainer") and hasattr(config.trainer, "device"):
         if is_torch_npu_available():
-            if config.trainer.device != "npu":
+            if config.trainer.device not in ["cpu", "npu"]:
                 logger.warning(
                     f"Detect setting config.trainer.device to {config.trainer.device} for Ascend NPU, maybe"
                     f"from default value in config file, automatically set to `npu` instead."
                 )
 
             config.trainer.device = "npu"
+        # Other cases: set device to "cuda" via config file, no need to change.
 
 
 def get_device_capability(device_id: int = 0) -> tuple[int | None, int | None]:

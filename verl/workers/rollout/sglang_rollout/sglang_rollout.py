@@ -99,8 +99,11 @@ class ServerAdapter(BaseRollout):
     ):
         if config.get("quantization", None) == "fp8":
             import sglang
+            from packaging import version
 
-            assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+            assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                "sglang>=0.5.5 is required for FP8 quantization"
+            )
             FP8_BLOCK_QUANT_KWARGS = {
                 "activation_scheme": "dynamic",
                 "fmt": "e4m3",

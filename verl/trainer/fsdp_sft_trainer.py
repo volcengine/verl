@@ -50,7 +50,7 @@ from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.dataset import SFTDataset
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import (
-    auto_set_ascend_device_name,
+    auto_set_device,
     get_device_id,
     get_device_name,
     is_cuda_available,
@@ -843,7 +843,7 @@ def run_sft(config):
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
 def main(config):
     # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
-    auto_set_ascend_device_name(config)
+    auto_set_device(config)
 
     run_sft(config)
 

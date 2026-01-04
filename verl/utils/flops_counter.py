@@ -407,6 +407,77 @@ def _estimate_apertus_flops(config, tokens_sum, batch_seqlens, delta_time):
     return flops_achieved
 
 
+def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
+    hidden_size = config.hidden_size
+    vocab_size = config.vocab_size
+    num_hidden_layers = config.num_hidden_layers
+    num_key_value_heads = config.num_key_value_heads
+    num_attention_heads = config.num_attention_heads
+
+    # MoE params
+    moe_intermediate_size = config.intermediate_size
+    num_experts = config.num_local_experts
+    num_experts_per_tok = config.num_experts_per_tok
+    mlp_matrices = 3
+
+    # Head dim
+    head_dim = getattr(config, "head_dim", hidden_size // num_attention_heads)
+    q_size = num_attention_heads * head_dim
+    k_size = num_key_value_heads * head_dim
+    v_size = num_key_value_heads * head_dim
+
+    # 1. Attention Block (GQA)
+    attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+    # 2. MLP / MoE Block
+    # Gate network
+    moe_gate_N = hidden_size * num_experts
+    # Expert forward calculation, Active parameters: mlp_matrices * H * I * num_experts_per_tok
+    moe_expert_N = hidden_size * moe_intermediate_size * mlp_matrices * num_experts_per_tok
+
+    moe_mlp_N = moe_gate_N + moe_expert_N
+
+    emd_and_lm_head_N = vocab_size * hidden_size * 2
+
+    # Total non-attn params per layer * layers + embeddings
+    # (moe_mlp_N + attn_linear_N) * layers
+    dense_N = (moe_mlp_N + attn_linear_N) * num_hidden_layers + emd_and_lm_head_N
+
+    # FLOPs for dense part (fwd + bwd = 6 * N)
+    dense_N_flops = 6 * dense_N * tokens_sum
+
+    # 3. Attention Matrix FLOPs
+    seqlen_square_sum = 0
+
+    # Handle sliding window attention
+    layer_types = getattr(config, "layer_types", None)
+    sliding_window = getattr(config, "sliding_window", 128)
+
+    if layer_types:
+        for layer_type in layer_types:
+            is_sliding = layer_type == "sliding_attention"
+
+            for seqlen in batch_seqlens:
+                if is_sliding and sliding_window:
+                    # Sliding window limits each token to attend to at most window_size tokens
+                    effective_seqlen = min(seqlen, sliding_window)
+                    seqlen_square_sum += seqlen * effective_seqlen
+                else:
+                    # Full attention
+                    seqlen_square_sum += seqlen * seqlen
+    else:
+        # Default to full attention for all layers
+        for seqlen in batch_seqlens:
+            seqlen_square_sum += seqlen * seqlen
+        seqlen_square_sum *= num_hidden_layers
+
+    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
+
+    # Total FLOPs
+    flops_all_token = dense_N_flops + attn_qkv_flops
+    flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+    return flops_achieved
+
+
 def _estimate_unknown_flops(config, tokens_sum, batch_seqlens, delta_time):
     return 0
 
@@ -429,6 +500,7 @@ ESTIMATE_FUNC = {
     "seed_oss": _estimate_qwen2_flops,
     "apertus": _estimate_apertus_flops,
     "glm4v": _estimate_qwen2_flops,
+    "gpt_oss": _estimate_gpt_oss_flops,
 }
 
 

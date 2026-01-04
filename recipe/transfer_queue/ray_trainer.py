@@ -644,7 +644,7 @@ class RayPPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+        batch_keys_to_pop = []
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -672,7 +672,7 @@ class RayPPOTrainer:
         for test_data in self.val_dataloader:
             if "uid" not in test_data.keys():
                 test_data["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(test_data["input_ids"]))], dtype=object
+                    [str(uuid.uuid4()) for _ in range(len(test_data["raw_prompt"]))], dtype=object
                 )
 
             # repeat test data
@@ -687,18 +687,6 @@ class RayPPOTrainer:
                 return {}
 
             batch_meta = self.tq_client.put(data=test_batch, partition_id=f"val_{self.global_steps - 1}")
-
-            # Store original inputs
-            input_meta = batch_meta.select_fields(["input_ids", "uid", "reward_model"])
-            data = self.tq_client.get_data(input_meta)
-            input_ids = data["input_ids"]
-            # TODO: Can we keep special tokens except for padding tokens?
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-            sample_uids.extend(data["uid"])
-
-            ground_truths = [item.get("ground_truth", None) for item in data.get("reward_model", {})]
-            sample_gts.extend(ground_truths)
 
             batch_meta.update_extra_info(
                 {
@@ -723,11 +711,20 @@ class RayPPOTrainer:
             print("validation generation end")
 
             # Store generated outputs
-            test_response_meta = batch_meta.select_fields(["responses"])
+            test_response_meta = batch_meta.select_fields(["prompts", "responses", "uid", "reward_model"])
             data = self.tq_client.get_data(test_response_meta)
             output_ids = data["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
+
+            # TODO: Can we keep special tokens except for padding tokens?
+            input_ids = data["prompts"]
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
+            sample_uids.extend(data["uid"])
+
+            ground_truths = [item.get("ground_truth", None) for item in data.get("reward_model", {})]
+            sample_gts.extend(ground_truths)
 
             # evaluate using reward_function
             if self.val_reward_fn is None:
@@ -1259,7 +1256,7 @@ class RayPPOTrainer:
 
                 # add uid to batch
                 batch_dict["uid"] = np.array(
-                    [str(uuid.uuid4()) for _ in range(len(batch_dict["input_ids"]))], dtype=object
+                    [str(uuid.uuid4()) for _ in range(len(batch_dict["raw_prompt"]))], dtype=object
                 )
                 # When n > 1, repeat input data before putting to data system, simulating DataProto repeat.
                 repeated_batch_dict = self.repeat_dict(
