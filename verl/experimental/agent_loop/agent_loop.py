@@ -437,8 +437,11 @@ class AgentLoopWorkerBase:
             sampling_params["temperature"] = config.val_kwargs.temperature
 
         # by default, we assume it's a single turn agent
-        if "agent_name" not in batch.non_tensor_batch:
-            default_agent_loop = config.agent.default_agent_loop
+        if "agent_name" not in batch.non_tensor_batch or self.config.actor_rollout_ref.actor.sft.enabled:
+            if self.config.actor_rollout_ref.actor.sft.enabled:
+                default_agent_loop = "sft"
+            else:
+                default_agent_loop = config.agent.default_agent_loop
             batch.non_tensor_batch["agent_name"] = np.array([default_agent_loop] * len(batch), dtype=object)
 
         if "index" in batch.non_tensor_batch:
@@ -930,7 +933,7 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
-    def generate_sequences_agent(self, prompts: DataProto) -> DataProto:
+    def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Split input batch and dispatch to agent loop workers.
 
         Args:
@@ -965,36 +968,6 @@ class AgentLoopManager:
 
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
-
-    def generate_sequences_sft(self, prompts: DataProto) -> DataProto:
-        input_ids = prompts.batch['input_ids']
-        prompt_input_ids = prompts.batch['prompt_input_ids']
-        response_length = input_ids.shape[1] - prompt_input_ids.shape[1]
-        response_ids = input_ids[:, -response_length:]
-        attention_mask = prompts.batch['attention_mask']
-        response_mask = attention_mask[:, -response_length:]
-        position_ids = prompts.batch['position_ids']
-        output = DataProto.from_single_dict(
-            dict(
-                attention_mask=attention_mask,
-                input_ids=input_ids,
-                position_ids=position_ids,
-                prompts=prompt_input_ids,
-                response_mask=response_mask,
-                responses=response_ids,
-                rm_scores=torch.zeros_like(response_mask, dtype=torch.float32),
-            ),
-            meta_info=dict(timing={}),
-        )
-        return output
-
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
-        mode = prompts.meta_info.get("mode", None)
-        if mode not in ["train", "test"]:
-            raise ValueError(f"Unsupported {mode=} in prompts.meta_info")
-        if self.config.actor_rollout_ref.actor.sft.enabled and mode == "train":
-            return self.generate_sequences_sft(prompts)
-        return self.generate_sequences_agent(prompts)
 
     def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
         timing = {}

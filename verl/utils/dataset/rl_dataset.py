@@ -23,7 +23,6 @@ from collections import defaultdict
 from io import BytesIO
 from typing import Optional
 
-import datasets
 import numpy as np
 import torch
 from omegaconf import DictConfig, ListConfig
@@ -31,6 +30,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
 
+import datasets
 from verl.utils.import_utils import load_extern_object
 
 logger = logging.getLogger(__name__)
@@ -102,9 +102,6 @@ class RLHFDataset(Dataset):
         self.max_samples = max_samples
         self.config = config
         self.sft_mode = config.sft.enabled
-        if self.sft_mode:
-            if self.processor is not None:
-                raise NotImplementedError("SFT mode with multi-modal inputs is not supported yet.")
 
         self.cache_dir = os.path.expanduser(config.get("cache_dir", "~/.cache/verl/rlhf"))
         self.prompt_key = config.get("prompt_key", "prompt")
@@ -255,12 +252,13 @@ class RLHFDataset(Dataset):
                         if not self.sft_mode:
                             return True
                         response = self.get_sft_response(doc)
-                        response_ids = tokenizer.encode(response, add_special_tokens=False)                     
+                        response_ids = tokenizer.encode(response, add_special_tokens=False)
                         return len(response_ids) <= self.max_response_length
                     except Exception:
                         print("Error processing one of the samples, skipping...")
                         traceback.print_exc()
                         return False
+
             dataframe = dataframe.filter(
                 lambda doc: doc2len(doc),
                 num_proc=self.num_workers,
@@ -356,6 +354,9 @@ class RLHFDataset(Dataset):
         """For rollout, apply_chat_template has been moved to AgentLoop, so we only return raw_prompt here."""
         row_dict: dict = self.dataframe[item]
         row_dict["raw_prompt"] = self._build_messages(row_dict)
+
+        if self.sft_mode:
+            row_dict["sft_response"] = self.get_sft_response(row_dict)
 
         # TODO(wuxibin): We still need a dummy tensor to make sure DataProto.batch is not empty.
         # Remove this after deprecate DataProto by TensorDict.
