@@ -65,7 +65,8 @@ class AggregationType(Enum):
     MAX = "max"
 
 
-Numeric = Union[int, float, torch.Tensor]
+NumericType = int, float, torch.Tensor
+Numeric = Union[*NumericType]
 
 
 def tensor_to_float(value: torch.Tensor) -> float:
@@ -80,7 +81,7 @@ class MetricValue:
     def __init__(self, value: Numeric, aggregation: str | AggregationType) -> None:
         if isinstance(value, torch.Tensor):
             value = tensor_to_float(value)
-        if not isinstance(value, Numeric):
+        if not isinstance(value, NumericType):
             raise ValueError(f"Unsupported value type: {type(value)}")
         self.value = value
         if isinstance(aggregation, str):
@@ -108,14 +109,14 @@ class MetricList:
             raise ValueError(f"Unsupported aggregation type: {aggregation}")
         self.values = values if values is not None else []
 
-    def append(self, value: float | MetricValue) -> None:
+    def append(self, value: Numeric | MetricValue) -> None:
         if isinstance(value, MetricValue):
             if value.aggregation != self.aggregation:
                 raise AggregationTypeMismatchError(self.aggregation, value.aggregation)
             value = value.value
         if isinstance(value, torch.Tensor):
             value = tensor_to_float(value)
-        if not isinstance(value, Numeric):
+        if not isinstance(value, NumericType):
             raise ValueError(f"Unsupported value type: {type(value)}")
         self.values.append(value)
 
