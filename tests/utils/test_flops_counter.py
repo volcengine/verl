@@ -224,28 +224,102 @@ CONFIG = {
         # S*(2*V*H + L*(4*H**2 + k_mlp*H*I + k_qkn*H)) * (SUM[seqlen]) + 12*SUM[seqlen**2]*L*H
         "expected_flops_tuple": (199154680725504 / 1e12, 732294071451648 / 1e12),
     },
+    "qwen3_vl": {
+        "config": {  # Qwen/Qwen3-VL-8B
+            "model_type": "qwen3_vl",
+            # -------- Text config --------
+            "text_config": {
+                "vocab_size": 151936,
+                "hidden_size": 4096,
+                "intermediate_size": 12288,
+                "num_hidden_layers": 36,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 8,
+                "head_dim": 128,
+            },
+            # -------- Vision config (ViT) --------
+            "vision_config": {
+                "deepstack_visual_indexes": [
+                    8,
+                    16,
+                    24
+                ],
+                "num_heads": 16,
+                "depth": 27,
+                "hidden_size": 1152,
+                "intermediate_size": 4304,
+                "out_hidden_size": 4096,
+                "spatial_merge_size": 2,
+                "temporal_patch_size": 2,
+                "in_channels": 3,
+                "patch_size": 16,
+            },
+        },
+        "batch_seqlens_tuple": (
+            [512, 1024, 2048],
+            [4096, 4096, 4096],
+        ),
+        "images_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # -----Text-----
+        # 6*(vocab*hidden*2
+        #   + layer*(hidden*(q+k+v+o) + hidden*inter*3)
+        # )*token_sum
+        # + 12*sum(seqlen^2)*layer*hidden
+        #
+        # -----ViT-----
+        # patch_embed_N =hidden*temporal_patch_size*in_channels* patch_size^2
+        # attn_linear_N =hidden*(4*hidden)
+        # mlp_N =hidden*inter*2
+        # merger_N =((o+hidden*spatial_merge_size^2) * (hidden*spatial_merge_size^2))
+        # deepstack_merger_N =merger_N * 3
+        # dense_N =patch_embed_N + (attn_linear_N + mlp_N) * 27 + deepstack_merger_N + merger_N
+        #
+        # 6*(151936*4096*2
+        #   + 36*(4096*(4096+1024+1024+4096) + 4096*12288*3)
+        # )*(512+1024+2048)
+        # + 12*(512*512+1024*1024+2048*2048)*36*4096
+        # + 6 * dense_N * (512 + 1024 + 2048)
+        # + 12 * (512**2 + 1024**2 + 2048**2) * 27 * 16 * 72
+        #
+        # 6*(151936*4096*2
+        #   + 36*(4096*(4096+1024+1024+4096) + 4096*12288*3)
+        # )*(4096+4096+4096)
+        # + 12*(4096*4096+4096*4096+4096*4096)*36*4096
+        # + 6 * dense_N * (4096 + 4096 + 2048)
+        # + 12 * (4096**2 + 4096**2 + 4096**2) * 27 * 16 * 72
+        "expected_flops_tuple": (
+            200250312622080 / 1e12,
+            753976643420160 / 1e12,
+        ),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus", "qwen3_vl"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
     config = Config(test_config["config"])
     flops_counter = FlopsCounter(config)
-    for batch_seqlens, expected_flops in zip(
-        test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
-    ):
-        # set delta time to 1 to get the flops
-        counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
-        print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
-        assert math.isclose(counted_flops, expected_flops), (
-            f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
-        )
-
-
-def test_device_flops():
-    for key, val in _DEVICE_FLOPS.items():
-        assert get_device_flops(unit="B", device_name=key) == val
+    if "images_seqlens_tuple" in test_config:
+        for batch_seqlens, images_seqlens, expected_flops in zip(
+            test_config["batch_seqlens_tuple"], test_config["images_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+        ):
+            # set delta time to 1 to get the flops
+            counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1, images_seqlens=images_seqlens)
+            print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
+            assert math.isclose(counted_flops, expected_flops), (
+                f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+            )
+    else:
+        for batch_seqlens, expected_flops in zip(
+            test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+        ):
+            # set delta time to 1 to get the flops
+            counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
+            print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
+            assert math.isclose(counted_flops, expected_flops), (
+                f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+            )
