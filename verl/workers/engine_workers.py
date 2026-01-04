@@ -152,6 +152,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
         lr = metrics.pop("lr", None)
 
         # For other metrics, we perform all gather in dp group
+        # Here each metric in gathered metrics is a list of lists, where the outer list is DP groups and the inner list 
+        # is micro-batch
+        # we should always sum the loss of each micro-batch as we scale by global_bsz/global_token
         gathered_metrics = allgather_dict_into_dict(data=metrics, group=self.engine.get_data_parallel_group())
         final_metrics = {}
         for metric_name, metric_val in gathered_metrics.items():
