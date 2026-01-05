@@ -507,7 +507,6 @@ We used Qwen2.5-Math-7B to verify the benefits of `use_trainer_do_validate=True`
 |:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|
 | colocate sync      | 16  |  484.623  |  52.939	 |   0	 |   430.263   |  205.080  	 |     7h9m  	 |     22.6     |
 | fully_async_policy | 8:8 |  489.953  |  52.622	 |   0	 |   435.874   |  95.699  	 |     7h2m  	 |     21.0    |
-| fully_async_policy_opt_validate | 8:8 |    |  	 |   0	 |      |    	 |       	 |        |
 
 
 ## Multi-Turn Tool Calling
