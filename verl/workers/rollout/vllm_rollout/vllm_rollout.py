@@ -52,6 +52,7 @@ except ModuleNotFoundError:
     from vllm.v1.worker.worker_base import WorkerWrapperBase
 
 from packaging import version as vs
+from vllm.utils import update_environment_variables
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
@@ -60,12 +61,6 @@ from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
-
-if is_version_ge(pkg="vllm", minver="0.11.1"):
-    from vllm.utils.system_utils import update_environment_variables
-else:
-    from vllm.utils import update_environment_variables
-
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
