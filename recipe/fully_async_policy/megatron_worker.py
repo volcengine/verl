@@ -129,11 +129,17 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             params_generator = self._get_actor_params_generator()
             local_rank = torch.distributed.get_rank()
             world_size = torch.distributed.get_world_size()
+            bypass_cpu = self.config.checkpoint_engine.get("bypass_cpu", False)
+
             print(f"cache_actor_weights_to_cpu, local_rank:{local_rank}, world_size:{world_size}")
             for tensor_idx, (key, tensor) in enumerate(params_generator):
                 if tensor_idx % world_size == local_rank:
-                    self.cpu_named_params[key] = tensor.to("cpu", non_blocking=True)
-            get_torch_device().synchronize()
+                    if bypass_cpu:
+                        self.cpu_named_params[key] = tensor
+                    else:
+                        self.cpu_named_params[key] = tensor.to("cpu", non_blocking=True)
+            if not bypass_cpu:
+                get_torch_device().synchronize()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
