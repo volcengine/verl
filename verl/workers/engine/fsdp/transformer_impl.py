@@ -601,7 +601,8 @@ class FSDPEngine(BaseEngine):
         """
         Save FSDP checkpoint, handling parameter offload as needed.
         """
-        if self._is_offload_param:
+        origin_module_device = self.module.device.type
+        if self._is_offload_param or origin_module_device == "cpu":
             load_fsdp_model_to_gpu(self.module)
 
         self.checkpoint_manager.save_checkpoint(
@@ -609,7 +610,7 @@ class FSDPEngine(BaseEngine):
         )
 
         torch.distributed.barrier()
-        if self._is_offload_param:
+        if self._is_offload_param or origin_module_device == "cpu":
             offload_fsdp_model_to_cpu(self.module)
 
     def load_checkpoint(
