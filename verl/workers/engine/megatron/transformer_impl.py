@@ -637,7 +637,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
             assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"
-            logits.div_(temperature)
+            logits.div_(temperature.unsqueeze(dim=-1))
             ret = {}
             if calculate_entropy:
                 logits_bak = logits.clone()
