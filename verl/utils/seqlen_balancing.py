@@ -503,3 +503,78 @@ def restore_dynamic_batch(data: torch.Tensor, batch_idx_list: list[list[int]]) -
         reverted_data = data[revert_indices]
 
     return reverted_data
+
+
+def get_group_balanced_partitions(
+    seqlen_list: list[int],
+    uid_list: list,
+    k_partitions: int,
+) -> list[list[int]]:
+    """
+    Partition samples into k groups while keeping samples with the same uid together.
+
+    Args:
+        seqlen_list: List of sequence lengths for each sample.
+        uid_list: List of uids identifying which samples share the same prefix.
+                  Samples with the same uid will be kept together.
+        k_partitions: Number of partitions (typically world_size).
+
+    Returns:
+        List of k lists, each containing sample indices assigned to that partition.
+        Samples with the same uid are guaranteed to be in the same partition.
+    """
+    assert len(seqlen_list) == len(uid_list), "seqlen_list and uid_list must have same length"
+
+    # Build groups: each group contains indices of samples with the same uid
+    # Assumes samples with same uid are contiguous
+    groups = []  # List of (group_indices, group_total_seqlen)
+    current_uid = None
+    current_indices = []
+    current_seqlen = 0
+
+    for i, (seqlen, uid) in enumerate(zip(seqlen_list, uid_list, strict=False)):
+        if uid != current_uid:
+            if current_indices:
+                groups.append((current_indices, current_seqlen))
+            current_uid = uid
+            current_indices = [i]
+            current_seqlen = seqlen
+        else:
+            current_indices.append(i)
+            current_seqlen += seqlen
+
+    # Don't forget the last group
+    if current_indices:
+        groups.append((current_indices, current_seqlen))
+
+    num_groups = len(groups)
+    assert num_groups >= k_partitions, (
+        f"Number of uid groups ({num_groups}) must be >= k_partitions ({k_partitions}). "
+        f"Consider reducing world_size or increasing batch_size."
+    )
+
+    # Calculate workload for each group (as integers for partitioning)
+    group_workloads = []
+    for indices, total_seqlen in groups:
+        # Use sum of individual workloads for more accurate estimation
+        workload = sum(int(calculate_workload(torch.tensor([seqlen_list[i]])).item()) for i in indices)
+        group_workloads.append(workload)
+
+    # Use Karmarkar-Karp to partition groups
+    # equal_size=True ensures each partition gets the same number of groups,
+    # which is required when each group has the same number of samples (rollout.n)
+    group_partitions = get_seqlen_balanced_partitions(
+        seqlen_list=group_workloads,
+        k_partitions=k_partitions,
+        equal_size=True,
+    )
+
+    # Convert group partitions to sample partitions
+    sample_partitions = []
+    for group_partition in group_partitions:
+        sample_indices = []
+        for group_idx in group_partition:
+            sample_indices.extend(groups[group_idx][0])
+        sample_partitions.append(sorted(sample_indices))
+
+    return sample_partitions

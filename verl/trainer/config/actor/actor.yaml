@@ -94,6 +94,9 @@ calculate_entropy: false
 # Whether to use KL loss instead of KL reward penalty. True for GRPO
 use_kl_loss: false
 
+# Whether to enable PrefixGrouper shared-prefix forward
+use_prefix_grouper: false
+
 # Whether to use torch.compile()
 # oc.select: the default val for ref.use_torch_compile
 use_torch_compile: true

@@ -200,3 +200,79 @@ def test_seqlen_balancing_distributed_params(tmp_path):
         nprocs=world_size,
         join=True,
     )
+
+
+def test_group_balanced_partitions():
+    """Test group-level balancing keeps same-uid samples together."""
+    from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+    # Create test data: 4 groups with different sizes
+    # Group 0 (uid=0): indices 0,1,2,3 with seqlens [100, 100, 100, 100]
+    # Group 1 (uid=1): indices 4,5,6,7 with seqlens [200, 200, 200, 200]
+    # Group 2 (uid=2): indices 8,9,10,11 with seqlens [150, 150, 150, 150]
+    # Group 3 (uid=3): indices 12,13,14,15 with seqlens [50, 50, 50, 50]
+    seqlen_list = [100] * 4 + [200] * 4 + [150] * 4 + [50] * 4
+    uid_list = [0] * 4 + [1] * 4 + [2] * 4 + [3] * 4
+
+    # Partition into 2 groups
+    partitions = get_group_balanced_partitions(seqlen_list, uid_list, k_partitions=2)
+
+    assert len(partitions) == 2
+
+    # Verify all indices are covered
+    all_indices = set()
+    for partition in partitions:
+        all_indices.update(partition)
+    assert all_indices == set(range(16))
+
+    # Verify same-uid samples stay together
+    for partition in partitions:
+        uids_in_partition = set(uid_list[i] for i in partition)
+        for uid in uids_in_partition:
+            # All samples with this uid should be in this partition
+            uid_indices = [i for i, u in enumerate(uid_list) if u == uid]
+            assert all(i in partition for i in uid_indices), f"uid {uid} samples split across partitions"
+
+
+def test_group_balanced_partitions_single_sample_groups():
+    """Test group balancing with single-sample groups (n=1)."""
+    from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+    # Each sample is its own group
+    seqlen_list = [100, 200, 150, 50, 300, 250]
+    uid_list = [0, 1, 2, 3, 4, 5]
+
+    partitions = get_group_balanced_partitions(seqlen_list, uid_list, k_partitions=2)
+
+    assert len(partitions) == 2
+    all_indices = set()
+    for partition in partitions:
+        all_indices.update(partition)
+    assert all_indices == set(range(6))
+
+
+def test_group_balanced_partitions_equal_size():
+    """Test group balancing with equal_size constraint simulation."""
+    from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+    # 8 groups, partition into 4 (simulating world_size=4)
+    # Each group has 2 samples
+    seqlen_list = [100, 100, 200, 200, 150, 150, 50, 50, 300, 300, 250, 250, 180, 180, 120, 120]
+    uid_list = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+
+    partitions = get_group_balanced_partitions(seqlen_list, uid_list, k_partitions=4)
+
+    assert len(partitions) == 4
+
+    # Verify all indices are covered
+    all_indices = set()
+    for partition in partitions:
+        all_indices.update(partition)
+    assert all_indices == set(range(16))
+
+    # Verify same-uid samples stay together
+    for partition in partitions:
+        uids_in_partition = set(uid_list[i] for i in partition)
+        for uid in uids_in_partition:
+            uid_indices = [i for i, u in enumerate(uid_list) if u == uid]
+            assert all(i in partition for i in uid_indices)
