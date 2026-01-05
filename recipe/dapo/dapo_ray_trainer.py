@@ -249,13 +249,15 @@ class RayDAPOTrainer(RayPPOTrainer):
                             prompt_uid2metric_vals[uid].append(metric_val)
 
                         prompt_uid2metric_std = {}
+                        prompt_uid2within = {}
                         for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
                             prompt_uid2metric_std[prompt_uid] = np.std(metric_vals)
+                            prompt_uid2within[prompt_uid] = np.mean(metric_vals) > 0 and np.mean(metric_vals) < 1
 
                         kept_prompt_uids = [
                             uid
                             for uid, std in prompt_uid2metric_std.items()
-                            if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
+                            if std > 0 or len(prompt_uid2metric_vals[uid]) == 1 or prompt_uid2within[uid]
                         ]
                         num_prompt_in_batch += len(kept_prompt_uids)
 
