@@ -27,7 +27,7 @@ from megatron.core import parallel_state as mpu
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
-from megatron_kl_loss import vocab_parallel_kl_divergence
+from megatron_distill_losses import build_vocab_parallel_distill_loss
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
@@ -184,6 +184,9 @@ class OnPolicyDistillActor:
         print(config)
         config.finalize_model_grads_func = finalize_model_grads
 
+        # Build distill loss operator (selectable by config)
+        self.distill_loss_op = build_vocab_parallel_distill_loss(self.config.get("distill_loss", None)).cuda()
+
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get("ulysses_sequence_parallel_size", 1) == 1
@@ -318,7 +321,7 @@ class OnPolicyDistillActor:
                 masked_teacher_topk_logps = teacher_topk_logps[calc_kl_mask]
                 masked_teacher_topk_indices = teacher_topk_indices[calc_kl_mask]
 
-                kl_losses[calc_kl_mask] = vocab_parallel_kl_divergence(
+                kl_losses[calc_kl_mask] = self.distill_loss_op(
                     masked_logits, masked_teacher_topk_logps, masked_teacher_topk_indices
                 )
                 return {"kl_losses": kl_losses, "calc_kl_mask": calc_kl_mask}

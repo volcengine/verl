@@ -95,6 +95,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.megatron.expert_tensor_parallel_size=$ETP \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path=$DIST_CKPT_PATH \
+    +actor_rollout_ref.actor.distill_loss.name=kl \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=sync \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
