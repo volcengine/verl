@@ -601,7 +601,7 @@ class FSDPEngine(BaseEngine):
         """
         Save FSDP checkpoint, handling parameter offload as needed.
         """
-        origin_module_device = self.module.device.type
+        origin_module_device = next(self.module.parameters()).device.type
         if self._is_offload_param or origin_module_device == "cpu":
             load_fsdp_model_to_gpu(self.module)
 
