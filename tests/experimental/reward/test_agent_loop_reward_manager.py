@@ -58,18 +58,21 @@ def test_agent_loop_reward_manager():
     config.trainer.n_gpus_per_node = 4
     config.trainer.nnodes = 1
 
-    config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True
     config.reward_model.enable_resource_pool = True
-    config.reward_model.n_gpus_per_node = 4
-    config.reward_model.nnodes = 1
-    config.reward_model.model.path = reward_model_path
-    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
-    config.reward_model.rollout.gpu_memory_utilization = 0.9
-    config.reward_model.rollout.tensor_model_parallel_size = 2
-    config.reward_model.rollout.skip_tokenizer_init = False
-    config.reward_model.rollout.prompt_length = 5120
-    config.reward_model.rollout.response_length = 4096
+    name1 = list(config.reward_model.reward_models.keys())[0]
+    config.reward_model.reward_models[name1].reward_manager = "dapo"
+    config.reward_model.reward_models[name1].n_gpus_per_node = 2
+    config.reward_model.reward_models[name1].nnodes = 1
+    config.reward_model.reward_models[name1].model.path = reward_model_path
+    config.reward_model.reward_models[name1].rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
+    config.reward_model.reward_models[name1].rollout.gpu_memory_utilization = 0.9
+    config.reward_model.reward_models[name1].rollout.tensor_model_parallel_size = 2
+    config.reward_model.reward_models[name1].rollout.skip_tokenizer_init = False
+    config.reward_model.reward_models[name1].rollout.prompt_length = 5120
+    config.reward_model.reward_models[name1].rollout.response_length = 4096
+    name2 = "model2"
+    config.reward_model.reward_models[name2] = config.reward_model.reward_models[name1].copy()
     config.custom_reward_function.path = "tests/experimental/reward/reward_fn.py"
     config.custom_reward_function.name = "compute_score_gsm8k"
 

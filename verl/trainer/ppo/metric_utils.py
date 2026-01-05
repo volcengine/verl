@@ -77,6 +77,77 @@ def _compute_response_info(batch: DataProto) -> dict[str, Any]:
     )
 
 
+def compute_individual_reward_model_metrics(batch: DataProto) -> dict[str, Any]:
+    """
+    Computes metrics for individual reward models from a batch of data.
+
+    This function extracts reward scores from individual reward models stored in
+    batch.non_tensor_batch and computes min/mean/max statistics for each model.
+    It also extracts judge outputs and other extra info if available.
+
+    Args:
+        batch: A DataProto object containing batch data with individual reward model scores
+               in non_tensor_batch with keys like "{model_name}_reward_score" and
+               "{model_name}_reward_extra_info".
+
+    Returns:
+        A dictionary of metrics including:
+            - reward_model/{model_name}/score/min: Minimum score from this model
+            - reward_model/{model_name}/score/mean: Mean score from this model
+            - reward_model/{model_name}/score/max: Maximum score from this model
+            - reward_model/{model_name}/{extra_key}/min: Min of extra info fields
+            - reward_model/{model_name}/{extra_key}/mean: Mean of extra info fields
+            - reward_model/{model_name}/{extra_key}/max: Max of extra info fields
+    """
+    metrics = {}
+
+    if not hasattr(batch, "non_tensor_batch") or batch.non_tensor_batch is None:
+        return metrics
+
+    reward_model_keys = [key for key in batch.non_tensor_batch.keys() if key.endswith("_reward_score")]
+
+    for score_key in reward_model_keys:
+        model_name = score_key.replace("_reward_score", "")
+        scores = batch.non_tensor_batch[score_key]
+
+        if isinstance(scores, np.ndarray) and scores.size > 0:
+            valid_scores = scores[scores is not None]
+            if len(valid_scores) > 0:
+                try:
+                    valid_scores = valid_scores.astype(float)
+                    metrics[f"reward_model/{model_name}/score/min"] = float(np.min(valid_scores))
+                    metrics[f"reward_model/{model_name}/score/mean"] = float(np.mean(valid_scores))
+                    metrics[f"reward_model/{model_name}/score/max"] = float(np.max(valid_scores))
+                except (ValueError, TypeError):
+                    pass
+
+        # Add reward extra info
+        extra_info_key = f"{model_name}_reward_extra_info"
+        if extra_info_key in batch.non_tensor_batch:
+            extra_infos = batch.non_tensor_batch[extra_info_key]
+
+            if isinstance(extra_infos, np.ndarray) and extra_infos.size > 0:
+                all_keys = set()
+                for info in extra_infos:
+                    if isinstance(info, dict):
+                        all_keys.update(info.keys())
+
+                for key in all_keys:
+                    values = []
+                    for info in extra_infos:
+                        if isinstance(info, dict) and key in info:
+                            val = info[key]
+                            if isinstance(val, (int | float | np.number)):
+                                values.append(float(val))
+
+                    if len(values) > 0:
+                        metrics[f"reward_model/{model_name}/{key}/min"] = float(np.min(values))
+                        metrics[f"reward_model/{model_name}/{key}/mean"] = float(np.mean(values))
+                        metrics[f"reward_model/{model_name}/{key}/max"] = float(np.max(values))
+
+    return metrics
+
+
 def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str, Any]:
     """
     Computes various metrics from a batch of data for PPO training.
@@ -100,6 +171,7 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
             - response_length/mean, max, min, clip_ratio: Statistics about response lengths
             - prompt_length/mean, max, min, clip_ratio: Statistics about prompt lengths
             - num_turns/mean, max, min: Statistics about the number of multi-turn conversations
+            - reward_model/{model_name}/score/min, mean, max: Individual reward model statistics
     """
     sequence_score = batch.batch["token_level_scores"].sum(-1)
     sequence_reward = batch.batch["token_level_rewards"].sum(-1)
@@ -220,6 +292,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         metrics["tool_call_counts/min"] = tool_call_counts.min()
         metrics["tool_call_counts/max"] = tool_call_counts.max()
         metrics["tool_call_counts/mean"] = tool_call_counts.mean()
+
+    individual_rm_metrics = compute_individual_reward_model_metrics(batch)
+    metrics.update(individual_rm_metrics)
 
     return metrics
 

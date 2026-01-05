@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import json
-import os
 
 import aiohttp
 from openai.types.chat import ChatCompletion
@@ -60,13 +59,14 @@ async def compute_score_gsm8k(
     extra_info: dict,
     reward_router_address: str,
     reward_model_tokenizer: PreTrainedTokenizer,
+    reward_model_name: str,
 ):
     """Compute the reward score."""
 
     grm_prompt = GRM_PROMPT_TEMPLATE.format(problem=extra_info["question"], solution=solution_str)
     messages = [{"role": "user", "content": grm_prompt}]
     sampling_params = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 4096}
-    model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")
+    model_name = reward_model_name
     chat_complete_request = {
         "messages": messages,
         "model": model_name,

@@ -30,23 +30,36 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 @ray.remote
 class RewardManagerWorker:
-    def __init__(self, config: DictConfig, reward_router_address: str = None):
+    def __init__(self, config: DictConfig, reward_router_address: str = None, reward_model_name: str = None):
         self.config = config
         self.reward_router_address = reward_router_address
+        self.reward_model_name = reward_model_name
+        if self.config.reward_model.enable:
+            self.reward_model_config = self.config.reward_model.reward_models[reward_model_name]
         self._init_reward_fn()
 
     def _init_reward_fn(self):
         input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
         self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path, trust_remote_code=True)
         self.reward_model_tokenizer = None
-        if self.config.reward_model.enable:
-            reward_model_tokenizer_local_path = copy_to_local(self.config.reward_model.model.path)
-            self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
         self.reward_fn = get_custom_reward_fn(self.config)
-        reward_loop_manager_cls = get_reward_loop_manager_cls(self.config.reward_model.reward_manager)
-        self.reward_loop = reward_loop_manager_cls(
-            self.config, self.input_tokenizer, self.reward_fn, self.reward_router_address, self.reward_model_tokenizer
-        )
+        if self.config.reward_model.enable:
+            reward_model_tokenizer_local_path = copy_to_local(self.reward_model_config.model.path)
+            self.reward_model_tokenizer = hf_tokenizer(reward_model_tokenizer_local_path, trust_remote_code=True)
+            reward_loop_manager_cls = get_reward_loop_manager_cls(self.reward_model_config.reward_manager)
+            self.reward_loop = reward_loop_manager_cls(
+                self.config,
+                self.input_tokenizer,
+                self.reward_fn,
+                self.reward_router_address,
+                self.reward_model_tokenizer,
+                self.reward_model_name
+            )
+        else:
+            reward_loop_manager_cls = get_reward_loop_manager_cls(self.config.reward_model.reward_manager)
+            self.reward_loop = reward_loop_manager_cls(
+                self.config, self.input_tokenizer, self.reward_fn
+            )
 
     async def compute_score(self, data: DataProto) -> DataProto:
         return await self.reward_loop.run_single(data)

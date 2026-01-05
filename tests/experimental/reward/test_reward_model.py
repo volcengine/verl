@@ -83,21 +83,22 @@ def test_reward_model_manager():
 
     model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
 
-    config.reward_model.reward_manager = "dapo"
     config.reward_model.enable = True
     config.reward_model.enable_resource_pool = True
-    config.reward_model.n_gpus_per_node = 8
-    config.reward_model.nnodes = 1
-    config.reward_model.model.path = model_path
-    config.reward_model.rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
-    config.reward_model.rollout.gpu_memory_utilization = 0.9
-    config.reward_model.rollout.tensor_model_parallel_size = 2
-    config.reward_model.rollout.skip_tokenizer_init = False
-    config.reward_model.rollout.prompt_length = 2048
-    config.reward_model.rollout.response_length = 4096
+    name = list(config.reward_model.reward_models.keys())[0]
+    config.reward_model.reward_models[name].reward_manager = "dapo"
+    config.reward_model.reward_models[name].n_gpus_per_node = 8
+    config.reward_model.reward_models[name].nnodes = 1
+    config.reward_model.reward_models[name].model.path = model_path
+    config.reward_model.reward_models[name].rollout.name = os.getenv("ROLLOUT_NAME", "vllm")
+    config.reward_model.reward_models[name].rollout.gpu_memory_utilization = 0.9
+    config.reward_model.reward_models[name].rollout.tensor_model_parallel_size = 2
+    config.reward_model.reward_models[name].rollout.skip_tokenizer_init = False
+    config.reward_model.reward_models[name].rollout.prompt_length = 2048
+    config.reward_model.reward_models[name].rollout.response_length = 4096
 
     # 1. init reward model manager
-    reward_model_manager = RewardModelManager(config.reward_model)
+    reward_model_manager = RewardModelManager(config.reward_model.reward_models[name], None, name)
 
     # 2. init test data
     convs, prompts = create_data_samples()
