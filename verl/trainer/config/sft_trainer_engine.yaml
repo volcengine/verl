@@ -35,6 +35,7 @@ data:
     name: null
   use_shm: False
   apply_chat_template_kwargs: {}
+  num_workers: 8
 
   # MultiTurnSFTDataset apply_chat_template to each turn separately and concat `input_ids`
   # as a whole sequence, which may not equal to apply_chat_template to whole messages at once. 

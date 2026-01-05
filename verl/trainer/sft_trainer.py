@@ -88,6 +88,7 @@ class SFTTrainer:
             resume_mode=resume_mode,
             resume_from_path=resume_from_path,
         )
+        
 
     def _build_config(self):
         from verl.utils.config import omega_conf_to_dataclass
@@ -135,7 +136,33 @@ class SFTTrainer:
         if self.test_freq == "after_each_epoch":
             self.test_freq = self.steps_per_epoch
 
+        has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
+            hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
+        enable_mtp = self.model_config.mtp.enable
+
+        # Modify the hf_config before initialization, and apply patch after innitialization
+        if enable_mtp and not has_mtp:
+            logger.error('enable MTP while model has no mtp layer, ignore model.mtp.enable')
+            self.model_config.mtp.enable = False
+        elif has_mtp and not enable_mtp:
+            self.model_config.hf_config.num_nextn_predict_layers = 0
+
         self.training_client.reset()
+
+        if self.model_config.mtp.enable:
+            logger.info('Applying mtp patch...')
+            from verl.models.mcore.mtp_patch import patch_postprocess
+
+            model = self.engine.module
+            if isinstance(model, list):
+                for m in model:
+                    patch_postprocess(m)
+            else:
+                patch_postprocess(model)
+            #Todo: add it back
+            #if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
+            #    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
+            #    patch_mtp_layer_get_embeddings(model)
 
     def _build_dataset(self):
         config = self.config
@@ -186,7 +213,7 @@ class SFTTrainer:
             batch_size=self.train_batch_size_per_dp,
             sampler=self.train_sampler,
             collate_fn=self.collate_fn,
-            num_workers=8,
+            num_workers=self.config.data.num_workers,
             pin_memory=False,
             drop_last=True,
             pin_memory_device=device_name,
@@ -201,7 +228,7 @@ class SFTTrainer:
                 batch_size=self.train_batch_size_per_dp,
                 sampler=self.val_sampler,
                 collate_fn=self.collate_fn,
-                num_workers=8,
+                num_workers=self.config.data.num_workers,
                 pin_memory=False,
                 drop_last=True,
                 pin_memory_device=device_name,
@@ -310,10 +337,11 @@ class SFTTrainer:
                     metrics = tu.get(output, "metrics")
 
                     # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
-                    metrics["train/loss"] = metrics.pop("loss")
-                    metrics["train/grad_norm"] = metrics.pop("grad_norm")
-                    metrics["train/lr"] = metrics.pop("lr")
-                    metrics["train/mfu"] = metrics.pop("mfu")
+                    for k in ["loss", "grad_norm", "lr", "mfu", "mtp_loss"]:
+                        if k in metrics.keys():
+                            value = metrics.pop(k)
+                            metrics[f"train/{k}"] = value
+                
                     metrics["train/global_tokens"] = torch.sum(
                         torch.tensor(batch_seqlens, device=self.device_name)
                     ).item()

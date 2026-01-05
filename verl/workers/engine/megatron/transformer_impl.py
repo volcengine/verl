@@ -42,6 +42,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     register_megatron_training_hooks,
+    get_megatron_mtp_loss,
 )
 from verl.utils.model import (
     extract_multi_modal_inputs,
@@ -217,7 +218,7 @@ class MegatronEngine(BaseEngine):
             peft_config=self.model_config.get("lora", None),
         )
         self.tf_config = updated_tf_config
-        print(f"module: {len(module)}")
+        print(f"module: {module}")
 
         if self.engine_config.use_dist_checkpointing:
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
@@ -466,6 +467,7 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.optimizer)
 
+    # train_batch
     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         tu.assign_non_tensor(data, sp_size=self.engine_config.context_parallel_size)
 
@@ -529,6 +531,12 @@ class MegatronEngine(BaseEngine):
             micro_batch_size=1,  # the communication shape is obtained via p2p comm
             forward_only=forward_only,
         )
+
+        if self.is_mp_src_rank_with_outputs() and \
+            self.model_config.mtp.enable:
+            # add mtp_losses
+            losses_reduced = get_megatron_mtp_loss(losses_reduced, n_micro_batch)
+
         # loss_reduces contains the stats returned from loss_func
         if mpu.is_pipeline_last_stage(ignore_virtual=True):
             return postprocess_batch_func(output_lst=losses_reduced, indices=indices, data=data)
@@ -653,6 +661,10 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         logits_processor_args = {"label": label}
 
+        #has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
+        #    hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
+        has_mtp = self.model_config.mtp.enable
+
         output = forward_fn(
             model,
             input_ids,
@@ -662,6 +674,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
+            enable_mtp=has_mtp
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
@@ -707,6 +720,10 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
+        #has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
+        #    hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
+        has_mtp = self.model_config.mtp.enable
+
         output = forward_fn(
             model,
             input_ids,
@@ -714,6 +731,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             value_model=True,
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
+            enable_mtp=has_mtp
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)

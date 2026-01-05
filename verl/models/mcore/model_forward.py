@@ -182,12 +182,14 @@ def gptmodel_forward_no_padding(
     vision_model=False,
     pad_token_id=None,
     data_format: str = "thd",
+    enable_mtp: bool = True
 ):
     """Default forward pass for GPT models with optional sequence packing."""
 
     assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
     pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
+
 
     model_kwargs = {}
     if "pixel_values" in multi_modal_inputs:
@@ -203,6 +205,15 @@ def gptmodel_forward_no_padding(
     if data_format == "thd":
         input_ids_rmpad, packed_seq_params = preprocess_thd_no_padding(input_ids, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
+
+        if enable_mtp:
+            args = {
+                k: preprocess_thd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+                for k, v in logits_processor_args.items()
+            }
+            model_kwargs["labels"] = args["label"].contiguous()
+        #print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
+        #print(f'model_kwargs={model_kwargs}')
 
         # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
         attention_mask = None
@@ -247,6 +258,17 @@ def gptmodel_forward_no_padding(
         input_ids_bshd, attention_mask_bshd, position_ids_bshd = preprocess_bshd_no_padding(
             input_ids, pre_process=pre_process
         )
+
+        if enable_mtp:
+            args = {
+                k: preprocess_bshd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+                for k, v in logits_processor_args.items()
+            }
+            model_kwargs["labels"] = args["label"].contiguous()
+
+        #print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
+        #print(f'model_kwargs={model_kwargs}')
+
         output_orig = model(
             input_ids=input_ids_bshd,
             attention_mask=attention_mask_bshd,
