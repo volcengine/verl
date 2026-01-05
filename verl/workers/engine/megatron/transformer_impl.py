@@ -24,6 +24,7 @@ from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
+import verl.utils.torch_functional as verl_F
 from verl.models.mcore import get_mcore_weight_converter
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
@@ -611,10 +612,15 @@ class MegatronEngineWithLMHead(MegatronEngine):
         calculate_entropy = tu.get_non_tensor_data(batch, key="calculate_entropy", default=False)
         pad_mode = tu.get_non_tensor_data(batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         temperature = batch["temperature"]
-
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
+
+        if not isinstance(temperature, torch.Tensor):
+            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
+
+        assert temperature.shape[0] == input_ids.shape[0]
+        temperature = verl_F.expand_as_nested(temperature, input_ids)  # (bsz, j1)
 
         if pad_mode == DatasetPadMode.NO_PADDING:
             label = input_ids.clone()
@@ -628,9 +634,12 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
-        def logits_processor(logits, label):
+        def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
-            logits.div_(temperature)
+            # avoid non-positive temperature such as padding
+            temperature[temperature <= 0] = 1e-8
+            assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"
+            logits.div_(temperature.unsqueeze(dim=-1))
             ret = {}
             if calculate_entropy:
                 logits_bak = logits.clone()
@@ -650,7 +659,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ret["log_probs"] = log_probs
             return ret
 
-        logits_processor_args = {"label": label}
+        logits_processor_args = {"label": label, "temperature": temperature}
 
         output = forward_fn(
             model,
