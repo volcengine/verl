@@ -17,10 +17,7 @@ This logic is largely copied from:
 """
 
 import concurrent.futures
-import os
-import re
 import socket
-import subprocess
 import threading
 from collections.abc import Callable
 from functools import lru_cache
@@ -29,9 +26,9 @@ from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 import torch
 import zmq
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
-from ray.util.collective import collective
 
 from verl.utils.device import (
+    get_device_id,
     get_device_name,
     get_torch_device,
 )
@@ -155,37 +152,28 @@ def _align_size(dtype: torch.dtype, shape: torch.Size) -> int:
 
 @lru_cache(maxsize=1)
 def get_ip() -> str:
-    try:
-        # try to get ip from network interface
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception as e:  # noqa: BLE001
-        # fallback to get ip from hostname
-        print(f"fail to get ip from network interface, fallback to get ip from hostname: {e}")
-        return socket.gethostbyname(socket.gethostname())
+    # List of address families to try, in priority order (IPv6 first, then IPv4)
+    address_families = [
+        (socket.AF_INET6, "2600::", "IPv6"),
+        (socket.AF_INET, "8.8.8.8", "IPv4"),
+    ]
+
+    for family, addr, name in address_families:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as s:
+                s.connect((addr, 80))
+                return s.getsockname()[0]
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to get {name} address: {e}")
+
+    # Final fallback to hostname if all address family attempts fail
+    print("All address family attempts failed, falling back to hostname")
+    return socket.gethostbyname(socket.gethostname())
 
 
 def npu_generate_uuid() -> str:
     """Generate uuid for each npu device"""
-    str_pid = str(os.getpid())
-    npu_num = 8
-    try:
-        for npu_id in range(npu_num):
-            cmd = ["npu-smi", "info", "-t", "proc-mem", "-i", str(npu_id)]
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
-            str_result = str(result.stdout)
-            if str_pid in str_result:
-                # In A3 server, one NPU has two chips.
-                match_chip_count = re.search(r"Chip Count[^\d]*(\d+)", str_result)
-                chip_count = int(match_chip_count.group(1))
-                search_after_pid = str_result[str_result.find(str_pid) + len(str_pid) :]
-                match_chip_id = re.search(r"Chip ID[^\d]*(\d+)", search_after_pid)
-                chip_id = int(match_chip_id.group(1))
-                return f"{get_ip()}-{npu_id * chip_count + chip_id}"
-        raise ValueError("The current process is not running on the npu device")
-    except subprocess.CalledProcessError as e:
-        raise ValueError("The current process is not running on the npu device") from e
+    return f"{get_ip()}-{get_device_id()}"
 
 
 def _get_physical_device_id(device_index: int | None = None) -> str:
@@ -263,7 +251,12 @@ class CheckpointEngine:
     """
 
     def __init__(
-        self, current_rank: int, actor_ranks: list[int], rollout_ranks: list[int], device_buffer_size_M: int
+        self,
+        current_rank: int,
+        actor_ranks: list[int],
+        rollout_ranks: list[int],
+        device_buffer_size_M: int,
+        weight_sync_group,
     ) -> None:
         self.current_rank = current_rank
         self.actor_ranks = actor_ranks
@@ -279,6 +272,7 @@ class CheckpointEngine:
         self._zmq_addr_counter: int = 0
         device_index = self.current_rank % get_torch_device().device_count()
         self._device_uuid = _get_physical_device_id(device_index)
+        self._weight_sync_group = weight_sync_group
 
     def register_checkpoint(
         self, weights_info: list[tuple[str, torch.Size, torch.dtype]], cpu_named_params: dict[str, torch.Tensor]
@@ -427,13 +421,13 @@ class CheckpointEngine:
             h2d_buffer: torch.Tensor | None = (
                 None
                 if self.current_rank in self.rollout_ranks
-                else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_torch_device().current_device())
+                else torch.empty(self.bucket_size, dtype=torch.uint8, device=get_device_id())
             )
             # for pipeline mode, we need to allocate 2x buffer size
             broadcast_load_buffer = torch.empty(
                 self.bucket_size * (2 if overlap_broadcast_and_consume else 1),
                 dtype=torch.uint8,
-                device=get_torch_device().current_device(),
+                device=get_device_id(),
             )
         except Exception:
             print(
@@ -479,6 +473,7 @@ class CheckpointEngine:
 
         gidx = 0
         local_buckets = self.global_buckets.get(self.current_rank, [])
+        dummy_tensor = torch.tensor([1.0], device=get_device_id())
 
         for i in range(max_h2d_iter):
             # Step 1: Each actor rank copy the parameter tensor into device memory
@@ -498,11 +493,13 @@ class CheckpointEngine:
                     buffer_b.data.copy_(h2d_buffer[: bucket.size])
 
                 # Broadcast the buffer to all ranks
-                collective.broadcast(buffer_b, src_rank=broadcast_rank, group_name=group_name)
+                self.weight_sync_group.broadcast(
+                    buffer_b, src=broadcast_rank, stream=get_torch_device().current_stream()
+                )
 
                 if overlap_broadcast_and_consume:
                     socket.recv()
-                    collective.barrier(group_name=group_name)
+                    self.weight_sync_group.all_reduce(dummy_tensor)
                     socket.send_pyobj(_to_flattened_tensor_meta(bucket.metas, start))
                 elif inference_model is not None:
                     named_tensor = _to_flattened_tensor_meta(bucket.metas, 0)
@@ -517,6 +514,7 @@ class CheckpointEngine:
             req_thread.join()
             socket.close()
 
-        collective.barrier(group_name=group_name)
+        dummy_tensor = torch.tensor([1.0], device=get_device_id())
+        self._weight_sync_group.all_reduce(dummy_tensor)
         # clear host memory cache
         self.memory_buffers = []
