@@ -358,7 +358,7 @@ class FSDPEngine(BaseEngine):
                 "reshard_after_forward": self.engine_config.reshard_after_forward,
             }
             full_state = module.state_dict()
-            apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+            apply_fsdp2(module, fsdp_kwargs, self.engine_config, is_lora=self._is_lora)
             fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {self.engine_config.strategy}")

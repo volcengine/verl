@@ -335,7 +335,7 @@ class FSDPSFTTrainer:
                 "reshard_after_forward": True,
             }
             full_state = self.model.state_dict()
-            apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config)
+            apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config, is_lora=self.lora)
             fsdp2_load_full_state_dict(self.model, full_state, self.device_mesh, cpu_offload)
             self.fsdp_model = self.model
         else:

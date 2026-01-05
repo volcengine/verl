@@ -553,7 +553,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = actor_module.state_dict()
-            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config)
+            apply_fsdp2(actor_module, fsdp_kwargs, fsdp_config, is_lora=self._is_lora)
             fsdp2_load_full_state_dict(actor_module, full_state, fsdp_mesh, cpu_offload)
             actor_module_fsdp = actor_module
         else:
@@ -1472,7 +1472,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 "shard_placement_fn": get_shard_placement_fn(fsdp_size=self.device_mesh.shape[-1]),
             }
             full_state = critic_module.state_dict()
-            apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config)
+            apply_fsdp2(critic_module, fsdp_kwargs, fsdp_config, is_lora=self._is_lora)
             fsdp2_load_full_state_dict(critic_module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {config.strategy}")
