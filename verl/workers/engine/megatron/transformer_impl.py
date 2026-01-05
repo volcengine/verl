@@ -636,6 +636,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
+            # avoid non-positive temperature such as padding
+            temperature[temperature <= 0] = 1e-8
             assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"
             logits.div_(temperature.unsqueeze(dim=-1))
             ret = {}
