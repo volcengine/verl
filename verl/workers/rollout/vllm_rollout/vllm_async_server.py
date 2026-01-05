@@ -83,7 +83,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-class vLLMEnvsCopyToWorkers:
+class EnvsCopyToWorkers:
     # environment variables needs to copy to vllm works
     COPY_ENVS = ("VLLM_USE_MODELSCOPE", "VLLM_ALL2ALL_BACKEND")
 
@@ -182,7 +182,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         return
 
     def get_envs_copy_to_works(self):
-        copy_envs_name = vLLMEnvsCopyToWorkers()
+        copy_envs_name = EnvsCopyToWorkers()
         env_vars_to_copy = {
             v: os.environ[v] for v in set(envs_vllm.environment_variables) if v in copy_envs_name and v in os.environ
         }
