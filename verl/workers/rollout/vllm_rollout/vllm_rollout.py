@@ -270,8 +270,7 @@ class vLLMAsyncRollout(BaseRollout):
                 model.load_weights(weights)
                 model_config = model_runner.vllm_config.model_config
                 device = next(model.parameters()).device
-                from vllm.model_executor.model_loader.utils import \
-                    process_weights_after_loading
+                from vllm.model_executor.model_loader.utils import process_weights_after_loading
 
                 process_weights_after_loading(model, model_config, device)
 
