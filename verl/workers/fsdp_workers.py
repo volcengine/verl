@@ -363,6 +363,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if self.rank == 0:
             print(f"Model config after override: {actor_model_config}")
 
+        # Check FP8 configuration before model initialization
+        use_fp8 = fsdp_config.get('fp8', False)
+        if use_fp8:
+            print(f"Using FP8 for {role}")
+            assert self.config.actor.strategy == 'fsdp2', "FP8 training requires fsdp2 strategy"
+
         # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not actor_model_config.tie_word_embeddings, mesh=self.device_mesh
@@ -473,6 +479,42 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             else:
                 if self.rank == 0:
                     print("[actor model] No vision tower found.")
+        
+        if use_fp8:
+            print(f"Using FP8 for {role}")
+            assert self.config.actor.strategy == 'fsdp2', "FP8 training requires fsdp2 strategy"
+            # Get blockwise prototype setting from config, default to True for backward compatibility
+            USE_BLOCKWISE_PROTOTYPE = fsdp_config.get('use_blockwise_prototype', True)
+
+            if USE_BLOCKWISE_PROTOTYPE:
+                print(">>> [FP8 Mode] Using Prototype Block-wise Linear")
+                from verl.utils.blockwise_fp8.linear import recursive_replace_blockwise
+                actor_module.to(dtype=torch.bfloat16)
+                # Perform replacement recursively
+                recursive_replace_blockwise(
+                    actor_module,
+                    block_size=128,
+                    target_dtype=torch.bfloat16,
+                    use_triton=True,
+                    exclude_modules=["lm_head"],
+                    require_no_bias=True,
+                )
+            
+            else:
+                print(">>> [FP8 Mode] Using Native Tensor/channel wise Linear")
+                from torchao.float8 import convert_to_float8_training, Float8LinearConfig
+                
+                fp8_config = Float8LinearConfig(
+                    enable_fsdp_float8_all_gather=True,
+                    force_recompute_fp8_weight_in_bwd=True,
+                    pad_inner_dim=True,
+                    round_scales_to_power_of_2=True,
+                )
+                convert_to_float8_training(
+                    actor_module,
+                    config=fp8_config,
+                    module_filter_fn=lambda mod, fqn: fqn != "lm_head",
+                )
 
         torch.distributed.barrier()
 
@@ -573,6 +615,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             lr_scheduler_type = optim_config.get("lr_scheduler_type", "constant")
             min_lr_ratio = optim_config.get("min_lr_ratio", 0.0)
             num_cycles = optim_config.get("num_cycles", 0.5)
+
+            if use_fp8:
+                # Only register hook in non-blockwise mode
+                USE_BLOCKWISE_PROTOTYPE = fsdp_config.get('use_blockwise_prototype', True)
+                if not USE_BLOCKWISE_PROTOTYPE: 
+                    from torchao.float8 import precompute_float8_dynamic_scale_for_fsdp
+                    actor_optimizer.register_step_post_hook(
+                        lambda *args, **kwargs: precompute_float8_dynamic_scale_for_fsdp(actor_module_fsdp)
+                    )
+                else:
+                    print(">>> [FP8 Hook] Skipped delayed scaling hook for Block-wise mode")
+
             if num_warmup_steps < 0:
                 num_warmup_steps_ratio = optim_config.get("lr_warmup_steps_ratio", 0.0)
                 num_warmup_steps = int(num_warmup_steps_ratio * total_steps)
@@ -1155,9 +1209,22 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         """Start profiling for the current rank in the current training step."""
         self.profiler.start(**kwargs)
 
+    # @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    # def stop_profile(self) -> None:
+    #     """Stop profiling for the current rank in the current training step."""
+    #     self.profiler.stop()
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self) -> None:
         """Stop profiling for the current rank in the current training step."""
+        # Call stop_and_save if available to save trace file, otherwise just stop
+        if hasattr(self.profiler, "_impl") and hasattr(self.profiler._impl, "stop_and_save"):
+            print(f"[Profiler] Stopping and saving profile for rank {self.rank}")
+            self.profiler._impl.stop_and_save()
+        else:
+            self.profiler.stop()
+        # Try to save if save method is available
+        if hasattr(self.profiler, "_impl") and hasattr(self.profiler._impl, "save"):
+            self.profiler._impl.save()
         self.profiler.stop()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -1292,6 +1359,11 @@ class CriticWorker(Worker, DistProfilerExtension):
         torch_dtype = self.config.model.fsdp_config.get("model_dtype", "fp32")
         torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
+        use_fp8 = self.config.model.fsdp_config.get('fp8', False)
+        if use_fp8:
+            assert config.strategy == 'fsdp2', "FP8 training requires fsdp2 strategy"
+            # Get blockwise prototype setting from config, default to True for backward compatibility
+            USE_BLOCKWISE_PROTOTYPE = self.config.model.fsdp_config.get('use_blockwise_prototype', True)
         from transformers import AutoConfig
 
         # override model kwargs
@@ -1387,6 +1459,36 @@ class CriticWorker(Worker, DistProfilerExtension):
                 }
                 critic_module = get_peft_model(critic_module, LoraConfig(**lora_config))
 
+        if use_fp8:
+            if USE_BLOCKWISE_PROTOTYPE:
+                print(">>> [FP8 Mode] Using Prototype Block-wise Linear for Critic")
+                from verl.utils.blockwise_fp8.linear import recursive_replace_blockwise
+                critic_module.to(dtype=torch.bfloat16)
+                # Perform replacement recursively
+                recursive_replace_blockwise(
+                    critic_module,
+                    block_size=128,
+                    target_dtype=torch.bfloat16,
+                    use_triton=True,
+                    exclude_modules=["dropout", "score"],
+                    require_no_bias=True,
+                )
+            else:
+                print(">>> [FP8 Mode] Using Native Tensor/channel wise Linear for Critic")
+                from torchao.float8 import convert_to_float8_training, Float8LinearConfig
+                
+                fp8_config = Float8LinearConfig(
+                    enable_fsdp_float8_all_gather=True,
+                    force_recompute_fp8_weight_in_bwd=True,
+                    pad_inner_dim=True,
+                    round_scales_to_power_of_2=True,
+                )
+                convert_to_float8_training(
+                    critic_module,
+                    config=fp8_config,
+                    module_filter_fn=lambda mod, fqn: fqn != "dropout" and fqn != "score",
+                )
+
         if self.rank == 0:
             print_model_size(critic_module)
 
@@ -1474,6 +1576,15 @@ class CriticWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After critic FSDP", logger=None)
 
         critic_optimizer = build_optimizer(critic_module.parameters(), config.optim)
+        if use_fp8:
+            # Only register hook in non-blockwise mode
+            if not USE_BLOCKWISE_PROTOTYPE: 
+                from torchao.float8 import precompute_float8_dynamic_scale_for_fsdp
+                critic_optimizer.register_step_post_hook(
+                    lambda *args, **kwargs: precompute_float8_dynamic_scale_for_fsdp(critic_module)
+                )
+            else:
+                print(">>> [FP8 Hook] Skipped delayed scaling hook for Block-wise mode")
 
         total_steps = config.optim.get("total_training_steps", 0)
         num_warmup_steps = int(config.optim.get("lr_warmup_steps", -1))

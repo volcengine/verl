@@ -157,6 +157,8 @@ class FSDPEngineConfig(EngineConfig):
             debugging.
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
         dtype (str): Mixed precision training param dtype, default "bfloat16"
+        fp8 (bool): Whether to enable FP8 training, default False
+        use_blockwise_prototype (bool): Whether to use blockwise prototype for FP8 training, default False
     """
 
     # ulysses_sequence_parallel_size is mutable for backward compatibility
@@ -176,6 +178,9 @@ class FSDPEngineConfig(EngineConfig):
     use_torch_compile: bool = True
     entropy_checkpointing: bool = False
     strategy: str = "fsdp"
+    dtype: str = "bfloat16"  # ["bfloat16", "float16"]
+    fp8: bool = False
+    use_blockwise_prototype: bool = False  # Use blockwise prototype for FP8 (default: true)
 
     def __post_init__(self):
         super().__post_init__()
