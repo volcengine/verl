@@ -19,7 +19,12 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-from verl.utils.torch_functional import distributed_masked_mean, distributed_mean_max_min_std, masked_mean
+from verl.utils.torch_functional import (
+    distributed_masked_mean,
+    distributed_mean_max_min_std,
+    expand_as_nested,
+    masked_mean,
+)
 
 
 def _worker_mean(rank: int, world_size: int, rendezvous_file: str):
@@ -115,3 +120,33 @@ def test_distributed_masked_mean(world_size, tmp_path):
         nprocs=world_size,
         join=True,
     )
+
+
+def test_expand_as_nested():
+    a = torch.randn(2)
+    b = torch.randn(3)
+    c = torch.randn(4)
+    nested_tensor = torch.nested.as_nested_tensor([a, b, c], layout=torch.jagged)
+    tensor = torch.tensor([1, 2, 3])
+
+    output = expand_as_nested(tensor, nested_tensor)
+
+    assert output.values().tolist() == [1, 1, 2, 2, 2, 3, 3, 3, 3]
+    assert torch.all(output.offsets() == nested_tensor.offsets()).item()
+
+    # test exceptions
+    with pytest.raises(AssertionError):
+        expand_as_nested(tensor, tensor)
+
+    other_tensor = torch.tensor([1, 2, 3, 4])
+
+    with pytest.raises(AssertionError):
+        expand_as_nested(other_tensor, nested_tensor)
+
+    other_tensor = torch.tensor([[1, 2, 3]])
+
+    with pytest.raises(AssertionError):
+        expand_as_nested(other_tensor, nested_tensor)
+
+    with pytest.raises(AssertionError):
+        expand_as_nested(tensor, nested_tensor.unsqueeze(-1))
