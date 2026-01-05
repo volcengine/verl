@@ -1,0 +1,4 @@
+ - name: ep_mcp_agent
+   _target_: verl.experimental.agent_loop.tool_agent_loop.ToolAgentLoop
+
+
