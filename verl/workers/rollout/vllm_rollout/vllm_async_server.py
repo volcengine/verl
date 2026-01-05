@@ -195,7 +195,7 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        self.config.max_model_len = self.model_config.hf_config.max_position_embeddings
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -469,6 +469,11 @@ class vLLMHttpServerBase:
         # Calculate the maximum possible new tokens based on available context space
         # This serves as a safety upper bound
         max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+        if max_possible_tokens < 0:
+            raise ValueError(
+                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
+                f"({self.config.max_model_len})."
+            )
 
         # Determine max_tokens from sampling_params or use configured response_length as default
         if "max_tokens" in sampling_params:
@@ -477,12 +482,11 @@ class vLLMHttpServerBase:
             # support sglang-style 'max_new_tokens' param
             max_tokens = sampling_params.pop("max_new_tokens")
         else:
-            # Default to configured response_length, not the remaining context space
-            # This ensures short prompts don't cause over-generation
-            max_tokens = self.config.response_length
+            # Default to a calculation that considers configured lengths
+            max_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
 
-        # Apply safety clamp: ensure max_tokens doesn't exceed available context space
-        max_tokens = min(max_tokens, max_possible_tokens)
+        # Clamp max_tokens to the valid range [0, max_possible_tokens]
+        max_tokens = max(0, min(max_tokens, max_possible_tokens))
 
         assert max_tokens <= max_possible_tokens, (
             f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"

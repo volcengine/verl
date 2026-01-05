@@ -65,3 +65,13 @@ fused_kernel_options:
 
   # the implementation backend for fused kernels.
   impl_backend: torch
+
+# TiledMLP configuration for memory-efficient MLP computation.
+# Reduces peak memory by processing MLP forward/backward in tiles.
+tiled_mlp:
+
+  # whether to enable TiledMLP
+  enabled: False
+
+  # number of shards to split the input. Higher values reduce peak memory but may slightly impact performance.
+  num_shards: 4

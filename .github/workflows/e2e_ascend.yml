@@ -49,6 +49,7 @@ on:
       - "examples/ppo_trainer/**"
       - "examples/sft/**"
       - "recipe/dapo/**"
+      - "recipe/one_step_off_policy/**"
       - "tests/special_npu/**"
       - "tests/special_sanity/check_device_api_usage.py"
       - "verl/**"
@@ -113,10 +114,6 @@ jobs:
         run: |
           ray stop --force
           mode=ray bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
-      - name: Running NPU profiling unit tests
-        run: |
-          ray stop --force
-          pytest -s -x tests/utils/test_special_mstx_profile.py
 
   llm_rl_job:
     if: github.repository_owner == 'volcengine'

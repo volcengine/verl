@@ -26,6 +26,7 @@ from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.device import get_device_name
 from verl.utils.ray_utils import parallel_put
 
 
@@ -50,7 +51,7 @@ def test_data_transfer():
     resource_pool = RayResourcePool([8])
     cls_with_init = RayClassWithInitArgs(cls=DummyWorker)
     # construct worker group
-    wg = RayWorkerGroup(resource_pool, cls_with_init)
+    wg = RayWorkerGroup(resource_pool, cls_with_init, device_name=get_device_name())
 
     # this is real dataset size
     batch_size = 4096

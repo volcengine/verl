@@ -41,6 +41,10 @@ verl is fast with:
 
 - **Efficient actor model resharding with 3D-HybridEngine**: Eliminates memory redundancy and significantly reduces communication overhead during transitions between training and generation phases.
 
+<div align="center">
+ <img src="https://github.com/wuxibin89/verl/blob/wuxibin/doc_images/docs/_static/verl-arch.png?raw=true" width="400" alt="verl-arch.png">
+</div>
+
 </p>
 
 ## News
@@ -90,6 +94,7 @@ verl is fast with:
 - Scales up to 671B models and hundreds of GPUs with [expert parallelism](https://github.com/volcengine/verl/pull/1467)
 - Multi-gpu [LoRA RL](https://verl.readthedocs.io/en/latest/advance/ppo_lora.html) support to save memory.
 - Experiment tracking with wandb, swanlab, mlflow and tensorboard.
+- Hardware Support: Supports NVIDIA, AMD, [Ascend](https://github.com/volcengine/verl/blob/main/docs/ascend_tutorial/ascend_quick_start.rst)
 
 ## Upcoming Features and Changes
 
