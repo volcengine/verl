@@ -73,7 +73,6 @@ permissions:
 jobs:
   npu_unit_tests:
     if: github.repository_owner == 'volcengine'
-    name: Ascend unit test
     runs-on: linux-aarch64-a2-8
     timeout-minutes: 60 # Increase this timeout value as needed
     container:
