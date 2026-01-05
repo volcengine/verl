@@ -209,6 +209,7 @@ def load_quanted_weights(weights, model_runner):
     model_config = model_runner.vllm_config.model_config
     device = next(model.parameters()).device
     from vllm.model_executor.model_loader.utils import process_weights_after_loading
+
     process_weights_after_loading(model, model_config, device)
     # Undo the type change above to the original type
     for name, param in model.named_parameters():
