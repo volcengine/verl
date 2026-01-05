@@ -108,7 +108,13 @@ class ParameterSynchronizer:
         pause_time = time.time()
 
         # sync weights
-        if self.config.async_training.checkpoint_engine.enable:
+        # For sglang, always use sync_rollout_weights instead of sync_rollout_weights_by_checkpoint
+        rollout_name = getattr(self.config.actor_rollout_ref.rollout, "name", None)
+        use_checkpoint_engine = (
+            self.config.async_training.checkpoint_engine.enable and rollout_name != "sglang"
+        )
+        
+        if use_checkpoint_engine:
             self.actor_wg.sync_rollout_weights_by_checkpoint(self.sync_group_name)
             ray.get(self.rollout_wg.sync_rollout_weights_by_checkpoint(self.sync_group_name))
         else:

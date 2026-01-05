@@ -13,10 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import logging
 import os
-import threading
 import time
 
 import torch
@@ -24,6 +22,7 @@ import torch.distributed
 from omegaconf import DictConfig
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from recipe.fully_async_policy.base_detach_sync import BaseDetachNcclSync
 from recipe.fully_async_policy.fsdp2_utils import fsdp2_sharded_load_from_cpu, fsdp2_sharded_save_to_cpu
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
@@ -37,8 +36,6 @@ from verl.utils.fsdp_utils import (
 )
 from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker, CriticWorker
 
-from .checkpoint_engine import CheckpointEngine
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -46,74 +43,10 @@ device_name = get_device_name()
 
 __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
-
-def get_inference_model(rollout):
-    """
-    get models according to different types of inference_engine
-    Args:
-        rollout: rollout object
-    Returns:
-        model: model object
-    """
-    inference_engine = rollout.inference_engine
-    if hasattr(inference_engine, "llm_engine"):
-        inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-    elif hasattr(inference_engine, "worker"):
-        inference_model = inference_engine.worker.model_runner.model
-    else:
-        raise AttributeError(
-            f"Unsupported inference_engine type: {type(inference_engine)}. "
-            f"Expected LLM (with llm_engine attribute) or WorkerWrapperBase (with worker attribute)."
-        )
-    return inference_model
-
-
-class DetachNcclSync(AsyncActorRolloutRefWorker):
+class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
     def __init__(self, config: DictConfig, role: str):
-        super().__init__(config, role)
-
-        self._bg_loop = asyncio.new_event_loop()
-        self._bg_thread = threading.Thread(
-            target=self._start_background_loop, args=(self._bg_loop,), name="rollout_actor_async_worker", daemon=True
-        )
-        self._bg_thread.start()
-        logger.info(f"[DetachNcclSync] Background thread for SGLang sync started. PID: {os.getpid()}")
-
-    def _start_background_loop(self, loop):
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_forever()
-        except Exception as e:
-            logger.error(f"[DetachNcclSync] Background loop crashed: {e}")
-
-    def _run_async_safely(self, coro):
-        if not self._bg_thread.is_alive():
-            raise RuntimeError("Background thread for SGLang sync is not running!")
-
-        future = asyncio.run_coroutine_threadsafe(coro, self._bg_loop)
-
-        return future.result()
-
-    def _flush_sglang_batch(self, inference_model, batch_data):
-        batch_copy = list(batch_data)
-        self._run_async_safely(self.update_weights(inference_model, batch_copy))
-
-    def __del__(self):
-        if hasattr(self, "_bg_loop") and self._bg_loop.is_running():
-            self._bg_loop.call_soon_threadsafe(self._bg_loop.stop)
-        if hasattr(self, "_bg_thread") and self._bg_thread.is_alive():
-            self._bg_thread.join(timeout=1.0)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
-        current_rank = torch.distributed.get_rank() + rank_offset
-        actor_ranks = list(range(actor_num))
-        rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
-        assert rank_offset == 0 or rank_offset == actor_num
-
-        self.checkpoint_engine = CheckpointEngine(
-            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
-        )
+        BaseDetachNcclSync.__init__(self, config, role)
+        AsyncActorRolloutRefWorker.__init__(self, config, role)
 
     def _get_actor_params(self):
         pass
@@ -131,7 +64,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         inference_model = None
         if self._is_rollout:
             if rollout_name == "vllm":
-                inference_model = get_inference_model(self.rollout)
+                inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
 
                 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
@@ -160,57 +93,14 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             else:
                 raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
 
-        from ray.util.collective import collective
-
-        max_bucket_bytes = 8 * 1024 * 1024 * 1024  # 8GB
-        bucket = []
-        bucket_bytes = 0
-
-        for key, shape, dtype in self._weights_info:
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if self._is_actor:
-                assert key in params
-                origin_data = params[key]
-                if hasattr(origin_data, "full_tensor"):
-                    origin_data = origin_data.full_tensor()
-                if torch.distributed.get_rank() == 0:
-                    tensor.copy_(origin_data)
-        collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
-
-        if self._is_rollout:
-            # batching tensors for sglang
-            if rollout_name == "sglang":
-                bucket.append((key, tensor))
-                bucket_bytes += tensor.numel() * tensor.element_size()
-
-                if bucket_bytes >= max_bucket_bytes:
-                    self._flush_sglang_batch(inference_model, bucket)
-                    bucket.clear()
-                    bucket_bytes = 0
-            else:
-                if rollout_name == "vllm":
-                    inference_model.load_weights([(key, tensor)])
-
-        if self._is_rollout and rollout_name == "sglang" and bucket:
-            self._flush_sglang_batch(inference_model, bucket)
-            bucket.clear()
+        if rollout_name == "sglang" and self._is_rollout:
+            self._sync_sglang_weights(inference_model, params, sync_group_name)
+        else:
+            self._sync_vllm_weights(inference_model, params, sync_group_name)
 
         if self._is_actor and self._is_offload_param:
             offload_fsdp_model_to_cpu(self.actor_module_fsdp)
         get_torch_device().empty_cache()
-
-    async def update_weights(self, inference_engine, params):
-        from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
-
-        await sgl_update_weights(
-            engine=inference_engine,
-            params_batch=params,
-            device_mesh_key="infer_tp",
-            device_mesh=self.rollout_device_mesh,
-        )
-
-        if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
-            await inference_engine.flush_cache()
 
     def cache_actor_weights_to_cpu(self):
         self.cpu_named_params = {}
@@ -255,7 +145,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
         inference_model = None
         if self._is_rollout:
-            inference_model = get_inference_model(self.rollout)
+            inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
