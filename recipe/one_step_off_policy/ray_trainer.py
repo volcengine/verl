@@ -261,7 +261,7 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         n_workers = len(actor_rollout_workers)
 
         if self.device_name == "npu":
-            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote()).strip("[]")
             master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
             self.actor_wg.create_weight_sync_group(
                 master_address,
