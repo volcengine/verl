@@ -107,7 +107,7 @@ class IsaacEnv(gym.Env):
         if self.task_suite_name.startswith("libero"):
             self.task_descriptions = self.env.cfg.libero_config.task_info["language_instruction"]
             assert self.env_cfg.osc_type == "pose_rel", (
-                f"Only pose_rel osc type is supported for libero. Recieved: {self.env_cfg.osc_type}"
+                f"Only pose_rel osc type is supported for libero. Received: {self.env_cfg.osc_type}"
             )
         else:
             raise ValueError(f"Task suite {self.task_suite_name} is not supported.")

@@ -196,6 +196,9 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
+        prev_modes = [m.training for m in self.actor_module]
+        for module in self.actor_module:
+            module.eval()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
@@ -306,6 +309,8 @@ class MegatronPPOActor(BasePPOActor):
         # add empty cache after each compute
         get_torch_device().empty_cache()
 
+        for module, mode in zip(self.actor_module, prev_modes, strict=False):
+            module.train(mode)
         return log_probs, entropys, layers_topk_idx
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
@@ -479,6 +484,7 @@ class MegatronPPOActor(BasePPOActor):
 
                 entropy_coeff = self.config.entropy_coeff
                 loss_agg_mode = self.config.loss_agg_mode
+
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)
