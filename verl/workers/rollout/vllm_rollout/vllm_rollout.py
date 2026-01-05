@@ -268,10 +268,10 @@ class vLLMAsyncRollout(BaseRollout):
             else:
                 logger.info("Loading standard weights (non-FP8, async)")
                 model.load_weights(weights)
-                vllm_config = model_runner.vllm_config
+                model_config = model_runner.vllm_config.model_config
                 device = next(model.parameters()).device
                 from vllm.model_executor.model_loader.utils import process_weights_after_loading
-                process_weights_after_loading(model, vllm_config, device)
+                process_weights_after_loading(model, model_config, device)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode.
