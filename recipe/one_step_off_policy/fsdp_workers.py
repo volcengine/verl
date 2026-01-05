@@ -22,7 +22,7 @@ from omegaconf import DictConfig
 from ray.util.collective import collective
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group
+from recipe.one_step_off_policy.distributed_utils import vllm_stateless_init_process_group
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.utils.device import (
     get_device_name,
