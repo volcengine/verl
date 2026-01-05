@@ -25,18 +25,13 @@ from pathlib import Path
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
-    "recipe/prime/prime_ray_trainer.py",  # appear in default device_name
-    "recipe/spin/spin_trainer.py",  # appear in default device_name
-    "recipe/sppo/sppo_ray_trainer.py",  # appear in default device_name
-    "recipe/one_step_off_policy/ray_trainer.py",  # appear in default device_name
-    "recipe/transfer_queue/ray_trainer.py",  # appear in default device_name
-    "recipe/gkd/ray_trainer.py",  # appear in default device_name
-    "recipe/specRL/vllm_plugin/v0_10_0/patch.py",  # appear in self.cudagraph_batch_sizes
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
     "verl/single_controller/ray/base.py",  # appear in default device_name
     "verl/trainer/ppo/ray_trainer.py",  # appear in default device_name
+    "verl/experimental/transfer_queue/ray_trainer.py",  # appear in docstring as default device_name
+    "verl/experimental/one_step_off_policy/ray_trainer.py",  # appear in docstring as default device_name
     "verl/utils/reward_score/sandbox_fusion/utils.py",  # appear in sandbox language type
     "verl/workers/reward_model/megatron/reward_model.py",  # appear in default device_name
     "verl/third_party/torch/distributed/_state_dict_utils.py",  # torch monkey patch fixes

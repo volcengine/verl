@@ -457,7 +457,7 @@ def test_multimodal_partial_single_turn_agent(init_config):
         },
         ignore_reinit_error=True,
     )
-    from recipe.fully_async_policy.agent_loop import FullyAsyncAgentLoopManager
+    from verl.experimental.fully_async_policy.agent_loop import FullyAsyncAgentLoopManager
 
     # =========================== 1. Init rollout manager ===========================
     n = 2
