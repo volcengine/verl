@@ -42,6 +42,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/workers/engine/veomni/transformer_impl.py",  # appear in default device_name
     "verl/workers/rollout/vllm_rollout/vllm_async_server.py",  # appear in config.cudagraph_capture_sizes
     "verl/workers/rollout/sglang_rollout/async_sglang_server.py",  # manually set CUDA_VISIBLE_DEVICES
+    "verl/checkpoint_engine",  # checkpoint engine backend are device specific
 ]
 
 # directory or file path must contain keyword "nccl"
