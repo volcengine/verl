@@ -52,7 +52,6 @@ except ModuleNotFoundError:
     from vllm.v1.worker.worker_base import WorkerWrapperBase
 
 from packaging import version as vs
-from vllm.utils import update_environment_variables
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
@@ -176,9 +175,6 @@ class vLLMAsyncRollout(BaseRollout):
                 await self.socket.send(pickle.dumps(e))
                 break
 
-    def _update_environment_variables(self, all_kwargs: list[dict[str, Any]]):
-        update_environment_variables(all_kwargs)
-
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         if not torch.distributed.is_initialized():
@@ -214,9 +210,7 @@ class vLLMAsyncRollout(BaseRollout):
         _monkey_patch_compute_logits(self.inference_engine.worker.model_runner.model, len(self.tokenizer))
 
     async def _execute_method(self, method: str | bytes, *args, **kwargs):
-        if method == "update_environment_variables":
-            return self._update_environment_variables(*args, **kwargs)
-        elif method == "init_worker":
+        if method == "init_worker":
             return self._init_worker(*args, **kwargs)
         elif method == "load_model":
             return self._load_model(*args, **kwargs)
