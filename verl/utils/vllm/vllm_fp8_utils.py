@@ -322,7 +322,7 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
             data=weight_scale.data,
             output_dim=0,
             input_dim=1,
-            weight_loader=layer.weight_scale_inv.weight_loader,
+            weight_loader=getattr(layer, "weight_scale_inv", layer.weight_scale).weight_loader,
         )
     )
 
