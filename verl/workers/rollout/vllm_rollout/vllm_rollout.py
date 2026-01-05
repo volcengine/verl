@@ -191,12 +191,17 @@ class vLLMAsyncRollout(BaseRollout):
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         if self.config.quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if self.config.quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(
+                    f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {self.config.quantization}"
+                )
+
             if self.config.quantization == "fp8":
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
+
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
 
@@ -265,8 +270,22 @@ class vLLMAsyncRollout(BaseRollout):
                 model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Batch generate sequences in sync mode."""
-        raise NotImplementedError
+        """Batch generate sequences in sync mode.
+
+        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        generation. Since SPMD mode was retired (PR #4411), the generation workflow
+        should use the async server interface instead.
+
+        Raises:
+            NotImplementedError: Always raised as sync generation is not supported.
+        """
+        raise NotImplementedError(
+            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
+            "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
+            "or use HFRollout for synchronous generation. "
+            "See https://github.com/volcengine/verl/issues/4682 for more details."
+        )
 
     # ==================== server mode public methods ====================
 

@@ -28,7 +28,7 @@ from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
 try:
-    from mindspeed.megatron_adaptor import repatch
+    from verl.workers.engine.mindspeed.transformer_impl import repatch
 except ImportError:
     repatch = None
 
@@ -533,11 +533,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
-        # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
-        if rollout_config.mode == "sync" and self._is_actor:
-            loop = get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+        # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -906,12 +903,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
+        if self.checkpoint_mananager.checkpoint_config.async_save and self._is_offload_optimizer:
+            load_megatron_optimizer(self.actor_optimizer)
         self.checkpoint_mananager.save_checkpoint(
             local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
         )
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+        if self.checkpoint_mananager.checkpoint_config.async_save and self._is_offload_optimizer:
+            offload_megatron_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def async_calls_finalize_fn_exec(self, blocking=False):

@@ -13,11 +13,8 @@
 # limitations under the License.
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import multiprocessing
-import os
-import sys
 import warnings
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -81,36 +78,18 @@ def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
     """
 
     reward_fn_config = config.get("custom_reward_function") or {}
-    file_path = reward_fn_config.get("path")
-    if not file_path:
+    module_path = reward_fn_config.get("path")
+    if not module_path:
         return None
 
-    function_name = reward_fn_config.get("name")
-    assert function_name is not None
+    fn_name = reward_fn_config.get("name")
+    assert fn_name is not None
 
-    module = sys.modules.get("custom_module", None)
-    if module is None:
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Reward function file '{file_path}' not found.")
+    from verl.utils.import_utils import load_extern_object
 
-        spec = importlib.util.spec_from_file_location("custom_module", file_path)
-        assert spec is not None
-        module = importlib.util.module_from_spec(spec)
-        try:
-            sys.modules["custom_module"] = module
-            assert spec.loader is not None
-            spec.loader.exec_module(module)
-        except Exception as e:
-            raise RuntimeError(f"Error loading module from '{file_path}': {e}") from e
-
-    if not hasattr(module, function_name):
-        raise AttributeError(f"Reward function '{function_name}' not found in '{module.__file__}'.")
-
-    print(f"using customized reward function '{function_name}' from '{module.__file__}'")
-    raw_fn = getattr(module, function_name)
+    raw_fn = load_extern_object(module_path=module_path, object_name=fn_name)
 
     reward_kwargs = dict(reward_fn_config.get("reward_kwargs", {}))
-
     if not inspect.iscoroutinefunction(raw_fn):
         return partial(_call_with_kwargs, raw_fn, reward_kwargs)
     else:

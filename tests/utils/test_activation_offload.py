@@ -59,7 +59,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     )
     device_mesh = init_device_mesh(get_device_name(), mesh_shape=(world_size,), mesh_dim_names=("dp",))
 
-    model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+    model_name = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     config = Qwen2Config(num_hidden_layers=4)
 
     with torch.device(get_device_name()):

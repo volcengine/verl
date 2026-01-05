@@ -26,6 +26,7 @@ import ray
 import torch
 from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
+from PIL import Image
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
@@ -36,6 +37,8 @@ from verl.experimental.reward_loop import RewardLoopWorker
 from verl.protocol import DataProto
 from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
+from verl.utils.chat_template import initialize_system_prompt
+from verl.utils.dataset.rl_dataset import RLHFDataset, get_dataset_class
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.ray_utils import get_event_loop
@@ -96,6 +99,7 @@ class AsyncLLMServerManager:
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -113,6 +117,7 @@ class AsyncLLMServerManager:
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
             image_data=image_data,
+            video_data=video_data,
         )
         return output
 
@@ -193,6 +198,8 @@ class AgentLoopBase(ABC):
         server_manager: AsyncLLMServerManager,
         tokenizer: AutoTokenizer,
         processor: AutoProcessor,
+        dataset_cls: type[RLHFDataset],
+        dataset_config: DictConfig,
         **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
@@ -202,12 +209,104 @@ class AgentLoopBase(ABC):
             server_manager (AsyncLLMServerManager): OpenAI compatible LLM server manager.
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
+            dataset_cls (type[Dataset]): Dataset class for creating dataset, Defaults to RLHFDataset.
+            dataset_config (DictConfig): Dataset config.
         """
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
+        self.dataset_cls = dataset_cls
+        self.dataset_config = dataset_config
+        self.apply_chat_template_kwargs = dataset_config.get("apply_chat_template_kwargs", {})
+        self.system_prompt = initialize_system_prompt(self.tokenizer, **self.apply_chat_template_kwargs)
         self.loop = get_event_loop()
+
+    async def process_vision_info(self, messages: list[dict]) -> dict:
+        """Extract images and videos from messages.
+
+        Args:
+            messages (list[dict]): Input messages.
+
+        Returns:
+            dict: Multi-modal data with keys "images" and "videos".
+        """
+        multi_modal_data = {}
+        if self.processor is not None:
+            images, videos = await self.dataset_cls.process_vision_info(
+                messages, image_patch_size=self.processor.image_processor.patch_size, config=self.dataset_config
+            )
+            if images is not None:
+                multi_modal_data["images"] = images
+            if videos is not None:
+                multi_modal_data["videos"] = videos
+
+        return multi_modal_data
+
+    async def apply_chat_template(
+        self,
+        messages: list[dict],
+        tools: list[dict] = None,
+        images: list[Image.Image] = None,
+        videos: list[tuple[torch.Tensor, dict]] = None,
+        remove_system_prompt: bool = False,
+    ):
+        """Apply chat template to messages with optional tools, images, and videos.
+
+        Args:
+            messages (list[dict]): Input messages.
+            tools (list[dict], optional): Tools schemas. Defaults to None.
+            images (list[Image.Image], optional): Input images. Defaults to None.
+            videos (list[tuple[torch.Tensor, dict]], optional): Input videos. Defaults to None.
+            remove_system_prompt (bool, optional): Whether to remove system prompt. Defaults to False.
+
+        Returns:
+            list[int]: Prompt token ids.
+        """
+        if self.processor is not None:
+            raw_prompt = await self.loop.run_in_executor(
+                None,
+                lambda: self.processor.apply_chat_template(
+                    messages,
+                    tools=tools,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
+
+            # split the videos and according metadatas
+            if videos is not None:
+                videos, video_metadatas = zip(*videos, strict=False)
+                videos, video_metadatas = list(videos), list(video_metadatas)
+            else:
+                video_metadatas = None
+
+            model_inputs = self.processor(
+                text=[raw_prompt],
+                images=images,
+                videos=videos,
+                video_metadatas=video_metadatas,
+                return_tensors="pt",
+                do_sample_frames=False,
+            )
+            prompt_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
+        else:
+            prompt_ids = await self.loop.run_in_executor(
+                None,
+                lambda: self.tokenizer.apply_chat_template(
+                    messages,
+                    tools=tools,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    **self.apply_chat_template_kwargs,
+                ),
+            )
+
+        if remove_system_prompt:
+            prompt_ids = prompt_ids[len(self.system_prompt) :]
+
+        return prompt_ids
 
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
@@ -263,6 +362,7 @@ class AgentLoopWorkerBase:
         if not hasattr(self, "server_manager"):
             self.server_manager = AsyncLLMServerManager(config, server_handles)
 
+        self.dataset_cls = get_dataset_class(config.data)
         self.reward_router_address = reward_router_address
 
         model_path = config.actor_rollout_ref.model.path
@@ -409,6 +509,8 @@ class AgentLoopWorkerBase:
                 server_manager=self.server_manager,
                 tokenizer=self.tokenizer,
                 processor=self.processor,
+                dataset_cls=self.dataset_cls,
+                dataset_config=self.config.data,
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
             return await self._agent_loop_postprocess(output, **kwargs)
@@ -437,6 +539,7 @@ class AgentLoopWorkerBase:
         # - position_ids: sequential positions for tokens, starting at 0
         #   e.g., [0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,0,0,0,0]
 
+        # TODO(wuxibin): remove padding and use tensordict.
         self.tokenizer.padding_side = "left"
         prompt_output = self.tokenizer.pad(
             {"input_ids": output.prompt_ids},
@@ -499,51 +602,101 @@ class AgentLoopWorkerBase:
 
             routed_experts[:, start_pos:end_pos] = experts_tensor.unsqueeze(0)
 
-        # Handle multi-modal inputs and position_ids calculation
-        # Only support Qwen2VLImageProcessor for multi-modal processing currently
-        # TODO: support other multi-modal inputs
-        multi_modal_inputs = None
-        if self.processor is not None:
-            images = getattr(output, "multi_modal_data", {}).get("image", None)
-            current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
-            multi_modal_inputs = self.processor(text=[current_text], images=images, return_tensors="pt")
-            multi_modal_inputs.pop("input_ids", None)
-            multi_modal_inputs.pop("attention_mask", None)
+        multi_modal_inputs = self._compute_multi_modal_inputs(output, input_ids)
+        position_ids = self._compute_position_ids(input_ids, attention_mask, multi_modal_inputs)
+        await self._compute_score(
+            output,
+            prompts=prompt_output["input_ids"],
+            responses=response_output["input_ids"],
+            attention_mask=attention_mask,
+            input_ids=input_ids,
+            position_ids=position_ids,
+            kwargs=kwargs,
+        )
 
-            # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
-            # because np.array() only keeps the keys for BatchFeature.
-            multi_modal_inputs = dict(multi_modal_inputs.convert_to_tensors("pt"))
-        if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+        return _InternalAgentLoopOutput(
+            prompt_ids=prompt_output["input_ids"],
+            response_ids=response_output["input_ids"],
+            input_ids=input_ids,
+            position_ids=position_ids,
+            response_mask=response_mask,
+            attention_mask=attention_mask,
+            response_logprobs=response_logprobs,
+            routed_experts=routed_experts,
+            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_data=output.multi_modal_data,
+            reward_score=output.reward_score,
+            num_turns=output.num_turns,
+            metrics=output.metrics,
+            extra_fields=output.extra_fields,
+        )
 
-            image_grid_thw = multi_modal_inputs.get("image_grid_thw")
-            video_grid_thw = multi_modal_inputs.get("video_grid_thw")
-            second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")
+    def _compute_multi_modal_inputs(self, output, input_ids) -> dict[str, torch.Tensor]:
+        """Compute multi-modal inputs with image and video."""
+        multi_modal_inputs = {}
+        if self.processor is None:
+            return multi_modal_inputs
 
-            vision_position_ids = get_rope_index(
-                self.processor,
-                input_ids=input_ids.squeeze(0),
-                image_grid_thw=image_grid_thw,
-                video_grid_thw=video_grid_thw,
-                second_per_grid_ts=second_per_grid_ts,
-                attention_mask=attention_mask.squeeze(0),
-            ).unsqueeze(0)  # (1, 3, seq_len)
-
-            valid_mask = attention_mask[0].bool()
-            text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
-            text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
-            text_position_ids = text_position_ids.unsqueeze(0)
-            position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
+        images = output.multi_modal_data.get("images")
+        videos = output.multi_modal_data.get("videos")
+        # split the videos and according metadatas
+        if videos is not None:
+            videos, video_metadatas = zip(*videos, strict=False)
+            videos, video_metadatas = list(videos), list(video_metadatas)
         else:
-            position_ids = compute_position_id_with_mask(attention_mask)  # (1, seq_len)
+            video_metadatas = None
+        current_text = self.tokenizer.decode(input_ids.squeeze(0), skip_special_tokens=True)
+        multi_modal_inputs = self.processor(
+            text=[current_text],
+            images=images,
+            videos=videos,
+            video_metadatas=video_metadatas,
+            return_tensors="pt",
+            do_sample_frames=False,
+        )
+        multi_modal_inputs.pop("input_ids", None)
+        multi_modal_inputs.pop("attention_mask", None)
+
+        # We must use dict(multi_modal_inputs) to convert BatchFeature values to a new dict
+        # because np.array() only keeps the keys for BatchFeature.
+        multi_modal_inputs = dict(multi_modal_inputs.convert_to_tensors("pt"))
+        return multi_modal_inputs
+
+    def _compute_position_ids(self, input_ids, attention_mask, multi_modal_inputs) -> torch.Tensor:
+        """Compute position ids for multi-modal inputs."""
+        if self.processor is None:
+            return compute_position_id_with_mask(attention_mask)  # (1, seq_len)
+
+        image_grid_thw = multi_modal_inputs.get("image_grid_thw")
+        video_grid_thw = multi_modal_inputs.get("video_grid_thw")
+
+        # Model's get_rope_index has been dynamically bind to the processor.
+        vision_position_ids, _ = self.processor.get_rope_index(
+            input_ids=input_ids,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            attention_mask=attention_mask,
+        )
+        vision_position_ids = vision_position_ids.transpose(0, 1)  # (3, 1, seq_len) => (1, 3, seq_len)
+
+        valid_mask = attention_mask[0].bool()
+        text_position_ids = torch.ones((1, len(input_ids[0])), dtype=torch.long)
+        text_position_ids[0, valid_mask] = torch.arange(valid_mask.sum().item())
+        text_position_ids = text_position_ids.unsqueeze(0)
+        position_ids = torch.cat((text_position_ids, vision_position_ids), dim=1)  # (1, 4, seq_length)
+        return position_ids
+
+    async def _compute_score(self, output, prompts, responses, attention_mask, input_ids, position_ids, kwargs):
+        """Compute reward score for single sample."""
         enable_async_reward = (
             self.reward_router_address is not None and self.config.reward_model.enable_resource_pool
         ) or not self.config.reward_model.enable
+
         if output.reward_score is None and enable_async_reward and self.use_reward_loop:
             batch = TensorDict(
                 {
-                    "prompts": prompt_output["input_ids"],  # [1, prompt_length]
-                    "responses": response_output["input_ids"],  # [1, response_length]
+                    "prompts": prompts,  # [1, prompt_length]
+                    "responses": responses,  # [1, response_length]
                     "attention_mask": attention_mask,  # [1, prompt_length + response_length]
                     "input_ids": input_ids,  # [1, prompt_length + response_length]
                     "position_ids": position_ids,
@@ -563,23 +716,6 @@ class AgentLoopWorkerBase:
             result = await self.reward_loop_worker.compute_score.remote(data)
             output.reward_score = result["reward_score"]
             output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
-
-        return _InternalAgentLoopOutput(
-            prompt_ids=prompt_output["input_ids"],
-            response_ids=response_output["input_ids"],
-            input_ids=input_ids,
-            position_ids=position_ids,
-            response_mask=response_mask,
-            attention_mask=attention_mask,
-            response_logprobs=response_logprobs,
-            routed_experts=routed_experts,
-            multi_modal_inputs=multi_modal_inputs,
-            multi_modal_data=output.multi_modal_data,
-            reward_score=output.reward_score,
-            num_turns=output.num_turns,
-            metrics=output.metrics,
-            extra_fields=output.extra_fields,
-        )
 
     def _postprocess(self, inputs: list[_InternalAgentLoopOutput]) -> DataProto:
         """Process the padded outputs from _run_agent_loop and combine them into a batch."""
@@ -722,8 +858,6 @@ class AgentLoopManager:
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward_loop import RewardModelManager
 
-            # TODO (dyy): current rm is colocated with the legacy fsdp/megatron rm
-            # future pr will depericate fsdp/megatron rm and init RewardModelManager in standalone mode
             self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
             self.reward_router_address = self.reward_model_manager.get_router_address()
 

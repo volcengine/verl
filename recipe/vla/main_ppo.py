@@ -25,6 +25,7 @@ from verl import DataProto
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.utils import Role
+from verl.utils.device import is_cuda_available
 
 from .rob_ray_trainer import RobRayPPOTrainer
 
@@ -53,9 +54,30 @@ def main(config):
         ray_init_kwargs = OmegaConf.create({**ray_init_kwargs, "runtime_env": runtime_env})
         logger.info(f"ray init kwargs: {ray_init_kwargs}")
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
-    ray.get(main_task.remote(config))
 
-    # ray.timeline(filename="/tmp/ray_timeline.json")
+    # Apply controller nsight profiling if configured
+    if (
+        is_cuda_available
+        and config.global_profiler.tool == "nsys"
+        and config.global_profiler.get("steps") is not None
+        and len(config.global_profiler.get("steps", [])) > 0
+    ):
+        from verl.utils.import_utils import is_nvtx_available
+
+        assert is_nvtx_available(), "nvtx is not available in CUDA platform. Please 'pip3 install nvtx'"
+        nsight_options = OmegaConf.to_container(
+            config.global_profiler.global_tool_config.nsys.controller_nsight_options
+        )
+        main_task_with_options = main_task.options(runtime_env={"nsight": nsight_options})
+        ray.get(main_task_with_options.remote(config))
+    else:
+        ray.get(main_task.remote(config))
+
+    # [Optional] get the path of the timeline trace file from the configuration, default to None
+    # This file is used for performance analysis
+    timeline_json_file = config.ray_kwargs.get("timeline_json_file", None)
+    if timeline_json_file:
+        ray.timeline(filename=timeline_json_file)
 
 
 @ray.remote
