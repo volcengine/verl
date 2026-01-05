@@ -920,14 +920,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             delta_time = timer.last
             global_num_tokens = data.meta_info["global_token_num"]
             images_seqlens = data.meta_info["images_seqlens"]
-            if len(images_seqlens) > 0:
-                estimated_flops, promised_flops = self.flops_counter.estimate_flops(
-                    global_num_tokens, delta_time, images_seqlens=images_seqlens
-                )
-            else:
-                estimated_flops, promised_flops = self.flops_counter.estimate_flops(
-                    global_num_tokens, delta_time
-                )
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(
+                global_num_tokens, delta_time, images_seqlens=images_seqlens
+            )
             metrics["perf/mfu/actor"] = (
                 estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
