@@ -15,6 +15,7 @@
 import asyncio
 import copy
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -159,25 +160,59 @@ class SGLangHttpServer:
             port_window = max(1, int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_WINDOW", "50")))
 
             if port_base_env is None:
-                self._master_port, self._master_sock = get_free_port(self._server_address)
+                base_low = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_LOW", "12000"))
+                base_high = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_HIGH", "32000"))
+                if base_high > base_low:
+                    try:
+                        job_id = str(ray.get_runtime_context().get_job_id())
+                    except Exception:
+                        job_id = (
+                            os.environ.get("RAY_JOB_ID")
+                            or os.environ.get("JOB_ID")
+                            or os.environ.get("SLURM_JOB_ID")
+                            or ""
+                        )
+                    try:
+                        actor_id = str(ray.get_runtime_context().get_actor_id())
+                    except Exception:
+                        actor_id = ""
+                    key = f"{job_id}:{actor_id}:{self._server_address}:{self.replica_rank}:{self.node_rank}"
+                    h = int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big", signed=False)
+
+                    port_base = base_low + (h % max(1, (base_high - base_low) // port_window)) * port_window
+                    offset = (h >> 8) % port_window
+                else:
+                    port_base = base_low
+                    offset = 0
             else:
                 try:
                     port_base = int(port_base_env)
                 except ValueError:
                     logger.warning(
-                        "Invalid VERL_SGLANG_DIST_INIT_PORT_BASE=%r. Falling back to ephemeral port.",
+                        "Invalid VERL_SGLANG_DIST_INIT_PORT_BASE=%r. Falling back to non-ephemeral port range.",
                         port_base_env,
                     )
-                    self._master_port, self._master_sock = get_free_port(self._server_address)
-                else:
-                    port_start = port_base + int(self.replica_rank) * port_window
-                    port_end = min(port_start + port_window - 1, 65535)
+                    port_base = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_LOW", "12000"))
+                offset = 0
+
+            port_start = port_base + int(self.replica_rank) * port_window if port_base_env is not None else port_base
+            port_end = min(port_start + port_window - 1, 65535)
+            try:
+                if offset and (port_start + offset) <= port_end:
                     try:
                         self._master_port, self._master_sock = get_free_port_in_range(
-                            self._server_address, port_start, port_end
+                            self._server_address, port_start + offset, port_end
                         )
                     except Exception:
-                        self._master_port, self._master_sock = get_free_port(self._server_address)
+                        self._master_port, self._master_sock = get_free_port_in_range(
+                            self._server_address, port_start, port_start + offset - 1
+                        )
+                else:
+                    self._master_port, self._master_sock = get_free_port_in_range(
+                        self._server_address, port_start, port_end
+                    )
+            except Exception:
+                self._master_port, self._master_sock = get_free_port(self._server_address)
             logger.info(
                 f"SGLangHttpServer, replica_rank: {self.replica_rank}, "
                 f"master address: {self._master_address}, port: {self._master_port}"

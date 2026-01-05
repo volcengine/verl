@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
 import inspect
 import logging
 import os
@@ -85,8 +86,36 @@ def sort_placement_group_by_node_ip(pgs: list[PlacementGroup]) -> list[Placement
 
 
 @ray.remote
-def get_master_addr_port() -> tuple[str, str]:
+def get_master_addr_port(namespace: str = "") -> tuple[str, str]:
     addr = ray.util.get_node_ip_address().strip("[]")
+    port_low = int(os.environ.get("VERL_MASTER_PORT_RANGE_LOW", "12000"))
+    port_high = int(os.environ.get("VERL_MASTER_PORT_RANGE_HIGH", "32000"))
+    port_window = max(1, int(os.environ.get("VERL_MASTER_PORT_WINDOW", "200")))
+
+    if port_high > port_low:
+        try:
+            job_id = str(ray.get_runtime_context().get_job_id())
+        except Exception:
+            job_id = os.environ.get("RAY_JOB_ID") or os.environ.get("JOB_ID") or os.environ.get("SLURM_JOB_ID") or ""
+
+        key = f"{job_id}:{addr}:{namespace}"
+        h = hashlib.sha256(key.encode("utf-8")).digest()
+        h_int = int.from_bytes(h[:8], "big", signed=False)
+
+        start = port_low + (h_int % max(1, (port_high - port_low) // port_window)) * port_window
+        end = min(start + port_window - 1, port_high - 1)
+        window_len = max(1, end - start + 1)
+        offset = (h_int >> 8) % window_len
+
+        for i in range(window_len):
+            port = start + ((offset + i) % window_len)
+            with socket.socket() as sock:
+                try:
+                    sock.bind(("", port))
+                except OSError:
+                    continue
+                return addr, str(port)
+
     with socket.socket() as sock:
         sock.bind(("", 0))
         port = sock.getsockname()[1]
@@ -434,12 +463,13 @@ class RayWorkerGroup(WorkerGroup):
     def _get_master_addr_port(self, pg):
         """Get master addr and port for this worker group"""
         if self._master_addr is None and self._master_port is None:
+            namespace = f"{self.name_prefix}:{pg.id.hex()}"
             self._master_addr, self._master_port = ray.get(
                 get_master_addr_port.options(
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
                         placement_group=pg, placement_group_bundle_index=0
                     ),
-                ).remote()
+                ).remote(namespace)
             )
         elif self._master_addr is not None and self._master_port is not None:
             logger.debug(f"{self._master_addr=} {self._master_port=}")
