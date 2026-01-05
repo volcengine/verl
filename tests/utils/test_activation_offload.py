@@ -95,11 +95,7 @@ def _fsdp_activation_offloading_test(rank, world_size, rendezvous_file, strategy
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
     # Create checkpoint manager
-    if get_device_name() == "cuda":
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-    elif get_device_name() == "npu":
-        tokenizer = AutoTokenizer.from_pretrained(os.path.expanduser(f"~/models/{model_name}"))
-
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     checkpoint_manager = FSDPCheckpointManager(
         model=model, optimizer=optimizer, lr_scheduler=lr_scheduler, tokenizer=tokenizer
     )
