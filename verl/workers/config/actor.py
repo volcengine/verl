@@ -186,15 +186,6 @@ class ActorConfig(BaseConfig):
                     "'actor.ppo_micro_batch_size_per_gpu' if use_dynamic_bsz is not enabled."
                 )
 
-        valid_loss_agg_modes = [
-            "token-mean",
-            "seq-mean-token-sum",
-            "seq-mean-token-mean",
-            "seq-mean-token-sum-norm",
-        ]
-        if self.loss_agg_mode not in valid_loss_agg_modes:
-            raise ValueError(f"Invalid loss_agg_mode: {self.loss_agg_mode}")
-
     def validate(self, n_gpus: int, train_batch_size: int, model_config: dict = None):
         """Validate actor configuration with runtime parameters."""
         if not self.use_dynamic_bsz:
@@ -283,6 +274,12 @@ class FSDPActorConfig(ActorConfig):
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     use_remove_padding: bool = False
     use_rollout_log_probs: bool = False
+
+    # For tppo
+    window_response_length: int = 8192
+    lm_loss_weight: float = 0.1
+    scale_pg_by_local_kl: bool = False
+    scale_pg_by_kl: bool = False
 
     def __post_init__(self):
         """Validate FSDP actor configuration parameters."""

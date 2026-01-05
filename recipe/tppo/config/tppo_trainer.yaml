@@ -1,0 +1,57 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+algorithm:
+  all_samples_with_grad: True
+  all_samples_with_grad_sync: True
+  use_variable_lambda: True
+  variable_lambda_scalar: 0.05
+  use_separate_critic_lam: True
+  critic_lam: 1.0
+  add_eos: False
+  rollout_pool:
+    strategy: v1
+    min_score: -1
+    max_score: 1
+
+data:
+  actor_training_batch_size: 510
+  window_response_length: 8192
+  answer_key: answer
+
+actor_rollout_ref:
+  actor:
+    loss_agg_mode: batch
+    window_response_length: ${data.window_response_length}
+    lm_loss_weight: 0.1
+    scale_pg_by_local_kl: False
+    scale_pg_by_kl: False
+  
+  rollout:
+    train_generate_kwargs:
+      max_new_tokens: 8192
+    num_bon: 16
+    bon_strategy: all
+
+critic:
+  cliprange_value_low: 0.5
+  cliprange_value_high: 0.6
+  optim:
+    lr_warmup_steps: 20
+
+reward_model:
+  delete_eos: False
+  mean: 0.0
+  std: 1.0
+  use_last_response: False
+  punish_format: False
+  format_punish_score: -0.5
+  add_int_verify: False
+  strict_box_verify: False
+  need_punish_duplicate: True
+  punish_score: \'rule-lighteval/MATH_v2:-1\'

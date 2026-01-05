@@ -776,7 +776,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        from verl.workers.actor import DataParallelPPOActor
+        # FIXME: do not import tppo statically
+        from recipe.tppo.tppo_actor import DataParallelPPOActor
+        # from verl.workers.actor import DataParallelPPOActor
 
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
@@ -1512,7 +1514,9 @@ class CriticWorker(Worker, DistProfilerExtension):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get("external_lib", None))
 
-        from verl.workers.critic import DataParallelPPOCritic
+        # FIXME: do not import tppo statically
+        from recipe.tppo.tppo_critic import DataParallelPPOCritic
+        # from verl.workers.critic import DataParallelPPOCritic
 
         self.critic_module, self.critic_optimizer, self.critic_lr_scheduler = self._build_critic_model_optimizer(
             self.config
