@@ -255,20 +255,37 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self._create_weight_sync_group()
 
     def _create_weight_sync_group(self):
-        # TODO: NPU support
         from verl.utils.device import get_nccl_backend
 
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
         n_workers = len(actor_rollout_workers)
 
-        # Create Ray collective group for fallback communication
-        collective.create_collective_group(
-            actor_rollout_workers,
-            n_workers,
-            list(range(0, n_workers)),
-            backend=get_nccl_backend(),
-            group_name="actor_rollout",
-        )
+        if self.device_name == "npu":
+            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote()).strip("[]")
+            master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+            self.actor_wg.create_weight_sync_group(
+                master_address,
+                master_port,
+                0,
+                n_workers,
+            )
+            ray.get(
+                self.rollout_wg.create_weight_sync_group(
+                    master_address,
+                    master_port,
+                    len(self.actor_wg.workers),
+                    n_workers,
+                )
+            )
+        else:
+            # Create Ray collective group for fallback communication
+            collective.create_collective_group(
+                actor_rollout_workers,
+                n_workers,
+                list(range(0, n_workers)),
+                backend=get_nccl_backend(),
+                group_name="actor_rollout",
+            )
 
     def _init_async_rollout_manager(self):
         # create async rollout manager and request scheduler

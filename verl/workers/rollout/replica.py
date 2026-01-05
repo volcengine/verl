@@ -241,13 +241,36 @@ def _load_sglang():
         import vllm  # noqa: F401
     except ImportError:
         import sys
+        import types
         from unittest.mock import Mock
 
-        mock_vllm = Mock()
-        mock_vllm._custom_ops = Mock()
-        mock_vllm._custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm = types.ModuleType("vllm")
+
+        mock_custom_ops = types.ModuleType("vllm._custom_ops")
+        mock_custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm._custom_ops = mock_custom_ops
+
+        mock_model_executor = types.ModuleType("vllm.model_executor")
+        mock_layers = types.ModuleType("vllm.model_executor.layers")
+        mock_activation = types.ModuleType("vllm.model_executor.layers.activation")
+
+        class GeluAndMul:  # noqa: N801
+            pass
+
+        class SiluAndMul:  # noqa: N801
+            pass
+
+        mock_activation.GeluAndMul = GeluAndMul
+        mock_activation.SiluAndMul = SiluAndMul
+        mock_layers.activation = mock_activation
+        mock_model_executor.layers = mock_layers
+        mock_vllm.model_executor = mock_model_executor
+
         sys.modules["vllm"] = mock_vllm
-        sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
+        sys.modules["vllm._custom_ops"] = mock_custom_ops
+        sys.modules["vllm.model_executor"] = mock_model_executor
+        sys.modules["vllm.model_executor.layers"] = mock_layers
+        sys.modules["vllm.model_executor.layers.activation"] = mock_activation
 
     from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangReplica
 

@@ -71,6 +71,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+        self.use_prefix_grouper = self.config.get("use_prefix_grouper", False)
+        self.use_dynamic_bsz = self.config.get("use_dynamic_bsz", False)
+        if torch.distributed.get_rank() == 0:
+            print(f"{role} use_prefix_grouper={self.use_prefix_grouper}")
 
         if self.config.entropy_from_logits_with_chunking:
             entropy_from_logits = verl_F.entropy_from_logits_with_chunking
@@ -99,6 +103,27 @@ class DataParallelPPOActor(BasePPOActor):
             entropy: # (bs, response_len)
             log_probs: # (bs, response_len)
         """
+        # PrefixGrouper path for shared-prefix optimization
+        if self.use_prefix_grouper:
+            can_use_pg = (
+                not self.use_remove_padding
+                and not self.use_ulysses_sp
+                and not self.use_fused_kernels
+                and not self.use_dynamic_bsz
+            )
+            if can_use_pg and "response_mask" in micro_batch and "uid" in micro_batch:
+                from verl.trainer.ppo.prefix_grouper_utils import forward_micro_batch_with_prefix_grouper
+
+                return forward_micro_batch_with_prefix_grouper(
+                    micro_batch=micro_batch,
+                    model=self.actor_module,
+                    temperature=temperature,
+                    calculate_entropy=calculate_entropy,
+                    device_name=self.device_name,
+                    param_dtype=self.param_dtype,
+                    use_chunking_entropy=self.config.get("entropy_from_logits_with_chunking", False),
+                )
+
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -357,9 +382,15 @@ class DataParallelPPOActor(BasePPOActor):
         micro_batch_size = data.meta_info["micro_batch_size"]
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
         use_dynamic_bsz = data.meta_info["use_dynamic_bsz"]
+        pad_token_id = data.meta_info.get("pad_token_id", 0)
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
+
         select_keys = ["responses", "input_ids", "attention_mask", "position_ids"]
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        if self.use_prefix_grouper:
+            select_keys += [k for k in ["prompts", "response_mask"] if k in data.batch]
+            if "uid" in data.non_tensor_batch:
+                non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -373,7 +404,7 @@ class DataParallelPPOActor(BasePPOActor):
         entropy_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
-            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+            model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
             with torch.no_grad():
                 entropy, log_probs = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
@@ -400,6 +431,7 @@ class DataParallelPPOActor(BasePPOActor):
         self.actor_module.train()
 
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
+        pad_token_id = data.meta_info.get("pad_token_id", 0)
 
         select_keys = [
             "responses",
@@ -410,6 +442,8 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
+        if self.use_prefix_grouper and "prompts" in data.batch.keys():
+            select_keys.append("prompts")
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         # Include pre-computed IS weights if present in batch
@@ -421,7 +455,11 @@ class DataParallelPPOActor(BasePPOActor):
             select_keys.append("rollout_log_probs")
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
-        non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        non_tensor_select_keys = []
+        if has_multi_modal_inputs:
+            non_tensor_select_keys.append("multi_modal_inputs")
+        if self.use_prefix_grouper and "uid" in data.non_tensor_batch.keys():
+            non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -431,7 +469,10 @@ class DataParallelPPOActor(BasePPOActor):
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
-        metrics = {}
+        metrics = {
+            "actor/pg_loss": 0.0,
+            "actor/kl_loss": 0.0,
+        }
         for _ in range(self.config.ppo_epochs):
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
@@ -448,7 +489,7 @@ class DataParallelPPOActor(BasePPOActor):
                 for micro_batch in micro_batches:
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
-                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
+                    model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
                     response_mask = model_inputs["response_mask"]
                     old_log_prob = model_inputs["old_log_probs"]
                     advantages = model_inputs["advantages"]
@@ -530,7 +571,7 @@ class DataParallelPPOActor(BasePPOActor):
                         kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
-                        micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
+                        metrics["actor/kl_loss"] += kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
                     if self.config.use_dynamic_bsz:
@@ -543,7 +584,7 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         loss.backward()
 
-                    micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
+                    metrics["actor/pg_loss"] += pg_loss.detach().item() * loss_scale_factor
                     append_to_dict(metrics, micro_batch_metrics)
 
                 grad_norm = self._optimizer_step()

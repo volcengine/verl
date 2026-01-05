@@ -270,8 +270,22 @@ class vLLMAsyncRollout(BaseRollout):
                 model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Batch generate sequences in sync mode."""
-        raise NotImplementedError
+        """Batch generate sequences in sync mode.
+
+        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        generation. Since SPMD mode was retired (PR #4411), the generation workflow
+        should use the async server interface instead.
+
+        Raises:
+            NotImplementedError: Always raised as sync generation is not supported.
+        """
+        raise NotImplementedError(
+            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
+            "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
+            "or use HFRollout for synchronous generation. "
+            "See https://github.com/volcengine/verl/issues/4682 for more details."
+        )
 
     # ==================== server mode public methods ====================
 

@@ -56,9 +56,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
-  TRANSFORMERS_VERSION: "4.56.2"
 
 jobs:
   setup:
@@ -92,7 +91,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test,gpu,sglang]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare MATH dataset
         run: |
           python3 examples/data_preprocess/math_dataset.py --local_dataset_path $HOME/models/hf_data/DigitalLearningGmbH/MATH-lighteval

@@ -28,7 +28,7 @@ from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
 try:
-    from mindspeed.megatron_adaptor import repatch
+    from verl.workers.engine.mindspeed.transformer_impl import repatch
 except ImportError:
     repatch = None
 
@@ -533,11 +533,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
-        # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
-        if rollout_config.mode == "sync" and self._is_actor:
-            loop = get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+        # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):

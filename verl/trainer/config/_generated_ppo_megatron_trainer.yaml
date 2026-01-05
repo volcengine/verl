@@ -85,6 +85,7 @@ actor_rollout_ref:
     entropy_coeff: 0
     calculate_entropy: false
     use_kl_loss: false
+    use_prefix_grouper: false
     use_torch_compile: true
     kl_loss_coef: 0.001
     kl_loss_type: low_var_kl
@@ -220,6 +221,7 @@ actor_rollout_ref:
     max_num_seqs: 1024
     enable_chunked_prefill: true
     enable_prefix_caching: true
+    logprobs_mode: processed_logprobs
     load_format: dummy
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null
@@ -318,6 +320,9 @@ actor_rollout_ref:
     use_fused_kernels: false
     fused_kernel_options:
       impl_backend: torch
+    tiled_mlp:
+      enabled: false
+      num_shards: 4
     lora:
       type: lora
       rank: 0
