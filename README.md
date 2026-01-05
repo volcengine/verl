@@ -41,6 +41,10 @@ verl is fast with:
 
 - **Efficient actor model resharding with 3D-HybridEngine**: Eliminates memory redundancy and significantly reduces communication overhead during transitions between training and generation phases.
 
+<div align="center">
+ <img src="https://github.com/wuxibin89/verl/blob/wuxibin/doc_images/docs/_static/verl-arch.png?raw=true" width="400" alt="verl-arch.png">
+</div>
+
 </p>
 
 ## News
