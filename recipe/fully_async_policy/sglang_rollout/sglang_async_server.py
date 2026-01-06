@@ -60,10 +60,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
         self.cancel_event: dict[str, asyncio.Event] = {}
         self.req_output: dict[str, Optional[dict[str, Any]]] = {}
 
-    def _get_enable_memory_saver(self) -> bool:
-        logger.info("[SGLangHttpServerForPartial] Using enable_memory_saver=False for partial_rollout compatibility.")
-        return False
-
     async def _generate_step(
         self,
         prompt_ids: torch.Tensor,
@@ -86,7 +82,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
 
         sampling_params.pop("logprobs", None)
         return_logprob = True
-
         request = GenerateReqInput(
             rid=request_id,
             input_ids=prompt_ids,
@@ -94,9 +89,7 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
             return_logprob=return_logprob,
             image_data=image_data,
         )
-
         generator = self.tokenizer_manager.generate_request(request, None)
-
         async for output in generator:
             self.req_output[request_id] = output
 
@@ -112,33 +105,27 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
         async with self.lock:
             if self.paused:
                 return [], [], True
-
             self.req_output[request_id] = None
             self.cancel_event[request_id] = asyncio.Event()
-
             cancel_handle = asyncio.create_task(self.cancel_event[request_id].wait())
             generation_handle = asyncio.create_task(
                 self._generate_step(prompt_ids, sampling_params, request_id, image_data)
             )
-
         done, pending = await asyncio.wait(
             [generation_handle, cancel_handle],
             return_when=asyncio.FIRST_COMPLETED,
         )
-
         for task in done:
             await task
 
         for task in pending:
             task.cancel()
-
         async with self.lock:
             output = self.req_output.get(request_id)
             if output is None:
                 self.cancel_event.pop(request_id, None)
                 self.req_output.pop(request_id, None)
                 return [], [], True
-
             meta_info = output.get("meta_info", {})
             output_token_logprobs = meta_info.get("output_token_logprobs")
 
@@ -152,9 +139,7 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
             else:
                 token_ids = list(output["output_ids"])
                 log_probs = []
-
             is_cancel = generation_handle not in done
-
             self.cancel_event.pop(request_id, None)
             self.req_output.pop(request_id, None)
 
@@ -168,6 +153,8 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
 
     async def resume(self):
         async with self.lock:
+            # Call parent's resume to move tensors back to GPU after clear_kv_cache
+            await super().resume()
             self.paused = False
 
     async def reset_prefix_cache(self):
