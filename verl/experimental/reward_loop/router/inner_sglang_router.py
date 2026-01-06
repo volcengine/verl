@@ -34,7 +34,11 @@ def launch_router_process(
     timeout: int = 30,
 ) -> str:
     router_ip = ray.util.get_node_ip_address().strip("[]")
-    router_port, _ = get_free_port(router_ip)
+    router_port, router_sock = get_free_port(router_ip)
+    try:
+        router_sock.close()
+    except Exception:
+        pass
     router_address = (
         f"[{router_ip}]:{router_port}" if is_valid_ipv6_address(router_ip) else f"{router_ip}:{router_port}"
     )

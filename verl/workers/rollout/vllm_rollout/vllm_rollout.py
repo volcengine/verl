@@ -62,7 +62,7 @@ from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
+from verl.workers.rollout.utils import is_valid_ipv6_address
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
@@ -148,15 +148,16 @@ class vLLMAsyncRollout(BaseRollout):
             if socket_type == "ipc":
                 pid = os.getpid()
                 address = f"ipc:///tmp/verl_vllm_zmq_{pid}_{getpass.getuser()}.ipc"
+                self.socket.bind(address)
             else:
                 ip = ray.util.get_node_ip_address().strip("[]")
-                port, sock = get_free_port(ip)
                 if is_valid_ipv6_address(ip):
-                    address = f"tcp://[{ip}]:{port}"
                     self.socket.setsockopt(zmq.IPV6, 1)
+                    base_address = f"tcp://[{ip}]"
                 else:
-                    address = f"tcp://{ip}:{port}"
-            self.socket.bind(address)
+                    base_address = f"tcp://{ip}"
+                port = self.socket.bind_to_random_port(base_address)
+                address = f"{base_address}:{port}"
 
         loop = get_event_loop()
         self.zmq_loop_task = loop.create_task(self._loop_forever())

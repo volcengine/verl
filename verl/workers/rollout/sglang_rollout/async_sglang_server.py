@@ -13,10 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import copy
 import dataclasses
+import hashlib
 import json
 import logging
 import os
+import random
 from typing import Any, Optional
 
 import ray
@@ -44,10 +47,61 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import get_free_port, get_free_port_in_range, is_valid_ipv6_address, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
+
+
+@ray.remote(num_cpus=1, max_concurrency=4096)
+class RemoteInstanceSeedCoordinator:
+    """Coordinate remote_instance weight loading at the instance level"""
+
+    def __init__(self):
+        self._seed_servers: dict[int, ActorHandle] = {}
+        self._cond = asyncio.Condition()
+
+    async def register_seed(self, seed_replica_rank: int, seed_server: ActorHandle) -> None:
+        async with self._cond:
+            self._seed_servers[seed_replica_rank] = seed_server
+            self._cond.notify_all()
+
+    async def request_seed(
+        self,
+        client_replica_rank: int,
+        requested_seed_replica_rank: Optional[int] = None,
+        timeout_s: float = 300.0,
+    ) -> tuple[int, ActorHandle]:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        async with self._cond:
+            while True:
+                if requested_seed_replica_rank is not None:
+                    seed_server = self._seed_servers.pop(requested_seed_replica_rank, None)
+                    if seed_server is not None:
+                        return requested_seed_replica_rank, seed_server
+                else:
+                    candidates = [r for r in self._seed_servers.keys() if r != client_replica_rank]
+                    if candidates:
+                        seed = random.choice(candidates)
+                        return seed, self._seed_servers.pop(seed)
+                await asyncio.wait_for(self._cond.wait(), timeout=deadline - loop.time())
+
+
+async def _get_or_create_remote_instance_seed_coordinator(*, is_reward_model: bool) -> ActorHandle:
+    prefix = f"sglang_remote_instance_seed_coordinator{'_reward' if is_reward_model else ''}"
+    job_id = os.environ.get("SLURM_JOB_ID") or os.environ.get("RAY_JOB_ID") or os.environ.get("JOB_ID")
+    if job_id is None:
+        try:
+            job_id = str(ray.get_runtime_context().get_job_id())
+        except Exception:
+            job_id = "default"
+    name = f"{prefix}_{job_id}"
+    try:
+        return RemoteInstanceSeedCoordinator.options(name=name, lifetime="detached").remote()
+    except ValueError:
+        # Another process created it concurrently.
+        return ray.get_actor(name)
 
 
 @ray.remote(num_cpus=1)
@@ -102,7 +156,63 @@ class SGLangHttpServer:
         # used for NCCL process group
         if self.node_rank == 0:
             self._master_address = self._server_address
-            self._master_port, self._master_sock = get_free_port(self._server_address)
+            port_base_env = os.environ.get("VERL_SGLANG_DIST_INIT_PORT_BASE")
+            port_window = max(1, int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_WINDOW", "50")))
+
+            if port_base_env is None:
+                base_low = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_LOW", "12000"))
+                base_high = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_HIGH", "32000"))
+                if base_high > base_low:
+                    try:
+                        job_id = str(ray.get_runtime_context().get_job_id())
+                    except Exception:
+                        job_id = (
+                            os.environ.get("RAY_JOB_ID")
+                            or os.environ.get("JOB_ID")
+                            or os.environ.get("SLURM_JOB_ID")
+                            or ""
+                        )
+                    try:
+                        actor_id = str(ray.get_runtime_context().get_actor_id())
+                    except Exception:
+                        actor_id = ""
+                    key = f"{job_id}:{actor_id}:{self._server_address}:{self.replica_rank}:{self.node_rank}"
+                    h = int.from_bytes(hashlib.sha256(key.encode("utf-8")).digest()[:8], "big", signed=False)
+
+                    port_base = base_low + (h % max(1, (base_high - base_low) // port_window)) * port_window
+                    offset = (h >> 8) % port_window
+                else:
+                    port_base = base_low
+                    offset = 0
+            else:
+                try:
+                    port_base = int(port_base_env)
+                except ValueError:
+                    logger.warning(
+                        "Invalid VERL_SGLANG_DIST_INIT_PORT_BASE=%r. Falling back to non-ephemeral port range.",
+                        port_base_env,
+                    )
+                    port_base = int(os.environ.get("VERL_SGLANG_DIST_INIT_PORT_RANGE_LOW", "12000"))
+                offset = 0
+
+            port_start = port_base + int(self.replica_rank) * port_window if port_base_env is not None else port_base
+            port_end = min(port_start + port_window - 1, 65535)
+            try:
+                if offset and (port_start + offset) <= port_end:
+                    try:
+                        self._master_port, self._master_sock = get_free_port_in_range(
+                            self._server_address, port_start + offset, port_end
+                        )
+                    except Exception:
+                        self._master_port, self._master_sock = get_free_port_in_range(
+                            self._server_address, port_start, port_start + offset - 1
+                        )
+                else:
+                    self._master_port, self._master_sock = get_free_port_in_range(
+                        self._server_address, port_start, port_end
+                    )
+            except Exception:
+                self._master_port, self._master_sock = get_free_port(self._server_address)
             logger.info(
                 f"SGLangHttpServer, replica_rank: {self.replica_rank}, "
                 f"master address: {self._master_address}, port: {self._master_port}"
@@ -120,13 +230,43 @@ class SGLangHttpServer:
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
 
+    def allocate_remote_instance_ports(self, n_ports: int) -> list[int]:
+        """Allocate unique TCP ports on the seed instance for SGLang remote_instance weight loading"""
+        assert n_ports > 0, f"n_ports must be > 0, got {n_ports}"
+        if n_ports == 1 and self._master_port is not None:
+            return [int(self._master_port)]
+
+        ports: list[int] = []
+        if not hasattr(self, "_remote_instance_ports"):
+            self._remote_instance_ports = set()
+
+        for _ in range(n_ports):
+            port, sock = get_free_port(self._server_address)
+            sock.close()
+            while port in self._remote_instance_ports:
+                port, sock = get_free_port(self._server_address)
+                sock.close()
+            self._remote_instance_ports.add(port)
+            ports.append(port)
+        return ports
+
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
             assert master_address and master_port, "non-master node should provide master address and port"
             self._master_address = master_address
             self._master_port = master_port
 
+        master_sock = getattr(self, "_master_sock", None)
+        if master_sock is not None:
+            try:
+                master_sock.close()
+            except Exception:
+                pass
+            self._master_sock = None
+
         engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
+        engine_kwargs.pop("remote_instance_seed_strategy", None)
+        engine_kwargs.pop("remote_instance_tree_fanout", None)
         attention_backend = engine_kwargs.pop("attention_backend", None)
         quantization = self.config.get("quantization", None)
         if quantization is not None:
@@ -194,6 +334,15 @@ class SGLangHttpServer:
         if "enable_weights_cpu_backup" in [f.name for f in dataclasses.fields(ServerArgs)]:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
+
+        allowed_args = {f.name for f in dataclasses.fields(ServerArgs)}
+        unknown_args = sorted(set(args) - allowed_args)
+        if unknown_args:
+            logger.warning(
+                "Dropping unsupported SGLang ServerArgs keys: %s",
+                ", ".join(unknown_args),
+            )
+            args = {k: v for k, v in args.items() if k in allowed_args}
 
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
@@ -333,6 +482,46 @@ class SGLangReplica(RolloutReplica):
             f"worker number {len(self.workers)} not equal to world size {self.world_size}"
         )
 
+        use_remote_instance = str(self.config.load_format).lower() == "remote_instance"
+        sglang_engine_kwargs = self.config.get("engine_kwargs", {}).get("sglang", {}) or {}
+        seed_strategy = str(sglang_engine_kwargs.get("remote_instance_seed_strategy", "rank0")).lower()
+
+        remote_instance_coordinator: Optional[ActorHandle] = None
+        seed_replica_rank: Optional[int] = None
+        seed_server: Optional[ActorHandle] = None
+
+        if use_remote_instance:
+            if self.config.data_parallel_size != 1:
+                raise ValueError(
+                    "SGLang remote_instance requires rollout.data_parallel_size==1, "
+                    f"got {self.config.data_parallel_size}"
+                )
+            if self.nnodes != 1:
+                raise NotImplementedError(
+                    f"SGLang remote_instance integration currently supports nnodes==1 only, got {self.nnodes}"
+                )
+
+            remote_instance_coordinator = await _get_or_create_remote_instance_seed_coordinator(
+                is_reward_model=self.is_reward_model
+            )
+
+            if seed_strategy == "rank0" or seed_strategy == "epidemic":
+                pass
+            elif seed_strategy == "kary":
+                try:
+                    tree_fanout = int(sglang_engine_kwargs.get("remote_instance_tree_fanout", 2))
+                except Exception as e:
+                    raise ValueError(
+                        f"Invalid rollout.engine_kwargs.sglang.remote_instance_tree_fanout="
+                        f"{sglang_engine_kwargs.get('remote_instance_tree_fanout')!r}: {e}"
+                    ) from e
+                if tree_fanout <= 0:
+                    raise ValueError(f"remote_instance_tree_fanout must be > 0, got {tree_fanout}")
+            else:
+                raise ValueError(
+                    f"Unknown remote_instance_seed_strategy {seed_strategy!r}. Supported: 'rank0', 'kary', 'epidemic'."
+                )
+
         # get (node_id, CUDA_VISIBLE_DEVICES) of all workers
         worker_infos = await asyncio.gather(
             *[
@@ -345,45 +534,114 @@ class SGLangReplica(RolloutReplica):
         worker_cuda_visible_devices = [worker_info[1] for worker_info in worker_infos]
         worker_node_ids = [worker_info[0] for worker_info in worker_infos]
 
-        # create server actor in each node with node affinity and cuda visible devices
-        for node_rank in range(self.nnodes):
-            workers = self.workers[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
-            node_cuda_visible_devices = ",".join(
-                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
-            )
-            node_id = worker_node_ids[node_rank * self.gpus_per_node]
-            name = (
-                f"sglang_server_{self.replica_rank}_{node_rank}"
-                if not self.is_reward_model
-                else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
-            )
-            server = SGLangHttpServer.options(
-                scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
-                    node_id=node_id,
-                    soft=False,
-                ),
-                runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
-                name=name,
-            ).remote(
-                config=self.config,
-                model_config=self.model_config,
-                rollout_mode=self.rollout_mode,
-                workers=workers,
-                replica_rank=self.replica_rank,
-                node_rank=node_rank,
-                nnodes=self.nnodes,
-                cuda_visible_devices=node_cuda_visible_devices,
-            )
-            self.servers.append(server)
+        try:
+            # create server actor in each node with node affinity and cuda visible devices
+            for node_rank in range(self.nnodes):
+                workers = self.workers[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                node_cuda_visible_devices = ",".join(
+                    worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                )
+                node_id = worker_node_ids[node_rank * self.gpus_per_node]
+                name = (
+                    f"sglang_server_{self.replica_rank}_{node_rank}"
+                    if not self.is_reward_model
+                    else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
+                )
 
-        # launch http server in each node
-        master_address, master_port = await self.servers[0].get_master_address.remote()
-        await asyncio.gather(
-            *[
-                server.launch_server.remote(master_address=master_address, master_port=master_port)
-                for server in self.servers
-            ]
-        )
+                # Seed replica (rank==0) must load from disk
+                # Client replicas load from seed via NCCL broadcast
+                remote_config = copy.deepcopy(self.config)
+                if use_remote_instance:
+                    assert remote_instance_coordinator is not None
+                    if self.replica_rank == 0:
+                        # Seed instance: load from disk using auto
+                        remote_config.load_format = "auto"
+                    else:
+                        requested_seed_replica_rank = None
+                        if seed_strategy == "rank0":
+                            requested_seed_replica_rank = 0
+                        elif seed_strategy == "kary":
+                            assert tree_fanout is not None
+                            requested_seed_replica_rank = (self.replica_rank - 1) // tree_fanout
+                        elif seed_strategy == "epidemic":
+                            requested_seed_replica_rank = None
+                        else:
+                            raise ValueError(
+                                "Unknown remote_instance_seed_strategy "
+                                f"{seed_strategy!r}. Supported: 'rank0', 'kary', 'epidemic'."
+                            )
+
+                        (
+                            seed_replica_rank,
+                            seed_server,
+                        ) = await remote_instance_coordinator.request_seed.remote(
+                            self.replica_rank,
+                            requested_seed_replica_rank=requested_seed_replica_rank,
+                        )
+                        seed_addr, seed_port = await seed_server.get_server_address.remote()
+                        ports = await seed_server.allocate_remote_instance_ports.remote(
+                            int(self.config.tensor_model_parallel_size)
+                        )
+
+                        object.__setattr__(
+                            remote_config,
+                            "engine_kwargs",
+                            dict(getattr(remote_config, "engine_kwargs", None) or {}),
+                        )
+                        remote_config.engine_kwargs["sglang"] = dict(remote_config.engine_kwargs.get("sglang") or {})
+                        remote_config.engine_kwargs["sglang"].update(
+                            {
+                                "remote_instance_weight_loader_seed_instance_ip": seed_addr,
+                                "remote_instance_weight_loader_seed_instance_service_port": int(seed_port),
+                                "remote_instance_weight_loader_send_weights_group_ports": [int(p) for p in ports],
+                                "remote_instance_weight_loader_client_id": (
+                                    f"replica{self.replica_rank}_seed{seed_replica_rank}"
+                                ),
+                                "remote_instance_weight_loader_backend": "nccl",
+                            }
+                        )
+
+                server = SGLangHttpServer.options(
+                    scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
+                        node_id=node_id,
+                        soft=False,
+                    ),
+                    runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
+                    name=name,
+                ).remote(
+                    config=remote_config,
+                    model_config=self.model_config,
+                    rollout_mode=self.rollout_mode,
+                    workers=workers,
+                    replica_rank=self.replica_rank,
+                    node_rank=node_rank,
+                    nnodes=self.nnodes,
+                    cuda_visible_devices=node_cuda_visible_devices,
+                )
+                self.servers.append(server)
+
+            # launch http server in each node
+            master_address, master_port = await self.servers[0].get_master_address.remote()
+            await asyncio.gather(
+                *[
+                    server.launch_server.remote(master_address=master_address, master_port=master_port)
+                    for server in self.servers
+                ]
+            )
+            if use_remote_instance:
+                assert remote_instance_coordinator is not None
+                await remote_instance_coordinator.register_seed.remote(self.replica_rank, self.servers[0])
+        finally:
+            if (
+                use_remote_instance
+                and remote_instance_coordinator is not None
+                and seed_replica_rank is not None
+                and seed_server is not None
+            ):
+                try:
+                    await remote_instance_coordinator.register_seed.remote(seed_replica_rank, seed_server)
+                except Exception:
+                    pass
 
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
