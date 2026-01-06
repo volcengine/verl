@@ -1,5 +1,5 @@
-export CUDA_VISIBLE_DEVICES=0,1
 export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=0,1
 export DATA_DIR=$PWD/data
 export HF_HOME=$DATA_DIR
 export PATH="$CONDA_PREFIX/bin:$PATH"
@@ -13,8 +13,8 @@ gsm8k_test_path=$DATA_DIR/gsm8k/test.parquet
 train_files="['$gsm8k_train_path']"
 test_files="['$gsm8k_test_path']"
 
-use_legacy_worker_impl=disable
 use_legacy_worker_impl=auto
+use_legacy_worker_impl=disable
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -39,7 +39,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=1 \
-    trainer.logger='["console","wandb"]' \
+    trainer.logger='["console"]' \
     trainer.project_name='verl_sft_example_gsm8k' \
     trainer.experiment_name="qwen_05_use_legacy_worker_impl_$use_legacy_worker_impl" \
     trainer.n_gpus_per_node=2 \
