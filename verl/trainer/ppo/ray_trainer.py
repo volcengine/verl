@@ -1417,7 +1417,7 @@ class RayPPOTrainer:
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
                     # get images_seqlens  
                     images_seqlens_all = []
-                    for multi_modal_input in batch_dict["multi_modal_inputs"]:
+                    for multi_modal_input in batch.non_tensor_batch["multi_modal_inputs"]:
                         image_grid_thw = multi_modal_input["image_grid_thw"]
                         images_seqlens = torch.repeat_interleave(image_grid_thw[:, 1] * image_grid_thw[:, 2], image_grid_thw[:, 0])
                         images_seqlens_all.extend(images_seqlens.tolist())
