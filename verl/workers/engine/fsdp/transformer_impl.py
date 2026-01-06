@@ -734,8 +734,9 @@ class FSDPEngineWithLMHead(FSDPEngine):
         position_ids = micro_batch["position_ids"]
 
         if not isinstance(temperature, torch.Tensor):
-            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device, dtype=torch.float32)
+            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
 
+        temperature = temperature.to(torch.float32)
         assert temperature.shape[0] == input_ids.shape[0]
 
         # args used to get outputs

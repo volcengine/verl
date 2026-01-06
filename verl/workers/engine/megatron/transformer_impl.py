@@ -617,8 +617,9 @@ class MegatronEngineWithLMHead(MegatronEngine):
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
 
         if not isinstance(temperature, torch.Tensor):
-            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device, dtype=torch.float32)
+            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
 
+        temperature = temperature.to(torch.float32)
         assert temperature.shape[0] == input_ids.shape[0]
         temperature = verl_F.expand_as_nested(temperature, input_ids)  # (bsz, j1)
 
