@@ -185,10 +185,12 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
         actor_rollout_ref.actor.megatron.grad_offload=${actor_offload} \
         actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=${train_pp} \
         actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${train_tp} \
+        actor_rollout_ref.actor.megatron.use_mbridge=True \
         actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
+        actor_rollout_ref.ref.megatron.use_mbridge=True \
         actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
         actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
-        actor_rollout_ref.ref.megatron.param_offload=${ref_offload} $@
+        actor_rollout_ref.ref.megatron.param_offload=${ref_offload} $@ 
 else
     echo "Error: Unknown strategy ${ACTOR_STRATEGY}. Please use 'fsdp2' or 'megatron'"
     exit 1
