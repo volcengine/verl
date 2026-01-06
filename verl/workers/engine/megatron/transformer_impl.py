@@ -619,6 +619,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         if not isinstance(temperature, torch.Tensor):
             temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
 
+        temperature = temperature.to(torch.float32)
         assert temperature.shape[0] == input_ids.shape[0]
         temperature = verl_F.expand_as_nested(temperature, input_ids)  # (bsz, j1)
 
@@ -639,7 +640,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             # avoid non-positive temperature such as padding
             temperature[temperature <= 0] = 1e-8
             assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"
-            logits.div_(temperature.unsqueeze(dim=-1))
+            logits.div_(temperature.unsqueeze(dim=-1).to(logits.dtype))
             ret = {}
             if calculate_entropy:
                 logits_bak = logits.clone()
