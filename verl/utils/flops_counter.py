@@ -525,7 +525,7 @@ class FlopsCounter:
         self.config = config
 
     # TODO: actually we can make this a static method
-    def estimate_flops(self, batch_seqlens, delta_time, **kwargs):
+    def estimate_flops(self, batch_seqlens, delta_time, **kargs):
         """
         Estimate the FLOPS based on the number of valid tokens in the current batch and the time taken.
 
@@ -540,6 +540,10 @@ class FlopsCounter:
         """
         tokens_sum = sum(batch_seqlens)
         func = ESTIMATE_FUNC.get(self.config.model_type, _estimate_unknown_flops)
-        estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time, **kwargs)
+        images_seqlens = kargs.get("images_seqlens", None)
+        if images_seqlens is not None and "vl" in func.__name__:
+            estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time, **kargs)
+        else:
+            estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
         promised_flops = get_device_flops()
         return estimated_flops, promised_flops

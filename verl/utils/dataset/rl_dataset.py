@@ -354,6 +354,16 @@ class RLHFDataset(Dataset):
         row_dict["index"] = index
         row_dict["tools_kwargs"] = tools_kwargs
         row_dict["interaction_kwargs"] = interaction_kwargs
+
+        from qwen_vl_utils import process_vision_info
+        images, videos = process_vision_info(row_dict["raw_prompt"], image_patch_size=self.image_patch_size, return_video_metadata=True)      
+        raw_prompt = self.processor.apply_chat_template(
+                        self._build_messages(row_dict), add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+                    )
+        model_inputs = self.processor(
+            text=[raw_prompt], images=images, videos=videos, return_tensors="pt"
+        )        
+        row_dict["multi_modal_inputs"] = dict(model_inputs)
         return row_dict
 
     @classmethod
