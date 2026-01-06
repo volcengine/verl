@@ -32,7 +32,7 @@ def get_max_position_embeddings(hf_config) -> int:
 
     if max_len is None:
         raise ValueError("max_position_embeddings not found in HFModelConfig!")
-    return max_len
+    return int(max_len)
 
 
 def is_valid_ipv6_address(address: str) -> bool:
