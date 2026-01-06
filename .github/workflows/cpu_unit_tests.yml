@@ -46,7 +46,6 @@ on:
     paths:
       - "**/*.py"
       - .github/workflows/cpu_unit_tests.yml
-      - "!recipe/**/*.py"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
