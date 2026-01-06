@@ -627,8 +627,17 @@ class MegatronPPOActor(BasePPOActor):
                 def logits_processor(logits, label, label_mask):
                     assert logits.shape[:2] == label.shape[:2]
                     assert label.shape == label_mask.shape
-                    logits.div_(temperature)
                     ret = {}
+
+                    # Compute unscaled log_probs for metrics (to match VLLM rollout behavior)
+                    # This ensures rollout_actor_probs_pearson_corr metric is accurate
+                    # See: https://github.com/volcengine/verl/issues/4162
+                    log_probs_unscaled = vocab_parallel_log_probs_from_logits(logits.clone(), label)
+                    log_probs_unscaled = log_probs_unscaled.masked_fill(~label_mask, 0.0)
+                    ret["log_probs_for_metrics"] = log_probs_unscaled
+
+                    # Apply temperature scaling for training
+                    logits.div_(temperature)
                     if calculate_entropy:
                         logits_bak = logits.clone()
                         # # disable the hint until the fused_kernel is optimized for triton>=3.3

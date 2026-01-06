@@ -97,11 +97,12 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns:
             entropy: # (bs, response_len)
-            log_probs: # (bs, response_len)
+            log_probs: # (bs, response_len) - temperature scaled, for training
+            log_probs_for_metrics: # (bs, response_len) - unscaled, for metrics comparison with rollout
         """
         # PrefixGrouper path for shared-prefix optimization
         if self.use_prefix_grouper:
@@ -235,6 +236,17 @@ class DataParallelPPOActor(BasePPOActor):
 
                 else:
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
+
+                    # Compute unscaled log_probs for metrics (to match VLLM rollout behavior)
+                    # This ensures rollout_actor_probs_pearson_corr metric is accurate
+                    # See: https://github.com/volcengine/verl/issues/4162
+                    log_probs_for_metrics_rmpad = logprobs_from_logits(
+                        logits=logits_rmpad.clone(),
+                        labels=input_ids_rmpad_rolled,
+                        inplace_backward=False,
+                    )
+
+                    # Apply temperature scaling for training
                     logits_rmpad.div_(temperature)
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
@@ -261,6 +273,12 @@ class DataParallelPPOActor(BasePPOActor):
                     # gather and unpad for the ulysses sp
                     log_probs = gather_outputs_and_unpad(
                         log_probs,
+                        gather_dim=0,
+                        unpad_dim=0,
+                        padding_size=pad_size,
+                    )
+                    log_probs_for_metrics_rmpad = gather_outputs_and_unpad(
+                        log_probs_for_metrics_rmpad,
                         gather_dim=0,
                         unpad_dim=0,
                         padding_size=pad_size,
@@ -292,11 +310,18 @@ class DataParallelPPOActor(BasePPOActor):
                     batch=batch_size,
                     seqlen=seqlen,
                 )
+                full_log_probs_for_metrics = pad_input(
+                    hidden_states=log_probs_for_metrics_rmpad.unsqueeze(-1),
+                    indices=indices,
+                    batch=batch_size,
+                    seqlen=seqlen,
+                )
 
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                log_probs_for_metrics = full_log_probs_for_metrics.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
                 extra_args = {}
@@ -320,6 +345,13 @@ class DataParallelPPOActor(BasePPOActor):
                 else:
                     logits = output.logits
 
+                    # Compute unscaled log_probs for metrics (to match VLLM rollout behavior)
+                    # This ensures rollout_actor_probs_pearson_corr metric is accurate
+                    # See: https://github.com/volcengine/verl/issues/4162
+                    logits_for_metrics = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    log_probs_for_metrics = logprobs_from_logits(logits_for_metrics.clone(), micro_batch["responses"])
+
+                    # Apply temperature scaling for training
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
@@ -329,7 +361,13 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-            return entropy, log_probs
+            # For fused kernels, we don't have unscaled log_probs, so use the same as log_probs
+            # This is a limitation but fused kernels already handle temperature internally
+            if not hasattr(self, 'use_fused_kernels') or not self.use_fused_kernels or 'log_probs_for_metrics' not in locals():
+                if 'log_probs_for_metrics' not in locals():
+                    log_probs_for_metrics = log_probs
+
+            return entropy, log_probs, log_probs_for_metrics
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -401,29 +439,33 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batches = data.split(micro_batch_size)
 
         log_probs_lst = []
+        log_probs_for_metrics_lst = []
         entropy_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(
+                entropy, log_probs, log_probs_for_metrics = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
+            log_probs_for_metrics_lst.append(log_probs_for_metrics)
             if calculate_entropy:
                 entropy_lst.append(entropy)
 
         log_probs = torch.concat(log_probs_lst, dim=0)
+        log_probs_for_metrics = torch.concat(log_probs_for_metrics_lst, dim=0)
         entropys = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)
 
         if use_dynamic_bsz:
             log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
+            log_probs_for_metrics = restore_dynamic_batch(log_probs_for_metrics, batch_idx_list)
             if calculate_entropy:
                 entropys = restore_dynamic_batch(entropys, batch_idx_list)
 
-        return log_probs, entropys
+        return log_probs, entropys, log_probs_for_metrics
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
