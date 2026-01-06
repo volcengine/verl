@@ -83,7 +83,13 @@ class SGLangHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.model_config.hf_config.max_position_embeddings
+        max_len = getattr(self.model_config.hf_config, "max_position_embeddings", None)
+        if max_len is None and hasattr(self.model_config.hf_config, "text_config"):
+            max_len = getattr(self.model_config.hf_config.text_config, "max_position_embeddings", None)
+
+        if max_len is None:
+            raise ValueError("max_position_embeddings not found in HFModelConfig!")
+        self.config.max_model_len = max_len
         self.rollout_mode = rollout_mode
         self.workers = workers
 
