@@ -230,6 +230,9 @@ class ReadOperation:
 class NIXLCheckpointEngine(CheckpointEngine):
     """NIXL checkpoint engine with p2p communication, support various backends: ucx, uccl, mooncacke, etc.
 
+    For UCX backend, some environment variables need to be set: UCX_TLS, UCX_IB_GID_INDEX, UCX_IB_DEVICES, etc.
+    Please refer to: https://openucx.readthedocs.io/en/master/faq.html
+
     Args:
         bucket_size (int): Bucket size in bytes to transfer multiple weights at one time. Note that we use
             two buffer to send and recv weights at same time, so the device memory overhead is 2 * bucket_size.

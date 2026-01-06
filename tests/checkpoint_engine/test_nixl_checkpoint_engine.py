@@ -23,6 +23,7 @@ from verl.single_controller.ray.base import (
 )
 
 
+@pytest.mark.skip(reason="temporary skip since our ci environment is not ready")
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
 @pytest.mark.parametrize("num_trainer, num_rollout", [(2, 6)])
 def test_nixl_checkpoint_engine(
