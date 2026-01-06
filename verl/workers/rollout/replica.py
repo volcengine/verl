@@ -107,6 +107,7 @@ class RolloutReplica(ABC):
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []
         self.resource_pool: RayResourcePool = None
+        self.bundle_indices: list[int] = []
 
         self.servers: list[ActorHandle] = []
         self._server_address: str = None
@@ -122,6 +123,22 @@ class RolloutReplica(ABC):
         self.workers = worker_group.workers[
             self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
         ]
+        await self.launch_servers()
+
+    async def init_hybrid_colocated(self, worker_group: RayWorkerGroup, resource_pool: RayResourcePool):
+        """Init hybrid rollout server, rollout engine and training engine(fsdp/megatron) fused in same process.
+
+        Args:
+            worker_group: RayWorkerGroup, fused workers where training engine(fsdp/megatron) have been initialized.
+            resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
+            bundle_indices: list[int], bundle indices for this rollout replica.
+        """
+        self.rollout_mode = RolloutMode.HYBRID
+        self.workers = worker_group.workers[
+            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+        ]
+        self.resource_pool = resource_pool
+        self.bundle_indices = [self.replica_rank * self.world_size + idx for idx in range(self.world_size)]
         await self.launch_servers()
 
     # TODO(sgm): this should be the default solution, but need to make the RolloutMode more clear.
@@ -277,9 +294,16 @@ def _load_sglang():
     return SGLangReplica
 
 
+def _load_trtllm():
+    from verl.workers.rollout.trtllm_rollout.trtllm_async_server import TRTLLMReplica
+
+    return TRTLLMReplica
+
+
 # Register built-in types
 RolloutReplicaRegistry.register("vllm", _load_vllm)
 RolloutReplicaRegistry.register("sglang", _load_sglang)
+RolloutReplicaRegistry.register("trtllm", _load_trtllm)
 
 
 # Original function for backward compatibility
