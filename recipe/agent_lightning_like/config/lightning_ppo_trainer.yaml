@@ -1,0 +1,41 @@
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+# config for the rollout
+rollout:
+  agent:
+    # custom agent loop class, should be a subclass of AgentLoopBase
+    agent_loop_config_path: null
+
+# custom config for the agent-lightning-like trainer
+lightning_trainer:
+
+  # model name used in the agent server
+  model_name: Default
+
+  # custom agent client class, should be a subclass of AgentClientBase
+  agent_client_config_path: null
+
+  # standalone custom agent server address, with format of "ip:port" or "https://ip:port"
+  agent_server_addr: null
+
+  # health-check url path of agent server
+  health_check_url: /health
+
+  health_check_timeout: 60
+
+  # request header name for trace_id, used by llm_router to manage trajectories.
+  # the header should be included in the request chain from agent client to agent server to llm_router
+  request_header_trace_id: trace_id
+
+  # tool call parser, used by llm_router to extract tool calls from model responses
+  # inherit from rollout.multi_turn.format by default
+  tool_call_parser: ${oc.select:actor_rollout_ref.rollout.multi_turn.format,hermes}
+
+  # reasoning parser, used by lm_router to extract reasoning_content from model responses
+  reasoning_parser: null

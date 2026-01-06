@@ -1,0 +1,2 @@
+- name: lightning_demo
+  _target_: recipe.agent_lightning_like.agent_loop.LightningAgentLoop
