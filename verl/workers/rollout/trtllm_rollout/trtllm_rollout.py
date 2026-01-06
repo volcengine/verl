@@ -289,30 +289,52 @@ class TRTLLMAsyncRollout(BaseRollout):
         "draft_model",
     ]
 
-    def __init__(self, config: RolloutConfig, model_config: HFModelConfig, device_mesh: DeviceMesh):
+    @staticmethod
+    def get_full_tags() -> list[str]:
+        return TRTLLMAsyncRollout._WEIGHTS_TAGS + ["kv_cache"]
+
+    def __init__(
+        self, config: RolloutConfig, model_config: HFModelConfig, device_mesh: DeviceMesh, replica_rank: int = -1
+    ):
         super().__init__(config, model_config, device_mesh)
         self._adapter = None
-        assert device_mesh.mesh_dim_names.index("dp") == 0, "DP dim should always be the first dimension"
+        self.hybrid_device_mesh = None
+        self.gpu_id = None
+        self.is_leader_rank = None
+        self.replica_rank = None
+        self.is_dp_rank = None
 
-        # Clone a new device mesh for CPU backend only (used for internal ranks communication)
-        device_mesh_kwargs = dict(
-            mesh_shape=device_mesh.mesh.shape,
-            mesh_dim_names=device_mesh.mesh_dim_names,
-        )
-        self._device_mesh_cpu = init_device_mesh("cpu", **device_mesh_kwargs)
+        # hybrid mode
+        if self.device_mesh is not None:
+            assert device_mesh.mesh_dim_names.index("dp") == 0, "DP dim should always be the first dimension"
 
-        self._device_mesh_cpu[self._device_mesh_cpu.mesh_dim_names[1:]]._flatten(mesh_dim_name="exclude_dp")
-        self.is_dp_leader = self._device_mesh_cpu["exclude_dp"].get_local_rank() == 0
-        logger.info(f"is_dp_leader: {self.is_dp_leader}")
-        logger.info(f"exclude_dp_rank = {self._device_mesh_cpu['exclude_dp'].get_local_rank()}")
-        logger.info(f"exclude_dp_size = {self._device_mesh_cpu['exclude_dp'].size()}")
+            # Clone a new device mesh for CPU backend only (used for internal ranks communication)
+            device_mesh_kwargs = dict(
+                mesh_shape=device_mesh.mesh.shape,
+                mesh_dim_names=device_mesh.mesh_dim_names,
+            )
+            self.hybrid_device_mesh = init_device_mesh("cpu", **device_mesh_kwargs)
 
-        self.device_mesh = device_mesh
-        self.replica_rank = self._device_mesh_cpu["dp"].get_local_rank()
-        self.node_rank = 0  # TODO: support multiple nodes
+            self.hybrid_device_mesh[self.hybrid_device_mesh.mesh_dim_names[1:]]._flatten(mesh_dim_name="exclude_dp")
+            self.is_leader_rank = self.hybrid_device_mesh["exclude_dp"].get_local_rank() == 0
+            logger.info(f"is_dp_leader: {self.is_leader_rank}")
+            logger.info(f"exclude_dp_rank = {self.hybrid_device_mesh['exclude_dp'].get_local_rank()}")
+            logger.info(f"exclude_dp_size = {self.hybrid_device_mesh['exclude_dp'].size()}")
+            self.gpu_id = ray.get_gpu_ids()[0]
+            self.replica_rank = self.hybrid_device_mesh["dp"].get_local_rank()
+        else:
+            rank = int(os.environ["RANK"])
+            self.replica_rank = replica_rank
+            self.is_leader_rank = rank == 0
+
+        # Below is required for all modes.
+        assert self.replica_rank >= 0, "replica_rank is not set"
+        assert self.is_leader_rank is not None, "is_leader_rank is not set"
+
+        print(f"TRTLLMAsyncRollout, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
+
         self.node_ip = ray.util.get_node_ip_address().strip("[]")
         assert len(ray.get_gpu_ids()) == 1, "TRTLLMAsyncRollout should run on a single GPU node"
-        self.gpu_id = ray.get_gpu_ids()[0]
 
     async def _init_server_adapter(self):
         if self._adapter is not None:
@@ -323,10 +345,7 @@ class TRTLLMAsyncRollout(BaseRollout):
         server_address, server_port = await self.server_actor.get_server_address.remote()
         assert server_address == self.node_ip, f"server address: {server_address} != node_ip: {self.node_ip}"
 
-        logger.debug(
-            f"replica_rank={self.replica_rank} node_rank={self.node_rank}, "
-            f"server address: {server_address}, port: {server_port}"
-        )
+        logger.debug(f"replica_rank={self.replica_rank}, server address: {server_address}, port: {server_port}")
         host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._adapter = AsyncTRTLLMHttpAdapter(
             host=host,
@@ -339,7 +358,7 @@ class TRTLLMAsyncRollout(BaseRollout):
         Args:
             tag: weights or kv_cache.
         """
-        if self.is_dp_leader and self.config.free_cache_engine:
+        if self.is_leader_rank and self.config.free_cache_engine:
             if "weights" in tags:
                 tags = self._WEIGHTS_TAGS
             elif "kv_cache" in tags:
@@ -351,15 +370,17 @@ class TRTLLMAsyncRollout(BaseRollout):
 
     async def release(self):
         """Release weights and kv cache in GPU memory."""
-        if self.is_dp_leader and self.config.free_cache_engine:
+        if self.is_leader_rank and self.config.free_cache_engine:
             await self._init_server_adapter()
             tags = self._WEIGHTS_TAGS + ["kv_cache"]
             await self._adapter.release_memory_occupation(tags=tags)
 
     async def update_weights_from_ipc_handles(self, device_handles):
+        assert self.hybrid_device_mesh is not None, "hybrid_device_mesh is not set"
+
         """Update weights from IPC handles."""
-        if self.is_dp_leader:
-            gathered_handles = [None for _ in range(self._device_mesh_cpu["exclude_dp"].size())]
+        if self.is_leader_rank:
+            gathered_handles = [None for _ in range(self.hybrid_device_mesh["exclude_dp"].size())]
         else:
             gathered_handles = None
 
@@ -368,28 +389,30 @@ class TRTLLMAsyncRollout(BaseRollout):
             obj=device_handles,
             object_gather_list=gathered_handles,
             group_dst=0,
-            group=self._device_mesh_cpu["exclude_dp"].get_group(),
+            group=self.hybrid_device_mesh["exclude_dp"].get_group(),
         )
 
-        if self.is_dp_leader:
+        if self.is_leader_rank:
             all_handles = {k: v for d in gathered_handles for k, v in d.items()}
             await self._adapter.update_weights(all_handles)
 
-        await asyncio.to_thread(dist.barrier, group=self._device_mesh_cpu["exclude_dp"].get_group())
+        await asyncio.to_thread(dist.barrier, group=self.hybrid_device_mesh["exclude_dp"].get_group())
 
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
+        assert self.hybrid_device_mesh is not None, "hybrid_device_mesh is not set"
+
         """Update the weights of the rollout model.
 
         Args:
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
-        if self.is_dp_leader:
+        if self.is_leader_rank:
             await self._init_server_adapter()
 
         total_available_bytes = await asyncio.to_thread(
             get_total_available_bytes,
-            self._device_mesh_cpu["exclude_dp"].get_group(),
-            self._device_mesh_cpu["exclude_dp"].get_local_rank(),
+            self.hybrid_device_mesh["exclude_dp"].get_group(),
+            self.hybrid_device_mesh["exclude_dp"].get_local_rank(),
             self.config.refit_ipc_memory_ratio,
         )
 
@@ -427,7 +450,7 @@ class TRTLLMAsyncRollout(BaseRollout):
 
         await flush()
 
-        if self.is_dp_leader:
+        if self.is_leader_rank:
             # Finalize update weights
             await self._adapter.update_weights(None)
-        await asyncio.to_thread(dist.barrier, group=self._device_mesh_cpu["exclude_dp"].get_group())
+        await asyncio.to_thread(dist.barrier, group=self.hybrid_device_mesh["exclude_dp"].get_group())
