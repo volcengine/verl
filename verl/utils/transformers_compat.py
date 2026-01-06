@@ -17,14 +17,13 @@ Compatibility utilities for different versions of transformers library.
 """
 
 import importlib.metadata
+import logging
 from functools import lru_cache
 from typing import Any, Optional
 
 from packaging import version
 
-from verl.utils.logging import get_logger
-
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # Handle version compatibility for flash_attn_supports_top_left_mask
 # This function was added in newer versions of transformers
