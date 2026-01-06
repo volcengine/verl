@@ -18,7 +18,7 @@ Compatibility utilities for different versions of transformers library.
 
 import importlib.metadata
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
 from packaging import version
 
@@ -55,3 +55,24 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
         upper_bound_check = transformers_version <= version.parse(max_version)
 
     return lower_bound_check and upper_bound_check
+
+
+def get_max_position_embeddings(hf_config: Any) -> Optional[int]:
+    """Best-effort resolution of model context length from HF configs.
+
+    Works for:
+      - text-only configs where max_position_embeddings is top-level
+      - multimodal wrapper configs (e.g., Qwen3-VL) where it lives in text_config
+    """
+    mpe = getattr(hf_config, "max_position_embeddings", None)
+    if isinstance(mpe, int):
+        return mpe
+
+    # Common wrappers for VLMs / composite configs
+    for subname in ("text_config", "language_config", "llm_config"):
+        subcfg = getattr(hf_config, subname, None)
+        mpe = getattr(subcfg, "max_position_embeddings", None) if subcfg is not None else None
+        if isinstance(mpe, int):
+            return mpe
+
+    return None
