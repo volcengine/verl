@@ -28,12 +28,13 @@ from verl.utils.device import (
     get_device_id,
     get_device_name,
     get_torch_device,
+    is_npu_available,
 )
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
 from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
 from .checkpoint_engine import CheckpointEngine
-from .distributed_util import stateless_init_process_group
+from .distributed_util import StatelessProcessGroupWrapper
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -110,7 +111,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             if self._is_actor and torch.distributed.get_rank() == 0:
                 tensor.copy_(weight)
 
-            self._weight_sync_group.broadcast(tensor, src=0, stream=get_torch_device().current_stream())
+            self._weight_sync_group.broadcast(tensor, src_rank=0, stream=get_torch_device().current_stream())
             if self._is_rollout:
                 inference_model.load_weights([(key, tensor)])
         if self._is_actor and self._is_offload_param:
@@ -212,13 +213,19 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         actor_ranks = list(range(actor_num))
         rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
         assert rank_offset == 0 or rank_offset == actor_num
-        self._weight_sync_group = stateless_init_process_group(
-            master_addr,
-            master_port,
-            current_rank,
-            len(actor_ranks) + len(rollout_ranks),
-            get_device_id(),
-        )
+        if is_npu_available:
+            self._weight_sync_group = StatelessProcessGroupWrapper.from_stateless_process_group(
+                master_addr,
+                master_port,
+                current_rank,
+                len(actor_ranks) + len(rollout_ranks),
+                get_device_id(),
+            )
+        else:
+            actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
+            self._weight_sync_group = StatelessProcessGroupWrapper.from_ray_collective_group(
+                actor_rollout_workers, self.sync_group_name
+            )
 
 
 class DetachActorWorker(DetachNcclSync):

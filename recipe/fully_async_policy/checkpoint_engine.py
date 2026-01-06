@@ -493,13 +493,13 @@ class CheckpointEngine:
                     buffer_b.data.copy_(h2d_buffer[: bucket.size])
 
                 # Broadcast the buffer to all ranks
-                self.weight_sync_group.broadcast(
-                    buffer_b, src=broadcast_rank, stream=get_torch_device().current_stream()
+                self._weight_sync_group.broadcast(
+                    buffer_b, src_rank=broadcast_rank, stream=get_torch_device().current_stream()
                 )
 
                 if overlap_broadcast_and_consume:
                     socket.recv()
-                    self.weight_sync_group.all_reduce(dummy_tensor)
+                    self._weight_sync_group.all_reduce(dummy_tensor)
                     socket.send_pyobj(_to_flattened_tensor_meta(bucket.metas, start))
                 elif inference_model is not None:
                     named_tensor = _to_flattened_tensor_meta(bucket.metas, 0)
