@@ -44,7 +44,12 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import (
+    get_free_port,
+    get_max_position_embeddings,
+    is_valid_ipv6_address,
+    run_unvicorn,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -83,13 +88,7 @@ class SGLangHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        max_len = getattr(self.model_config.hf_config, "max_position_embeddings", None)
-        if max_len is None and hasattr(self.model_config.hf_config, "text_config"):
-            max_len = getattr(self.model_config.hf_config.text_config, "max_position_embeddings", None)
-
-        if max_len is None:
-            raise ValueError("max_position_embeddings not found in HFModelConfig!")
-        self.config.max_model_len = max_len
+        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
