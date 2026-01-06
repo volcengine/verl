@@ -38,9 +38,6 @@ critic_model_path=$actor_model_path
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
-enable_overlong_buffer=True
-overlong_buffer_len=$((1024 * 4))
-overlong_penalty_factor=1.0
 
 train_batch_size=256
 ppo_mini_batch_size=32
@@ -151,15 +148,6 @@ ROLLOUT_CONFIG="
     actor_rollout_ref.rollout.val_kwargs.temperature=1.0 \
     actor_rollout_ref.rollout.val_kwargs.n=$n_resp_per_prompt_val"
 
-# ===================================== Reward =====================================
-REWARD_CONFIG="
-    reward_model.reward_manager=dapo \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
-    +reward_model.reward_kwargs.max_resp_len=${max_response_length}"
-
 python3 -m verl.trainer.main_ppo \
     --config-path=./config \
     --config-name=$CONFIG_NAME \
@@ -177,6 +165,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.filter_overlong_prompts_workers=64 \
     data.truncation='error' \
+    reward_model.reward_manager=prime \
     trainer.use_legacy_worker_impl=disable \
     trainer.critic_warmup=$critic_warmup \
     trainer.logger=['console','wandb'] \
@@ -193,5 +182,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.total_training_steps=500 \
     $ACTOR_CONFIG \
     $CIRITC_CONFIG \
-    $ROLLOUT_CONFIG \
-    $REWARD_CONFIG
+    $ROLLOUT_CONFIG

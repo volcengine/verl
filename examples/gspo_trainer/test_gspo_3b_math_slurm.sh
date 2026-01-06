@@ -57,7 +57,6 @@ if [ "$rollout_engine" = "vllm" ]; then
     export VLLM_USE_V1=1
 fi
 gpu_memory_utilization=0.8
-reward_manager=dapo
 adv_estimator=grpo
 shuffle_dataset=true
 first_time_dataset_prep=true # prepare dataset
@@ -82,10 +81,7 @@ n_resp_per_prompt=16
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
-# dapo reward manager params
-enable_overlong_buffer=false # true
-overlong_buffer_len=$((1024 * 4))
-overlong_penalty_factor=1.0
+
 
 # Paths and namings
 SFT_MODEL=$(basename $MODEL_PATH)
@@ -177,12 +173,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=${offload} \
     actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
     actor_rollout_ref.actor.entropy_checkpointing=${entropy_checkpointing} \
-    reward_model.reward_manager=${reward_manager} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.log=false \
-    +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
+    reward_model.reward_manager=prime \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \

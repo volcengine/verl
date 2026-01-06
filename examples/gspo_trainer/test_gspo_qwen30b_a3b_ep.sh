@@ -4,7 +4,7 @@ set -xeuo pipefail
 export NCCL_DEBUG=WARN
 # export VERL_LOGGING_LEVEL=DEBUG
 
-project_name='DAPO'
+project_name='GSPO'
 exp_name='GSPO-Qwen3-30B-A3B-Base-MATH'
 
 adv_estimator=grpo
@@ -19,9 +19,6 @@ clip_ratio_high=4e-4
 
 max_prompt_length=$((1024 * 2))
 max_response_length=$((1024 * 8))
-enable_overlong_buffer=True
-overlong_buffer_len=$((1024 * 4))
-overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 loss_mode=gspo
@@ -149,12 +146,7 @@ python3 -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1 \
     +actor_rollout_ref.actor.megatron.override_transformer_config.gradient_accumulation_fusion=True \
     +actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True \
-    reward_model.reward_manager=dapo \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.len=${overlong_buffer_len} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
-    +reward_model.reward_kwargs.overlong_buffer_cfg.log=False \
-    +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
+    reward_model.reward_manager=prime \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}-tp${gen_tp}-ep${gen_ep}" \
