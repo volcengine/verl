@@ -196,7 +196,7 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        # safely make sure config.max_model_len doesn't exceed hf_config's max_position_embeddings + prompt_length
+        # Set max_model_len from the HuggingFace model config, searching in nested configs if necessary.
         maybe_set_max_model_len_from_hf_config(self.config, self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
