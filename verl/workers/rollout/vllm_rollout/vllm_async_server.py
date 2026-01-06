@@ -45,7 +45,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.transformers_compat import get_max_position_embeddings
+from verl.utils.transformers_compat import maybe_set_max_model_len_from_hf_config
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -196,19 +196,8 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        mpe = get_max_position_embeddings(self.model_config.hf_config)
-        if mpe is not None:
-            # Don't accidentally exceed model limit; clamp if user set something smaller.
-            if getattr(self.config, "max_model_len", None) is not None:
-                self.config.max_model_len = min(self.config.max_model_len, mpe)
-            else:
-                self.config.max_model_len = mpe
-        else:
-            logger.warning(
-                "Cannot infer max_position_embeddings from hf_config=%s; keeping max_model_len=%s",
-                type(self.model_config.hf_config),
-                getattr(self.config, "max_model_len", None),
-            )
+        # safely make sure config.max_model_len doesn't exceed hf_config's max_position_embeddings + prompt_length
+        maybe_set_max_model_len_from_hf_config(self.config, self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 

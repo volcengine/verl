@@ -22,6 +22,10 @@ from typing import Any, Optional
 
 from packaging import version
 
+from verl.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 # Handle version compatibility for flash_attn_supports_top_left_mask
 # This function was added in newer versions of transformers
 try:
@@ -57,22 +61,25 @@ def is_transformers_version_in_range(min_version: Optional[str] = None, max_vers
     return lower_bound_check and upper_bound_check
 
 
-def get_max_position_embeddings(hf_config: Any) -> Optional[int]:
-    """Best-effort resolution of model context length from HF configs.
-
-    Works for:
-      - text-only configs where max_position_embeddings is top-level
-      - multimodal wrapper configs (e.g., Qwen3-VL) where it lives in text_config
-    """
+def resolve_max_model_len_from_hf_config(hf_config: Any) -> int | None:
     mpe = getattr(hf_config, "max_position_embeddings", None)
     if isinstance(mpe, int):
         return mpe
-
-    # Common wrappers for VLMs / composite configs
     for subname in ("text_config", "language_config", "llm_config"):
-        subcfg = getattr(hf_config, subname, None)
-        mpe = getattr(subcfg, "max_position_embeddings", None) if subcfg is not None else None
+        sub = getattr(hf_config, subname, None)
+        mpe = getattr(sub, "max_position_embeddings", None) if sub is not None else None
         if isinstance(mpe, int):
             return mpe
-
     return None
+
+
+def maybe_set_max_model_len_from_hf_config(config: Any, hf_config: Any) -> None:
+    mpe = resolve_max_model_len_from_hf_config(hf_config)
+    if mpe is not None:
+        config.max_model_len = mpe
+    else:
+        logger.warning(
+            "Cannot infer max_model_len from hf_config=%s; keeping max_model_len=%s",
+            type(hf_config),
+            getattr(config, "max_model_len", None),
+        )
