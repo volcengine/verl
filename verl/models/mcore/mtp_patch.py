@@ -167,7 +167,7 @@ def _megatron_gptmodel_postprocess(
             )
 
             mtp_loss = loss_mask * mtp_loss
-            print(f"hzg mtp_loss: {torch.sum(mtp_loss) / num_tokens}")
+            #print(f"hzg mtp_loss: {torch.sum(mtp_loss) / num_tokens}")
             if self.training:
                 # TODO(shifangx): remove the use of parallel_state here
                 # after moving loss logging to loss_func in pretrain_gpt.py

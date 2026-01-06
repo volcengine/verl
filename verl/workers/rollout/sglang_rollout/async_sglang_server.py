@@ -201,8 +201,11 @@ class SGLangHttpServer:
 
             args["log_level"] = "info"
             args["load_format"] = "auto"
-            # args['enable_weights_cpu_backup'] = False
-            args["enable_draft_weights_cpu_backup"] = True
+            
+            # Enable weights CPU backup for sglang >= 0.5.6
+            if sglang.__version__ >= "0.5.6":
+                args['enable_weights_cpu_backup'] = True
+                args["enable_draft_weights_cpu_backup"] = True
 
             # args['enable_memory_saver'] = False
             # enable_memory_saver = False MTP success but memory can't be release

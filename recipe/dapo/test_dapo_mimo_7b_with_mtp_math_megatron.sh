@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+conda activate verl_torch2.8
+which python
+
 set -xeuo pipefail
 
 project_name='DAPO'
@@ -128,10 +132,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.model.mtp.enable=True \
     actor_rollout_ref.model.mtp.enable_train=True \
     actor_rollout_ref.model.mtp.enable_rollout=False \
-    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1 \
-    actor_rollout_ref.model.mtp.speculative_num_steps=3 \
-    actor_rollout_ref.model.mtp.speculative_eagle_topk=1 \
-    actor_rollout_ref.model.mtp.speculative_num_draft_tokens=4
+    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1
 
 
 #    actor_rollout_ref.rollout.max_num_seqs=32 \
