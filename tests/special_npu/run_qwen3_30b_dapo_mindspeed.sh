@@ -6,7 +6,7 @@ export VLLM_ASCEND_ENABLE_NZ=0
 MODEL_ID=${MODEL_ID:-Qwen/Qwen3-30B-A3B-Instruct-2507}
 MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}
 USE_DIST_CKPT=${USE_DIST_CKPT:-False}
-DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/qwen3_30b_dapo_mindspeed}
+DIST_CKPT_PATH=${DIST_CKPT_PATH:-${HOME}/dist_ckpt/qwen3_30b_grpo_mindspeed}
 
 # use dummy model
 if [[ "$USE_DUMMY_MODEL" == "True" ]]; then
@@ -35,7 +35,7 @@ fi
 if [[ "$USE_DIST_CKPT" == "True" ]]; then
 
     if [[ "$USE_DUMMY_MODEL" == "True" ]]; then
-        DIST_CKPT_PATH=${HOME}/dist_ckpt/qwen3_30b_dapo_mindspeed_dummy
+        DIST_CKPT_PATH=${HOME}/dist_ckpt/qwen3_30b_grpo_mindspeed_dummy
 
         if [[ -d $DIST_CKPT_PATH && $DIST_CKPT_PATH != "/" ]];then
             rm -rf $DIST_CKPT_PATH
@@ -47,7 +47,7 @@ if [[ "$USE_DIST_CKPT" == "True" ]]; then
         --output_path "${DIST_CKPT_PATH}"
 fi
 
-exp_name='Qwen3-30B-A3B-DAPO-MindSpeed'
+exp_name='Qwen3-30B-A3B-GRPO-MindSpeed'
 
 max_prompt_length=512
 max_response_length=1024
@@ -57,8 +57,8 @@ train_prompt_bsz=16
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length)))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length)))
 
-python3 -m recipe.dapo.main_dapo \
-    --config-name="dapo_megatron_trainer" \
+python3 -m verl.trainer.main_ppo --config-path=config \
+    --config-name='ppo_megatron_trainer.yaml' \
     data.train_files=${HOME}/data/gsm8k/train.parquet \
     data.val_files=${HOME}/data/gsm8k/test.parquet \
     data.train_batch_size=${train_prompt_bsz} \
@@ -67,12 +67,8 @@ python3 -m recipe.dapo.main_dapo \
     data.filter_overlong_prompts=True \
     data.shuffle=False \
     data.truncation='left' \
-    data.gen_batch_size=${train_prompt_bsz} \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
-    algorithm.filter_groups.enable=False \
-    algorithm.filter_groups.max_num_gen_batches=10 \
-    algorithm.filter_groups.metric=acc \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
@@ -114,7 +110,7 @@ python3 -m recipe.dapo.main_dapo \
     actor_rollout_ref.ref.megatron.expert_model_parallel_size=2 \
     actor_rollout_ref.ref.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
     actor_rollout_ref.ref.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
-    reward_model.reward_manager=dapo \
+    reward_model.reward_manager=naive \
     algorithm.kl_ctrl.kl_coef=0.0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_gsm8k_example' \

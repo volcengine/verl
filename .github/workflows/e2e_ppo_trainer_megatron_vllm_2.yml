@@ -44,8 +44,6 @@ on:
       - "**/*.py"
       # Other entrypoints
       - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       - "!verl/utils/fsdp_utils.py"
@@ -66,8 +64,6 @@ on:
       - "!tests/**"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       - "!verl/utils/fsdp_utils.py"
@@ -161,7 +157,7 @@ jobs:
 
   e2e_ppo_trainer_fsdp_vllm:
     needs: setup
-    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
+    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 60 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
@@ -244,7 +240,7 @@ jobs:
 
   e2e_ppo_trainer_fsdp-qwen2_5vl-3b:
     needs: setup
-    runs-on: [ "${{ needs.setup.outputs.runner-label || 'L20x8' }}" ]
+    runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
