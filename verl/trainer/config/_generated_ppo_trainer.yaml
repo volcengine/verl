@@ -224,6 +224,8 @@ actor_rollout_ref:
     engine_kwargs:
       vllm: {}
       sglang: {}
+    engine_env_vars:
+      vllm: {}
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
       top_k: -1
