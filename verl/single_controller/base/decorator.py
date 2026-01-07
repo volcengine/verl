@@ -72,10 +72,7 @@ init_predefined_execute_mode()
 
 
 def _consolidate_tuple_td(chunked_arg):
-    chunked_arg_lst = list(chunked_arg)
-    for i, val in enumerate(chunked_arg_lst):
-        chunked_arg_lst[i] = val.consolidate()
-    return tuple(chunked_arg_lst)
+    return tuple(val.consolidate() for val in chunked_arg)
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
