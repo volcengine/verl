@@ -24,6 +24,8 @@ VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mis
 class Config:
     def __init__(self, config_dict):
         for key, value in config_dict.items():
+            if isinstance(value, dict):
+                value = Config(value)   
             setattr(self, key, value)
 
 
