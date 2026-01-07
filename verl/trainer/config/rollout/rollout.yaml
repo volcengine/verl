@@ -122,9 +122,10 @@ engine_kwargs:
   # sglang engine config
   sglang: {}
 
-# Extra inference engine arguments, currently only vllm is used, please refer vllm official doc for detail
+# Extra inference engine environment variables, currently only vllm is used, please refer vllm official doc for detail
 engine_env_vars:
 
+  # vllm engine environment variables
   vllm: {}
 
 # Sampling parameters used during validation.
