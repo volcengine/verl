@@ -49,8 +49,6 @@ on:
       - "!tests/**"
       - "!verl/trainer/main_*.py"
       - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe/**"
       # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Megatron
@@ -74,7 +72,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm012.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -109,14 +107,15 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test]
-#      - name: Download Model to Use
-#        run: |
-#          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
-#          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
-#          huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct
-#          huggingface-cli download OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN --local-dir ${HOME}/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
-#          export HF_HUB_OFFLINE=1
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
+      #      - name: Download Model to Use
+      #        run: |
+      #          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
+      #          huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-1.5B-Instruct
+      #          huggingface-cli download Qwen/Qwen2.5-VL-3B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-VL-3B-Instruct
+      #          huggingface-cli download OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN --local-dir ${HOME}/models/OldKingMeister/Qwen2.5-1.5B-Instruct-YaRN
+      #          export HF_HUB_OFFLINE=1
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

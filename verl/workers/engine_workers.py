@@ -46,7 +46,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class TrainingWorker(Worker):
+class TrainingWorker(Worker, DistProfilerExtension):
     """
     TrainingWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
     to a single controller. Currently, we only provide more coarse grained APIs,
@@ -71,11 +71,15 @@ class TrainingWorker(Worker):
         self.engine_config.use_remove_padding = self.model_config.use_remove_padding
 
         # TODO: add DistProfilerExtension
-        # self.profiler_config = self.config.profiler_config
-        # tool_config = self.profiler_config.tool_config
-        # DistProfilerExtension.__init__(
-        #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        # )
+        self.profiler_config = self.config.profiler_config
+        if self.profiler_config is not None:
+            self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool, {})
+        else:
+            self.profiler_tool_config = None
+
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=self.profiler_tool_config)
+        )
 
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
@@ -249,6 +253,7 @@ class TrainingWorker(Worker):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
+        assert not self.engine_config.forward_only, "Can't run `train_batch` when forward_only is in the engine config."
         # global_token_num should be a list of number of tokens of each seq in this batch
         global_token_num = tu.get(data, key="global_token_num")
         disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
@@ -292,6 +297,7 @@ class TrainingWorker(Worker):
             ).cpu()
         else:
             final_output = None
+
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
@@ -329,6 +335,7 @@ class TrainingWorker(Worker):
             ).cpu()
         else:
             final_output = None
+
         return final_output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
@@ -462,7 +469,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 assert self.config.actor.ppo_max_token_len_per_gpu is not None
             else:
                 assert self.config.rollout.log_prob_micro_batch_size_per_gpu is not None
-                assert self.config.rollout.ppo_micro_batch_size_per_gpu is not None
+                assert self.config.actor.ppo_micro_batch_size_per_gpu is not None
 
             self.loss_fn = partial(ppo_loss, config=actor_config)
             self.actor = TrainingWorker(config=actor_training_config)
