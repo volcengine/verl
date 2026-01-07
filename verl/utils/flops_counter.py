@@ -540,10 +540,13 @@ class FlopsCounter:
         """
         tokens_sum = sum(batch_seqlens)
         func = ESTIMATE_FUNC.get(self.config.model_type, _estimate_unknown_flops)
-        images_seqlens = kargs.get("images_seqlens", None)
-        if images_seqlens is not None and "vl" in func.__name__:
+        try:
+            # Attempt to pass kargs, which is needed for VL models.
             estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time, **kargs)
-        else:
-            estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
+        except TypeError as e:
+            if "unexpected keyword argument" in str(e):
+                estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
+            else:
+                raise
         promised_flops = get_device_flops()
         return estimated_flops, promised_flops
