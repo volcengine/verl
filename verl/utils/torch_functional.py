@@ -677,6 +677,23 @@ def post_process_logits(input_ids, logits, temperature, top_k, top_p):
     return logits
 
 
+def calculate_sum_pi_squared_from_logits(logits: torch.Tensor):
+    """
+    Compute exact sum of squared probabilities from logits.
+    Formula: Σπ² = exp(logsumexp(2*logits) - 2*logsumexp(logits))
+
+    Used for optimal baseline variance reduction as described in
+    "What Matters for Model Merging at Scale?" (arXiv:2410.03617)
+
+    Args:
+        logits: Logits tensor (..., vocab_size).
+
+    Returns:
+        Sum of squared probabilities tensor (...).
+    """
+    return torch.exp(torch.logsumexp(2.0 * logits, dim=-1) - 2.0 * torch.logsumexp(logits, dim=-1))
+
+
 """
 Optimizer related
 """

@@ -174,7 +174,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
         """Test compute_log_prob method"""
         data = self._create_test_data_for_compute_log_prob()
 
-        log_probs, entropies = self.actor.compute_log_prob(data, calculate_entropy=True)
+        outputs = self.actor.compute_log_prob(data, calculate_entropy=True)
+        log_probs = outputs["log_probs"]
+        entropys = outputs["entropys"]
 
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
@@ -183,16 +185,18 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
 
-        self.assertIsInstance(entropies, torch.Tensor)
-        self.assertEqual(entropies.shape, (batch_size, response_length))
-        self.assertTrue(torch.all(torch.isfinite(entropies)))
-        self.assertTrue(torch.all(entropies >= 0))  # Entropy should be non-negative
+        self.assertIsInstance(entropys, torch.Tensor)
+        self.assertEqual(entropys.shape, (batch_size, response_length))
+        self.assertTrue(torch.all(torch.isfinite(entropys)))
+        self.assertTrue(torch.all(entropys >= 0))  # Entropy should be non-negative
 
     def test_compute_log_prob_without_entropy(self):
         """Test compute_log_prob method without entropy calculation"""
         data = self._create_test_data_for_compute_log_prob()
 
-        log_probs, entropies = self.actor.compute_log_prob(data, calculate_entropy=False)
+        outputs = self.actor.compute_log_prob(data, calculate_entropy=False)
+        log_probs = outputs["log_probs"]
+        entropys = outputs.get("entropys", None)
 
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
@@ -200,8 +204,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertIsInstance(log_probs, torch.Tensor)
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
-
-        self.assertIsNone(entropies)
+        self.assertIsNone(entropys)
 
     def test_update_policy(self):
         """Test update_policy method"""
@@ -259,7 +262,9 @@ class TestDataParallelPPOActor(unittest.TestCase):
         qwen_actor = DataParallelPPOActor(config=self.config, actor_module=qwen_model, actor_optimizer=qwen_optimizer)
 
         data = self._create_test_data_for_compute_log_prob()
-        log_probs, entropies = qwen_actor.compute_log_prob(data, calculate_entropy=True)
+        outputs = qwen_actor.compute_log_prob(data, calculate_entropy=True)
+        log_probs = outputs["log_probs"]
+        entropys = outputs["entropys"]
 
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
@@ -268,10 +273,10 @@ class TestDataParallelPPOActor(unittest.TestCase):
         self.assertEqual(log_probs.shape, (batch_size, response_length))
         self.assertTrue(torch.all(torch.isfinite(log_probs)))
 
-        self.assertIsInstance(entropies, torch.Tensor)
-        self.assertEqual(entropies.shape, (batch_size, response_length))
-        self.assertTrue(torch.all(torch.isfinite(entropies)))
-        self.assertTrue(torch.all(entropies >= 0))
+        self.assertIsInstance(entropys, torch.Tensor)
+        self.assertEqual(entropys.shape, (batch_size, response_length))
+        self.assertTrue(torch.all(torch.isfinite(entropys)))
+        self.assertTrue(torch.all(entropys >= 0))
 
         policy_data = self._create_test_data_for_update_policy()
         metrics = qwen_actor.update_policy(policy_data)
