@@ -93,15 +93,16 @@ class DataParallelPPOActor(BasePPOActor):
 
         # Sum of squared probabilities computation (for optimal_token_baseline)
         # Only initialize if compute_sum_pi_squared config is enabled
-        if self.config.get('compute_sum_pi_squared', False):
+        if self.config.get("compute_sum_pi_squared", False):
             self.compute_sum_pi_squared_from_logits = (
                 torch.compile(verl_F.compute_sum_pi_squared_from_logits, dynamic=True)
-                if self.config.get('use_torch_compile', True)
+                if self.config.get("use_torch_compile", True)
                 else verl_F.compute_sum_pi_squared_from_logits
             )
+            assert not self.use_fused_kernels, "compute_sum_pi_squared is not supported with fused kernels for now."
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False, compute_sum_pi_squared=False
+        self, micro_batch, temperature, calculate_entropy=False
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Returns:
@@ -109,7 +110,9 @@ class DataParallelPPOActor(BasePPOActor):
             log_probs: # (bs, response_len)
             sum_pi_squared: (bs, response_len) or None if compute_sum_pi_squared=False
         """
-        sum_pi_squared = None
+        compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
+        sum_pi_squared_checkpointing = self.config.get("sum_pi_squared_checkpointing", False)
+
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
@@ -235,21 +238,22 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # compute entropy
                     if calculate_entropy:
-                        if not self.config.entropy_checkpointing:
-                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)  # ((total_nnz / sp) + pad)
-                        else:
-                            entropy_rmpad = torch.utils.checkpoint.checkpoint(
-                                self.compute_entropy_from_logits, logits_rmpad
-                            )
+                        # ((total_nnz / sp) + pad)
+                        entropy_rmpad = (
+                            self.compute_entropy_from_logits(logits_rmpad)
+                            if not self.config.entropy_checkpointing
+                            else torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits_rmpad)
+                        )
 
                     # Compute sum_pi_squared if requested (for optimal_token_baseline)
                     if compute_sum_pi_squared:
-                        if not self.config.get('sum_pi_squared_checkpointing', False):
-                            sum_pi_squared_rmpad = self.compute_sum_pi_squared_from_logits(logits_rmpad)
-                        else:
-                            sum_pi_squared_rmpad = torch.utils.checkpoint.checkpoint(
+                        sum_pi_squared_rmpad = (
+                            self.compute_sum_pi_squared_from_logits(logits_rmpad)
+                            if not sum_pi_squared_checkpointing
+                            else torch.utils.checkpoint.checkpoint(
                                 self.compute_sum_pi_squared_from_logits, logits_rmpad
                             )
+                        )
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -267,13 +271,9 @@ class DataParallelPPOActor(BasePPOActor):
                             unpad_dim=0,
                             padding_size=pad_size,
                         )
-                    if compute_sum_pi_squared and not self.use_fused_kernels:
-                        # sum_pi_squared_rmpad only exists if use_fused_kernels=False
+                    if compute_sum_pi_squared:
                         sum_pi_squared_rmpad = gather_outputs_and_unpad(
-                            sum_pi_squared_rmpad,
-                            gather_dim=0,
-                            unpad_dim=0,
-                            padding_size=pad_size,
+                            sum_pi_squared_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                         )
 
                 if is_mask_all_zero:
@@ -289,8 +289,7 @@ class DataParallelPPOActor(BasePPOActor):
                         batch=batch_size,
                         seqlen=seqlen,
                     )
-                if compute_sum_pi_squared and not self.use_fused_kernels:
-                    # sum_pi_squared_rmpad only exists if use_fused_kernels=False
+                if compute_sum_pi_squared:
                     full_sum_pi_squared = pad_input(
                         hidden_states=sum_pi_squared_rmpad.unsqueeze(-1),
                         indices=indices,
@@ -307,11 +306,9 @@ class DataParallelPPOActor(BasePPOActor):
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-                if compute_sum_pi_squared and not self.use_fused_kernels:
-                    # full_sum_pi_squared only exists if use_fused_kernels=False
-                    sum_pi_squared = full_sum_pi_squared.squeeze(-1)[
-                        :, -response_length - 1 : -1
-                    ]  # (bsz, response_length)
+                if compute_sum_pi_squared:
+                    # (bsz, response_length)
+                    sum_pi_squared = full_sum_pi_squared.squeeze(-1)[:, -response_length - 1 : -1]
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
@@ -346,12 +343,11 @@ class DataParallelPPOActor(BasePPOActor):
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
                     # Compute sum_pi_squared if requested (for optimal_token_baseline)
                     if compute_sum_pi_squared:
-                        if not self.config.get('sum_pi_squared_checkpointing', False):
-                            sum_pi_squared = self.compute_sum_pi_squared_from_logits(logits)
-                        else:
-                            sum_pi_squared = torch.utils.checkpoint.checkpoint(
-                                self.compute_sum_pi_squared_from_logits, logits
-                            )
+                        sum_pi_squared = (
+                            self.compute_sum_pi_squared_from_logits(logits)
+                            if not sum_pi_squared_checkpointing
+                            else torch.utils.checkpoint.checkpoint(self.compute_sum_pi_squared_from_logits, logits)
+                        )
 
             return entropy, log_probs, sum_pi_squared
 
@@ -382,7 +378,9 @@ class DataParallelPPOActor(BasePPOActor):
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
-    def compute_log_prob(self, data: DataProto, calculate_entropy=False, compute_sum_pi_squared=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def compute_log_prob(
+        self, data: DataProto, calculate_entropy=False
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -400,6 +398,8 @@ class DataParallelPPOActor(BasePPOActor):
         Returns:
             torch.Tensor: the log_prob tensor
         """
+        compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
+
         # set to eval
         self.actor_module.eval()
 
@@ -420,16 +420,13 @@ class DataParallelPPOActor(BasePPOActor):
 
         log_probs_lst = []
         entropy_lst = []
-        sum_pi_squared_lst = [] if compute_sum_pi_squared else None
+        sum_pi_squared_lst = []
         for micro_batch in micro_batches:
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
                 entropy, log_probs, sum_pi_squared = self._forward_micro_batch(
-                    model_inputs,
-                    temperature=temperature,
-                    calculate_entropy=calculate_entropy,
-                    compute_sum_pi_squared=compute_sum_pi_squared,
+                    model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
             if calculate_entropy:
@@ -439,9 +436,9 @@ class DataParallelPPOActor(BasePPOActor):
 
         log_probs = torch.concat(log_probs_lst, dim=0)
         entropys = None
+        sum_pi_squareds = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)
-        sum_pi_squareds = None
         if compute_sum_pi_squared:
             sum_pi_squareds = torch.concat(sum_pi_squared_lst, dim=0)
 
