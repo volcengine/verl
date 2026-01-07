@@ -1170,7 +1170,7 @@ class RayPPOTrainer:
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
         global_balance_stats = log_seqlen_unbalance(
-            seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
+            seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
 
