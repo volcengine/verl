@@ -59,15 +59,15 @@ from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, is_version_ge
-from verl.utils.vllm.vllm_fp8_utils import (apply_vllm_fp8_patches,
-                                            is_fp8_model, load_quanted_weights)
+from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model, load_quanted_weights
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
 from verl.workers.rollout.vllm_rollout.utils import (VLLM_LORA_INT_ID,
-                                                     VLLM_LORA_NAME,
-                                                     VLLM_LORA_PATH,
-                                                     get_vllm_max_lora_rank)
+    VLLM_LORA_NAME,
+    VLLM_LORA_PATH,
+    get_vllm_max_lora_rank,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -251,8 +251,7 @@ class vLLMAsyncRollout(BaseRollout):
             self.inference_engine.worker.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
         else:
-            from verl.utils.vllm.patch import \
-                patch_vllm_moe_model_weight_loader
+            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             model_runner = self.inference_engine.worker.model_runner
             model = model_runner.model
