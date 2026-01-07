@@ -111,13 +111,14 @@ class DataParallelPPOActor(BasePPOActor):
             )
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, micro_batch: dict[str, torch.Tensor], temperature: float, calculate_entropy: bool = False
+    ) -> dict[str, torch.Tensor]:
         """
         Returns:
-            entropy: # (bs, response_len)
-            log_probs: # (bs, response_len)
-            sum_pi_squared: (bs, response_len) or None if compute_sum_pi_squared=False
+            dict[str, torch.Tensor]:
+                log_probs: (bs, response_len)
+                entropys: (bs, response_len)
+                sum_pi_squared: (bs, response_len) or None if compute_sum_pi_squared=False
         """
         compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
         sum_pi_squared_checkpointing = self.config.get("sum_pi_squared_checkpointing", False)
@@ -378,7 +379,7 @@ class DataParallelPPOActor(BasePPOActor):
                             else torch.utils.checkpoint.checkpoint(self.compute_sum_pi_squared_from_logits, logits)
                         )
 
-            return entropy, log_probs, sum_pi_squared
+            return {"log_probs": log_probs, "entropys": entropy, "sum_pi_squared": sum_pi_squared}
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -407,9 +408,7 @@ class DataParallelPPOActor(BasePPOActor):
         return grad_norm
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
-    def compute_log_prob(
-        self, data: DataProto, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def compute_log_prob(self, data: DataProto, calculate_entropy: bool = False) -> dict[str, torch.Tensor]:
         """Compute the log probability of the responses given input_ids, attention_mask and position_ids
 
         Args:
@@ -425,7 +424,10 @@ class DataParallelPPOActor(BasePPOActor):
                 ``responses``:  tensor of shape [batch_size, response_length]. torch.int64.
 
         Returns:
-            torch.Tensor: the log_prob tensor
+            dict[str, torch.Tensor]: a dict containing keys
+                - ``log_probs``: tensor of shape [batch_size, response_length]. torch.float32.
+                - ``entropys``: tensor of shape [batch_size, response_length]. torch.float32.
+                - ``sum_pi_squared``: tensor of shape [batch_size, response_length]. torch.float32.
         """
         compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
 
@@ -460,31 +462,31 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch, "pad_token_id": pad_token_id}
             with torch.no_grad():
-                entropy, log_probs, sum_pi_squared = self._forward_micro_batch(
+                outputs = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
-            log_probs_lst.append(log_probs)
+            log_probs_lst.append(outputs["log_probs"])
             if calculate_entropy:
-                entropy_lst.append(entropy)
+                entropy_lst.append(outputs["entropys"])
             if compute_sum_pi_squared:
-                sum_pi_squared_lst.append(sum_pi_squared)
+                sum_pi_squared_lst.append(outputs["sum_pi_squared"])
 
         log_probs = torch.concat(log_probs_lst, dim=0)
         entropys = None
-        sum_pi_squareds = None
+        sum_pi_squared = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)
         if compute_sum_pi_squared:
-            sum_pi_squareds = torch.concat(sum_pi_squared_lst, dim=0)
+            sum_pi_squared = torch.concat(sum_pi_squared_lst, dim=0)
 
         if use_dynamic_bsz:
             log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
             if calculate_entropy:
                 entropys = restore_dynamic_batch(entropys, batch_idx_list)
             if compute_sum_pi_squared:
-                sum_pi_squareds = restore_dynamic_batch(sum_pi_squareds, batch_idx_list)
+                sum_pi_squared = restore_dynamic_batch(sum_pi_squared, batch_idx_list)
 
-        return log_probs, entropys, sum_pi_squareds
+        return {"log_probs": log_probs, "entropys": entropys, "sum_pi_squared": sum_pi_squared}
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
@@ -566,9 +568,11 @@ class DataParallelPPOActor(BasePPOActor):
                         loss_scale_factor = 1 / self.gradient_accumulation
 
                     # all return: (bsz, response_length)
-                    entropy, log_prob, _ = self._forward_micro_batch(
+                    outputs = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
+                    log_prob = outputs["log_probs"]
+                    entropy = outputs["entropys"]
 
                     # for fully_async_policy
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
