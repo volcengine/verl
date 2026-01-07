@@ -66,7 +66,7 @@ class AggregationType(Enum):
 
 
 NumericType = int, float, torch.Tensor
-Numeric = Union[*NumericType]
+Numeric = int | float | torch.Tensor
 
 
 class Metric:
