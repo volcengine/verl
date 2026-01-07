@@ -64,11 +64,16 @@ class DecoratorTestWorker(Worker):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def dp_compute_td(self, data: TensorDict) -> TensorDict:
+        # note that we have to call contiguous so that we can modify data in place
+        data = data.contiguous()
         rank_value = torch.tensor(self.rank, device=data["input"].device, dtype=data["input"].dtype)
         data["output"] = data["input"] + self.value + rank_value
         position_ids = data.pop("position_ids")
+        position_ids._ragged_idx = 2
+
         for i, position_id in enumerate(position_ids.unbind(dim=0)):
             assert (position_id == torch.arange(4 + rank_value * 2 + i).expand(position_id.shape)).all()
+
         return data
 
 
@@ -164,10 +169,10 @@ def test_decorator_dp_compute_td(ray_init_shutdown):
     input_tensor = torch.arange(4, dtype=torch.float32)
     position_ids = torch.nested.as_nested_tensor(
         [
-            torch.arange(4).expand(4, 4),
-            torch.arange(5).expand(4, 5),
-            torch.arange(6).expand(4, 6),
-            torch.arange(7).expand(4, 7),
+            torch.arange(4).expand(4, 4).contiguous(),
+            torch.arange(5).expand(4, 5).contiguous(),
+            torch.arange(6).expand(4, 6).contiguous(),
+            torch.arange(7).expand(4, 7).contiguous(),
         ],
         layout=torch.jagged,
     )

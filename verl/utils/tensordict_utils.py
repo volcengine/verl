@@ -184,7 +184,7 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
         assert tensor.is_nested and tensor.is_contiguous()
     unbind_tensors = []
     for tensor in tensors:
-        assert len(tensor.shape) == 2
+        assert len(tensor.shape) == 2, f"nested tensor must have 2 dimensions. Got {tensor.shape}"
         unbind_tensor = tensor.unbind(0)
         unbind_tensors.extend(list(unbind_tensor))
 
