@@ -250,10 +250,7 @@ class VeOmniEngine(FSDPEngine):
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
     def get_data_parallel_rank(self):
-        if parallel_state.get_parallel_state().ulysses_size > 1:
-            return parallel_state.get_parallel_state().device_mesh["dp"].get_local_rank()
-        else:
-            return torch.distributed.get_rank()
+        return parallel_state.get_parallel_state().device_mesh.get_local_rank("dp")
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // parallel_state.get_parallel_state().ulysses_size
@@ -299,7 +296,7 @@ class EngineEvalModeCtx(BaseEngineCtx):
         assert isinstance(self.engine, VeOmniEngine)
         super().__enter__()
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.module.eval()
+        self.engine.module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
         assert isinstance(self.engine, VeOmniEngine)
