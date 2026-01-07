@@ -117,7 +117,8 @@ class DataParallelPPOActor(BasePPOActor):
         Returns:
             dict[str, torch.Tensor]:
                 log_probs: (bs, response_len)
-                entropys: (bs, response_len)
+                if calculate_entropy is True:
+                    entropys: (bs, response_len)
                 if calculate_sum_pi_squared is False:
                     sum_pi_squared: (bs, response_len)
         """
@@ -380,7 +381,12 @@ class DataParallelPPOActor(BasePPOActor):
                             else torch.utils.checkpoint.checkpoint(self.calculate_sum_pi_squared_from_logits, logits)
                         )
 
-            return {"log_probs": log_probs, "entropys": entropy, "sum_pi_squared": sum_pi_squared}
+            outputs = {"log_probs": log_probs}
+            if calculate_entropy:
+                outputs["entropys"] = entropy
+            if calculate_sum_pi_squared:
+                outputs["sum_pi_squared"] = sum_pi_squared
+            return outputs
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -473,8 +479,6 @@ class DataParallelPPOActor(BasePPOActor):
                 sum_pi_squared_lst.append(outputs["sum_pi_squared"])
 
         log_probs = torch.concat(log_probs_lst, dim=0)
-        entropys = None
-        sum_pi_squared = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)
         if calculate_sum_pi_squared:
@@ -487,7 +491,12 @@ class DataParallelPPOActor(BasePPOActor):
             if calculate_sum_pi_squared:
                 sum_pi_squared = restore_dynamic_batch(sum_pi_squared, batch_idx_list)
 
-        return {"log_probs": log_probs, "entropys": entropys, "sum_pi_squared": sum_pi_squared}
+        outputs = {"log_probs": log_probs}
+        if calculate_entropy:
+            outputs["entropys"] = entropys
+        if calculate_sum_pi_squared:
+            outputs["sum_pi_squared"] = sum_pi_squared
+        return outputs
 
     @GPUMemoryLogger(role="dp actor", logger=logger)
     def update_policy(self, data: DataProto):
@@ -573,7 +582,7 @@ class DataParallelPPOActor(BasePPOActor):
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
                     log_prob = outputs["log_probs"]
-                    entropy = outputs["entropys"]
+                    entropy = outputs["entropys"] if calculate_entropy else None
 
                     # for fully_async_policy
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
