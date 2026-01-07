@@ -16,7 +16,7 @@ import math
 
 import pytest
 
-from verl.utils.flops_counter import _DEVICE_FLOPS, FlopsCounter, get_device_flops
+from verl.utils.flops_counter import FlopsCounter
 
 VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"}
 
@@ -25,7 +25,7 @@ class Config:
     def __init__(self, config_dict):
         for key, value in config_dict.items():
             if isinstance(value, dict):
-                value = Config(value)   
+                value = Config(value)
             setattr(self, key, value)
 
 
@@ -317,11 +317,7 @@ CONFIG = {
             },
             # -------- Vision config (ViT) --------
             "vision_config": {
-                "deepstack_visual_indexes": [
-                    8,
-                    16,
-                    24
-                ],
+                "deepstack_visual_indexes": [8, 16, 24],
                 "num_heads": 16,
                 "depth": 27,
                 "hidden_size": 1152,
@@ -383,7 +379,10 @@ def test_flops_counter(config_type: str):
     flops_counter = FlopsCounter(config)
     if "images_seqlens_tuple" in test_config:
         for batch_seqlens, images_seqlens, expected_flops in zip(
-            test_config["batch_seqlens_tuple"], test_config["images_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+            test_config["batch_seqlens_tuple"],
+            test_config["images_seqlens_tuple"],
+            test_config["expected_flops_tuple"],
+            strict=True,
         ):
             # set delta time to 1 to get the flops
             counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1, images_seqlens=images_seqlens)

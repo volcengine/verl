@@ -118,7 +118,7 @@ def _estimate_qwen2_flops(config, tokens_sum, batch_seqlens, delta_time):
     return flops_achieved
 
 
-def _estimate_qwen3_vl_flops(config,tokens_sum, batch_seqlens, delta_time, **kargs):
+def _estimate_qwen3_vl_flops(config, tokens_sum, batch_seqlens, delta_time, **kargs):
     # qwen3_vl uses text_config and vision_config to distinguish configs of different parts.
     hidden_size = config.text_config.hidden_size
     vocab_size = config.text_config.vocab_size

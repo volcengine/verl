@@ -661,8 +661,9 @@ class AgentLoopWorkerBase:
         # because np.array() only keeps the keys for BatchFeature.
         multi_modal_inputs = dict(multi_modal_inputs.convert_to_tensors("pt"))
         image_grid_thw = multi_modal_inputs.get("image_grid_thw")
-        images_seqlens = torch.repeat_interleave(image_grid_thw[:, 1] * image_grid_thw[:, 2], image_grid_thw[:, 0])
-        multi_modal_inputs["images_seqlens"] = images_seqlens
+        if image_grid_thw is not None:
+            images_seqlens = torch.repeat_interleave(image_grid_thw[:, 1] * image_grid_thw[:, 2], image_grid_thw[:, 0])
+            multi_modal_inputs["images_seqlens"] = images_seqlens
         return multi_modal_inputs
 
     def _compute_position_ids(self, input_ids, attention_mask, multi_modal_inputs) -> torch.Tensor:
