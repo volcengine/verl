@@ -22,9 +22,9 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
+import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.utils.import_utils import deprecated
-import verl.utils.torch_functional as verl_F
 
 
 @deprecated("verl.utils.metric.reduce_metrics")
@@ -321,22 +321,22 @@ def compute_variance_proxy_metrics(batch: DataProto, gradient_norm: float = None
     metrics = {}
 
     # Check if we have the necessary data (sum_pi_squared is required for W-score)
-    if 'sum_pi_squared' not in batch.batch or 'old_log_probs' not in batch.batch or 'advantages' not in batch.batch:
+    if "sum_pi_squared" not in batch.batch or "old_log_probs" not in batch.batch or "advantages" not in batch.batch:
         return metrics
 
     # Compute W(τ) = Σ_t[1 - 2π_t(y_t) + Σπ²]
-    pi_t = torch.exp(batch.batch['old_log_probs'])
-    w_per_timestep = 1 - 2 * pi_t + batch.batch['sum_pi_squared']
+    pi_t = torch.exp(batch.batch["old_log_probs"])
+    w_per_timestep = 1 - 2 * pi_t + batch.batch["sum_pi_squared"]
 
     # Get response mask to only consider valid tokens
-    response_mask = batch.batch['response_mask']
+    response_mask = batch.batch["response_mask"]
 
     # Use pre-computed rollout IS weights from batch (for variance proxy consistency with training loss)
     # IS weights are computed centrally in ray_trainer.py to avoid duplication
     rollout_is_weights = None
-    if 'rollout_is_weights' in batch.batch:
+    if "rollout_is_weights" in batch.batch:
         # Extract pre-computed IS weights from batch (already computed in trainer)
-        rollout_is_weights = batch.batch['rollout_is_weights']
+        rollout_is_weights = batch.batch["rollout_is_weights"]
 
         # Scale W by (rollout IS weight)² for optimal baseline under biased estimation
         w_per_timestep = w_per_timestep * (rollout_is_weights**2).detach()
@@ -344,7 +344,7 @@ def compute_variance_proxy_metrics(batch: DataProto, gradient_norm: float = None
         # Note: IS weight statistics and mismatch metrics are logged in ray_trainer.py
 
     # Get scalar advantages (mean over timesteps)
-    advantages = batch.batch['advantages']
+    advantages = batch.batch["advantages"]
     # Compute mean advantage per trajectory using masked_mean
     advantages_scalar = verl_F.masked_mean(advantages, response_mask, axis=-1)
 
@@ -358,7 +358,7 @@ def compute_variance_proxy_metrics(batch: DataProto, gradient_norm: float = None
 
     # ====== PROXY 1: Signal Strength ||ḡ||² ======
     # The squared norm of the mean gradient (provided from training loop)
-    proxy1_signal_strength = gradient_norm ** 2 if gradient_norm is not None else None
+    proxy1_signal_strength = gradient_norm**2 if gradient_norm is not None else None
 
     # ====== PROXY 2: Total Power E[||ĝ_τ||²] ======
     # Measures the average of squared gradient norms (Signal + Noise)
@@ -401,16 +401,16 @@ def compute_variance_proxy_metrics(batch: DataProto, gradient_norm: float = None
     metrics.update(
         {
             # Proxy 1: Signal Strength ||ḡ||²
-            'variance_proxy/proxy1_signal_strength': (
+            "variance_proxy/proxy1_signal_strength": (
                 proxy1_signal_strength if proxy1_signal_strength is not None else 0.0
             ),
             # Proxy 2: Total Power E[||ĝ_τ||²]
-            'variance_proxy/proxy2_total_power': proxy2_total_power.detach().item(),
+            "variance_proxy/proxy2_total_power": proxy2_total_power.detach().item(),
             # Proxy 3: Pure Noise - Variance of Mean Vector
-            'variance_proxy/proxy3_pure_noise': proxy3_pure_noise if proxy3_pure_noise is not None else 0.0,
+            "variance_proxy/proxy3_pure_noise": proxy3_pure_noise if proxy3_pure_noise is not None else 0.0,
             # Component metrics for debugging
-            'variance_proxy/expected_a_squared': expected_a_squared.detach().item(),
-            'variance_proxy/expected_w': expected_w.detach().item(),
+            "variance_proxy/expected_a_squared": expected_a_squared.detach().item(),
+            "variance_proxy/expected_w": expected_w.detach().item(),
         }
     )
 
