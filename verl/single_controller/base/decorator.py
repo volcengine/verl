@@ -71,7 +71,7 @@ init_predefined_dispatch_mode()
 init_predefined_execute_mode()
 
 
-def _consolidate_chunked_args(chunked_arg):
+def _consolidate_tuple_td(chunked_arg):
     chunked_arg_lst = list(chunked_arg)
     for i, val in enumerate(chunked_arg_lst):
         chunked_arg_lst[i] = val.consolidate()
@@ -86,7 +86,7 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
         assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta | TensorDict)
         if isinstance(arg, TensorDict):
             chunked_arg = chunk_tensordict(arg, chunks)
-            chunked_arg = _consolidate_chunked_args(chunked_arg)
+            chunked_arg = _consolidate_tuple_td(chunked_arg)
         else:
             chunked_arg = arg.chunk(chunks=chunks)
         assert len(chunked_arg) == chunks
@@ -97,7 +97,7 @@ def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
         assert isinstance(val, DataProto | DataProtoFuture | BatchMeta | TensorDict)
         if isinstance(val, TensorDict):
             chunked_kwarg = chunk_tensordict(val, chunks)
-            chunked_kwarg = _consolidate_chunked_args(chunked_kwarg)
+            chunked_kwarg = _consolidate_tuple_td(chunked_kwarg)
         else:
             chunked_kwarg = val.chunk(chunks=chunks)
         assert len(chunked_kwarg) == chunks
