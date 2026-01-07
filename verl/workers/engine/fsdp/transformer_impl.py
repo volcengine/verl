@@ -610,7 +610,7 @@ class FSDPEngine(BaseEngine):
         )
 
         torch.distributed.barrier()
-        if self._is_offload_param or origin_module_device == "cpu":
+        if self._is_offload_param:
             offload_fsdp_model_to_cpu(self.module)
 
     def load_checkpoint(
