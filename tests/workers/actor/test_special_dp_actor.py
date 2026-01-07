@@ -196,7 +196,7 @@ class TestDataParallelPPOActor(unittest.TestCase):
 
         outputs = self.actor.compute_log_prob(data, calculate_entropy=False)
         log_probs = outputs["log_probs"]
-        entropys = outputs["entropys"]
+        entropys = outputs.get("entropys", None)
 
         batch_size = data.batch["responses"].shape[0]
         response_length = data.batch["responses"].shape[1]
