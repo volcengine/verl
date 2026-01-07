@@ -484,6 +484,7 @@ class MegatronPPOActor(BasePPOActor):
 
                 entropy_coeff = self.config.entropy_coeff
                 loss_agg_mode = self.config.loss_agg_mode
+
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)

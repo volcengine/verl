@@ -23,6 +23,18 @@ from fastapi import FastAPI
 logger = logging.getLogger(__file__)
 
 
+def get_max_position_embeddings(hf_config) -> int:
+    max_len = getattr(hf_config, "max_position_embeddings", None)
+    if max_len is None:
+        text_config = getattr(hf_config, "text_config", None)
+        if text_config is not None:
+            max_len = getattr(text_config, "max_position_embeddings", None)
+
+    if max_len is None:
+        raise ValueError("max_position_embeddings not found in HFModelConfig!")
+    return int(max_len)
+
+
 def is_valid_ipv6_address(address: str) -> bool:
     try:
         ipaddress.IPv6Address(address)

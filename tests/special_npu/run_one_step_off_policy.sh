@@ -117,7 +117,7 @@ fsdp_size=2
 ref_offload=True
 actor_offload=False
 
-python3 -m recipe.one_step_off_policy.main_ppo \
+python3 -m verl.experimental.one_step_off_policy.main_ppo \
     "${common_params[@]}" \
     actor_rollout_ref.actor.strategy=$ACTOR_STRATEGY \
     critic.strategy=fsdp2 \

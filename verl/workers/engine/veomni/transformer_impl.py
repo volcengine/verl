@@ -14,7 +14,8 @@
 
 
 import logging
-from typing import Any, Callable
+from dataclasses import dataclass, field
+from typing import Any, Callable, Sequence
 
 import torch
 import torch.distributed as dist
@@ -133,7 +134,6 @@ class VeOmniEngine(FSDPEngine):
             attn_implementation=self.engine_config.attn_implementation,
             moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
-            force_use_huggingface=self.engine_config.force_use_huggingface,
         )
 
         module_config = self.module.config
@@ -250,10 +250,7 @@ class VeOmniEngine(FSDPEngine):
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 
     def get_data_parallel_rank(self):
-        if parallel_state.get_parallel_state().ulysses_size > 1:
-            return parallel_state.get_parallel_state().device_mesh["dp"].get_local_rank()
-        else:
-            return torch.distributed.get_rank()
+        return parallel_state.get_parallel_state().device_mesh.get_local_rank("dp")
 
     def get_data_parallel_size(self):
         return torch.distributed.get_world_size() // parallel_state.get_parallel_state().ulysses_size
@@ -299,7 +296,7 @@ class EngineEvalModeCtx(BaseEngineCtx):
         assert isinstance(self.engine, VeOmniEngine)
         super().__enter__()
         self.engine.ulysses_sharding_manager.__enter__()
-        self.engine.module.eval()
+        self.engine.module.train()
 
     def __exit__(self, exc_type, exc_value, traceback):
         assert isinstance(self.engine, VeOmniEngine)
@@ -333,6 +330,41 @@ class EngineTrainModeCtx(BaseEngineCtx):
         super().__exit__(exc_type, exc_value, traceback)
 
 
+@dataclass
+class OmniSequenceShardCollator:
+    """
+    Data collator to chunk inputs along the sequence length.
+    """
+
+    # features to slice sequence dimension
+    sp_slice_features: dict[str, int] = field(
+        default_factory=lambda: {
+            "input_ids": -1,
+            "labels": -1,
+            "pixel_values": 0,
+            "pixel_values_videos": 0,
+        },
+        metadata={"help": "features to slice sequence dimension."},
+    )
+
+    def __post_init__(self):
+        self.sp_size = parallel_state.get_parallel_state().sp_size
+        self.sp_rank = parallel_state.get_parallel_state().sp_rank
+
+    def sp_slice(self, feature: torch.Tensor, dim: int = -1) -> dict[str, "torch.Tensor"]:
+        seq_length = feature.size(dim)
+        sp_chunk_size = (seq_length + self.sp_size - 1) // self.sp_size
+        return feature.narrow(dim, self.sp_rank * sp_chunk_size, sp_chunk_size)
+
+    def __call__(self, batch: Sequence[dict[str, "torch.Tensor"]]) -> dict[str, "torch.Tensor"]:
+        # sp slice
+        for key in batch.keys():
+            if key in self.sp_slice_features.keys():
+                batch[key] = self.sp_slice(batch[key], dim=self.sp_slice_features[key])
+
+        return batch
+
+
 @EngineRegistry.register(model_type="language_model", backend=["veomni"], device=["cuda", "npu"])
 class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
     def prepare_model_inputs(self, micro_batch: TensorDict):
@@ -343,5 +375,9 @@ class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
             image_mask = input_ids_rmpad == VL_TYPE2INDEX[self.module.config.model_type]["IMAGE_INPUT_INDEX"]
             video_mask = input_ids_rmpad == VL_TYPE2INDEX[self.module.config.model_type]["VIDEO_INPUT_INDEX"]
             model_inputs.update({"image_mask": image_mask, "video_mask": video_mask})
+
+            if parallel_state.get_parallel_state().sp_enabled:
+                omni_sequence_shard_collator = OmniSequenceShardCollator()
+                omni_sequence_shard_collator(model_inputs)
 
         return model_inputs, output_args

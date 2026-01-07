@@ -10,6 +10,7 @@ defaults:
   - model@model: hf_model
   - engine@engine: fsdp
   - optim@optim: fsdp
+  - profiler@profiler: profiler
   - _self_
 
 data:
@@ -78,3 +79,5 @@ trainer:
 
   nnodes: 1
   n_gpus_per_node: 1
+
+  profile_interval: [-1, -1]
