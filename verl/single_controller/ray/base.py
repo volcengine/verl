@@ -1058,6 +1058,37 @@ def create_colocated_worker_raw_cls(class_dict: dict[str, RayClassWithInitArgs])
             for _, worker in self.fused_worker_dict.items():
                 setattr(worker, Worker.fused_worker_attr_name, self.fused_worker_dict)
 
+        def adjust_rank_and_visible_devices(self, rank: int, local_rank: int, visible_devices: str):
+            """Adjust the rank, local_rank and visible devices for this FusedWorker and all its sub-workers.
+
+            Args:
+                rank: The new global rank for this worker.
+                local_rank: The new local rank for this worker.
+                visible_devices: The comma-separated visible device IDs for this worker.
+            """
+            # Call parent's adjust_rank_and_visible_devices
+            super().adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+
+            # Call adjust_rank_and_visible_devices on all sub-workers
+            for key, sub_worker in self.fused_worker_dict.items():
+                assert hasattr(sub_worker, "adjust_rank_and_visible_devices"), (
+                    f"sub_worker {key} ({type(sub_worker).__name__}) must have adjust_rank_and_visible_devices method"
+                )
+                sub_worker.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+
+        def init_worker(self):
+            """Initialize all sub-workers after rank adjustment.
+
+            This calls init_worker on all sub-workers in the fused_worker_dict.
+            """
+            super().init_worker()
+
+            for key, sub_worker in self.fused_worker_dict.items():
+                assert hasattr(sub_worker, "init_worker"), (
+                    f"sub_worker {key} ({type(sub_worker).__name__}) must have init_worker method"
+                )
+                sub_worker.init_worker()
+
         def _fuw_execute(self, method_name: str, *args, **kwargs):
             # for fused_worker, method_name is in a form of "{cls_name}_fwmn_{method_name}"
             # where fwmn stands "fused worker method name"
