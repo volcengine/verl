@@ -81,7 +81,7 @@ class Metric:
         if value is not None:
             self.append(value)
 
-    def append(self, value: Numeric | "Metric") -> None:
+    def append(self, value: Union[Numeric, "Metric"]) -> None:
         if isinstance(value, Metric):
             self.extend(value)
             return
