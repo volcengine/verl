@@ -179,14 +179,9 @@ class vLLMAsyncRollout(BaseRollout):
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
-        engine_env_vars = self.config.engine_env_vars.get("vllm", {})
-        engine_env_vars = {key: val for key, val in engine_env_vars.items() if val is not None}
-        for k, v in engine_env_vars.items():
-            os.environ[str(k)] = str(v)
-
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
         # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
-        # This is only a fix for version v0.11.0.
+        # This is only a fix for vllm version < v0.13.0.
         if is_npu_available:
             for k in VLLM_ASCEND_REQUIRED_ENV_VARS:
                 if k not in os.environ:
