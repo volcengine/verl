@@ -72,7 +72,7 @@ init_predefined_execute_mode()
 
 
 def _consolidate_tuple_td(chunked_arg):
-    return tuple(val.consolidate() for val in chunked_arg)
+    return tuple(val.contiguous().consolidate() for val in chunked_arg)
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
