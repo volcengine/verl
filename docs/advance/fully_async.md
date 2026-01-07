@@ -56,7 +56,7 @@ can significantly improve training efficiency.
   saves samples from ongoing rollouts and continues using them in the next rollout, reducing the time spent waiting for
   ongoing tasks to finish during parameter synchronization.
 
-Currently, the supported usage mode is Megatron/FSDP+vLLM. vLLM/SGLang must use the server mode based on AgentLoop.
+Currently, the supported usage mode is Megatron/FSDP+vLLM/SGLang. vLLM/SGLang must use the server mode based on AgentLoop.
 
 ## Design
 
