@@ -549,7 +549,7 @@ class RayWorkerGroup(WorkerGroup):
         adjust_rank_futures = []
         for rank, item in enumerate(sorted_worker_meta):
             local_rank = node_workers[item.node_id].index(rank)
-            visible_devices = ",".join(map(str, node_gpus[item.node_id]))
+            visible_devices = str(node_gpus[item.node_id][local_rank])
             future = item.worker.adjust_rank_and_visible_devices.remote(rank, local_rank, visible_devices)
             adjust_rank_futures.append(future)
         ray.get(adjust_rank_futures)

@@ -30,6 +30,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_name,
     get_torch_device,
+    get_visible_devices_keyword,
     set_expandable_segments,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
@@ -510,6 +511,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.rollout = rollout_cls(
                 config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
             )
+
+            # 3.4 two-phase initialization for rollout (rank already adjusted by parent ActorRolloutRefWorker)
+            rank = int(os.environ["RANK"])
+            local_rank = int(os.environ["LOCAL_RANK"])
+            visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "")
+            self.rollout.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+            self.rollout.init_worker()
 
             # used for LoRA
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format

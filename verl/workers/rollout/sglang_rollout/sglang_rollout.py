@@ -111,6 +111,19 @@ class ServerAdapter(BaseRollout):
             model_config.hf_config.quantization_config = fp8_block_quant_kwargs
         super().__init__(config, model_config, device_mesh)
         self._engine: AsyncHttpServerAdapter = None
+        # These will be set in init_worker() after rank adjustment
+        self.replica_rank = None
+        self.rollout_rank = None
+        self.node_rank = None
+        self.local_rank = None
+
+    def init_worker(self):
+        """Initialize the rollout engine after rank adjustment.
+
+        This method is called after adjust_rank_and_visible_devices() to ensure
+        correct rank assignment for computing replica_rank, rollout_rank, etc.
+        """
+        super().init_worker()
 
         rank = int(os.environ["RANK"])
         local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])

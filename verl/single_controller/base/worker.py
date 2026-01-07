@@ -103,8 +103,84 @@ class WorkerHelper:
         return ip, node_id, gpu_ids
 
 
+class WorkerBase(WorkerHelper):
+    """Base class for all workers that provides two-phase initialization.
+
+    This class provides basic rank adjustment and initialization methods that are
+    required by RayWorkerGroup for IP-based worker sorting. All worker types
+    (training workers, rollout workers) should inherit from this class.
+
+    Two-phase initialization:
+        1. __init__: Only store parameters, do NOT initialize heavy resources
+        2. init_worker: Called after rank adjustment, initialize resources here
+    """
+
+    def __init__(self) -> None:
+        """Initialize the worker base with rank adjustment flag."""
+        self._rank_adjusted = False
+
+    def adjust_rank_and_visible_devices(self, rank: int, local_rank: int, visible_devices: str):
+        """Adjust the worker's rank, local_rank and visible devices after IP-based sorting.
+
+        This method is called after workers are sorted by IP to ensure correct
+        topology. It updates the rank-related environment variables.
+
+        Args:
+            rank: The new global rank for this worker.
+            local_rank: The new local rank for this worker.
+            visible_devices: The comma-separated visible device IDs for this worker.
+        """
+        import os
+
+        # Update environment variables
+        os.environ["RANK"] = str(rank)
+        os.environ["LOCAL_RANK"] = str(local_rank)
+
+        # Update device visibility environment variable
+        device_keyword = get_visible_devices_keyword().upper()
+        os.environ[device_keyword] = visible_devices
+
+        # Mark that rank adjustment has been done
+        self._rank_adjusted = True
+
+    def init_worker(self):
+        """Initialize the worker after rank adjustment.
+
+        This method should be overridden by subclasses to perform initialization
+        that depends on the correct rank assignment. The __init__ method should
+        only store passed parameters as class attributes, and actual initialization
+        (like torch.distributed.init_process_group) should be done in this method.
+
+        This is called after workers are created and their ranks are adjusted based
+        on IP sorting to ensure correct topology.
+
+        Note:
+            Subclasses must call super().init_worker() at the beginning of their
+            implementation to ensure adjust_rank_and_visible_devices has been called.
+
+        Raises:
+            RuntimeError: If adjust_rank_and_visible_devices has not been called before this method.
+        """
+        if not self._rank_adjusted:
+            raise RuntimeError(
+                "init_worker() called before adjust_rank_and_visible_devices(). "
+                "adjust_rank_and_visible_devices() must be called first to ensure correct rank assignment."
+            )
+
+
+class RolloutWorker(WorkerBase):
+    """Base class for rollout workers that provides two-phase initialization.
+
+    This class is designed for rollout engines (vLLM, SGLang) that need to be
+    initialized with correct rank after IP-based sorting. It inherits the
+    two-phase initialization from WorkerBase without adding training-specific logic.
+    """
+
+    pass
+
+
 # we assume that in each WorkerGroup, there is a Master Worker
-class Worker(WorkerHelper):
+class Worker(WorkerBase):
     """A distributed worker that handles initialization and configuration for distributed training.
 
     This class manages worker initialization, configuration, and provides methods for executing
@@ -225,6 +301,8 @@ class Worker(WorkerHelper):
             cuda_visible_devices (str, optional):
                 CUDA visible devices configuration. Defaults to None.
         """
+        super().__init__()
+
         # construct a meta from environment variable. Note that the import must be inside the class because
         # it is executed remotely
         import os
@@ -258,8 +336,6 @@ class Worker(WorkerHelper):
         self.fused_worker_dict = {}
         self.__dispatch_dp_rank = {}
         self.__collect_dp_rank = {}
-
-        self._rank_adjusted = False  # Flag to track if adjust_rank_and_visible_devices has been called
 
     def get_fused_worker_by_name(self, worker_name: str):
         """Get a fused worker by its name.
@@ -424,21 +500,13 @@ class Worker(WorkerHelper):
             local_rank: The new local rank for this worker.
             visible_devices: The comma-separated visible device IDs for this worker.
         """
-        import os
+        # Call parent's method to set environment variables and _rank_adjusted flag
+        super().adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
 
-        # Update class attributes
+        # Update class attributes specific to Worker
         self._rank = rank
         self._local_rank = local_rank
 
-        # Update environment variables
-        os.environ["RANK"] = str(rank)
-        os.environ["LOCAL_RANK"] = str(local_rank)
-
-        # Update device visibility environment variable and class attribute
-        device_keyword = get_visible_devices_keyword().upper()
-        device_keyword_lower = device_keyword.lower()
-        os.environ[device_keyword] = visible_devices
+        # Update device visibility class attribute
+        device_keyword_lower = get_visible_devices_keyword().lower()
         setattr(self, f"_{device_keyword_lower}", visible_devices)
-
-        # Mark that rank adjustment has been done
-        self._rank_adjusted = True

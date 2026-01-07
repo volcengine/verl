@@ -46,6 +46,7 @@ from verl.utils.device import (
     get_device_name,
     get_nccl_backend,
     get_torch_device,
+    get_visible_devices_keyword,
     set_expandable_segments,
 )
 from verl.utils.distributed import set_numa_affinity
@@ -535,6 +536,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
+        # 4.1 two-phase initialization for rollout (rank already adjusted by parent ActorRolloutRefWorker)
+        rank = int(os.environ["RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "")
+        self.rollout.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+        self.rollout.init_worker()
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
