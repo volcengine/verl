@@ -48,11 +48,7 @@ from transfer_queue import (
 
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.single_controller.ray import (
-    RayClassWithInitArgs,
-    RayResourcePool,
-    RayWorkerGroup,
-)
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
@@ -64,33 +60,16 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import (
-    Role,
-    WorkerType,
-    need_critic,
-    need_reference_policy,
-    need_reward_model,
-)
-from verl.utils.checkpoint.checkpoint_manager import (
-    find_latest_ckpt_path,
-    should_save_ckpt_esi,
-)
+from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
-from verl.utils.seqlen_balancing import (
-    calculate_workload,
-    get_seqlen_balanced_partitions,
-    log_seqlen_unbalance,
-)
+from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
-from verl.utils.transferqueue_utils import (
-    create_transferqueue_client,
-    get_transferqueue_client,
-    tqbridge,
-)
+from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, tqbridge
 
 
 @dataclass
@@ -400,8 +379,11 @@ class RayPPOTrainer:
             experiment_name=self.config.trainer.experiment_name,
         )
 
+        lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = config.actor_rollout_ref.model.get("lora_rank", 0)
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+        self.ref_in_actor = lora_rank > 0
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
