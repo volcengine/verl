@@ -1,7 +1,7 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright 2023-2024 SGLang Team
 # Copyright 2025 ModelBest Inc. and/or its affiliates
-# Copyright 2026 Huawei Technologies Co., Ltd
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -637,7 +637,6 @@ class RayFlowGRPOTrainer:
                 "num_inference_steps": self.config.actor_rollout_ref.rollout.val_kwargs.num_inference_steps,
                 "seed": self.config.actor_rollout_ref.rollout.val_kwargs.seed,
                 "recompute_log_prob": False,
-                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
                 "validate": True,
                 "global_steps": self.global_steps,
             }
