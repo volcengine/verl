@@ -1073,8 +1073,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on ref.compute_log_prob
-            output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
-            output = DataProto.from_dict(tensors={"ref_log_prob": output})
+            outputs = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+            output = DataProto.from_dict(tensors={"ref_log_prob": outputs["logprobs"]})
 
         output = output.to("cpu")
 
