@@ -29,7 +29,6 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-
 name: e2e_ascend
 
 on:
@@ -48,7 +47,7 @@ on:
       - "examples/grpo_trainer/**"
       - "examples/ppo_trainer/**"
       - "examples/sft/**"
-      - "recipe/dapo/**"
+      - "verl/experimental/one_step_off_policy/**"
       - "tests/special_npu/**"
       - "tests/special_sanity/check_device_api_usage.py"
       - "verl/**"
@@ -113,10 +112,6 @@ jobs:
         run: |
           ray stop --force
           mode=ray bash tests/special_npu/run_qwen2_5_05b_sft_peft_sp2.sh
-      - name: Running NPU profiling unit tests
-        run: |
-          ray stop --force
-          pytest -s -x tests/utils/test_special_mstx_profile.py
 
   llm_rl_job:
     if: github.repository_owner == 'volcengine'
@@ -168,11 +163,6 @@ jobs:
           ray stop --force
           bash tests/special_npu/run_qwen2_5_05b_grpo.sh
           rm -rf $HOME/ckpts
-      - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU (FSDP backend)
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_qwen2_5_05b_dapo.sh
-          rm -rf $HOME/ckpts
       - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU (MindSpeed backend)
         run: |
           ray stop --force
@@ -180,11 +170,11 @@ jobs:
           USE_DIST_CKPT=True bash tests/special_npu/run_qwen2_5_05b_grpo_mindspeed.sh
           rm -rf $HOME/dist_ckpt/qwen2_5_05b_grpo_mindspeed
           rm -rf $HOME/ckpts
-      - name: Running gsm8k e2e training tests with DAPO on ASCEND NPU (MindSpeed backend, MoE Model)
+      - name: Running gsm8k e2e training tests with GRPO on ASCEND NPU (MindSpeed backend, MoE Model)
         run: |
           ray stop --force
           export PYTHONPATH=$PYTHONPATH:/Megatron-LM
-          USE_DIST_CKPT=True USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen3moe_minimal.json DUMMY_MODEL_PATH=$HOME/dist_ckpt/qwen3_30b_dapo_mindspeed bash tests/special_npu/run_qwen3_30b_dapo_mindspeed.sh
+          USE_DIST_CKPT=True USE_DUMMY_MODEL=True DUMMY_MODEL_CONFIG_PATH=tests/special_e2e/ppo_trainer/expert_parallel/qwen3moe_minimal.json DUMMY_MODEL_PATH=$HOME/dist_ckpt/qwen3_30b_grpo_mindspeed bash tests/special_npu/run_qwen3_30b_grpo_mindspeed.sh
 
   vlm_rl_job:
     if: github.repository_owner == 'volcengine'
@@ -232,9 +222,9 @@ jobs:
           bash tests/special_npu/run_qwen2_5_vl_3b_npu.sh
           rm -rf $HOME/ckpts
 
-  recipe_job:
+  experimental_job:
     if: github.repository_owner == 'volcengine'
-    name: E2E Ascend testing for recipes
+    name: E2E Ascend testing for experimental features
     runs-on: linux-aarch64-a2-4
     timeout-minutes: 60
     container:
