@@ -441,7 +441,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
                 async with self.lock:
                     while self.paused:
-                        self.idle_start_time = time.time()
+                        # Set idle_start_time when processor loop actually enters idle state
+                        if self.idle_start_time is None:
+                            self.idle_start_time = time.time()
                         await self.condition.wait()
                 continue
 
