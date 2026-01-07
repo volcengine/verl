@@ -75,8 +75,9 @@ class ExecutionWorker:
 
     def execute(self, fn: Callable[..., T], *fn_args, **fn_kwargs) -> T:
         with ExitStack() as stack:
-            stack.callback(self.rate_limit_worker.release.remote)
-            ray.get(self.rate_limit_worker.acquire.remote())
+            if self.rate_limit_worker is not None:
+                ray.get(self.rate_limit_worker.acquire.remote())
+                stack.callback(self.rate_limit_worker.release.remote)
             try:
                 return fn(*fn_args, **fn_kwargs)
             except Exception as e:
@@ -172,21 +173,34 @@ class SandboxFusionTool(BaseTool):
         if not isinstance(code, str):
             code = str(code)
 
-        result = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
+        result_text = await self.execution_pool.execute.remote(self.execute_code, instance_id, code, timeout, language)
         # sandbox has no score or metrics, use Nones
-        return ToolResponse(text=result), None, None
+        return ToolResponse(text=result_text), None, None
 
     def execute_code(self, instance_id, code, timeout=30, language="python"):
-        result_status, metadata = _process_single_case(
+        _, metadata = _process_single_case(
             0, None, None, self.sandbox_fusion_url, code, timeout, self.memory_limit_mb, language
         )
         # we should always expect this since we don't have correct answer
-        if metadata["run_status"] == "Finished":
-            actual_output = metadata["stdout"] + metadata["stderr"]
+        stdout = metadata.get("stdout") or ""
+        stderr = metadata.get("stderr") or ""
+        run_status = metadata.get("run_status")
+        exit_code = metadata.get("exit_code")
+
+        if run_status == "Finished" and exit_code in (0, None):
+            actual_output = stdout + stderr
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
-            return ToolResponse(text=actual_output)
-        else:
-            return ToolResponse(text="no stdout here")
+            return actual_output
+
+        status = metadata.get("status", "unknown_error")
+        if run_status == "Finished" and exit_code not in (0, None):
+            status = "runtime_error"
+
+        details = (stdout + stderr) or metadata.get("compile_stderr") or metadata.get("api_request_error") or ""
+        exit_code_str = f" (exit_code={exit_code})" if exit_code is not None else ""
+        if details:
+            return f"Code execution failed with status: {status}{exit_code_str}\n{details}"
+        return f"Code execution failed with status: {status}{exit_code_str}"
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         return self._instance_dict[instance_id]["reward"]
