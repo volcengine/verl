@@ -6,6 +6,7 @@
 
 # defaults specify the default config from each component
 defaults:
+
   # fsdp optimizer config
   - ../optim@optim: fsdp
 
