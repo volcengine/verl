@@ -245,50 +245,6 @@ def compute_advantage(
         )
         data.batch["advantages"] = advantages
         data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.OPTIMAL_TOKEN_BASELINE:
-        # Compute advantages and returns using Optimal Token Baseline (OTB)
-
-        # Check if sum_pi_squared is available
-        assert "sum_pi_squared" in data.batch, (
-            "Step-dependent optimal baseline requires sum_pi_squared from actor. "
-            "Please set actor.compute_sum_pi_squared=True in config."
-        )
-
-        # Get pre-computed rollout IS weights if available
-        rollout_is_weights = data.batch.get('rollout_is_weights', None)
-
-        advantages, returns = core_algos.compute_optimal_token_baseline_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            index=data.non_tensor_batch["uid"],
-            old_log_probs=data.batch["old_log_probs"],
-            sum_pi_squared=data.batch["sum_pi_squared"],
-            rollout_is_weights=rollout_is_weights,
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
-    elif adv_estimator == AdvantageEstimator.TIR_OPTIMAL_TOKEN_BASELINE:
-        # Compute advantages and returns using Optimal Token Baseline (OTB)
-
-        # Check if sum_pi_squared is available
-        assert "sum_pi_squared" in data.batch, (
-            "Step-dependent optimal baseline requires sum_pi_squared from actor. "
-            "Please set actor.compute_sum_pi_squared=True in config."
-        )
-
-        # Get pre-computed rollout IS weights if available
-        rollout_is_weights = data.batch.get('rollout_is_weights', None)
-
-        advantages, returns = core_algos.compute_multi_turn_optimal_token_baseline_advantage(
-            token_level_rewards=data.batch["token_level_rewards"],
-            response_mask=data.batch["response_mask"],
-            index=data.non_tensor_batch["uid"],
-            old_log_probs=data.batch["old_log_probs"],
-            sum_pi_squared=data.batch["sum_pi_squared"],
-            rollout_is_weights=rollout_is_weights,
-        )
-        data.batch["advantages"] = advantages
-        data.batch["returns"] = returns
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
@@ -301,6 +257,17 @@ def compute_advantage(
             adv_kwargs["index"] = data.non_tensor_batch["uid"]
         if "reward_baselines" in data.batch:  # optional
             adv_kwargs["reward_baselines"] = data.batch["reward_baselines"]
+        # Add sum_pi_squared for Optimal Token Baseline
+        if adv_estimator in (AdvantageEstimator.OPTIMAL_TOKEN_BASELINE, AdvantageEstimator.TIR_OPTIMAL_TOKEN_BASELINE):
+            # Check if sum_pi_squared is available
+            assert "sum_pi_squared" in data.batch, (
+                "Step-dependent optimal baseline requires sum_pi_squared from actor. "
+                "Please set actor.compute_sum_pi_squared=True in config."
+            )
+            adv_kwargs["sum_pi_squared"] = data.batch["sum_pi_squared"]
+            # Get pre-computed rollout IS weights if available
+            rollout_is_weights = data.batch.get("rollout_is_weights", None)
+            adv_kwargs["rollout_is_weights"] = rollout_is_weights
 
         # calculate advantage estimator
         advantages, returns = adv_estimator_fn(**adv_kwargs)
