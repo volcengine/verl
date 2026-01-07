@@ -38,7 +38,7 @@ rollout 的训练， 通过合理设置资源分配情况、参数同步频率�
 - **PartialRollout**: Rollouter 推理过程支持 partial rollout 逻辑，通过参数同步时，添加`sleep()`和`resume()`
   逻辑，保存进行中的 rollout 的样本，并在下一次 rollout 中继续使用，减少参数同步等待进行中的任务结束时间。
 
-目前支持使用模式为 megatron/fsdp+vllm。vllm 必须使用基于 AgentLoop 的 server 模式。
+目前支持使用模式为 Megatron/FSDP+vLLM/SGLang。vLLM/SGLang 必须使用基于 AgentLoop 的 server 模式。
 
 ## 设计
 
@@ -288,7 +288,7 @@ python -m verl.experimental.fully_async_policy.fully_async_main \
 - rollout 长度：max_response_length FSDP2: 28K tokens;
 - 算法：DAPO
 - 数据集： TRAIN_FILE: dapo-math-17k.parquet TEST_FILE: aime-2024.parquet
-- engine: vllm+FSDP2
+- engine: vLLM + FSDP2
 - rollout.n: 16
 - ppo_mini_batch_size: 32
 - test_freq: 20
@@ -372,7 +372,7 @@ GPU 数量整除，这使得资源调整的灵活性受到影响。此外，随�
 - rollout 长度：max_response_length : 8K tokens;
 - 算法： GRPO
 - 数据集： TRAIN_FILE: dapo-math-17k.parquet TEST_FILE: aime-2024.parquet
-- Engine: vllm+Megatron
+- Engine: vLLM + Megatron
 - rollout.n: 16
 - ppo_mini_batch_size: 128
 - test_freq: 20
@@ -478,12 +478,5 @@ GPU 数量整除，这使得资源调整的灵活性受到影响。此外，随�
 > source data: https://wandb.ai/hou-zg-meituan/fully-async-policy-multiturn-tool?nw=nwuserhouzg
 
 ## 后续计划
-
-- GRPO 实验
-- megatron 适配
-- sglang 集成
 - transfer queue 集成
 - 异步参数同步
-- Areal 异步算法实现
-- TPPO 算法实现
-- 多轮及 Tool 的支持
