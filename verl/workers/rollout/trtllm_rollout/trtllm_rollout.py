@@ -322,6 +322,7 @@ class TRTLLMAsyncRollout(BaseRollout):
             logger.info(f"exclude_dp_size = {self.hybrid_device_mesh['exclude_dp'].size()}")
             self.gpu_id = ray.get_gpu_ids()[0]
             self.replica_rank = self.hybrid_device_mesh["dp"].get_local_rank()
+            assert len(ray.get_gpu_ids()) == 1, "TRTLLMAsyncRollout should run on a single GPU node"
         else:
             rank = int(os.environ["RANK"])
             self.replica_rank = replica_rank
@@ -334,7 +335,6 @@ class TRTLLMAsyncRollout(BaseRollout):
         print(f"TRTLLMAsyncRollout, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
 
         self.node_ip = ray.util.get_node_ip_address().strip("[]")
-        assert len(ray.get_gpu_ids()) == 1, "TRTLLMAsyncRollout should run on a single GPU node"
 
     async def _init_server_adapter(self):
         if self._adapter is not None:
