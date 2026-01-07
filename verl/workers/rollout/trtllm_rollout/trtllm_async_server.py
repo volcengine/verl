@@ -34,7 +34,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-@ray.remote(num_cpus=1)
+@ray.remote
 class TRTLLMHttpServer:
     """TensorRT LLM HTTP server in single node.
 
@@ -223,6 +223,9 @@ class TRTLLMReplica(RolloutReplica):
         )
         return worker_dict_cls
 
+    def rollout_worker_use_gpu(self) -> bool:
+        return False
+
     def get_pgs_and_bundle_indices(self) -> tuple[list[PlacementGroup], list[list[int]]]:
         """Get placement groups and bundle indices for the replica."""
 
@@ -287,10 +290,10 @@ class TRTLLMReplica(RolloutReplica):
         # Check server process should be launched on the same node as first bundle of first pg.
         first_pg_data = placement_group_table(pgs[0])
         node_id = first_pg_data["bundles_to_node_id"][bundle_indices[0][0]]
-        logger.info(f"TRTLLMReplica: {self.replica_rank}")
-        logger.info(f"pg node_id: {node_id}")
-        logger.info(f"pgs: {pgs}")
-        logger.info(f"bundle_indices: {bundle_indices}")
+        print(f"TRTLLMReplica: {self.replica_rank}")
+        print(f"pg node_id: {node_id}")
+        print(f"pgs: {pgs}")
+        print(f"bundle_indices: {bundle_indices}")
 
         # TRTLLMReplica is a 1:1 map from replica to TRTLLMHttpServer.
         name = (
