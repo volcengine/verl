@@ -35,7 +35,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name
+from verl.utils.device import auto_set_device, get_device_name
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
@@ -393,6 +393,8 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer_engine", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_device(config)
     run_sft(config)
 
 
