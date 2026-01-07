@@ -63,7 +63,8 @@ from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches, is_fp8_model,
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address
-from verl.workers.rollout.vllm_rollout.utils import (VLLM_LORA_INT_ID,
+from verl.workers.rollout.vllm_rollout.utils import (
+    VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
