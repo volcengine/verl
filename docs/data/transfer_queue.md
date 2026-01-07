@@ -4,7 +4,7 @@ Last updated: 01/07/2026.
 
 This doc introduce [TransferQueue](https://gitcode.com/Ascend/TransferQueue), an asynchronous streaming data management system for efficient post-training.
 
-🔥 **Now TransferQueue is formally opensorced at [GitCode](https://gitcode.com/Ascend/TransferQueue). We will soon provide a [Github Mirror Repo](https://github.com/Ascend/TransferQueue) for community contributions. <span style="color: #FF0000;">You are welcome to submit contributions or propose new ideas on either platform!**</span>
+🔥 **Now TransferQueue is formally open-sourced at [GitCode](https://gitcode.com/Ascend/TransferQueue). We will soon provide a [Github Mirror Repo](https://github.com/Ascend/TransferQueue) for community contributions. <span style="color: #FF0000;">You are welcome to submit contributions or propose new ideas on either platform!**</span>
 
 
 > At the mean time, the early development history remains accessible at: https://github.com/TransferQueue/TransferQueue.
