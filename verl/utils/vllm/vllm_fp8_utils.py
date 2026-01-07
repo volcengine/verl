@@ -421,11 +421,12 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
 
     try:
         from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import is_rocm_aiter_moe_enabled
+
         self.rocm_aiter_moe_enabled = is_rocm_aiter_moe_enabled()
     except ImportError:
         from vllm._aiter_ops import rocm_aiter_ops
-        self.rocm_aiter_moe_enabled = rocm_aiter_ops.is_fused_moe_enabled()
 
+        self.rocm_aiter_moe_enabled = rocm_aiter_ops.is_fused_moe_enabled()
 
     assert self.block_quant and self.quant_config.is_checkpoint_fp8_serialized
     assert self.quant_config.activation_scheme == "dynamic"
