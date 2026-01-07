@@ -677,7 +677,7 @@ def post_process_logits(input_ids, logits, temperature, top_k, top_p):
     return logits
 
 
-def compute_sum_pi_squared_from_logits(logits: torch.Tensor):
+def calculate_sum_pi_squared_from_logits(logits: torch.Tensor):
     """
     Compute exact sum of squared probabilities from logits.
     Formula: Σπ² = exp(logsumexp(2*logits) - 2*logsumexp(logits))

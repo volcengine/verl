@@ -6,7 +6,7 @@ Optimal Token Baseline (OTB) is dynamic token-level baseline for variance reduct
 
 ## The method: OTB
 
-- OTB builds a *dynamic* baseline that adapts to each token by tracking the “Realized Energy”—the uncertainty that has accumulated up to that token. It downweights the noisy parts and trusts the clear signals.
+- OTB builds a _dynamic_ baseline that adapts to each token by tracking the “Realized Energy”—the uncertainty that has accumulated up to that token. It downweights the noisy parts and trusts the clear signals.
 - Unlike standard group means (which average over the padding `EOS` token ineffectively), OTB handles this naturally by computing baselines only over valid tokens.
 
 ## Logit-Gradient Proxy
@@ -29,14 +29,14 @@ The final advantage is `(G_t - B*_t) · mask_t`, so padding tokens stay at zero.
 ## Integration in VERL
 
 - `AdvantageEstimator.OPTIMAL_TOKEN_BASELINE` registers `compute_optimal_token_baseline_advantage`, invoked whenever `algorithm.adv_estimator` is set to `optimal_token_baseline`.
-- `ActorRolloutRefWorker.compute_log_prob` emits an additional tensor `sum_pi_squared` (Σπ² per token) when `actor.compute_sum_pi_squared=True`. This requires disabling fused log-prob kernels, because they do not surface logits.
+- `ActorRolloutRefWorker.compute_log_prob` emits an additional tensor `sum_pi_squared` (Σπ² per token) when `actor.calculate_sum_pi_squared=True`. This requires disabling fused log-prob kernels, because they do not surface logits.
 - Trainers assert `sum_pi_squared` exists, regroup trajectories by `non_tensor_batch["uid"]`, and run the OTB calculation. If rollout IS is active, they rescale the weights by `rollout_is_weights**2` before aggregating.
 - In Ulysses sequence-parallel setups, the actor gathers, unpads, and returns Σπ² in the same way it handles log-probabilities, so OTB supports sharded sequence-parallel models out of the box.
 - `sum_pi_squared_checkpointing` is available to trade compute for memory when Σπ² tensors become large (e.g., lengthy chain-of-thought reasoning).
 
 ## Configuration checklist
 
-- `actor_rollout_ref.actor.compute_sum_pi_squared: true` (mandatory).
+- `actor_rollout_ref.actor.calculate_sum_pi_squared: true` (mandatory).
 - `actor_rollout_ref.model.use_fused_kernels: false` (required until fused kernels emit logits).
 - `algorithm.adv_estimator: optimal_token_baseline`.
 - Group sampling (`actor_rollout_ref.rollout.n > 1`) to unlock OTB’s variance reduction; with `n=1` the baseline collapses to returns.
@@ -49,8 +49,8 @@ algorithm:
 
 actor_rollout_ref:
   actor:
-    compute_sum_pi_squared: true
-    sum_pi_squared_checkpointing: false    # optional memory saver
+    calculate_sum_pi_squared: true
+    sum_pi_squared_checkpointing: false # optional memory saver
   rollout:
     n: 8
 ```
@@ -58,7 +58,6 @@ actor_rollout_ref:
 ## Example script
 
 - `examples/otb_trainer/run_qwen2_5-7b.sh`.
-
 
 ## Gradient Variance Proxy Metrics
 
@@ -68,7 +67,7 @@ All gradient-variance analysis in the Optimal Token Baseline work starts from th
 Var(ĝ) = E[||ĝ||²] - ||E[ĝ]||²,
 ```
 
-which states that the variance of any stochastic gradient equals the mean squared magnitude minus the squared norm of its expectation. 
+which states that the variance of any stochastic gradient equals the mean squared magnitude minus the squared norm of its expectation.
 
 For a trajectory `τ`, the policy-gradient estimator is
 
@@ -100,6 +99,6 @@ where `Ŵ(τ)` is the realized energy built. Given a mini-batch `{τ_i}` of siz
 `verl/trainer/ppo/metric_utils.py#L306` implements these diagnostics via `compute_variance_proxy_metrics`, emitting
 `variance_proxy/proxy1_signal_strength`,
 `variance_proxy/proxy2_total_power`, and
-`variance_proxy/proxy3_pure_noise`. 
+`variance_proxy/proxy3_pure_noise`.
 
 Tracking these metrics provides a forward-only, low-overhead view of gradient health for any advantage estimator that supplies `sum_pi_squared`.

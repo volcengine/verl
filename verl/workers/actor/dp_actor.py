@@ -98,15 +98,15 @@ class DataParallelPPOActor(BasePPOActor):
             self.scaler = None
 
         # Sum of squared probabilities computation (for optimal_token_baseline)
-        # Only initialize if compute_sum_pi_squared config is enabled
-        if self.config.get("compute_sum_pi_squared", False):
-            self.compute_sum_pi_squared_from_logits = (
-                torch.compile(verl_F.compute_sum_pi_squared_from_logits, dynamic=True)
+        # Only initialize if calculate_sum_pi_squared config is enabled
+        if self.config.get("calculate_sum_pi_squared", False):
+            self.calculate_sum_pi_squared_from_logits = (
+                torch.compile(verl_F.calculate_sum_pi_squared_from_logits, dynamic=True)
                 if self.config.get("use_torch_compile", True)
-                else verl_F.compute_sum_pi_squared_from_logits
+                else verl_F.calculate_sum_pi_squared_from_logits
             )
             assert not (self.use_fused_kernels or self.use_prefix_grouper), (
-                "compute_sum_pi_squared is not supported with "
+                "calculate_sum_pi_squared is not supported with "
                 f"{self.use_fused_kernels=} or {self.use_prefix_grouper=} for now."
             )
 
@@ -118,9 +118,10 @@ class DataParallelPPOActor(BasePPOActor):
             dict[str, torch.Tensor]:
                 log_probs: (bs, response_len)
                 entropys: (bs, response_len)
-                sum_pi_squared: (bs, response_len) or None if compute_sum_pi_squared=False
+                if calculate_sum_pi_squared is False:
+                    sum_pi_squared: (bs, response_len)
         """
-        compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
+        calculate_sum_pi_squared = self.config.get("calculate_sum_pi_squared", False)
         sum_pi_squared_checkpointing = self.config.get("sum_pi_squared_checkpointing", False)
         # PrefixGrouper path for shared-prefix optimization
         if self.use_prefix_grouper:
@@ -276,12 +277,12 @@ class DataParallelPPOActor(BasePPOActor):
                         )
 
                     # Compute sum_pi_squared if requested (for optimal_token_baseline)
-                    if compute_sum_pi_squared:
+                    if calculate_sum_pi_squared:
                         sum_pi_squared_rmpad = (
-                            self.compute_sum_pi_squared_from_logits(logits_rmpad)
+                            self.calculate_sum_pi_squared_from_logits(logits_rmpad)
                             if not sum_pi_squared_checkpointing
                             else torch.utils.checkpoint.checkpoint(
-                                self.compute_sum_pi_squared_from_logits, logits_rmpad
+                                self.calculate_sum_pi_squared_from_logits, logits_rmpad
                             )
                         )
 
@@ -301,7 +302,7 @@ class DataParallelPPOActor(BasePPOActor):
                             unpad_dim=0,
                             padding_size=pad_size,
                         )
-                    if compute_sum_pi_squared:
+                    if calculate_sum_pi_squared:
                         sum_pi_squared_rmpad = gather_outputs_and_unpad(
                             sum_pi_squared_rmpad, gather_dim=0, unpad_dim=0, padding_size=pad_size
                         )
@@ -319,7 +320,7 @@ class DataParallelPPOActor(BasePPOActor):
                         batch=batch_size,
                         seqlen=seqlen,
                     )
-                if compute_sum_pi_squared:
+                if calculate_sum_pi_squared:
                     full_sum_pi_squared = pad_input(
                         hidden_states=sum_pi_squared_rmpad.unsqueeze(-1),
                         indices=indices,
@@ -336,7 +337,7 @@ class DataParallelPPOActor(BasePPOActor):
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
-                if compute_sum_pi_squared:
+                if calculate_sum_pi_squared:
                     # (bsz, response_length)
                     sum_pi_squared = full_sum_pi_squared.squeeze(-1)[:, -response_length - 1 : -1]
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
@@ -372,11 +373,11 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
                     # Compute sum_pi_squared if requested (for optimal_token_baseline)
-                    if compute_sum_pi_squared:
+                    if calculate_sum_pi_squared:
                         sum_pi_squared = (
-                            self.compute_sum_pi_squared_from_logits(logits)
+                            self.calculate_sum_pi_squared_from_logits(logits)
                             if not sum_pi_squared_checkpointing
-                            else torch.utils.checkpoint.checkpoint(self.compute_sum_pi_squared_from_logits, logits)
+                            else torch.utils.checkpoint.checkpoint(self.calculate_sum_pi_squared_from_logits, logits)
                         )
 
             return {"log_probs": log_probs, "entropys": entropy, "sum_pi_squared": sum_pi_squared}
@@ -429,7 +430,7 @@ class DataParallelPPOActor(BasePPOActor):
                 - ``entropys``: tensor of shape [batch_size, response_length]. torch.float32.
                 - ``sum_pi_squared``: tensor of shape [batch_size, response_length]. torch.float32.
         """
-        compute_sum_pi_squared = self.config.get("compute_sum_pi_squared", False)
+        calculate_sum_pi_squared = self.config.get("calculate_sum_pi_squared", False)
 
         # set to eval
         self.actor_module.eval()
@@ -468,7 +469,7 @@ class DataParallelPPOActor(BasePPOActor):
             log_probs_lst.append(outputs["log_probs"])
             if calculate_entropy:
                 entropy_lst.append(outputs["entropys"])
-            if compute_sum_pi_squared:
+            if calculate_sum_pi_squared:
                 sum_pi_squared_lst.append(outputs["sum_pi_squared"])
 
         log_probs = torch.concat(log_probs_lst, dim=0)
@@ -476,14 +477,14 @@ class DataParallelPPOActor(BasePPOActor):
         sum_pi_squared = None
         if calculate_entropy:
             entropys = torch.concat(entropy_lst, dim=0)
-        if compute_sum_pi_squared:
+        if calculate_sum_pi_squared:
             sum_pi_squared = torch.concat(sum_pi_squared_lst, dim=0)
 
         if use_dynamic_bsz:
             log_probs = restore_dynamic_batch(log_probs, batch_idx_list)
             if calculate_entropy:
                 entropys = restore_dynamic_batch(entropys, batch_idx_list)
-            if compute_sum_pi_squared:
+            if calculate_sum_pi_squared:
                 sum_pi_squared = restore_dynamic_batch(sum_pi_squared, batch_idx_list)
 
         return {"log_probs": log_probs, "entropys": entropys, "sum_pi_squared": sum_pi_squared}

@@ -285,7 +285,7 @@ class FSDPActorConfig(ActorConfig):
     fsdp_config: FSDPEngineConfig = field(default_factory=FSDPEngineConfig)
     use_remove_padding: bool = False
     use_rollout_log_probs: bool = False
-    compute_sum_pi_squared: bool = False
+    calculate_sum_pi_squared: bool = False
     sum_pi_squared_checkpointing: bool = False
 
     def __post_init__(self):

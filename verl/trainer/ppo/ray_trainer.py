@@ -262,7 +262,7 @@ def compute_advantage(
             # Check if sum_pi_squared is available
             assert "sum_pi_squared" in data.batch, (
                 "Step-dependent optimal baseline requires sum_pi_squared from actor. "
-                "Please set actor.compute_sum_pi_squared=True in config."
+                "Please set actor.calculate_sum_pi_squared=True in config."
             )
             adv_kwargs["sum_pi_squared"] = data.batch["sum_pi_squared"]
             # Get pre-computed rollout IS weights if available
