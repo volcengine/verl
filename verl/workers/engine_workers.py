@@ -563,7 +563,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         # 1. get per tensor generator from engine, this will load model to gpu
-        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param()
+        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param(
+            layered_summon=self.config.rollout.get("layered_summon", False),
+            base_sync_done=self.base_sync_done
+        )
 
         # 2. resume weights and update weights
         if self.config.rollout.free_cache_engine:
