@@ -19,7 +19,7 @@ from tensordict import TensorDict
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
-from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict
+from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict, contiguous
 from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
@@ -72,7 +72,7 @@ init_predefined_execute_mode()
 
 
 def _consolidate_tuple_td(chunked_arg):
-    return tuple(val.contiguous().consolidate() for val in chunked_arg)
+    return tuple(contiguous(val).consolidate() for val in chunked_arg)
 
 
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):

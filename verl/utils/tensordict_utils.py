@@ -813,3 +813,30 @@ def unpad(data: TensorDict, pad_size):
     if pad_size != 0:
         data = data[:-pad_size]
     return data
+
+
+def contiguous(data: TensorDict) -> TensorDict:
+    """Call contiguous on a tensor dict. The contiguous function of tensordict lib will make NonTensorStack.
+    This function will always return a new tensordict
+
+    Args:
+        data: The input tensordict
+
+    Returns:
+        a tensordict that is contiguous
+
+    """
+    tensor_dict = {}
+    non_tensor_dict = {}
+
+    for key in data.keys():
+        val = data.get(key)
+        if isinstance(val, NonTensorData):
+            non_tensor_dict[key] = val
+        elif isinstance(val, NonTensorStack):
+            tensor_dict[key] = val
+
+        assert isinstance(val, torch.Tensor), f"Expect val to be a torch.Tensor. Got {type(val)}"
+        tensor_dict[key] = val.contiguous()
+
+    return get_tensordict(tensor_dict=tensor_dict, non_tensor_dict=non_tensor_dict)
