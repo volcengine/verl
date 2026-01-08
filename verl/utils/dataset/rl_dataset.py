@@ -390,7 +390,6 @@ class RLHFDataset(Dataset):
         images, videos = process_vision_info(messages, image_patch_size=image_patch_size, return_video_metadata=True)
         return images, videos
 
-
     def split(self, num_splits: int):
         """
         split the dataset into num_splits sub-datasets
