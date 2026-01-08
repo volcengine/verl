@@ -408,6 +408,10 @@ class vLLMHttpServerBase:
             await self.run_headless(server_args)
 
     async def run_server(self, args: argparse.Namespace):
+        try:
+            from recipe.fault_recover.async_llm import AsyncFaultRecoverLLM as AsyncLLM
+        except ImportError:
+            pass
         engine_args = AsyncEngineArgs.from_cli_args(args)
         usage_context = UsageContext.OPENAI_API_SERVER
         vllm_config = engine_args.create_engine_config(usage_context=usage_context)
