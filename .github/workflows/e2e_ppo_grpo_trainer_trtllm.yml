@@ -1,3 +1,6 @@
+# TODO: This workflow will not pass in CI yet. It needs:
+#   - uploading dummy reward model to verl CI
+
 # # Tests layout
 
 # Each folder under tests/ corresponds to a test category for a sub-namespace in verl. For instance:
@@ -171,7 +174,7 @@ jobs:
         run: |
           rm -rf checkpoints
 
-  e2e_ppo_trainer_megatron-qwen3:
+  e2e_ppo_trainer_megatron-qwen2:
     needs: setup
     runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 10 # Increase this timeout value as needed
@@ -193,32 +196,40 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp > infer tp
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen), dummy RM, and train tp > infer tp
         run: |
           ray stop --force
           ENGINE=trtllm \
+            TOTAL_TRAIN_STEPS=1 \
             VAL_BEFORE_TRAIN=True \
             TEST_FREQ=1 \
             SAVE_FREQ=1 \
             TRAIN_TP=2 \
             INFER_TP=1 \
-            MODEL_ID=Qwen/Qwen3-0.6B \
+            RM_TP=8 \
+            RM_NUM_WORKERS=2 \
+            MODEL_ID=Qwen/Qwen2.5-1.5B \
             bash tests/special_e2e/run_ppo_trainer_megatron.sh \
-              actor_rollout_ref.rollout.mode=async \
-              actor_rollout_ref.rollout.calculate_log_probs=True
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp < infer tp
+              actor_rollout_ref.rollout.mode="async" \
+              actor_rollout_ref.rollout.calculate_log_probs=True \
+              +reward_model.rollout.engine_kwargs.trtllm.disable_overlap_scheduler=True
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen), dummy RM, and train tp < infer tp
         run: |
           ray stop --force
           ENGINE=trtllm \
+            TOTAL_TRAIN_STEPS=1 \
             VAL_BEFORE_TRAIN=True \
             TEST_FREQ=1 \
             SAVE_FREQ=1 \
             TRAIN_TP=1 \
             INFER_TP=2 \
-            MODEL_ID=Qwen/Qwen3-0.6B \
+            RM_TP=8 \
+            RM_NUM_WORKERS=2 \
+            MODEL_ID=Qwen/Qwen2.5-1.5B \
             bash tests/special_e2e/run_ppo_trainer_megatron.sh \
-              actor_rollout_ref.rollout.mode=async \
-              actor_rollout_ref.rollout.calculate_log_probs=True
+              actor_rollout_ref.rollout.mode="async" \
+              actor_rollout_ref.rollout.calculate_log_probs=True \
+              +reward_model.rollout.engine_kwargs.trtllm.disable_overlap_scheduler=True
       - name: clean up
         run: |
           rm -rf checkpoints
