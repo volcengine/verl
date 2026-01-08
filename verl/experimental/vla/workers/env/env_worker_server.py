@@ -153,8 +153,9 @@ class EnvWorkerServer(Worker):
         # Isaac configuration
         self.env_id = config.train.get("env_id", "Isaac-Libero-Franka-OscPose-Camera-All-Tasks-v0")
         self.num_isaac_servers = config.train.get("num_isaac_servers", 8)
-        self.camera_height = config.train.get("camera_height", 256)
-        self.camera_width = config.train.get("camera_width", 256)
+        init_params = config.train.get("init_params", {})
+        self.camera_height = init_params.get("camera_heights", 256)
+        self.camera_width = init_params.get("camera_widths", 256)
 
         # Pre-created manager (from trainer) or None
         self._external_manager = server_manager

@@ -70,10 +70,6 @@ env:
     
     # Environment ID for Isaac Lab
     env_id: "Isaac-Libero-Franka-OscPose-Camera-All-Tasks-v0"
-    
-    # Camera settings
-    camera_height: 256
-    camera_width: 256
 
     init_params:
       camera_depths: False
