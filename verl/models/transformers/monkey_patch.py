@@ -214,7 +214,7 @@ def patch_forward_with_backends(
 
     forward_with_torch_backend_function = model.__class__.forward
     forward_with_triton_backend_function = model.__class__.forward
-    if model.config.model_type in ["qwen2_5_vl", "qwen2_vl"]:
+    if _has_any_model_type(model, {"qwen2_5_vl", "qwen2_5_vl_text", "qwen2_vl"}):
         from verl.models.transformers.qwen2_vl import forward_with_torch_backend, forward_with_triton_backend
 
         forward_with_torch_backend_function = forward_with_torch_backend
@@ -243,6 +243,42 @@ def patch_forward_with_backends(
         print(f"Using Torch backend for fused kernels in {model.__class__.__name__}")
     else:
         raise ValueError(f"Unsupported fused_kernels_backend: {fused_kernels_backend}. Choose 'triton' or 'torch'.")
+
+
+def _collect_model_types(model: PreTrainedModel) -> set[str]:
+    """
+    Collect model_type strings from the model and common wrappers.
+    HF may expose a decoder sub-config (e.g., 'qwen2_5_vl_text') instead of the
+    top-level 'qwen2_5_vl', which breaks strict equality checks.
+    """
+    types: set[str] = set()
+    # candidates: model itself + common wrappers used by TRL/PEFT/HF
+    candidates = (
+        model,
+        getattr(model, "pretrained_model", None),
+        getattr(model, "language_model", None),
+        getattr(model, "model", None),
+    )
+    for obj in candidates:
+        if obj is None:
+            continue
+        cfg = getattr(obj, "config", None)
+        if cfg is None:
+            continue
+        mt = getattr(cfg, "model_type", None)
+        if isinstance(mt, str):
+            types.add(mt)
+        # also check nested text_config (newer HF serializations)
+        tcfg = getattr(cfg, "text_config", None)
+        if tcfg is not None:
+            tmt = getattr(tcfg, "model_type", None)
+            if isinstance(tmt, str):
+                types.add(tmt)
+    return types
+
+
+def _has_any_model_type(model: PreTrainedModel, names: set[str]) -> bool:
+    return bool(_collect_model_types(model) & names)
 
 
 def apply_monkey_patch(
@@ -289,7 +325,7 @@ def apply_monkey_patch(
         print("Monkey patch state_dict in AutoModelForCausalLMWithValueHead. ")
 
     # TODO: VLM models only, unify monkey patch to LLM models.
-    if model.config.model_type in ["qwen2_5_vl", "qwen2_vl"]:
+    if _has_any_model_type(model, {"qwen2_5_vl", "qwen2_5_vl_text", "qwen2_vl"}):
         # Step 1: patch model to support image-text mixed data
         if is_transformers_version_in_range(min_version="4.52.0"):
             from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import (
