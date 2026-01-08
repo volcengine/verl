@@ -70,6 +70,25 @@ Numeric = int | float | torch.Tensor
 
 
 class Metric:
+    """
+    A metric aggregator for collecting and aggregating numeric values.
+
+    This class accumulates numeric values (int, float, or scalar tensors) and computes
+    an aggregate statistic based on the specified aggregation type (MEAN, SUM, MIN, or MAX).
+
+    Args:
+        aggregation: The aggregation method to use. Can be a string ("mean", "sum", "min", "max")
+            or an AggregationType enum value.
+        value: Optional initial value(s) to add. Can be a single numeric value or a list of values.
+
+    Example:
+        >>> metric = Metric(aggregation="mean", value=1.0)
+        >>> metric.append(2.0)
+        >>> metric.append(3.0)
+        >>> metric.aggregate()
+        2.0
+    """
+
     def __init__(self, aggregation: str | AggregationType, value: Optional[Numeric | list[Numeric]] = None) -> None:
         if isinstance(aggregation, str):
             self.aggregation = AggregationType(aggregation)
