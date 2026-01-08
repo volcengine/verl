@@ -391,35 +391,6 @@ class RLHFDataset(Dataset):
         return images, videos
 
 
-def get_dataset_class(data_config: DictConfig):
-    """Get RLHF dataset class.
-
-    Args:
-        data_config: The data config.
-
-    Returns:
-        dataset_cls: The dataset class.
-    """
-
-    # Check if a custom dataset class is specified in the data configuration
-    # and if the path to the custom class is provided
-    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
-        # Dynamically load the custom dataset class
-        dataset_cls = load_extern_object(data_config.custom_cls.path, data_config.custom_cls.name)
-        # Verify that the custom dataset class inherits from torch.utils.data.Dataset
-        if not issubclass(dataset_cls, Dataset):
-            raise TypeError(
-                f"The custom dataset class '{data_config.custom_cls.name}' from "
-                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
-            )
-    else:
-        # Use the default RLHFDataset class if no custom class is specified
-        dataset_cls = RLHFDataset
-    print(f"Using dataset class: {dataset_cls.__name__}")
-
-    return dataset_cls
-        return self.__dict__.copy()
-
     def split(self, num_splits: int):
         """
         split the dataset into num_splits sub-datasets
@@ -470,3 +441,32 @@ def get_dataset_class(data_config: DictConfig):
             splits.append(split_dataset)
 
         return splits
+
+
+def get_dataset_class(data_config: DictConfig):
+    """Get RLHF dataset class.
+
+    Args:
+        data_config: The data config.
+
+    Returns:
+        dataset_cls: The dataset class.
+    """
+
+    # Check if a custom dataset class is specified in the data configuration
+    # and if the path to the custom class is provided
+    if "custom_cls" in data_config and data_config.custom_cls.get("path", None) is not None:
+        # Dynamically load the custom dataset class
+        dataset_cls = load_extern_object(data_config.custom_cls.path, data_config.custom_cls.name)
+        # Verify that the custom dataset class inherits from torch.utils.data.Dataset
+        if not issubclass(dataset_cls, Dataset):
+            raise TypeError(
+                f"The custom dataset class '{data_config.custom_cls.name}' from "
+                f"'{data_config.custom_cls.path}' must inherit from torch.utils.data.Dataset"
+            )
+    else:
+        # Use the default RLHFDataset class if no custom class is specified
+        dataset_cls = RLHFDataset
+    print(f"Using dataset class: {dataset_cls.__name__}")
+
+    return dataset_cls
