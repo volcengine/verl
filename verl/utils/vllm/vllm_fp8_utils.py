@@ -318,16 +318,18 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
             weight_loader=layer.weight.weight_loader,
         )
     )
+
+    weight_scale_loader = layer.weight_scale_inv.weight_loader if hasattr(layer, "weight_scale_inv") else layer.weight_scale.weight_loader
     layer.weight_scale = _create_param_from_subclass_attributes(
         BlockQuantScaleParameter(
             data=weight_scale.data,
             output_dim=0,
             input_dim=1,
-            weight_loader=layer.weight_scale_inv.weight_loader,
+            weight_loader=weight_scale_loader,
         )
     )
-
-    del layer.weight_scale_inv
+    if hasattr(layer, "weight_scale_inv"):
+        del layer.weight_scale_inv
 
     maybe_post_process_fp8_weight_block(layer)
 
