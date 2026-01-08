@@ -167,7 +167,7 @@ def _megatron_gptmodel_postprocess(
             )
 
             mtp_loss = loss_mask * mtp_loss
-            #print(f"hzg mtp_loss: {torch.sum(mtp_loss) / num_tokens}")
+            # print(f"hzg mtp_loss: {torch.sum(mtp_loss) / num_tokens}")
             if self.training:
                 # TODO(shifangx): remove the use of parallel_state here
                 # after moving loss logging to loss_func in pretrain_gpt.py
@@ -190,46 +190,68 @@ def _megatron_gptmodel_postprocess(
 
 def patch_mtp_layer_get_embeddings(model: torch.nn.Module):
     """Patch the _get_embeddings method of MultiTokenPredictionLayer"""
+    from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
 
-    # Check if model is a MultiTokenPredictionLayer or contains one
-    target_layer = None
+    # Collect all MultiTokenPredictionLayer instances
+    target_layers = []
 
     if isinstance(model, MultiTokenPredictionLayer):
-        target_layer = model
+        target_layers.append(model)
+    elif isinstance(model, GPTModel):
+        # Check if GPTModel has MTP and find the layers
+        if hasattr(model, 'mtp') and hasattr(model.mtp, 'layers'):
+            for layer in model.mtp.layers:
+                if isinstance(layer, MultiTokenPredictionLayer):
+                    target_layers.append(layer)
     elif hasattr(model, "layers"):
         # Check if any layer in the model is MultiTokenPredictionLayer
         for layer in model.layers:
             if isinstance(layer, MultiTokenPredictionLayer):
-                target_layer = layer
-                break
+                target_layers.append(layer)
 
-    if target_layer is not None:
-        target_layer._get_embeddings_backup = target_layer._get_embeddings
-        target_layer._get_embeddings = _patched_get_embeddings_for_detach.__get__(target_layer, target_layer.__class__)
+    if target_layers:
+        for layer in target_layers:
+            layer._get_embeddings_backup = layer._get_embeddings
+            layer._get_embeddings = _patched_get_embeddings_for_detach.__get__(layer, layer.__class__)
+        print(f"Found and patched {len(target_layers)} MTP layer(s) in any of the actor modules")
         return True
-    return False
+    else:
+        print("No MTP layers found to patch in any of the actor modules")
+        return False
 
 
 def unpatch_mtp_layer_get_embeddings(model: torch.nn.Module):
     """Unpatch the _get_embeddings method of MultiTokenPredictionLayer"""
+    from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
 
-    # Check if model is a MultiTokenPredictionLayer or contains one
-    target_layer = None
+    # Collect all MultiTokenPredictionLayer instances
+    target_layers = []
 
     if isinstance(model, MultiTokenPredictionLayer):
-        target_layer = model
+        target_layers.append(model)
+    elif isinstance(model, GPTModel):
+        # Check if GPTModel has MTP and find the layers
+        if hasattr(model, 'mtp') and hasattr(model.mtp, 'layers'):
+            for layer in model.mtp.layers:
+                if isinstance(layer, MultiTokenPredictionLayer):
+                    target_layers.append(layer)
     elif hasattr(model, "layers"):
         # Check if any layer in the model is MultiTokenPredictionLayer
         for layer in model.layers:
             if isinstance(layer, MultiTokenPredictionLayer):
-                target_layer = layer
-                break
+                target_layers.append(layer)
 
-    if target_layer is not None and hasattr(target_layer, "_get_embeddings_backup"):
-        target_layer._get_embeddings = target_layer._get_embeddings_backup
-        delattr(target_layer, "_get_embeddings_backup")
+    unpatched_count = 0
+    for layer in target_layers:
+        if hasattr(layer, "_get_embeddings_backup"):
+            layer._get_embeddings = layer._get_embeddings_backup
+            delattr(layer, "_get_embeddings_backup")
+            unpatched_count += 1
+
+    if unpatched_count > 0:
+        print(f"Unpatched {unpatched_count} MTP layer(s)")
         return True
     return False
 

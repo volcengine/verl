@@ -67,15 +67,24 @@ def model_forward_gen(vision_model: bool = False):
         batch_size, seq_len = attention_mask.shape[:2]
         if data_format == "thd":
             input_ids_rmpad, packed_seq_params = preprocess_packed_seqs(
-                input_ids, attention_mask, pre_process=pre_process, use_fp8_padding=use_fp8_padding
+                input_ids, attention_mask, pre_process=pre_process or post_process, use_fp8_padding=use_fp8_padding
             )
             input_ids_rmpad = input_ids_rmpad.contiguous()
 
+            # print(
+            #     f"hzg model_forward\n"
+            #     f"\t pre_process {pre_process}\n"
+            #     f"\t post_process {post_process}\n"
+            #     f"\t input_ids: {input_ids.shape}\n"
+            #     f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
+            #     f"\t position_ids: {position_ids.shape}\n"
+            # )
+
             # when pp > 1 and processor is not None, we need to pass the labels and loss_mask to the model
-            if mtp_config and mtp_config.enable_train and pre_process:
+            if mtp_config and mtp_config.enable_train and post_process:
                 args = {
                     k: preprocess_packed_seqs(
-                        v, attention_mask, pre_process=pre_process, use_fp8_padding=use_fp8_padding
+                        v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding
                     )[0]
                     for k, v in logits_processor_args.items()
                 }
@@ -84,10 +93,6 @@ def model_forward_gen(vision_model: bool = False):
 
                 # print(
                 #     f"hzg model_forward\n"
-                #     f"\t pre_process {pre_process}\n"
-                #     f"\t input_ids: {input_ids.shape}\n"
-                #     f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
-                #     f"\t position_ids: {position_ids.shape}\n"
                 #     f"\t labels {logits_processor_args['label'].shape}\n"
                 #     f"\t labels_rmpad {model_kwargs['labels'].shape}\n"
                 #     f"\t loss_mask {logits_processor_args['label_mask'].shape}\n"

@@ -51,10 +51,8 @@ infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
 gen_tp=1
 train_tp=8
-train_pp=1
+train_pp=2
 train_cp=4
-
-rm -rf ${TENSORBOARD_DIR}
 
 python -m verl.trainer.main_ppo \
     --config-path=config \
@@ -130,8 +128,8 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.model.trust_remote_code=True \
     data.trust_remote_code=True \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
-    actor_rollout_ref.model.mtp.enable=False \
-    actor_rollout_ref.model.mtp.enable_train=False \
+    actor_rollout_ref.model.mtp.enable=True \
+    actor_rollout_ref.model.mtp.enable_train=True \
     actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1 \
     actor_rollout_ref.actor.megatron.context_parallel_size=${train_cp} \
     actor_rollout_ref.ref.megatron.context_parallel_size=${train_cp}

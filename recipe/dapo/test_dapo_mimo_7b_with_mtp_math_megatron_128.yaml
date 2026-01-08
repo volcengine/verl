@@ -12,13 +12,13 @@ env_vars:
   CUDA_HOME: "/usr/local/cuda"
   CUDA_TMPDIR: "/tmp"
   CUDA_CACHE_PATH: "/tmp/cuda_cache"
-  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/mimo-7B/col-128"
+  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/mimo-7B/col-128-mtp"
   # Transformers cache configuration to handle MiMo model custom modules
   HF_HOME: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/tmp/hf_home_mimo"
   PYTHONPATH: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/tmp/hf_home_mimo/modules/"
 #  PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:256"
-  RAY_DEDUP_LOGS: "0"
-  VERL_LOGGING_LEVEL: "DEBUG"
+#  RAY_DEDUP_LOGS: "0"
+#  VERL_LOGGING_LEVEL: "DEBUG"
 
 #  # 强制使用指定网卡（根据实际环境替换eth0，如bond0、enp1s0等）
 ##  NCCL_SOCKET_IFNAME=eth0

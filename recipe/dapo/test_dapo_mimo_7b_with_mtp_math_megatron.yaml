@@ -12,7 +12,7 @@ env_vars:
   CUDA_HOME: "/usr/local/cuda"
   CUDA_TMPDIR: "/tmp"
   CUDA_CACHE_PATH: "/tmp/cuda_cache"
-  TENSORBOARD_DIR: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/main/mimo-7B/col-128"
+  TENSORBOARD_DIR: "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-friday-studio/FTI/houzhenggang/main/mimo-7B/col-tp2-cp2-pp2"
   # Transformers cache configuration to handle MiMo model custom modules
   HF_HOME: "/tmp/hf_home_mimo"
   PYTHONPATH: "/tmp/hf_home_mimo/modules/"
