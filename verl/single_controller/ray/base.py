@@ -539,6 +539,7 @@ class RayWorkerGroup(WorkerGroup):
             "RAY_LOCAL_WORLD_SIZE": str(local_world_size),
             "MASTER_ADDR": self._master_addr,
             "MASTER_PORT": self._master_port,
+            "RAY_DEBUG": "1",
         }
         if worker_env is not None:
             logging.debug(f"Appending ray class env, origin: {env_vars}, customized env: {worker_env}")
