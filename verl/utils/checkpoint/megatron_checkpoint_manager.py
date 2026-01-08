@@ -497,7 +497,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     logger=logger,
                     log_only_rank_0=True,
                 )
-            if self.use_hf_checkpoint:
+            elif self.use_hf_checkpoint:
                 # Use mbridge to save HF model checkpoint
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
