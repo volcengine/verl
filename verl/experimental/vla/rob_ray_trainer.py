@@ -19,6 +19,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import asyncio
+import logging
 import uuid
 from collections import defaultdict
 from pprint import pprint
@@ -46,6 +47,8 @@ from verl.trainer.ppo.utils import Role
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
+
+logger = logging.getLogger(__name__)
 
 
 def compute_response_mask(data: DataProto) -> torch.Tensor:
@@ -130,6 +133,14 @@ class RobRayPPOTrainer(RayPPOTrainer):
             self.resource_pool_manager.get_resource_pool(Role.Env).accelerator_type = "sim"
             self.resource_pool_manager.get_resource_pool(Role.ActorRollout).accelerator_type = "train_rollout"
 
+            # In Isaac server mode, EnvWorkerServer is just a coordinator - no GPU needed
+            # IsaacServers will request their own GPUs independently
+            isaac_server_mode = self.config.env.train.get("isaac_server_mode", False)
+            if isaac_server_mode:
+                env_pool = self.resource_pool_manager.get_resource_pool(Role.Env)
+                env_pool.use_gpu = False
+                logger.info("Ray actor mode: EnvWorkerServer will not request GPU (coordinator only)")
+
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
         resource_pool = self.resource_pool_manager.get_resource_pool(Role.ActorRollout)
         actor_rollout_cls = RayClassWithInitArgs(
@@ -185,9 +196,10 @@ class RobRayPPOTrainer(RayPPOTrainer):
         # create async rollout manager and request scheduler
         self.async_rollout_mode = False
         if self.config.actor_rollout_ref.rollout.mode == "async_envloop":
+            self.async_rollout_mode = True
+
             from verl.experimental.vla.env_loop import EnvLoop
 
-            self.async_rollout_mode = True
             self.async_rollout_manager = EnvLoop(
                 config=self.config, rollout_wg=self.actor_rollout_wg, env_wg=self.env_wg
             )
