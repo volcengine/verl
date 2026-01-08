@@ -82,7 +82,7 @@ fully_async_policy 的整体架构如下图所示，fully_async_policy 主要由
 | `async_training.checkpoint_engine.enable`                        | 是否开启 checkpoint_engine 模式的加速，默认值 True                                       |
 | `async_training.checkpoint_engine.overlap_broadcast_and_consume` | 启动 checkpoint_engine 时，是否在参数同步时在 broadcast 和加载之间使用流水，默认值 False |
 | `async_training.checkpoint_engine.device_buffer_size_M`          | 启动 checkpoint_engine 时，组装的 bucket 的大小(MB)，默认为 4096                         |
-
+| `async_training.use_trainer_do_validate`                         | 是否使用 Trainer 的 do_validate 方法进行 validation，默认值 False                         |
 **进一步的解释：**
 
 - `rollout.total_rollout_steps`
@@ -154,6 +154,12 @@ require_batches * ppo_mini_batch_size)`。
 
   - 在开启`overlap_broadcast_and_consume`时，trainer 节点的临时额外显存开销为 `3 * bucket_size`, rollout 节点的临时额外显存开销为`2 * bucket_size`。
   - 在关闭`overlap_broadcast_and_consume`时，trainer 节点的临时额外显存开销为 `2 * bucket_size`, rollout 节点的临时额外显存开销为`1 * bucket_size`。
+
+- `async_training.use_trainer_do_validate`
+
+  控制是否使用trainer的 `do_validate` 方法进行 validation 。
+  如果设置为 True，trainer 会在每次参数更新后，调用 `do_validate` 方法进行 validation。
+  如果设置为 False，trainer 不会调用 `do_validate` 方法。
 
 ### 模式支持
 
@@ -406,6 +412,36 @@ GPU 数量整除，这使得资源调整的灵活性受到影响。此外，随�
 | Qwen3-30B-A3B | 16 | 16 | True | 4.38s |
 | Qwen3-235B-A22B | 64 | 64 | False | 58.57s |
 | Qwen3-235B-A22B | 64 | 64 | True | 23.70s |
+
+### use_trainer_do_validate 实验测试
+
+我们在Qwen2.5-Math-7B模型上测试了 `use_trainer_do_validate` 参数的影响。这个结果展示使用 `use_trainer_do_validate=True` 可以减少验证时间开销，并且训练器节点的空闲时间也减少了。
+
+- Machine: H20
+- Model: Qwen2.5-Math-7B
+- Rollout length: max_response_length FSDP2: 10K tokens;
+- Algorithm: DAPO
+- Dataset: 
+  - TRAIN_FILE: dapo-math-17k.parquet
+  - TEST_FILE: aime-2024.parquet
+- Engine: vllm+FSDP2
+- rollout.n: 16
+- ppo_mini_batch_size: 32
+- test_freq: 10
+
+- fully_async_policy
+  - total_rollout_steps: 512*400
+  - require_batches: 4
+  - trigger_parameter_sync_step: 4
+  - staleness_threshold: 0.5
+  - partial_rollout: True
+
+|  training mode  | resource allocation | step  |  gen  | old_log_prob | update_actor | validate time | total time<br>50 step | acc/mean@2 |
+|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|:---------------:|
+| colocate sync      | 16  |  484.623  |  52.939	 |   0	 |   430.263   |  205.080  	 |     7h9m  	 |     22.6     |
+| fully_async_policy | 8:8 |  489.953  |  52.622	 |   0	 |   435.874   |  95.699  	 |     7h2m  	 |     21.0    |
+| fully_async_policy_opt_validate | 8:8 |    |  	 |   0	 |      |    	 |       	 |        |
+
 
 ## 多轮工具调用
 

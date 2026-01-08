@@ -102,6 +102,17 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         self._validate_config()
+        if self.config.async_training.use_trainer_do_validate:
+            rollout_gpus = config.rollout.nnodes * config.rollout.n_gpus_per_node
+            train_gpus = config.trainer.nnodes * config.trainer.n_gpus_per_node
+            total_gpus = rollout_gpus + train_gpus
+            print(f"[FullyAsyncRollouter] split before val_dataset total len: {len(val_dataset)}")
+            split_dataset = val_dataset.split(total_gpus)
+            rollout_val_dataset0 = split_dataset[:rollout_gpus]
+            from torch.utils.data import ConcatDataset
+
+            val_dataset = ConcatDataset(rollout_val_dataset0)
+            print(f"[FullyAsyncRollouter] split after val_dataset total len: {len(val_dataset)}")
         print(f"[FullyAsyncRollouter] Rollouter _create_dataloader...\n{train_dataset}\n{val_dataset}")
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -207,7 +218,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
     def get_total_train_steps(self):
         return self.total_train_steps
 
-    async def update_param_version(self, version: int, validate: bool = False, global_steps: int = 0):
+    async def update_param_version(
+        self, version: int, validate: bool = False, global_steps: int = 0, use_trainer_do_validate: bool = False
+    ):
         """Update current parameter version"""
         async with self.lock:
             old_version = self.current_param_version
@@ -240,7 +253,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 and self.current_param_version > 0  # don't test here in the initial parameter sync
             ) or (validate and self.val_reward_fn is not None):
                 with marked_timer("rollouter/validate_time", timing_raw, color="green"):
-                    val_metrics: dict = self._validate()
+                    val_metrics: dict = self._validate(use_trainer_do_validate)
             data = ValidateMetrics(
                 timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
             )
