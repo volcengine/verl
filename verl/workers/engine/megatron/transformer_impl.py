@@ -43,6 +43,7 @@ from verl.utils.megatron_utils import (
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     register_megatron_training_hooks,
+    get_megatron_module_device,
 )
 from verl.utils.model import (
     extract_multi_modal_inputs,
@@ -437,7 +438,8 @@ class MegatronEngine(BaseEngine):
             global_step: Integer training step number for naming.
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
-        if self._is_offload_param:
+        origin_module_device = get_megatron_module_device(self.module)
+        if self._is_offload_param or origin_module_device == "cpu":
             load_megatron_model_to_gpu(self.module, load_grad=True)
         self.checkpoint_mananager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
