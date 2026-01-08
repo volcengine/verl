@@ -46,6 +46,7 @@ from verl.utils.device import (
     get_device_name,
     get_nccl_backend,
     get_torch_device,
+    get_visible_devices_keyword,
     set_expandable_segments,
 )
 from verl.utils.distributed import set_numa_affinity
@@ -237,11 +238,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
         self.config = config
+        self.role = role
+        self._init_kwargs = kwargs
+
+    def init_worker(self):
+        super().init_worker()
+
         if repatch is not None:
             # NPU MindSpeed patch, will be refactored with MindSpeedEngine.
             repatch(self.config.actor.megatron.get("override_transformer_config", {}))
 
-        self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
@@ -298,13 +304,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         set_random_seed(seed=self.config.actor.megatron.seed, only_rollout=only_rollout)
 
         if self._is_actor:
-            omega_profiler_config = config.actor.get("profiler", {})
+            omega_profiler_config = self.config.actor.get("profiler", {})
         elif self._is_rollout:
             # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
             # This is for extendability in AsyncRL cases
-            omega_profiler_config = config.rollout.get("profiler", {})
+            omega_profiler_config = self.config.rollout.get("profiler", {})
         elif self._is_ref:
-            omega_profiler_config = config.ref.get("profiler", {})
+            omega_profiler_config = self.config.ref.get("profiler", {})
         else:
             raise ValueError(
                 f"Invalid role {self.role}, should be one of "
@@ -530,6 +536,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
+        # 4.1 two-phase initialization for rollout (rank already adjusted by parent ActorRolloutRefWorker)
+        rank = int(os.environ["RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "")
+        self.rollout.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+        self.rollout.init_worker()
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
@@ -988,8 +1001,12 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 class CriticWorker(MegatronWorker, DistProfilerExtension):
     def __init__(self, config: McoreCriticConfig):
         Worker.__init__(self)
+        self.config: McoreCriticConfig = config
 
-        omega_profiler_config = config.get("profiler", {})
+    def init_worker(self):
+        super().init_worker()
+
+        omega_profiler_config = self.config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
@@ -1000,7 +1017,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
-        self.config: McoreCriticConfig = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.
@@ -1288,9 +1304,13 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
+        self.config = config
 
-        profiler_config = omega_conf_to_dataclass(config.get("profiler", {}), dataclass_type=ProfilerConfig)
-        omega_profiler_config = config.get("profiler", {})
+    def init_worker(self):
+        super().init_worker()
+
+        profiler_config = omega_conf_to_dataclass(self.config.get("profiler", {}), dataclass_type=ProfilerConfig)
+        omega_profiler_config = self.config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
@@ -1302,7 +1322,6 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             self,
             DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config),
         )
-        self.config = config
 
         # NOTE(sgm): We utilize colocate WorkerGroup by default.
         # As a result, Workers for different model share the same process.

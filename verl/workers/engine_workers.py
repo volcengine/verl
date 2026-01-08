@@ -30,6 +30,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
     get_device_name,
     get_torch_device,
+    get_visible_devices_keyword,
     set_expandable_segments,
 )
 from verl.utils.distributed import initialize_global_process_group_ray
@@ -55,12 +56,16 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config: TrainingWorkerConfig):
         Worker.__init__(self)
+        # Store parameters as class attributes (defer actual initialization to init_worker)
+        self.config = config
+
+    def init_worker(self):
+        super().init_worker()
 
         from verl.workers.engine import BaseEngine, EngineRegistry
 
         initialize_global_process_group_ray(timeout_second=None)
 
-        self.config = config
         self.model_config = self.config.model_config
         self.engine_config = self.config.engine_config
         self.optimizer_config = self.config.optimizer_config
@@ -356,8 +361,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config: DictConfig, role: str, **kwargs):
         Worker.__init__(self)
+        # Store parameters as class attributes (defer actual initialization to init_worker)
         self.config = config
         self.role = role
+        self._init_kwargs = kwargs
+
+    def init_worker(self):
+        super().init_worker()
+
         self.actor: TrainingWorker = None
         self.ref: TrainingWorker = None
         self.rollout: BaseRollout = None
@@ -367,13 +378,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._is_ref = self.role in ["ref", "actor_rollout_ref"]
 
         if self._is_actor:
-            omega_profiler_config = config.actor.get("profiler", {})
+            omega_profiler_config = self.config.actor.get("profiler", {})
         elif self._is_rollout:
             # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
             # This is for extendability in AsyncRL cases
-            omega_profiler_config = config.rollout.get("profiler", {})
+            omega_profiler_config = self.config.rollout.get("profiler", {})
         else:
-            omega_profiler_config = config.ref.get("profiler", {})
+            omega_profiler_config = self.config.ref.get("profiler", {})
 
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
@@ -507,6 +518,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.rollout = rollout_cls(
                 config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
             )
+
+            # 3.4 two-phase initialization for rollout (rank already adjusted by parent ActorRolloutRefWorker)
+            rank = int(os.environ["RANK"])
+            local_rank = int(os.environ["LOCAL_RANK"])
+            visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "")
+            self.rollout.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+            self.rollout.init_worker()
 
             # used for LoRA
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format

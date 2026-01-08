@@ -20,14 +20,23 @@ import torch
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl import DataProto
+from verl.single_controller.base import RolloutWorker
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
 __all__ = ["BaseRollout"]
 
 
-class BaseRollout(ABC):
-    """Base class for rollout."""
+class BaseRollout(RolloutWorker, ABC):
+    """Base class for rollout.
+
+    This class inherits from RolloutWorker to support two-phase initialization
+    required by RayWorkerGroup for IP-based worker sorting.
+
+    Two-phase initialization:
+        1. __init__: Store parameters only, do NOT initialize heavy resources
+        2. init_worker: Called after rank adjustment, initialize rollout engine here
+    """
 
     def __init__(
         self,
@@ -35,9 +44,33 @@ class BaseRollout(ABC):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
+        """Initialize the rollout with configuration.
+
+        Note:
+            Only store parameters here. Actual rollout engine initialization
+            should be done in init_worker() after rank adjustment.
+
+        Args:
+            config: Rollout configuration.
+            model_config: HuggingFace model configuration.
+            device_mesh: Device mesh for distributed training.
+        """
+        super().__init__()
         self.config = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.device_mesh = device_mesh
+
+    def init_worker(self):
+        """Initialize the rollout engine after rank adjustment.
+
+        Subclasses should override this method to initialize their rollout engines
+        (e.g., vLLM, SGLang) after the correct rank has been assigned.
+
+        Note:
+            Subclasses must call super().init_worker() at the beginning of their
+            implementation to ensure adjust_rank_and_visible_devices has been called.
+        """
+        super().init_worker()
 
     @abstractmethod
     async def resume(self, tags: list[str]):

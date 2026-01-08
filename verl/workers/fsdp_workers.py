@@ -56,6 +56,7 @@ from verl.utils.device import (
     get_device_name,
     get_nccl_backend,
     get_torch_device,
+    get_visible_devices_keyword,
     set_expandable_segments,
 )
 from verl.utils.flops_counter import FlopsCounter
@@ -148,6 +149,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         Worker.__init__(self)
 
         self.config = config
+        self.role = role
+        self._init_kwargs = kwargs
+
+    def init_worker(self):
+        super().init_worker()
+
         import torch.distributed
 
         if not torch.distributed.is_initialized():
@@ -188,7 +195,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self._lora_rank = self.config.model.get("lora_rank", 0)
         self._is_lora = self.config.model.get("lora_adapter_path") is not None or self._lora_rank > 0
 
-        self.role = role
         assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
 
         self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
@@ -203,13 +209,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # as they provides DictConfig-like interface
         # The benefit of creating the dataclass config is to perform validation during __post_init__
         if self._is_actor:
-            omega_profiler_config = config.actor.get("profiler", {})
+            omega_profiler_config = self.config.actor.get("profiler", {})
         elif self._is_rollout:
             # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
             # This is for extendability in AsyncRL cases
-            omega_profiler_config = config.rollout.get("profiler", {})
+            omega_profiler_config = self.config.rollout.get("profiler", {})
         elif self._is_ref:
-            omega_profiler_config = config.ref.get("profiler", {})
+            omega_profiler_config = self.config.ref.get("profiler", {})
         else:
             raise ValueError(
                 f"Invalid role {self.role}, should be one of "
@@ -651,6 +657,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
+        # 4.1 two-phase initialization for rollout (rank already adjusted by parent ActorRolloutRefWorker)
+        rank = int(os.environ["RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+        visible_devices = os.environ.get(get_visible_devices_keyword().upper(), "")
+        self.rollout.adjust_rank_and_visible_devices(rank, local_rank, visible_devices)
+        self.rollout.init_worker()
 
         # Full params
         if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
@@ -1197,7 +1210,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 class CriticWorker(Worker, DistProfilerExtension):
     def __init__(self, config: FSDPCriticConfig):
         Worker.__init__(self)
-        omega_profiler_config = config.get("profiler", {})
+        self.config: FSDPCriticConfig = config
+
+    def init_worker(self):
+        super().init_worker()
+
+        omega_profiler_config = self.config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
@@ -1210,14 +1228,12 @@ class CriticWorker(Worker, DistProfilerExtension):
         )
         import torch.distributed
 
-        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-        self.config: FSDPCriticConfig = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
@@ -1651,8 +1667,12 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
     def __init__(self, config):
         Worker.__init__(self)
+        self.config = config
 
-        omega_profiler_config = config.get("profiler", {})
+    def init_worker(self):
+        super().init_worker()
+
+        omega_profiler_config = self.config.get("profiler", {})
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
         if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
             tool_config = omega_conf_to_dataclass(
@@ -1667,7 +1687,6 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
         import torch.distributed
 
-        self.config = config
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(
                 backend=get_nccl_backend(),

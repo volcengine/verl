@@ -121,7 +121,9 @@ class vLLMAsyncRollout(BaseRollout):
         super().__init__(config, model_config, device_mesh)
         self.tokenizer = self.model_config.tokenizer
         self.inference_engine: WorkerWrapperBase = None
-        self.address = self._init_zeromq()
+        self.address = None
+        self.socket = None
+        self.zmq_loop_task = None
         self.lora_config = (
             {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
             if self.model_config.lora_rank > 0
@@ -133,6 +135,16 @@ class vLLMAsyncRollout(BaseRollout):
             self.sleep_level = 1
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
+
+    def init_worker(self):
+        """Initialize the rollout engine after rank adjustment.
+
+        This method is called after adjust_rank_and_visible_devices() to ensure
+        correct rank assignment for ZeroMQ address binding.
+        """
+        super().init_worker()
+        # Initialize ZeroMQ after rank adjustment
+        self.address = self._init_zeromq()
 
     def _init_zeromq(self) -> str:
         tensor_parallel_size = self.config.tensor_model_parallel_size
