@@ -587,7 +587,12 @@ class AgentLoopWorker:
         if output.routed_experts is not None:
             total_length = input_ids.shape[1]
             length, layer_num, topk_num = output.routed_experts.shape
-            experts_tensor = torch.from_numpy(output.routed_experts)
+            if isinstance(output.routed_experts, np.ndarray):
+                experts_tensor = torch.from_numpy(output.routed_experts)
+            elif isinstance(output.routed_experts, torch.Tensor):
+                experts_tensor = output.routed_experts
+            else:
+                raise TypeError(f"Unsupported type for routed_experts: {type(output.routed_experts)}")
             routed_experts = torch.zeros(1, total_length, layer_num, topk_num, dtype=experts_tensor.dtype)
 
             # Calculate start position: left padding means original prompt starts at the end

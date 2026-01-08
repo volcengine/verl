@@ -200,6 +200,9 @@ class SGLangHttpServer:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
+        if self.config.enable_rollout_routing_replay:
+            args.update({"enable_return_routed_experts": True})
+
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
@@ -297,16 +300,22 @@ class SGLangHttpServer:
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 
-        request = GenerateReqInput(
-            rid=request_id,
-            input_ids=prompt_ids,
-            sampling_params=sampling_params,
-            return_logprob=return_logprob,
-            image_data=image_data,
+        request = {
+            "rid": request_id,
+            "input_ids": prompt_ids,
+            "sampling_params": sampling_params,
+            "return_logprob": return_logprob,
+            "image_data": image_data,
             # TODO: support video input for sglang
             # video_data=video_data,
-        )
-        output = await self.tokenizer_manager.generate_request(request, None).__anext__()
+        }
+
+        if self.config.enable_rollout_routing_replay:
+            request.update({"return_routed_experts": True})
+
+        generate_request = GenerateReqInput(**request)
+
+        output = await self.tokenizer_manager.generate_request(generate_request, None).__anext__()
         if return_logprob:
             output_token_logprobs = output["meta_info"]["output_token_logprobs"]
             log_probs, token_ids = zip(
@@ -315,7 +324,26 @@ class SGLangHttpServer:
         else:
             token_ids = output["output_ids"]
             log_probs = None
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+
+        routed_experts = None
+        if self.config.enable_rollout_routing_replay:
+            if self.config.skip_tokenizer_init:
+                routed_experts = output.get("meta_info", {}).get("routed_experts", None)
+            else:
+                from sglang.srt.layers.moe.routed_experts_capturer import extract_routed_experts_from_meta_info
+
+                hf_config = self.model_config.hf_config
+                if not hasattr(hf_config, "num_hidden_layers") or not hasattr(hf_config, "num_experts_per_tok"):
+                    raise AttributeError(
+                        "enable_rollout_routing_replay is set, but hf_config is missing "
+                        "'num_hidden_layers' or 'num_experts_per_tok'. This feature requires an MoE model "
+                        "configuration that defines these attributes."
+                    )
+                routed_experts = extract_routed_experts_from_meta_info(output).reshape(
+                    -1, hf_config.num_hidden_layers, hf_config.num_experts_per_tok
+                )
+
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
