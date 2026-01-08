@@ -1229,27 +1229,20 @@ def mapping_string_to_attn_backend(args: dict) -> dict:
         args["attention_backend"] = AttnBackend[args["attention_backend"]]
     return args
 
+
 def get_megatron_module_device(models: list[Any]) -> str:
     if not models:
-        return 'cpu' 
+        return "cpu"
 
     model_chunk = models[0]
-    if isinstance(model_chunk, DDP):
-        if not model_chunk.buffers:
-            try:
-                return next(model_chunk.module.parameters()).device.type
-            except StopIteration:
-                return 'cpu'
-
-        buffer = model_chunk.buffers[0]
-        if buffer.param_data.storage().size() == 0:
-            return 'cpu'
-        else:
-            return get_device_name()
-    else:
-        # for ref module
+    if not model_chunk.buffers:
         try:
-            param = next(model_chunk.parameters())
-            return param.data.device.type
+            return next(model_chunk.module.parameters()).device.type
         except StopIteration:
-            return 'cpu'
+            return "cpu"
+
+    buffer = model_chunk.buffers[0]
+    if buffer.param_data.storage().size() == 0:
+        return "cpu"
+    else:
+        return get_device_name()

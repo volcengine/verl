@@ -38,12 +38,12 @@ from verl.utils.megatron.tensor_parallel import (
     vocab_parallel_log_probs_from_logits,
 )
 from verl.utils.megatron_utils import (
+    get_megatron_module_device,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     register_megatron_training_hooks,
-    get_megatron_module_device,
 )
 from verl.utils.model import (
     extract_multi_modal_inputs,
