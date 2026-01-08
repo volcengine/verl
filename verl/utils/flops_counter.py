@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+
 import torch
 from transformers import PretrainedConfig
 
@@ -540,8 +542,8 @@ class FlopsCounter:
         """
         tokens_sum = sum(batch_seqlens)
         func = ESTIMATE_FUNC.get(self.config.model_type, _estimate_unknown_flops)
-        images_seqlens = kargs.get("images_seqlens", None)
-        if images_seqlens is not None and "vl" in func.__name__:
+        sig = inspect.signature(func)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
             estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time, **kargs)
         else:
             estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
