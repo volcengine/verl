@@ -25,7 +25,7 @@ from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     _qwen2_5_vl_dedup_image_tokens,
-    vLLMHttpServerBase,
+    vLLMHttpServer,
     vLLMReplica,
 )
 
@@ -34,7 +34,7 @@ logger.setLevel(logging.INFO)
 
 
 @ray.remote(num_cpus=1)
-class vLLMHttpServerForPartial(vLLMHttpServerBase):
+class vLLMHttpServerForPartial(vLLMHttpServer):
     def __init__(
         self,
         config: RolloutConfig,

@@ -168,7 +168,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         return
 
 
-class vLLMHttpServerBase:
+class vLLMHttpServer:
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -663,28 +663,6 @@ class vLLMHttpServerBase:
             return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
-@ray.remote(num_cpus=1)
-class vLLMHttpServer(vLLMHttpServerBase):
-    """vLLM http server in single node, this is equivalent to launch server with command line:
-    ```
-    vllm serve --tensor-parallel-size=8 ...
-    ```
-    """
-
-    def __init__(
-        self,
-        config: RolloutConfig,
-        model_config: HFModelConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        gpus_per_node: int,
-        nnodes: int,
-    ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
-
-
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 
@@ -698,7 +676,7 @@ class vLLMReplica(RolloutReplica):
         is_reward_model: bool = False,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
-        self.server_class = vLLMHttpServer
+        self.server_class = ray.remote(vLLMHttpServer)
 
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
