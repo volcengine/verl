@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import torch
+import inspect
 from transformers import PretrainedConfig
 
 from verl.utils.device import get_torch_device
@@ -540,13 +541,10 @@ class FlopsCounter:
         """
         tokens_sum = sum(batch_seqlens)
         func = ESTIMATE_FUNC.get(self.config.model_type, _estimate_unknown_flops)
-        try:
-            # Attempt to pass kargs, which is needed for VL models.
+        sig = inspect.signature(func)
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
             estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time, **kargs)
-        except TypeError as e:
-            if "unexpected keyword argument" in str(e):
-                estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
-            else:
-                raise
+        else:
+            estimated_flops = func(self.config, tokens_sum, batch_seqlens, delta_time)
         promised_flops = get_device_flops()
         return estimated_flops, promised_flops
