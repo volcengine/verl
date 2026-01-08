@@ -68,8 +68,8 @@ def prepare_single_generation_data(batch_dict, config) -> DataProto:
 
     full_batch = DataProto.from_single_dict(batch_dict)
 
-    batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
-    non_tensor_batch_keys_to_pop = ["raw_prompt_ids"]
+    batch_keys_to_pop = []
+    non_tensor_batch_keys_to_pop = []
 
     full_batch.pop(
         batch_keys=batch_keys_to_pop,

@@ -84,6 +84,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
     async def _init_agent_data(self, kwargs: dict, param_version: int) -> AgentData:
         messages = list(kwargs["raw_prompt"])
         image_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("image", None))
+        video_data = copy.deepcopy(kwargs.get("multi_modal_data", {}).get("video", None))
         metrics = {}
         request_id = uuid4().hex
         tools_kwargs = kwargs.get("tools_kwargs", {})
@@ -107,6 +108,7 @@ class AsyncPartialToolAgentLoop(ToolAgentLoop):
         agent_data = AgentData(
             messages=messages,
             image_data=image_data,
+            video_data=video_data,
             metrics=metrics,
             request_id=request_id,
             tools_kwargs=tools_kwargs,

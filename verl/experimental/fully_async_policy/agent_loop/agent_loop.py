@@ -111,9 +111,9 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
             sampling_params["top_p"] = config.val_kwargs.top_p
             sampling_params["temperature"] = config.val_kwargs.temperature
 
-        # by default, we assume it's a single turn agent
         if "agent_name" not in batch.non_tensor_batch:
-            batch.non_tensor_batch["agent_name"] = np.array(["single_turn_agent"] * len(batch), dtype=object)
+            default_agent_loop = config.agent.default_agent_loop
+            batch.non_tensor_batch["agent_name"] = np.array([default_agent_loop] * len(batch), dtype=object)
 
         if "index" in batch.non_tensor_batch:
             index = batch.non_tensor_batch["index"]
@@ -186,6 +186,8 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
                     server_manager=self.server_manager,
                     tokenizer=self.tokenizer,
                     processor=self.processor,
+                    dataset_cls=self.dataset_cls,
+                    dataset_config=self.config.data,
                 )
                 output: AgentLoopOutput = await agent_loop.run(
                     sampling_params, cancellation_event=self.cancellation_event, **kwargs
