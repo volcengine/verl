@@ -100,7 +100,6 @@ class AsyncLLMServerManager:
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
-        global_id: int = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -108,24 +107,13 @@ class AsyncLLMServerManager:
             request_id (str): request id for sticky session.
             prompt_ids (List[int]): List of prompt token ids.
             sampling_params (Dict[str, Any]): Sampling parameters for the chat completion.
-            global_id (int): request global id.
 
         Returns:
             TokenOutput: token output
         """
         server = self._choose_server(request_id)
-
-        new_request_id=uuid4().hex
-        if global_id is not None:
-            try:
-                tokens_queue = ray.get_actor("fault_manager_queue")
-            except:
-                pass
-            else:
-                await tokens_queue.put.remote((new_request_id, global_id))
-
         output = await server.generate.remote(
-            request_id=new_request_id,  # use new request_id for each turn
+            request_id=uuid4().hex,  # use new request_id for each turn
             prompt_ids=prompt_ids,
             sampling_params=sampling_params,
             image_data=image_data,
