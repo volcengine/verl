@@ -476,8 +476,6 @@ class RayWorkerGroup(WorkerGroup):
         """
         from collections import defaultdict
 
-        from verl.utils.net_utils import get_ip
-
         self.resource_pool = resource_pool
         pg = resource_pool.get_placement_group(device_name=self.device_name)
         world_size = resource_pool.world_size
@@ -512,16 +510,14 @@ class RayWorkerGroup(WorkerGroup):
             meta.gpu_ids = [int(x) for x in gpu_ids]
 
         # Step 3: Sort workers by IP for correct topology
-        driver_ip = get_ip()
-
         ip_counts: dict[str, int] = {}
         for ip, _, _ in worker_infos:
             ip_counts[ip] = ip_counts.get(ip, 0) + 1
 
-        def sort_by_driver_then_worker_ip(item: WorkerMeta):
+        def sort_by_master_then_worker_ip(item: WorkerMeta):
             """
             Sort the workers based on 3 properties:
-            1. If the worker is on the same node as the driver,
+            1. If the worker is on the same node as the master,
                 it should be placed first.
             2. Then, if the worker is on a node with fewer workers, it should
                 be placed first.
@@ -529,9 +525,9 @@ class RayWorkerGroup(WorkerGroup):
                 should be placed first.
             """
             ip = item.ip
-            return (0 if ip == driver_ip else 1, ip_counts[ip], ip)
+            return (0 if ip == self._master_addr else 1, ip_counts[ip], ip)
 
-        sorted_worker_meta = sorted(worker_meta_list, key=sort_by_driver_then_worker_ip)
+        sorted_worker_meta = sorted(worker_meta_list, key=sort_by_master_then_worker_ip)
 
         # Step 4: Build final workers list
         self._workers = [item.worker for item in sorted_worker_meta]
@@ -553,7 +549,7 @@ class RayWorkerGroup(WorkerGroup):
         for rank, item in enumerate(sorted_worker_meta):
             local_rank = node_workers[item.node_id].index(rank)
             visible_devices = str(node_gpus[item.node_id][local_rank])
-            future = item.worker.adjust_rank_and_visible_devices.remote(rank, local_rank, visible_devices)
+            future = item.worker.adjust_rank_and_visible_devices.remote(rank, 0, visible_devices)
             adjust_rank_futures.append(future)
         ray.get(adjust_rank_futures)
 
