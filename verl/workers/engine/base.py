@@ -24,6 +24,14 @@ from tensordict import TensorDict
 from verl.utils.device import get_device_name
 
 
+def _maybe_fix_3d_position_ids(data: TensorDict):
+    # note for tensordict with pickle/unpickle. nested tensor in tensordict after consolidate and pickle/unpickle
+    # will incur indexing error for ragged tensor. This only happens when using 3D position ids in VLMs.
+    # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
+    if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
+        data["position_ids"]._ragged_idx = 2
+
+
 class BaseEngine:
     """
     Abstract base class defining the interface for model training engines. Interface is subject to
@@ -118,6 +126,8 @@ class BaseEngine:
         Returns:
             dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the batch.
         """
+        _maybe_fix_3d_position_ids(data)
+
         self.optimizer_zero_grad()
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
@@ -136,6 +146,9 @@ class BaseEngine:
         Returns:
             Any: The output of the inference, which can be used for predictions or other purposes.
         """
+        # see comments from train_batch
+        _maybe_fix_3d_position_ids(data)
+
         with torch.no_grad():
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs

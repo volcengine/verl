@@ -184,7 +184,7 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
         assert tensor.is_nested and tensor.is_contiguous()
     unbind_tensors = []
     for tensor in tensors:
-        assert len(tensor.shape) == 2
+        assert len(tensor.shape) == 2, f"nested tensor must have 2 dimensions. Got {tensor.shape}"
         unbind_tensor = tensor.unbind(0)
         unbind_tensors.extend(list(unbind_tensor))
 
@@ -813,3 +813,30 @@ def unpad(data: TensorDict, pad_size):
     if pad_size != 0:
         data = data[:-pad_size]
     return data
+
+
+def contiguous(data: TensorDict) -> TensorDict:
+    """Call contiguous on a tensor dict. The contiguous function of tensordict lib will make NonTensorStack.
+    This function will always return a new tensordict
+
+    Args:
+        data: The input tensordict
+
+    Returns:
+        a tensordict that is contiguous
+
+    """
+    tensor_dict = {}
+    non_tensor_dict = {}
+
+    for key in data.keys():
+        val = data.get(key)
+        if isinstance(val, NonTensorData):
+            non_tensor_dict[key] = val
+        elif isinstance(val, NonTensorStack):
+            tensor_dict[key] = val
+        else:
+            assert isinstance(val, torch.Tensor), f"Expect val to be a torch.Tensor. Got {type(val)}"
+            tensor_dict[key] = val.contiguous()
+
+    return get_tensordict(tensor_dict=tensor_dict, non_tensor_dict=non_tensor_dict)
