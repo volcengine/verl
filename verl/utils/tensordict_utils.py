@@ -835,8 +835,8 @@ def contiguous(data: TensorDict) -> TensorDict:
             non_tensor_dict[key] = val
         elif isinstance(val, NonTensorStack):
             tensor_dict[key] = val
-
-        assert isinstance(val, torch.Tensor), f"Expect val to be a torch.Tensor. Got {type(val)}"
-        tensor_dict[key] = val.contiguous()
+        else:
+            assert isinstance(val, torch.Tensor), f"Expect val to be a torch.Tensor. Got {type(val)}"
+            tensor_dict[key] = val.contiguous()
 
     return get_tensordict(tensor_dict=tensor_dict, non_tensor_dict=non_tensor_dict)
