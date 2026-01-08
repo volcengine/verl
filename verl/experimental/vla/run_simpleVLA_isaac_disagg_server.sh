@@ -28,7 +28,7 @@ BATCH_SIZE=32
 ROLLOUT_N=8
 
 # 512 is required for libero benchmark, but you can reduce it in debugging to run faster
-MAX_EPISODE_STEPS=256
+MAX_EPISODE_STEPS=512
 
 # Number of tasks in the benchmark
 # Must satisfy: NUM_TASKS × GROUP_SIZE =  NUM_ROLLOUT_GPUS_PER_NODE × STAGE_NUM × ROLLOUT_N
@@ -43,8 +43,8 @@ SIM_TYPE=${SIM_TYPE:-"isaac"}
 PROJECT_NAME="vla-ray-isaac"
 EXPERIMENT_NAME="${SIM_TYPE}_ray_rl"
 
-# Enable Ray actor mode (recommended)
-USE_RAY_ACTORS=True
+# Enable Isaac server mode (recommended for multi-task)
+ISAAC_SERVER_MODE=True
 
 # Number of Isaac servers per stage (one per GPU)
 NUM_ISAAC_SERVERS=$NUM_ENV_GPUS_TOTAL
@@ -122,13 +122,13 @@ $PYTHON -m verl.experimental.vla.main_ppo \
     env.train.seed=42 \
     env.disagg_sim.enable=True \
     env.disagg_sim.nnodes=$SIM_NODES \
-    env.train.isaac_server_mode=$USE_RAY_ACTORS \
+    env.train.isaac_server_mode=$ISAAC_SERVER_MODE \
     env.train.num_isaac_servers=$NUM_ISAAC_SERVERS \
     env.train.num_tasks=$NUM_TASKS \
     env.train.group_size=$GROUP_SIZE \
     env.train.env_id=$ISAAC_ENV_ID \
-    env.train.camera_height=$CAMERA_HEIGHT \
-    env.train.camera_width=$CAMERA_WIDTH \
+    env.train.init_params.camera_heights=$CAMERA_HEIGHT \
+    env.train.init_params.camera_widths=$CAMERA_WIDTH \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
     actor_rollout_ref.model.path=$SFT_MODEL_PATH \
     actor_rollout_ref.rollout.mode=async_envloop \

@@ -49,6 +49,7 @@ class EnvLoop:
         self.num_envs_per_worker = config.env.train.num_envs
         self.action_dim = config.env.actor.model.action_dim
         self.num_action_chunks = config.env.actor.model.num_action_chunks
+        self.isaac_server_mode = config.env.train.get("isaac_server_mode", False)
         # Derived properties
         # In server/ray mode, total_trajs is configured explicitly
         # In local mode, it's computed from world_size * num_envs_per_worker
@@ -168,14 +169,16 @@ class EnvLoop:
         Reset returns data in interleaved format:
             traj_0 (stage_0), traj_1 (stage_1), traj_2 (stage_0), traj_3 (stage_1), ...
 
-        Each trajectory has num_envs_per_worker (e.g., 8) environments.
-        We need to de-interleave by stage.
+        In isaac_server_mode: each traj maps to exactly one env (1:1), so we chunk by total_trajs.
+        In local mode: each trajectory has num_envs_per_worker environments.
         """
-        # Total trajectories = total_trajs / num_envs_per_worker
-        num_trajectories = self.total_trajs // self.num_envs_per_worker
-
-        # Chunk data by trajectory (each trajectory = num_envs_per_worker envs)
-        trajectory_chunks = data_proto.chunk(num_trajectories)
+        if self.isaac_server_mode:
+            # Isaac server mode: traj and env are 1:1, chunk by total_trajs
+            trajectory_chunks = data_proto.chunk(self.total_trajs)
+        else:
+            # Local mode: each trajectory has num_envs_per_worker envs
+            num_trajectories = self.total_trajs // self.num_envs_per_worker
+            trajectory_chunks = data_proto.chunk(num_trajectories)
 
         # Group by stage (trajectories are assigned round-robin to stages)
         staged_data = [[] for _ in range(self.stage_num)]
