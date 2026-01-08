@@ -341,7 +341,7 @@ def register(agent_name: str):
     return decorator
 
 
-class AgentLoopWorkerBase:
+class AgentLoopWorker:
     """Agent loop worker takes a batch of messages and run each message in an agent loop."""
 
     def __init__(
@@ -351,10 +351,10 @@ class AgentLoopWorkerBase:
         reward_router_address: str = None,
     ):
         """Initialize agent loop manager.
-
         Args:
             config (DictConfig): YAML config.
             server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
+            reward_router_address (str): reward router address.
         """
         self.config = config
 
@@ -804,22 +804,6 @@ class AgentLoopWorkerBase:
         )
 
 
-@ray.remote
-class AgentLoopWorker(AgentLoopWorkerBase):
-    """Agent loop worker takes a batch of messages and run each message in an agent loop."""
-
-    def __init__(
-        self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
-    ):
-        """Initialize agent loop manager.
-        Args:
-            config (DictConfig): YAML config.
-            server_handles (List[ray.actor.ActorHandle]): OpenAI compatible LLM server actor handles.
-            reward_router_address (str): reward router address.
-        """
-        super().__init__(config, server_handles, reward_router_address)
-
-
 async def get_trajectory_info(step, index, validate):
     """Get trajectory info.
 
@@ -869,7 +853,7 @@ class AgentLoopManager:
         if not hasattr(self, "rollout_replica_class"):
             self.rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
         if not hasattr(self, "agent_loop_workers_class"):
-            self.agent_loop_workers_class = AgentLoopWorker
+            self.agent_loop_workers_class = ray.remote(AgentLoopWorker)
 
         self._initialize_llm_servers()
         self._init_agent_loop_workers()
