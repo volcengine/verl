@@ -926,7 +926,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 metrics = self.actor.update_policy(data=data)
             delta_time = timer.last
             global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+            images_seqlens = data.meta_info.get("images_seqlens", None)
+            estimated_flops, promised_flops = self.flops_counter.estimate_flops(
+                global_num_tokens, delta_time, images_seqlens=images_seqlens
+            )
             metrics["perf/mfu/actor"] = (
                 estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
@@ -1022,15 +1025,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info["max_token_len"] = config_source.log_prob_max_token_len_per_gpu
         data.meta_info["use_dynamic_bsz"] = config_source.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
-
         data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         # perform recompute log_prob
+        calculate_entropy = not is_lora
         with self.ulysses_sharding_manager:
             with adapter_ctx:
-                output, entropys = self.actor.compute_log_prob(data=data, calculate_entropy=not is_lora)
-            tensors = {"ref_log_prob": output} if is_lora else {"old_log_probs": output}
+                outputs = self.actor.compute_log_prob(data=data, calculate_entropy=calculate_entropy)
             if not is_lora:
-                tensors["entropys"] = entropys
+                tensors = {"old_log_probs": outputs["log_probs"]}
+            else:
+                tensors = {"ref_log_prob": outputs["log_probs"]}
+            if calculate_entropy:
+                tensors["entropys"] = outputs["entropys"]
+            if "sum_pi_squared" in outputs:
+                tensors["sum_pi_squared"] = outputs["sum_pi_squared"]
             output = DataProto.from_dict(
                 tensors=tensors,
                 meta_info={"temperature": self.config.rollout.temperature},
@@ -1068,8 +1076,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         data.meta_info.setdefault("pad_token_id", self.tokenizer.pad_token_id)
         with self.ulysses_sharding_manager:
             data = data.to("cpu")  # data will to device with each micro batch on ref.compute_log_prob
-            output, _ = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
-            output = DataProto.from_dict(tensors={"ref_log_prob": output})
+            outputs = self.ref_policy.compute_log_prob(data=data, calculate_entropy=False)
+            output = DataProto.from_dict(tensors={"ref_log_prob": outputs["log_probs"]})
 
         output = output.to("cpu")
 

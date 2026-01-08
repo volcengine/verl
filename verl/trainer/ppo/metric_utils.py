@@ -22,6 +22,7 @@ from typing import Any, Callable
 import numpy as np
 import torch
 
+import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.utils.import_utils import deprecated
 
@@ -300,6 +301,120 @@ def compute_throughout_metrics(batch: DataProto, timing_raw: dict[str, float], n
         "perf/time_per_step": time,
         "perf/throughput": total_num_tokens / (time * n_gpus),
     }
+
+
+def compute_variance_proxy_metrics(batch: DataProto, gradient_norm: float = None) -> dict[str, float]:
+    """
+    Compute variance proxy metrics using the simplified expected squared norm approach.
+
+    This metric provides a computationally efficient way to monitor gradient variance
+    during training. It works for any advantage estimator as long as sum_pi_squared
+    is available from the actor.
+
+    Theory:
+    - Full variance: Var(g̃) = E[||g̃||²] - ||g_true||²
+    - Simplified proxy (when ||g_true||² ≈ 0): Var(g̃) ≈ E[||g̃||²]
+    - Using W-score approximation: E[||g̃||²] ≈ E[A² × W(τ)]
+
+    Where W(τ) = Σ_t[1 - 2π_t(y_t) + Σπ²] is the score-norm proxy.
+    """
+    metrics = {}
+
+    # Check if we have the necessary data (sum_pi_squared is required for W-score)
+    if "sum_pi_squared" not in batch.batch or "old_log_probs" not in batch.batch or "advantages" not in batch.batch:
+        return metrics
+
+    # Compute W(τ) = Σ_t[1 - 2π_t(y_t) + Σπ²]
+    pi_t = torch.exp(batch.batch["old_log_probs"])
+    w_per_timestep = 1 - 2 * pi_t + batch.batch["sum_pi_squared"]
+
+    # Get response mask to only consider valid tokens
+    response_mask = batch.batch["response_mask"]
+
+    # Use pre-computed rollout IS weights from batch (for variance proxy consistency with training loss)
+    # IS weights are computed centrally in ray_trainer.py to avoid duplication
+    rollout_is_weights = None
+    if "rollout_is_weights" in batch.batch:
+        # Extract pre-computed IS weights from batch (already computed in trainer)
+        rollout_is_weights = batch.batch["rollout_is_weights"]
+
+        # Scale W by (rollout IS weight)² for optimal baseline under biased estimation
+        w_per_timestep = w_per_timestep * (rollout_is_weights**2).detach()
+
+        # Note: IS weight statistics and mismatch metrics are logged in ray_trainer.py
+
+    # Get scalar advantages (mean over timesteps)
+    advantages = batch.batch["advantages"]
+    # Compute mean advantage per trajectory using masked_mean
+    advantages_scalar = verl_F.masked_mean(advantages, response_mask, axis=-1)
+
+    # Compute W values (sum over timesteps)
+    w_values = verl_F.masked_sum(w_per_timestep, response_mask, axis=-1)
+
+    # ====== COMPUTE VARIANCE PROXIES ======
+    # Variance proxy should match the actual gradient computation:
+    # - If IS weights were computed/applied: use them in variance proxy calculation
+    # - Otherwise: compute on-policy variance proxy
+
+    # ====== PROXY 1: Signal Strength ||ḡ||² ======
+    # The squared norm of the mean gradient (provided from training loop)
+    proxy1_signal_strength = gradient_norm**2 if gradient_norm is not None else None
+
+    # ====== PROXY 2: Total Power E[||ĝ_τ||²] ======
+    # Measures the average of squared gradient norms (Signal + Noise)
+    if rollout_is_weights is not None:
+        # Off-policy with IS correction applied: use clamped weights consistently with actual gradient computation
+        rollout_is_weights_scalar = verl_F.masked_mean(rollout_is_weights, response_mask, axis=-1)
+        # Recover original W (before IS correction was applied in line 657)
+        # Clamp to avoid division by zero when IS weights are zero
+        w_original = verl_F.masked_sum(
+            w_per_timestep / torch.clamp((rollout_is_weights**2).detach(), min=1e-10), response_mask, axis=-1
+        )
+        # Clamp W to avoid negative values (which would cause NaN in sqrt)
+        w_original = torch.clamp(w_original, min=0.0)
+        # Proxy 2 for off-policy: E[ρ̄² × A² × W]
+        proxy2_total_power = ((rollout_is_weights_scalar**2) * (advantages_scalar**2) * w_original).mean()
+
+    else:
+        # On-policy Proxy 2: E[A² × W]
+        # Clamp W to avoid negative values (which would cause NaN in sqrt)
+        w_values_clamped = torch.clamp(w_values, min=0.0)
+        proxy2_total_power = (advantages_scalar**2 * w_values_clamped).mean()
+
+    # ====== PROXY 3: Pure Noise - Variance of Mean Vector ======
+    # Requires ||ḡ||² from actual batch gradient
+    # Formula: (1/(N-1)) × (Proxy2 - Proxy1)
+    proxy3_pure_noise = None
+    if proxy1_signal_strength is not None:
+        batch_size = advantages_scalar.shape[0]
+        if batch_size > 1:
+            proxy3_pure_noise = (1.0 / (batch_size - 1)) * (proxy2_total_power - proxy1_signal_strength)
+            # Ensure non-negative (can be negative due to numerical errors)
+            proxy3_pure_noise = max(
+                0.0, proxy3_pure_noise.item() if torch.is_tensor(proxy3_pure_noise) else proxy3_pure_noise
+            )
+
+    # Decompose into components for analysis
+    expected_a_squared = (advantages_scalar**2).mean()
+    expected_w = w_values.mean()
+
+    metrics.update(
+        {
+            # Proxy 1: Signal Strength ||ḡ||²
+            "variance_proxy/proxy1_signal_strength": (
+                proxy1_signal_strength if proxy1_signal_strength is not None else 0.0
+            ),
+            # Proxy 2: Total Power E[||ĝ_τ||²]
+            "variance_proxy/proxy2_total_power": proxy2_total_power.detach().item(),
+            # Proxy 3: Pure Noise - Variance of Mean Vector
+            "variance_proxy/proxy3_pure_noise": proxy3_pure_noise if proxy3_pure_noise is not None else 0.0,
+            # Component metrics for debugging
+            "variance_proxy/expected_a_squared": expected_a_squared.detach().item(),
+            "variance_proxy/expected_w": expected_w.detach().item(),
+        }
+    )
+
+    return metrics
 
 
 def bootstrap_metric(
