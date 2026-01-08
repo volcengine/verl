@@ -24,7 +24,7 @@ from omegaconf import DictConfig
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopManager,
     AgentLoopOutput,
-    AgentLoopWorkerBase,
+    AgentLoopWorker,
     AsyncLLMServerManager,
     DictConfigWrap,
     _agent_loop_registry,
@@ -77,7 +77,7 @@ class FullyAsyncLLMServerManager(AsyncLLMServerManager):
 
 
 @ray.remote
-class FullyAsyncAgentLoopWorker(AgentLoopWorkerBase):
+class FullyAsyncAgentLoopWorker(AgentLoopWorker):
     def __init__(
         self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
     ):
