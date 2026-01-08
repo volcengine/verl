@@ -115,7 +115,7 @@ jobs:
         run: |
           pip3 install hf_transfer fastmcp pytest-asyncio
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

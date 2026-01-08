@@ -32,7 +32,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip install pre-commit hydra-core
-          pip install --no-deps -e .
+          pip install --no-deps -e --force-reinstall .
       - name: Set ruff --output-format=github
         run: |
           sed -i 's/--output-format=full/--output-format=github/' .pre-commit-config.yaml

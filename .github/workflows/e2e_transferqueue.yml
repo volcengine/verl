@@ -118,7 +118,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
           pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple TransferQueue==0.1.5
       - name: Prepare GSM8K dataset
         run: |
@@ -148,7 +148,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
           pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple TransferQueue==0.1.5
       - name: Prepare GSM8K dataset
         run: |

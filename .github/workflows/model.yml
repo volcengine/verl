@@ -99,7 +99,7 @@ jobs:
       - name: Install the current repository and upgrade to latest transformers(4.54.0)/flash_attn, transformers 4.55.0 has strange behavior with model backward
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
           pip3 install --upgrade transformers
       - name: Running rmpad model tests on 8 L20 GPUs + flash_attn 2.5.8
         run: |
@@ -140,7 +140,7 @@ jobs:
       - name: Install the current repository and upgrade to latest transformers/flash_attn
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
       - name: Running FSDP2 rmpad model tests on 8 L20 GPUs + latest flash_attn
         run: |
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py
@@ -163,7 +163,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
       - name: Download model config files
         run: |
           hf download Qwen/Qwen2.5-0.5B-Instruct --local-dir $HOME/models/Qwen/Qwen2.5-0.5B-Instruct

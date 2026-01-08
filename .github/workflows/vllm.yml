@@ -108,7 +108,7 @@ jobs:
       - name: Install the current repository
         run: |
           pip3 install -r requirements-test.txt
-          pip3 install --no-deps -e .
+          pip3 install --no-deps -e --force-reinstall .
       #      - name: Download Model to Use
       #        run: |
       #          huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct --local-dir ${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct
