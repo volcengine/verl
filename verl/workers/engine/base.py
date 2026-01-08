@@ -33,7 +33,7 @@ def _maybe_fix_3d_position_ids(data: TensorDict):
     if position_ids is not None and position_ids.dim() == 3 and position_ids.is_nested:
         # VLMs 3D position_ids
         position_ids._ragged_idx = 2
-    data["position_ids"] = position_ids
+        data["position_ids"] = position_ids
 
 
 class BaseEngine:
