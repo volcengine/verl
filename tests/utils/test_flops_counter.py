@@ -366,12 +366,90 @@ CONFIG = {
             753976643420160 / 1e12,
         ),
     },
+    "qwen3_vl_moe": {
+        "config": {  # Qwen/Qwen3-VL-30B-A3B
+            "model_type": "qwen3_vl_moe",
+            # -------- Text config --------
+            "text_config": {
+                "vocab_size": 151936,
+                "hidden_size": 2048,
+                "num_hidden_layers": 48,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 4,
+                "head_dim": 128,
+                "moe_intermediate_size": 768,
+                "num_experts": 128,
+                "num_experts_per_tok": 8,
+            },
+            # -------- Vision config (ViT) --------
+            "vision_config": {
+                "deepstack_visual_indexes": [8, 16, 24],
+                "num_heads": 16,
+                "depth": 27,
+                "hidden_size": 1152,
+                "intermediate_size": 4304,
+                "out_hidden_size": 4096,
+                "spatial_merge_size": 2,
+                "temporal_patch_size": 2,
+                "in_channels": 3,
+                "patch_size": 16,
+            },
+        },
+        "batch_seqlens_tuple": (
+            [512, 1024, 2048],
+            [4096, 4096, 4096],
+        ),
+        "images_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # -----Text-----
+        # 6*(vocab*hidden*2
+        #   + layer*(hidden*(q+k+v+head*head_dim)+hidden*inter*top_k_exp*3+hidden*num_experts)
+        # )*token_sum
+        # + 12*sum(seqlen^2)*layer*hidden
+        #
+        # -----ViT-----
+        # patch_embed_N =hidden*temporal_patch_size*in_channels* patch_size^2
+        # attn_linear_N =hidden*(4*hidden)
+        # mlp_N =hidden*inter*2
+        # merger_N =((o+hidden*spatial_merge_size^2) * (hidden*spatial_merge_size^2))
+        # deepstack_merger_N =merger_N * 3
+        # dense_N =patch_embed_N + (attn_linear_N + mlp_N) * 27 + deepstack_merger_N + merger_N
+        #
+        # 6*(151936*2048*2
+        #   + 48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128)
+        # )*(512+1024+2048)
+        # + 12*(512*512+1024*1024+2048*2048)*36*4096
+        # + 6 * dense_N * (512 + 1024 + 2048)
+        # + 12 * (512**2 + 1024**2 + 2048**2) * 27 * 16 * 72
+        #
+        # 6*(151936*2048*2
+        #   48*(2048*(128*32+128*4*2+128*32)+2048*768*8*3+2048*128)
+        # )*(4096+4096+4096)
+        # + 12*(4096*4096+4096*4096+4096*4096)*36*4096
+        # + 6 * dense_N * (4096 + 4096 + 2048)
+        # + 12 * (4096**2 + 4096**2 + 4096**2) * 27 * 16 * 72
+        "expected_flops_tuple": (
+            99469441892352 / 1e12,
+            426996488208384 / 1e12,
+        ),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus", "gpt_oss", "qwen3_vl"],
+    [
+        "llama",
+        "qwen2",
+        "qwen3",
+        "qwen3_moe",
+        "deepseek_v3",
+        "mistral",
+        "gemma3_text",
+        "apertus",
+        "gpt_oss",
+        "qwen3_vl",
+        "qwen3_vl_moe",
+    ],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
