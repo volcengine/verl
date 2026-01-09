@@ -159,8 +159,13 @@ def copy_to_shm(src: str):
                 f"restart the task."
             )
         else:
+            if os.path.lexists(dest):
+                if os.path.isdir(dest) and not os.path.islink(dest):
+                    shutil.rmtree(dest)
+                else:
+                    os.remove(dest)
             if os.path.isdir(src):
-                shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True)
+                shutil.copytree(src, dest, symlinks=False)
             else:
                 shutil.copy2(src, dest)
     return dest
