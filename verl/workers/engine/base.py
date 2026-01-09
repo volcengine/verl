@@ -22,14 +22,9 @@ import torch
 from tensordict import TensorDict
 
 from verl.utils.device import get_device_name
+from verl.utils.tensordict_utils import _maybe_fix_3d_position_ids
 
 
-def _maybe_fix_3d_position_ids(data: TensorDict):
-    # note for tensordict with pickle/unpickle. nested tensor in tensordict after consolidate and pickle/unpickle
-    # will incur indexing error for ragged tensor. This only happens when using 3D position ids in VLMs.
-    # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
-    if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
-        data["position_ids"]._ragged_idx = 2
 
 
 class BaseEngine:
