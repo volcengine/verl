@@ -210,6 +210,8 @@ class DistProfiler:
 
         self._impl = None
         self._tool = getattr(config, "tool", None)
+        self._enable = config.enable
+        self._this_step = False
 
         # Normalize rank selection
         self._this_rank = False
@@ -219,7 +221,9 @@ class DistProfiler:
             self._this_rank = rank in config.ranks
         else:
             # default rank 0 if enabled but ranks unspecified
-            self._this_rank = (rank == 0) if config.enable else False
+            self._this_rank = (rank == 0) if self._enable else False
+
+        self._discrete = getattr(tool_config, "discrete", False)  # Profiler and TorchMemoryProfiler currently do not support discrete mode. 
 
         # Lazy import to avoid circular deps
         if self._tool == "nsys":
@@ -239,11 +243,31 @@ class DistProfiler:
             # Fallback to a no-op impl
             self._impl = _NoOpProfiler()
 
-    def start(self, **kwargs):
-        return getattr(self._impl, "start", lambda **_: None)(**kwargs)
+    def enable_profiler_this_step(self):
+        self._this_step = True
 
-    def stop(self):
-        return getattr(self._impl, "stop", lambda: None)()
+    def disable_profiler_this_step(self):
+        self._this_step = False
+
+    def check_enable(self):
+        return self._enable
+
+    def check_this_step(self):
+        return self._this_step
+
+    def check_this_rank(self):
+        return self._this_rank
+
+    def is_discrete_mode(self):
+        return self._discrete
+
+    def start_profiler(self, **kwargs):
+        if self.check_enable() and self.check_this_step() and self.check_this_rank():
+            return getattr(self._impl, "start_profiler", lambda **_: None)(**kwargs)
+
+    def stop_profiler(self):
+        if self.check_enable() and self.check_this_step() and self.check_this_rank():
+            return getattr(self._impl, "stop_profiler", lambda: None)()
 
     @classmethod
     def annotate(
@@ -258,7 +282,7 @@ class DistProfiler:
             @functools.wraps(func)
             def wrapper(self_instance, *args, **kwargs_inner):
                 profiler = getattr(self_instance, "profiler", None)
-                if not profiler:
+                if not profiler or not profiler.check_enable() or not profiler.check_this_step() or not profiler.check_this_rank():
                     return func(self_instance, *args, **kwargs_inner)
 
                 impl = profiler._impl
@@ -379,11 +403,21 @@ class DistProfilerExtension:
     from verl.single_controller.base.decorator import Dispatch, register
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def start_profile(self, **kwargs) -> None:
+    def start_profiler(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
-        self.profiler.start(**kwargs)
+        self.profiler.start_profiler(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def stop_profile(self) -> None:
+    def stop_profiler(self) -> None:
         """Stop profiling for the current rank in the current training step."""
-        self.profiler.stop()
+        self.profiler.stop_profiler()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def enable_profiler_this_step(self) -> None:
+        """Enable profiling for the current rank in the current training step."""
+        self.profiler.enable_profiler_this_step()
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def disable_profiler_this_step(self) -> None:
+        """Disable profiling for the current rank in the current training step."""
+        self.profiler.disable_profiler_this_step()
