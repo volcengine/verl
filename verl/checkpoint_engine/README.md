@@ -8,7 +8,7 @@ Checkpoint Engine is an unified abstract layer to synchronize weights between va
 - receive_weights: return a tensor generator that yield named tensors in streaming manner.
 - get_weights: return a tensor generator that yield named tensors in streaming manner, used for each inference instance update weight independently from local cache (e.g share memory, disk).
 
-![checkpoint-engine](https://github.com/wuxibin89/verl/blob/wuxibin/doc_images/docs/_static/checkpoint-engine.png?raw=true)
+![checkpoint-engine](https://github.com/wuxibin89/verl/blob/wuxibin/doc_images/docs/_static/checkpoint_engine.png?raw=true)
 
 ### Supported Backends
 

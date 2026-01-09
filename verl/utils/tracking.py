@@ -23,6 +23,8 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import orjson
+
 
 class Tracking:
     """A unified tracking interface for logging experiment data to multiple backends.
@@ -243,11 +245,11 @@ class FileLogger:
             os.makedirs(directory, exist_ok=True)
             self.filepath = os.path.join(directory, f"{self.experiment_name}.jsonl")
             print(f"Creating file logger at {self.filepath}")
-        self.fp = open(self.filepath, "w")
+        self.fp = open(self.filepath, "wb", buffering=0)
 
     def log(self, data, step):
         data = {"step": step, "data": data}
-        self.fp.write(json.dumps(data) + "\n")
+        self.fp.write(orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY) + b"\n")
 
     def finish(self):
         self.fp.close()
@@ -421,7 +423,6 @@ class ValidationGenerationsLogger:
         """Log validation generation to mlflow as artifacts"""
         # https://mlflow.org/docs/latest/api_reference/python_api/mlflow.html?highlight=log_artifact#mlflow.log_artifact
 
-        import json
         import tempfile
 
         import mlflow

@@ -35,6 +35,7 @@ from verl.utils.device import (
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
+from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import allgather_dict_into_dict
@@ -242,7 +243,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
                     for key, val in output.items():
                         # flattn dp and micro batch
                         if isinstance(val, list):
-                            output[key] = list(chain.from_iterable(val))
+                            output[key] = (
+                                Metric.chain(val) if isinstance(val[0], Metric) else list(chain.from_iterable(val))
+                            )
                     append_to_dict(metrics, output)
 
                 output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics}).cpu()
@@ -563,7 +566,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         # 1. get per tensor generator from engine, this will load model to gpu
-        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param()
+        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param(
+            layered_summon=self.layered_summon, base_sync_done=self.base_sync_done
+        )
 
         # 2. resume weights and update weights
         if self.config.rollout.free_cache_engine:

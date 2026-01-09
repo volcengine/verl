@@ -38,6 +38,7 @@ from verl.utils.megatron.tensor_parallel import (
     vocab_parallel_log_probs_from_logits,
 )
 from verl.utils.megatron_utils import (
+    get_megatron_module_device,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
@@ -437,7 +438,8 @@ class MegatronEngine(BaseEngine):
             global_step: Integer training step number for naming.
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
-        if self._is_offload_param:
+        origin_module_device = get_megatron_module_device(self.module)
+        if self._is_offload_param or origin_module_device == "cpu":
             load_megatron_model_to_gpu(self.module, load_grad=True)
         self.checkpoint_mananager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
@@ -536,9 +538,12 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-    def get_per_tensor_param(self):
+    def get_per_tensor_param(self, **kwargs):
         load_megatron_model_to_gpu(self.module, load_grad=False)
-        per_tensor_param = self.bridge.export_weights(self.module)
+        if self.vanilla_bridge:
+            per_tensor_param = self.bridge.export_weights(self.module)
+        else:
+            per_tensor_param = self.bridge.export_hf_weights(self.module)
         # TODO: support megatron LoRA
         return per_tensor_param, None
 

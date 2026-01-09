@@ -1,7 +1,6 @@
 # The script has been validated on the Ascend Atlas 800T A3.
 set -x
 
-export VLLM_ASCEND_ENABLE_NZ=0
 export HCCL_EXEC_TIMEOUT=60000
 export HCCL_CONNECT_TIMEOUT=7200
 

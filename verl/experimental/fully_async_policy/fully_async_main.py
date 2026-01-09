@@ -45,7 +45,7 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     mapping = {}
 
     # Actor/Critic resource pool
-    if any(role in roles for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]):
+    if any(role in roles for role in [Role.Actor, Role.ActorRollout, Role.Critic, Role.RefPolicy, Role.RewardModel]):
         assert config.trainer.n_gpus_per_node > 0, "config.trainer.n_gpus_per_node must be greater than 0"
         assert config.trainer.nnodes > 0, "config.trainer.nnodes must be greater than 0"
 
@@ -53,7 +53,7 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         resource_pool_spec["trainer_pool"] = trainer_pool
 
         # Map training-related roles to the same resource pool
-        for role in [Role.Actor, Role.Critic, Role.RefPolicy, Role.RewardModel]:
+        for role in [Role.Actor, Role.ActorRollout, Role.Critic, Role.RefPolicy, Role.RewardModel]:
             if role in roles:
                 mapping[role] = "trainer_pool"
 
@@ -104,8 +104,9 @@ def create_role_worker_mapping(config):
     else:
         raise NotImplementedError(f"Unsupported strategy: {config.actor_rollout_ref.actor.strategy}")
 
+    train_role = Role.ActorRollout if config.async_training.use_trainer_do_validate else Role.Actor
     role_worker_mapping = {
-        Role.Actor: ray.remote(DetachActorWorker),
+        train_role: ray.remote(DetachActorWorker),
         Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
         Role.Critic: ray.remote(CriticWorker),
     }
@@ -207,7 +208,13 @@ class FullyAsyncTaskRunner:
         # param_version resume from ckpt or default 0
         param_version = ray.get(self.components["trainer"].load_checkpoint.remote())
         ray.get(self.components["rollouter"].load_checkpoint.remote())
-        ray.get(param_synchronizer.sync_weights.remote(version=param_version, validate=val_before_train))
+        ray.get(
+            param_synchronizer.sync_weights.remote(
+                version=param_version,
+                validate=val_before_train,
+                use_trainer_do_validate=config.async_training.use_trainer_do_validate,
+            )
+        )
         ray.get(param_synchronizer.wait_last_valid.remote())
 
         self.components["param_synchronizer"] = param_synchronizer
