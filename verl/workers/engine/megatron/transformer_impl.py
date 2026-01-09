@@ -33,10 +33,8 @@ from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.megatron.tensor_parallel import (
-    vocab_parallel_entropy,
-    vocab_parallel_log_probs_from_logits,
-)
+from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
+from verl.utils.megatron_peft_utils import add_base_layer_suffix, build_peft_config_for_vllm
 from verl.utils.megatron_utils import (
     get_megatron_module_device,
     load_megatron_model_to_gpu,
@@ -45,17 +43,11 @@ from verl.utils.megatron_utils import (
     offload_megatron_optimizer,
     register_megatron_training_hooks,
 )
-from verl.utils.model import (
-    extract_multi_modal_inputs,
-    load_mcore_dist_weights,
-)
+from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
-from ..utils import (
-    postprocess_batch_func,
-    prepare_micro_batches,
-)
+from ..utils import postprocess_batch_func, prepare_micro_batches
 from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
@@ -182,10 +174,7 @@ class MegatronEngine(BaseEngine):
         )
 
     def _build_megatron_module(self):
-        from verl.utils.megatron_utils import (
-            McoreModuleWrapperConfig,
-            make_megatron_module,
-        )
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
         from verl.utils.model import print_model_size
 
         # TODO: add more cases
@@ -240,10 +229,7 @@ class MegatronEngine(BaseEngine):
         return module
 
     def _build_optimizer(self):
-        from verl.utils.megatron.optimizer import (
-            get_megatron_optimizer,
-            init_megatron_optim_config,
-        )
+        from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
         optim_config_megatron = init_megatron_optim_config(
             self.optimizer_config,
@@ -538,14 +524,21 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-    def get_per_tensor_param(self, **kwargs):
+    def get_per_tensor_param(self, base_sync_done=False, **kwargs):
         load_megatron_model_to_gpu(self.module, load_grad=False)
+        peft_config = None
+        non_merge_lora_sync = self.peft_cls is not None and not self.model_config.lora.get("merge", False)
         if self.vanilla_bridge:
             per_tensor_param = self.bridge.export_weights(self.module)
+        elif base_sync_done and non_merge_lora_sync:
+            # Only export adapter weights
+            peft_config = build_peft_config_for_vllm(self.model_config.lora)
+            per_tensor_param = self.bridge.export_adapter_weights(self.module)
         else:
             per_tensor_param = self.bridge.export_hf_weights(self.module)
-        # TODO: support megatron LoRA
-        return per_tensor_param, None
+            if non_merge_lora_sync:
+                per_tensor_param = add_base_layer_suffix(per_tensor_param)
+        return per_tensor_param, peft_config
 
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
