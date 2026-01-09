@@ -172,7 +172,7 @@ jobs:
         run: |
           rm -rf checkpoints
 
-  e2e_ppo_trainer_megatron-qwen3:
+  e2e_ppo_trainer_megatron-qwen2:
     needs: setup
     runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 10 # Increase this timeout value as needed
@@ -194,32 +194,40 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp > infer tp
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen), dummy RM, and train tp > infer tp
         run: |
           ray stop --force
           ENGINE=trtllm \
-            VAL_BEFORE_TRAIN=True \
-            TEST_FREQ=1 \
-            SAVE_FREQ=1 \
-            TRAIN_TP=2 \
-            INFER_TP=1 \
-            MODEL_ID=Qwen/Qwen3-0.6B \
-            bash tests/special_e2e/run_ppo_trainer_megatron.sh \
-              actor_rollout_ref.rollout.mode=async \
-              actor_rollout_ref.rollout.calculate_log_probs=True
-      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with tie-embedding Megatron (Qwen) with train tp < infer tp
+          TOTAL_TRAIN_STEPS=2 \
+          VAL_BEFORE_TRAIN=True \
+          TEST_FREQ=1 \
+          SAVE_FREQ=1 \
+          TRAIN_TP=2 \
+          INFER_TP=1 \
+          RM_TP=4 \
+          RM_NUM_WORKERS=4 \
+          MODEL_ID=Qwen/Qwen2.5-1.5B \
+          RM_MODEL_PATH=${HOME}/models/Qwen/Qwen2.5-Math-RM-dummy-8B \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh \
+            actor_rollout_ref.rollout.mode=async \
+            actor_rollout_ref.rollout.calculate_log_probs=True
+      - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen), dummy RM, and train tp < infer tp
         run: |
           ray stop --force
           ENGINE=trtllm \
-            VAL_BEFORE_TRAIN=True \
-            TEST_FREQ=1 \
-            SAVE_FREQ=1 \
-            TRAIN_TP=1 \
-            INFER_TP=2 \
-            MODEL_ID=Qwen/Qwen3-0.6B \
-            bash tests/special_e2e/run_ppo_trainer_megatron.sh \
-              actor_rollout_ref.rollout.mode=async \
-              actor_rollout_ref.rollout.calculate_log_probs=True
+          TOTAL_TRAIN_STEPS=2 \
+          VAL_BEFORE_TRAIN=True \
+          TEST_FREQ=1 \
+          SAVE_FREQ=1 \
+          TRAIN_TP=1 \
+          INFER_TP=2 \
+          RM_TP=4 \
+          RM_NUM_WORKERS=4 \
+          MODEL_ID=Qwen/Qwen2.5-1.5B \
+          RM_MODEL_PATH=${HOME}/models/Qwen/Qwen2.5-Math-RM-dummy-8B \
+          bash tests/special_e2e/run_ppo_trainer_megatron.sh \
+            actor_rollout_ref.rollout.mode=async \
+            actor_rollout_ref.rollout.calculate_log_probs=True
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -229,10 +237,10 @@ jobs:
     needs:
       [
         setup,
-        e2e_grpo_trainer_fsdp-qwen2,
-        e2e_grpo_trainer_megatron-qwen2,
-        # TODO: add back when ppo flow is ready
-        # e2e_ppo_trainer_megatron-qwen3
+        # Tentatively commented out for testing ppo
+        # e2e_grpo_trainer_fsdp-qwen2,
+        # e2e_grpo_trainer_megatron-qwen2,
+        e2e_ppo_trainer_megatron-qwen3
       ]
     if: always()
     steps:
