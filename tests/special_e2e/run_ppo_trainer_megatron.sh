@@ -9,6 +9,7 @@ NUM_GPUS=${NUM_GPUS:-8}
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
+RM_MODEL_PATH=${RM_MODEL_PATH:-${HOME}/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 USE_DUMMY_MODEL=${USE_DUMMY_MODEL:-False}
@@ -57,6 +58,7 @@ LORA_TARGET_MODULES=${LORA_TARGET_MODULES:-"['linear_qkv','linear_proj','linear_
 
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-512}
 MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-512}
+MAX_RM_LENGTH=$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))
 
 COMMON_PP=${COMMON_PP:-2}
 COMMON_VPP=${COMMON_VPP:-2}
@@ -87,12 +89,6 @@ CRITIC_CP=${CRITIC_CP:-$COMMON_CP}
 CRITIC_TP=${CRITIC_TP:-$TRAIN_TP}
 CRITIC_EP=${CRITIC_EP:-$COMMON_EP}
 CRITIC_ETP=${CRITIC_ETP:-$COMMON_ETP}
-RM_PP=${RM_PP:-$COMMON_PP}
-RM_VPP=${RM_VPP:-$COMMON_VPP}
-RM_CP=${RM_CP:-$COMMON_CP}
-RM_TP=${RM_TP:-$TRAIN_TP}
-RM_EP=${RM_EP:-$COMMON_EP}
-RM_ETP=${RM_ETP:-$COMMON_ETP}
 
 ALL_OFFLOAD=${ALL_OFFLOAD:-False}
 COMMON_PARAM_OFFLOAD=${COMMON_PARAM_OFFLOAD:-$ALL_OFFLOAD}
@@ -244,22 +240,14 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     critic.profiler.ranks=$PROFILE_RANKS \
     critic.profiler.all_ranks=$PROFILE_RANKS_ALL \
     reward_model.enable=True \
-    reward_model.model.path="${MODEL_PATH}" \
-    reward_model.micro_batch_size_per_gpu=${train_traj_micro_bsz_per_gpu} \
-    reward_model.megatron.use_mbridge=${USE_MBRIDGE} \
-    reward_model.megatron.vanilla_mbridge=${VALUE_VANILLA_MBRIDGE} \
-    reward_model.megatron.pipeline_model_parallel_size=$RM_PP \
-    reward_model.megatron.virtual_pipeline_model_parallel_size=$RM_VPP \
-    reward_model.megatron.context_parallel_size=$RM_CP \
-    reward_model.megatron.tensor_model_parallel_size=$RM_TP \
-    reward_model.megatron.expert_model_parallel_size=$RM_EP \
-    reward_model.megatron.expert_tensor_parallel_size=$RM_ETP \
-    reward_model.megatron.param_offload=${RM_PARAM_OFFLOAD} \
-    reward_model.megatron.use_dist_checkpointing=${USE_DIST_CKPT} \
-    reward_model.megatron.dist_checkpointing_path=${DIST_CKPT_PATH} \
-    reward_model.profiler.enable=$PROFILE_ENABLE \
-    reward_model.profiler.ranks=$PROFILE_RANKS \
-    reward_model.profiler.all_ranks=$PROFILE_RANKS_ALL \
+    reward_model.model.path="${RM_MODEL_PATH}" \
+    reward_model.use_reward_loop=True \
+    reward_model.rollout.name=${ENGINE} \
+    reward_model.rollout.gpu_memory_utilization=0.6 \
+    reward_model.rollout.tensor_model_parallel_size=${INFER_TP} \
+    reward_model.rollout.prompt_length=${MAX_RM_LENGTH} \
+    reward_model.rollout.response_length=${MAX_RESPONSE_LENGTH} \
+    reward_model.num_workers=8 \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \

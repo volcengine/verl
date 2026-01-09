@@ -20,11 +20,13 @@ from collections.abc import Callable
 from dataclasses import asdict
 
 import numpy as np
+import ray
 import torch
 import torch.distributed
 from megatron.core import mpu, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedObject
 from megatron.core.transformer.enums import AttnBackend
+from ray.util.state import api
 from transformers import GenerationConfig
 
 from verl.models.weight_loader_registry import get_weight_saver
@@ -414,7 +416,8 @@ class MegatronCheckpointManager(BaseCheckpointManager):
 
         # remove previous local_path
         if (
-            max_ckpt_to_keep
+            not self.checkpoint_config.async_save
+            and max_ckpt_to_keep
             and isinstance(max_ckpt_to_keep, int)
             and max_ckpt_to_keep > 0
             and len(self.previous_saved_paths) >= max_ckpt_to_keep
@@ -494,7 +497,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     logger=logger,
                     log_only_rank_0=True,
                 )
-            if self.use_hf_checkpoint:
+            elif self.use_hf_checkpoint:
                 # Use mbridge to save HF model checkpoint
                 log_with_rank(f"Saving HF model checkpoint to {local_path} with bridge", rank=self.rank, logger=logger)
                 hf_ckpt_path = get_hf_model_checkpoint_path(local_path)
@@ -634,11 +637,6 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 f"Dist checkpointing save completed for {dist_checkpoint_path}", rank=self.rank, logger=logger
             )
             if self.rank == 0:
-                local_latest_checkpointed_iteration = os.path.join(
-                    os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
-                )
-                with open(local_latest_checkpointed_iteration, "w") as f:
-                    f.write(str(global_step))
                 if hdfs_path is not None:
                     log_with_rank(f"Uploading checkpoint to {hdfs_path}", rank=self.rank, logger=logger)
                     from verl.utils import hdfs_io
@@ -646,6 +644,48 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     hdfs_io.makedirs(hdfs_path, exist_ok=True)
                     hdfs_io.copy(src=dist_checkpoint_path, dst=hdfs_path, dirs_exist_ok=True)
                     hdfs_io.copy(src=hf_config_tokenizer_path, dst=hdfs_path, dirs_exist_ok=True)
+
+            # update latest_checkpointed_iteration.txt when async_save is True
+            if not self.checkpoint_config.async_save:
+                return
+
+            head_node = None
+            nodes = api.list_nodes()
+            for node in nodes:
+                if node.is_head_node:
+                    head_node = node
+                    break
+
+            current_node_id = ray.get_runtime_context().get_node_id()
+            ray_local_world_size = int(os.getenv("RAY_LOCAL_WORLD_SIZE", -1))
+            if ray_local_world_size == -1:
+                nnodes = int(os.getenv("NNODES", 1))
+                ray_local_world_size = torch.distributed.get_world_size() / nnodes
+
+            if head_node is not None and head_node.node_id == current_node_id and self.rank % ray_local_world_size == 0:
+                log_with_rank(
+                    f"Update latest_checkpointed_iteration.txt to step {global_step}",
+                    rank=self.rank,
+                    logger=logger,
+                )
+                local_latest_checkpointed_iteration = os.path.join(
+                    os.path.dirname(os.path.dirname(local_path)), "latest_checkpointed_iteration.txt"
+                )
+                with open(local_latest_checkpointed_iteration, "w") as f:
+                    f.write(str(global_step))
+
+            # remove previous local_path
+            self.previous_saved_paths.append(local_path)
+
+            if (
+                max_ckpt_to_keep
+                and isinstance(max_ckpt_to_keep, int)
+                and max_ckpt_to_keep > 0
+                and len(self.previous_saved_paths) > max_ckpt_to_keep
+            ):
+                keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep
+                self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
+                self.previous_saved_paths = self.previous_saved_paths[keep_start:]
 
         if self.checkpoint_config.async_save:
             assert async_save_request is not None, "Async save request should not be None when using async save."
@@ -655,5 +695,4 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             async_calls.schedule_async_request(async_save_request)
         else:
             finalize_save_fn()
-
-        self.previous_saved_paths.append(local_path)
+            self.previous_saved_paths.append(local_path)

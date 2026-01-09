@@ -247,15 +247,35 @@ def test_tensordict_eq():
 
 def test_tensor_dict_make_iterator():
     obs = torch.tensor([1, 2, 3, 4, 5, 6])
+    input_ids = torch.nested.as_nested_tensor(
+        [
+            torch.tensor([0, 1]),
+            torch.tensor([2]),
+            torch.tensor([3, 4]),
+            torch.tensor([5]),
+            torch.tensor([6, 7, 8]),
+            torch.tensor([9]),
+        ],
+        layout=torch.jagged,
+    )
     data_sources = ["abc", "def", "abc", "def", "pol", "klj"]
     non_tensor_dict = {"train_sample_kwargs": {"top_p": 1.0}, "val_sample_kwargs": {"top_p": 0.7}}
-    dataset = tu.get_tensordict({"obs": obs, "data_sources": data_sources}, non_tensor_dict=non_tensor_dict)
+    dataset = tu.get_tensordict(
+        {"obs": obs, "data_sources": data_sources, "input_ids": input_ids}, non_tensor_dict=non_tensor_dict
+    )
 
     dataloader = tu.make_iterator(
         dataset, mini_batch_size=2, epochs=2, seed=0, dataloader_kwargs={"shuffle": False, "drop_last": False}
     )
 
-    expected_tensor_dict = [dataset[0:2], dataset[2:4], dataset[4:6], dataset[0:2], dataset[2:4], dataset[4:6]]
+    expected_tensor_dict = [
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(0, 2))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(2, 4))),
+        tu.index_select_tensor_dict(dataset, indices=list(range(4, 6))),
+    ]
 
     i = 0
 
@@ -721,6 +741,55 @@ def test_concat_tensordict():
     assert output["temp"] == 1.0
 
 
+def test_chunk_tensordict():
+    # Qwen-VL 3d position_ids
+    position_ids = torch.nested.as_nested_tensor(
+        [
+            torch.arange(4).expand(4, 4),
+            torch.arange(5).expand(4, 5),
+            torch.arange(6).expand(4, 6),
+            torch.arange(7).expand(4, 7),
+        ],
+        layout=torch.jagged,
+    )
+    input_ids = torch.nested.as_nested_tensor(
+        [torch.arange(4), torch.arange(5), torch.arange(6), torch.arange(7)], layout=torch.jagged
+    )
+
+    multi_modal_inputs = torch.stack(
+        [
+            NonTensorData({"pixel_values": torch.randn(3, 224, 224)}),
+            NonTensorData(None),
+            NonTensorData({"pixel_values": torch.randn(3, 128, 128)}),
+            NonTensorData({"pixel_values": torch.randn(3, 128, 128)}),
+        ]
+    )
+    td = tu.get_tensordict(
+        {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "multi_modal_inputs": multi_modal_inputs,
+        },
+    )
+    assert len(td) == 4
+    chunks = tu.chunk_tensordict(td, chunks=2)
+
+    for i, chunk in enumerate(chunks):
+        assert len(chunk) == 2
+        for key, val in chunk.items():
+            if isinstance(val, torch.Tensor) and val.is_nested:
+                tensors = td[key].unbind(dim=0)
+                expected = torch.nested.as_nested_tensor(tensors[i * 2 : (i + 1) * 2], layout=torch.jagged)
+                assert torch.all(torch.eq(val.values(), expected.values())).item()
+            else:
+                expected = td[key][i * 2 : (i + 1) * 2]
+                for tensor, expect in zip(val, expected, strict=False):
+                    if tensor.data is None:
+                        assert expect is None
+                    else:
+                        assert torch.all(torch.eq(tensor.data["pixel_values"], expect["pixel_values"])).item()
+
+
 def test_assign_non_tensor_stack_with_nested_lists():
     """Test assign_non_tensor_stack with lists of lists."""
     td = tu.get_tensordict({"obs": torch.randn(3, 4)}, non_tensor_dict={})
@@ -919,3 +988,34 @@ def test_get_tensordict_agent_loop_scenario():
 
     # Verify metadata
     assert td["global_steps"] == 42
+
+
+def test_contiguous():
+    # create a tensordict that contains normal tensor, nested tensor,
+    # nontensorstack with numpy, nontensorstack with tensor, NonTensorData with numpy and NonTensorData with tensor
+
+    a = torch.randn(3, 4)  # contiguous tensor
+    b = torch.randn(3, 4)[:, :-1]  # non contiguous tensor
+    c = torch.nested.as_nested_tensor([torch.randn(3), torch.randn(4), torch.randn(5)], layout=torch.jagged)
+
+    d = torch.randn(10, 12)
+    e = torch.randn(11, 12)
+    f = torch.randn(13, 12)
+
+    data = tu.get_tensordict(
+        tensor_dict={"a": a, "b": b, "c": c, "nt": [{"pixel": d}, {"pixel": e}, {"pixel": f}]},
+        non_tensor_dict={"ntd": a.clone()},
+    )
+
+    with pytest.raises(RuntimeError):
+        # b is not contiguous
+        data.consolidate()
+
+    data1 = copy.deepcopy(data)
+    data_cont = tu.contiguous(data1)
+
+    tu.assert_tensordict_eq(data_cont, data)
+
+    data_cont.consolidate()
+
+    tu.assert_tensordict_eq(data_cont, data)

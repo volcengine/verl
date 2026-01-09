@@ -96,7 +96,7 @@ The transition dynamics $p(s_{t+1}|s_t, a_t)$ and initial state $p(s_0)$ cancel 
 - **Off-policy capable**: Can learn from any behavior policy via importance sampling
 - **No trust region**: Policy updates not constrained
 
-**Implementation in verl:** The `pg_is` method implements off-policy REINFORCE with truncated importance sampling.
+**Implementation in verl:** The `bypass_pg_is` preset implements off-policy REINFORCE with truncated importance sampling.
 
 ### 1.2 PPO: Adding Trust Region Control
 
@@ -271,8 +271,8 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 - $\pi_{\theta}$: Current policy (being updated)
 
 **Ratios:**
-- **With PPO loss** (`use_policy_gradient = false`): No separate IS computation; PPO ratio $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ clips against rollout policy
-- **With policy gradient loss** (`use_policy_gradient = true`): IS ratio $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ computed on-the-fly in loss function
+- **With PPO-clip loss** (`loss_type = "ppo_clip"`, default): PPO ratio $r_t(\theta) = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ clips against rollout policy (IS handled by ratio)
+- **With REINFORCE loss** (`loss_type = "reinforce"`): IS ratio $\rho_t = \frac{\pi_{\theta}(a_t|s_t)}{\pi_{\text{rollout}}(a_t|s_t)}$ computed on-the-fly in loss function
 
 **Properties:**
 - ✅ Skips `actor.compute_log_prob()` call (faster)
@@ -286,7 +286,7 @@ The operating mode determines how the proximal policy $\pi_{\text{old}}$ is comp
 
 #### 3.2.1 PPO Loss (with Clipping)
 
-**Configuration:** `use_policy_gradient = false`
+**Configuration:** `loss_type = "ppo_clip"` (default in bypass mode)
 
 **Loss function:**
 
@@ -306,7 +306,7 @@ where:
 
 #### 3.2.2 Policy Gradient Loss (with IS/RS Correction)
 
-**Configuration:** `use_policy_gradient = true` (requires `bypass_mode = true`)
+**Configuration:** `loss_type = "reinforce"` (requires `bypass_mode = true`)
 
 **Loss function** (example with sequence-level IS):
 
@@ -368,12 +368,17 @@ The stopgrad operator is **mathematically required** by importance sampling theo
 **Intuition**: The IS weight $w(\theta)$ tells us "how much to trust this sample" for estimating the gradient under $\pi_\theta$. We update $\theta$ to maximize the reweighted objective, but we don't update $\theta$ to maximize the weight itself—that would be circular reasoning (optimizing the correction factor instead of the actual objective).
 
 **Properties:**
-- **Algorithm**: Off-policy REINFORCE + IS/RS correction
-- **No PPO clipping**: Pure policy gradient
+- **Algorithm**: Off-policy policy gradient with IS/RS correction
+- **Loss types** (`loss_type` config option in bypass mode):
+  - `"ppo_clip"` (default): PPO clipped objective
+    - $L = -\mathbb{E}[\min(r \cdot A, \text{clip}(r) \cdot A)]$ where $r = \pi_\theta / \pi_{\text{rollout}}$
+    - Note: IS weights NOT applied (PPO ratio already handles it; would be double-counting)
+  - `"reinforce"`: Pure policy gradient with explicit IS weights, no PPO clipping
+    - $L = -\mathbb{E}[w \cdot \log \pi_\theta(a|s) \cdot A]$ where $w = \pi_\theta / \pi_{\text{rollout}}$
 - **Always uses bypass mode**: Direct $\pi_\theta$ to $\pi_{\text{rollout}}$ comparison
 - **Fast**: Single forward pass
 
-**Implementation:** `compute_policy_loss_with_rollout_correction()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py#L1537-L1681)
+**Implementation:** `compute_policy_loss_bypass_mode()` and `compute_policy_loss_reinforce()` in [core_algos.py](../../verl/trainer/ppo/core_algos.py)
 
 ---
 
@@ -613,7 +618,7 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | **Geo-RS** | `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
 | **Geo-RS-Seq-TIS** | `rollout_is="sequence"` + `rollout_rs="geometric"` | Decoupled PPO, Bypass PG |
 
-**Note:** Bypass PPO mode (π_old = π_rollout) does not use IS correction since there's no gap to correct. Use Bypass PG mode for fast execution with IS/RS correction.
+**Note:** In bypass mode, `loss_type` controls the loss function. Use "ppo_clip" (default) or "reinforce".
 
 #### Available Preset Methods
 
@@ -625,16 +630,17 @@ where $\bar{w}_j = \frac{1}{T_j}\sum_{t=1}^{T_j} w_{j,t} \cdot m_{j,t}$ is the p
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled PPO | Sequence IS + sequence RS |
 | `decoupled_geo_rs()` | Geo-RS | Decoupled PPO | Geometric RS + veto |
 | `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled PPO | Geometric filter + seq IS |
-| **Bypass PPO Mode** (2 policies: π_rollout = π_old, π_θ) |
-| `ppo_is_bypass()` | - | Bypass PPO | PPO with rollout as anchor (no IS correction needed) |
-| **Bypass PG Mode** (2 policies: π_rollout, π_θ; IS = π_θ/π_rollout) |
-| `pg_is()` | Seq-TIS | Bypass PG | Policy gradient + Seq IS |
-| `pg_rs()` | Geo-RS | Bypass PG | Policy gradient + Geo-RS |
-| `pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass PG | PG + Geo filter + seq IS |
+| **Bypass Mode (PPO-clip)** (ratio handles IS, RS masks outliers) |
+| `bypass_ppo_clip()` | - | Bypass (PPO-clip) | PPO-clip only |
+| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | PPO-clip + Geo-RS |
+| **Bypass Mode (REINFORCE)** (explicit IS weights, no PPO clipping) |
+| `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | REINFORCE + Seq IS |
+| `bypass_pg_rs()` | Geo-RS | Bypass (REINFORCE) | REINFORCE + Geo-RS |
+| `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | REINFORCE + Geo filter + seq IS |
 | **Other** |
 | `disabled()` | - | - | Metrics only |
 
-**Note:** Bypass PPO mode sets π_old = π_rollout, so IS correction is not applicable. Use Bypass PG mode for fast execution with IS/RS correction.
+**Note:** Bypass mode sets π_old = π_rollout and uses `loss_type` to select the loss function.
 
 #### Additional Supported Combinations (Manual Configuration)
 
@@ -676,7 +682,7 @@ config = RolloutCorrectionConfig(
 - Rejection sampling can be added to any combination
 - Veto is independent and can be added to any combination
 - Geometric aggregation is typically used for RS only (not IS weighting)
-- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_policy_gradient=True` for pure policy gradient (no IS weights)
+- Pure RS (`bypass_pg_rs`) uses bypass + geometric RS with `loss_type="reinforce"` for REINFORCE (no IS weights)
 - All combinations in the table above are valid and supported by the implementation
 
 ---
@@ -785,12 +791,16 @@ $$
 
 | Method | Theory | Policies | PPO Clip | IS Correction | Correctness | Speed |
 |--------|--------|----------|----------|---------------|-------------|-------|
-| **Bypass PG Mode** (IS weights = π_θ / π_rollout) |
-| `pg_is` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ Seq-TIS | ✅ Correct | **Fast** |
-| `pg_rs` | Pure PG + Geo RS | 2 (rollout, θ) | ❌ | Geo-RS only | ✅ Correct | **Fast** |
-| `pg_geo_rs_seq_tis` | Pure PG + Geo RS + Seq IS | 2 (rollout, θ) | ❌ | ✅ Geo-RS-Seq-TIS | ✅ Correct | **Fast** |
-| **Bypass PPO Mode** (π_old = π_rollout, no IS correction needed) |
-| `ppo_is_bypass` | PPO (rollout as prox) | 2 (rollout, θ) | ✅ | ❌ (not needed) | ✅ Correct | **Fast** |
+| **Bypass Mode** (π_old = π_rollout, `loss_type` selects algorithm) |
+| `loss_type="ppo_clip"` (default) | PPO (ratio = π_θ/π_rollout) | 2 (rollout, θ) | ✅ | RS mask only (ratio handles IS) | ✅ Correct | **Fast** |
+| `loss_type="reinforce"` | Off-policy REINFORCE | 2 (rollout, θ) | ❌ | ✅ (explicit IS weights) | ✅ Correct | **Fast** |
+| **Bypass Mode Presets (PPO-clip)** |
+| `bypass_ppo_clip` | PPO only | 2 (rollout, θ) | ✅ | - | ✅ Correct | **Fast** |
+| `bypass_ppo_clip_geo_rs` | PPO + Geo-RS | 2 (rollout, θ) | ✅ | Geo-RS mask | ✅ Correct | **Fast** |
+| **Bypass Mode Presets (REINFORCE)** |
+| `bypass_pg_is` | REINFORCE + Seq-TIS | 2 (rollout, θ) | ❌ | ✅ Seq-TIS | ✅ Correct | **Fast** |
+| `bypass_pg_rs` | REINFORCE + Geo RS | 2 (rollout, θ) | ❌ | Geo-RS only | ✅ Correct | **Fast** |
+| `bypass_pg_geo_rs_seq_tis` | REINFORCE + Geo RS + Seq IS | 2 (rollout, θ) | ❌ | ✅ Geo-RS-Seq-TIS | ✅ Correct | **Fast** |
 | **Decoupled PPO Mode** (IS weights = π_old / π_rollout) |
 | `decoupled_token_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Token-TIS | ✅ Correct | Standard |
 | `decoupled_seq_is` | Decoupled PPO | 3 (rollout, old, θ) | ✅ | ✅ Seq-TIS | ✅ Correct | Standard |
@@ -800,7 +810,11 @@ $$
 | **Incorrect (for reference)** |
 | Naive LLM-RL | Incorrect PPO usage | 2 (old, θ) | ✅ | ❌ | ⚠️ Incorrect | Standard |
 
-**Note:** Bypass PPO mode sets π_old = π_rollout, so IS correction is not applicable (the ratio would be 1.0). Use Bypass PG mode if you want IS/RS correction with fast execution.
+**Notes:**
+- **Bypass mode** sets π_old = π_rollout and uses `loss_type` to select the loss function:
+  - `"ppo_clip"` (default): PPO clipped ratio (IS handled by ratio = π_θ/π_rollout, no explicit IS weights to avoid double-counting)
+  - `"reinforce"`: Explicit IS weights applied as $w \cdot \log \pi \cdot A$
+- Both loss types benefit from rejection sampling (RS) which masks out-of-distribution samples
 
 ### 5.2 Estimator Hierarchy
 
@@ -816,7 +830,9 @@ These estimators define **how IS weights and rejection masks are computed**. The
 
 **Note:** Each estimator can be used with either:
 - **Decoupled PPO** (`bypass_mode=false`): Three policies with PPO clipping
-- **Bypass Policy Gradient** (`bypass_mode=true`, `use_policy_gradient=true`): Two policies without PPO clipping
+- **Bypass Mode** (`bypass_mode=true`): Two policies with configurable loss type
+  - `loss_type="ppo_clip"` (default): PPO clipped objective (IS via ratio, RS mask applied)
+  - `loss_type="reinforce"`: REINFORCE with explicit IS weights
 
 ### 5.3 Method Characteristics by Scenario
 
@@ -832,7 +848,7 @@ These estimators define **how IS weights and rejection masks are computed**. The
 **Choosing operating mode:**
 - **Batch size invariance needed**: Use decoupled mode (`bypass_mode=false`)
 - **Computational efficiency needed**: Use bypass mode (`bypass_mode=true`) to skip `old_log_prob` computation
-- **No PPO clipping**: Use bypass + policy gradient (`bypass_mode=true`, `use_policy_gradient=true`)
+- **No PPO clipping**: Use bypass mode with `loss_type="reinforce"`
 
 ### 5.4 Decoupled Mode vs Bypass Mode
 

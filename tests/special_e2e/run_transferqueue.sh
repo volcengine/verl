@@ -63,8 +63,6 @@ echo "Running transferqueue with ${ACTOR_STRATEGY} strategy"
 echo "Total GPUs: ${NUM_GPUS}"
 
 # Common parameters for both FSDP and Megatron
-# For Ascend NPU, please add
-# trainer.device=npu
 common_params=(
     data.train_files="${HOME}/data/gsm8k/train.parquet"
     data.val_files="${HOME}/data/gsm8k/test.parquet"
@@ -133,7 +131,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp" ]; then
     ref_offload=True
     actor_offload=False
 
-    python3 -m recipe.transfer_queue.main_ppo \
+    python3 -m verl.experimental.transfer_queue.main_ppo \
         --config-path=config \
         --config-name='transfer_queue_ppo_trainer' \
         "${common_params[@]}" \
@@ -166,7 +164,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
     # For Ascend NPU, please add:
     #++actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True \
     #++actor_rollout_ref.ref.megatron.override_transformer_config.use_flash_attn=True \
-    python3 -m recipe.transfer_queue.main_ppo \
+    python3 -m verl.experimental.transfer_queue.main_ppo \
         --config-path=config \
         --config-name='transfer_queue_ppo_megatron_trainer' \
         "${common_params[@]}" \

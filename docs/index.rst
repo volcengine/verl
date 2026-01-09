@@ -80,6 +80,7 @@ verl is fast with:
    algo/gpg.md
    algo/rollout_corr.md
    algo/rollout_corr_math.md
+   algo/otb.md
 
 .. toctree::
    :maxdepth: 1
@@ -156,6 +157,11 @@ verl is fast with:
    api/trainer.rst
    api/utils.rst
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Blog
+
+   blog/v0.7.md
 
 .. toctree::
    :maxdepth: 2

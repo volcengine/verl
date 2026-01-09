@@ -15,12 +15,21 @@
 The abstract base class defining the interface for model training engines.
 """
 
+from abc import abstractmethod
 from typing import Any, Callable, Generator, Optional
 
 import torch
 from tensordict import TensorDict
 
 from verl.utils.device import get_device_name
+
+
+def _maybe_fix_3d_position_ids(data: TensorDict):
+    # note for tensordict with pickle/unpickle. nested tensor in tensordict after consolidate and pickle/unpickle
+    # will incur indexing error for ragged tensor. This only happens when using 3D position ids in VLMs.
+    # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
+    if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
+        data["position_ids"]._ragged_idx = 2
 
 
 class BaseEngine:
@@ -39,7 +48,19 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def train_mode(self):
+    @property
+    @abstractmethod
+    def is_param_offload_enabled(self) -> bool:
+        """Whether parameter offloading is enabled."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def is_optimizer_offload_enabled(self) -> bool:
+        """Whether optimizer offloading is enabled."""
+        raise NotImplementedError
+
+    def train_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into training mode.
 
@@ -49,7 +70,7 @@ class BaseEngine:
         """
         raise NotImplementedError
 
-    def eval_mode(self):
+    def eval_mode(self, **kwargs):
         """
         Context manager entry for switching the engine and model into evaluation mode.
 
@@ -105,6 +126,8 @@ class BaseEngine:
         Returns:
             dict[str, torch.Tensor]: A dictionary containing the aggregated training metrics for the batch.
         """
+        _maybe_fix_3d_position_ids(data)
+
         self.optimizer_zero_grad()
         outputs = self.forward_backward_batch(data, loss_function, forward_only=False)
         grad_norm = self.optimizer_step()
@@ -123,6 +146,9 @@ class BaseEngine:
         Returns:
             Any: The output of the inference, which can be used for predictions or other purposes.
         """
+        # see comments from train_batch
+        _maybe_fix_3d_position_ids(data)
+
         with torch.no_grad():
             outputs = self.forward_backward_batch(data, loss_function, forward_only=True)
         return outputs
@@ -156,7 +182,8 @@ class BaseEngine:
             optimizer: If True, move the optimizer states.
             grad: If True, move the gradient buffer.
         """
-        raise NotImplementedError
+        if not model:
+            assert not optimizer and not grad, "Model must be moved to device along with optimizer and grad"
 
     def save_checkpoint(
         self,
@@ -197,6 +224,43 @@ class BaseEngine:
         Whether the current rank is the first rank in model parallel group that contains model outputs
         """
         raise NotImplementedError
+
+
+class BaseEngineCtx:
+    def __init__(self, engine: BaseEngine, mode, **kwargs):
+        """Base Engine context that handles load and offload
+
+        Args:
+            engine:
+            **kwargs:
+        """
+        self.engine = engine
+        self.mode = mode
+        assert self.mode in ("train", "eval")
+        self.disable_auto_offload = kwargs.pop("disable_auto_offload", False)
+
+    def _context_switch(self, device):
+        if self.disable_auto_offload:
+            return
+        should_move_model = self.engine.is_param_offload_enabled if device == "cpu" else True
+        should_move_optimizer = self.engine.is_optimizer_offload_enabled if device == "cpu" else True
+        if self.mode == "eval":
+            self.engine.to(device=device, model=should_move_model, optimizer=False, grad=False)
+        elif self.mode == "train":
+            self.engine.to(
+                device=device,
+                model=should_move_model,
+                optimizer=should_move_optimizer,
+                grad=should_move_model,
+            )
+
+    def __enter__(self):
+        self._context_switch(get_device_name())
+        self.engine.mode = self.mode
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._context_switch("cpu")
+        self.engine.mode = None
 
 
 class EngineRegistry:

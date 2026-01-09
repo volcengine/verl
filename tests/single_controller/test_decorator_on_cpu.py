@@ -24,6 +24,7 @@ from verl.protocol import DataProto, DataProtoFuture
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.single_controller.base.worker import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils import tensordict_utils as tu
 
 
 # Pytest fixture for Ray setup/teardown
@@ -64,8 +65,16 @@ class DecoratorTestWorker(Worker):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def dp_compute_td(self, data: TensorDict) -> TensorDict:
+        # note that we have to call contiguous so that we can modify data in plac
+        data = tu.contiguous(data)
         rank_value = torch.tensor(self.rank, device=data["input"].device, dtype=data["input"].dtype)
         data["output"] = data["input"] + self.value + rank_value
+        position_ids = data.pop("position_ids")
+        position_ids._ragged_idx = 2
+
+        for i, position_id in enumerate(position_ids.unbind(dim=0)):
+            assert (position_id == torch.arange(4 + rank_value * 2 + i).expand(position_id.shape)).all()
+
         return data
 
 
@@ -159,7 +168,16 @@ def test_decorator_dp_compute_td(ray_init_shutdown):
 
     # Prepare input data (size 4, for 2 workers)
     input_tensor = torch.arange(4, dtype=torch.float32)
-    data = TensorDict({"input": input_tensor}, batch_size=[4])
+    position_ids = torch.nested.as_nested_tensor(
+        [
+            torch.arange(4).expand(4, 4).contiguous(),
+            torch.arange(5).expand(4, 5).contiguous(),
+            torch.arange(6).expand(4, 6).contiguous(),
+            torch.arange(7).expand(4, 7).contiguous(),
+        ],
+        layout=torch.jagged,
+    )
+    data = TensorDict({"input": input_tensor, "position_ids": position_ids}, batch_size=[4])
 
     # Call the decorated method
     output = worker_group.dp_compute_td(data)

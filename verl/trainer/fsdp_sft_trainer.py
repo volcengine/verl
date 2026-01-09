@@ -131,6 +131,7 @@ class FSDPSFTTrainer:
 
         if self.device_mesh.get_rank() == 0:
             print(self.config)
+
         self.device_name = self.config.trainer.device
 
         # set up 'use_dft' flag (default to False)
@@ -858,6 +859,9 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_device(config)
+
     run_sft(config)
 
 

@@ -165,7 +165,7 @@ actor_rollout_ref:
     enable_activation_offload: false
 
     # Whether to remove padding tokens in inputs during training
-    use_remove_padding: false
+    use_remove_padding: true
 
     # Set to positive value to enable LoRA (e.g., 32)
     lora_rank: 0
@@ -1015,7 +1015,7 @@ trainer:
       roles: ["all"]
 
       # Collection level, optional values: level_none, level0, level1, level2.
-      level: level1
+      level: level0
 
       # Whether to enable memory analysis.
       with_memory: False

@@ -16,15 +16,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.utils import tensordict_utils as tu
-from verl.utils.device import (
-    is_cuda_available,
-    is_npu_available,
-)
-
-if is_cuda_available:
-    from flash_attn.bert_padding import pad_input, unpad_input
-elif is_npu_available:
-    from transformers.integrations.npu_flash_attention import pad_input, unpad_input
+from verl.utils.attention_utils import pad_input, unpad_input
 
 
 def left_right_2_no_padding(data: TensorDict) -> TensorDict:
@@ -51,6 +43,7 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
     input_ids = data.pop("input_ids")
     attention_mask = data["attention_mask"]
     response_mask = data["response_mask"]
+    position_ids = data["position_ids"]  # (bs, seq_len) or # (bs, 4, seq_len)
 
     max_seq_len, max_response_len = input_ids.shape[1], response_mask.shape[1]
     tu.assign_non_tensor_data(data, "max_seq_len", max_seq_len)
@@ -61,13 +54,15 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
 
     input_ids_nested = torch.nested.nested_tensor_from_jagged(input_ids_rmpad.squeeze(-1), offsets=cu_seqlens)
 
-    seq_lens = cu_seqlens.diff().tolist()
-    response_lens = response_mask.sum(dim=1).tolist()
-
     position_ids_list = []
-    for seq_len, response_len in zip(seq_lens, response_lens, strict=False):
-        position_ids_list.append(torch.arange(seq_len, device=input_ids.device))
-
+    for i in range(attention_mask.shape[0]):
+        curr_mask = attention_mask[i].bool()
+        curr_pos_ids = position_ids[i]
+        if curr_pos_ids.dim() == 1:  # (seq_len,)
+            valid_ids = curr_pos_ids[curr_mask]
+        else:  # (4, seq_len)
+            valid_ids = curr_pos_ids[:, curr_mask]
+        position_ids_list.append(valid_ids)
     position_ids_nested = torch.nested.as_nested_tensor(position_ids_list, layout=torch.jagged)
 
     data["input_ids"] = input_ids_nested

@@ -35,7 +35,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint import CheckpointHandler
 from verl.utils.dataset.dataset_utils import SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.device import get_device_name
+from verl.utils.device import auto_set_device, get_device_name
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
@@ -96,6 +96,19 @@ class SFTTrainer:
         self.engine_config = omega_conf_to_dataclass(self.config.engine)
         self.optimizer_config = omega_conf_to_dataclass(self.config.optim)
         self.checkpoint_config = omega_conf_to_dataclass(self.config.checkpoint)
+        self.profiler_config = omega_conf_to_dataclass(self.config.profiler)
+
+        # check profile interval
+        self.profiler_interval = self.config.trainer.profile_interval
+        self._validate_profiler_interval()
+
+    def _validate_profiler_interval(self):
+        assert len(self.profiler_interval) == 2
+        self.start_profile_step = self.profiler_interval[0]
+        self.end_profile_step = self.profiler_interval[1]
+        assert self.end_profile_step >= self.start_profile_step
+        if self.start_profile_step < 0:
+            assert self.end_profile_step < 0
 
     def _build_engine(self):
         from verl.workers.engine_workers import TrainingWorkerConfig
@@ -109,6 +122,7 @@ class SFTTrainer:
             engine_config=self.engine_config,
             optimizer_config=self.optimizer_config,
             checkpoint_config=self.checkpoint_config,
+            profiler_config=self.profiler_config,
         )
 
         self.training_client = TrainingWorker(config=config)
@@ -140,12 +154,21 @@ class SFTTrainer:
     def _build_dataset(self):
         config = self.config
         tokenizer = self.model_config.tokenizer
+        processor = self.model_config.processor
         train_dataset = create_sft_dataset(
-            config.data.train_files, config.data, tokenizer, max_samples=config.data.get("train_max_samples", -1)
+            config.data.train_files,
+            config.data,
+            tokenizer,
+            processor,
+            max_samples=config.data.get("train_max_samples", -1),
         )
         if config.data.val_files:
             val_dataset = create_sft_dataset(
-                config.data.val_files, config.data, tokenizer, max_samples=config.data.get("val_max_samples", -1)
+                config.data.val_files,
+                config.data,
+                tokenizer,
+                processor,
+                max_samples=config.data.get("val_max_samples", -1),
             )
         else:
             val_dataset = None
@@ -178,7 +201,7 @@ class SFTTrainer:
             sampler=self.train_sampler,
             collate_fn=self.collate_fn,
             num_workers=8,
-            pin_memory=True,
+            pin_memory=False,
             drop_last=True,
             pin_memory_device=device_name,
         )
@@ -193,7 +216,7 @@ class SFTTrainer:
                 sampler=self.val_sampler,
                 collate_fn=self.collate_fn,
                 num_workers=8,
-                pin_memory=True,
+                pin_memory=False,
                 drop_last=True,
                 pin_memory_device=device_name,
             )
@@ -294,8 +317,14 @@ class SFTTrainer:
 
                 tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens)
 
+                # start profile in SPMD mode
+                if global_step == self.start_profile_step:
+                    self.training_client.start_profile()
                 # train for on batch
                 output = self.training_client.train_batch(data=data)
+
+                if global_step == self.end_profile_step:
+                    self.training_client.stop_profile()
 
                 if self.engine.is_mp_src_rank_with_outputs():
                     metrics = tu.get(output, "metrics")
@@ -364,10 +393,12 @@ def run_sft(config):
 
 @hydra.main(config_path="config", config_name="sft_trainer_engine", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_device(config)
     run_sft(config)
 
 
-def create_sft_dataset(data_paths, data_config, tokenizer, max_samples=-1):
+def create_sft_dataset(data_paths, data_config, tokenizer, processor, max_samples=-1):
     """Create a dataset."""
     # build dataset
     # First check if a custom dataset class is specified
@@ -380,7 +411,9 @@ def create_sft_dataset(data_paths, data_config, tokenizer, max_samples=-1):
         dataset_cls = MultiTurnSFTDataset
 
     # Create datasets based on the selected class
-    dataset = dataset_cls(parquet_files=data_paths, tokenizer=tokenizer, config=data_config, max_samples=max_samples)
+    dataset = dataset_cls(
+        parquet_files=data_paths, tokenizer=tokenizer, config=data_config, processor=processor, max_samples=max_samples
+    )
     return dataset
 
 

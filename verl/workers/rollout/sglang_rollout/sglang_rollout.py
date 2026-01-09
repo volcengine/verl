@@ -97,6 +97,21 @@ class ServerAdapter(BaseRollout):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
+        if config.get("quantization", None) == "fp8":
+            import sglang
+            from packaging import version
+
+            assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                "sglang>=0.5.5 is required for FP8 quantization"
+            )
+            FP8_BLOCK_QUANT_KWARGS = {
+                "activation_scheme": "dynamic",
+                "fmt": "e4m3",
+                "quant_method": "fp8",
+                "weight_block_size": [128, 128],
+            }
+            fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
+            model_config.hf_config.quantization_config = fp8_block_quant_kwargs
         super().__init__(config, model_config, device_mesh)
         self._engine: AsyncHttpServerAdapter = None
 
@@ -157,6 +172,18 @@ class ServerAdapter(BaseRollout):
             await self._init_server_adapter()
 
         update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
+        if self.config.get("quantization", None) == "fp8":
+            from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
+
+            logger.info("Convert bf16 weights to fp8 format before loading")
+            weights = quant_weights_by_name(
+                weights,
+                self.model_config.hf_config.quantization_config,
+                dtype=self.model_config.hf_config.dtype,
+            )
+        else:
+            weights = weights
+
         for params_batch in get_named_tensor_buckets(weights, update_weights_bucket_bytes):
             await sgl_update_weights(
                 engine=self._engine,

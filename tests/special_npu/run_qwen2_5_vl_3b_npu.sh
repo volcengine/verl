@@ -1,5 +1,4 @@
 set -x
-export VLLM_ASCEND_ENABLE_NZ=0
 
 ENGINE=${1:-vllm}
 
@@ -54,5 +53,4 @@ python3 -m verl.trainer.main_ppo \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
-    trainer.total_training_steps=1 \
-    trainer.device=npu $@
+    trainer.total_training_steps=1 $@
