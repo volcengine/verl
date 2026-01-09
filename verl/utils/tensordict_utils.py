@@ -819,6 +819,7 @@ def contiguous(data: TensorDict) -> TensorDict:
     """Call contiguous on a tensor dict. The contiguous function of tensordict lib will make NonTensorStack.
     This function will always return a new tensordict
 
+    
     Args:
         data: The input tensordict
 
