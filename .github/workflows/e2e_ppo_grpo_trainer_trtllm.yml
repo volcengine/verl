@@ -69,12 +69,13 @@ on:
       - "!verl/workers/**/*dp_*.py"
       # Entrypoints
       - "verl/workers/rollout/trtllm_rollout/*"
-      - ".github/workflows/e2e_ppo_trainer_megatron_trtllm.yml"
+      - ".github/workflows/e2e_ppo_grpo_trainer_trtllm"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
-      - "tests/special_e2e/run_ppo_trainer_megatron.sh"
-      - "verl/trainer/main_ppo.py"
-      - "verl/trainer/config/ppo_megatron_trainer.yaml"
+      # add back when ppo flow is ready
+      # - "tests/special_e2e/run_ppo_trainer_megatron.sh"
+      # - "verl/trainer/main_ppo.py"
+      # - "verl/trainer/config/ppo_megatron_trainer.yaml"
 
 # Cancel jobs on the same ref if a new one is triggered
 concurrency:
@@ -230,7 +231,7 @@ jobs:
         setup,
         e2e_grpo_trainer_fsdp-qwen2,
         e2e_grpo_trainer_megatron-qwen2,
-        # TODO: add back when dummy RM is ready.
+        # TODO: add back when ppo flow is ready
         # e2e_ppo_trainer_megatron-qwen3
       ]
     if: always()
