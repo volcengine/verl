@@ -86,10 +86,10 @@ class SGLangHttpServer:
         node_rank: int,
         nnodes: int,
         cuda_visible_devices: str,
-        gpus_per_node: int,
+        base_gpu_id: int,
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
-        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
+        os.environ[visible_devices_keyword] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -100,7 +100,7 @@ class SGLangHttpServer:
         self.replica_rank = replica_rank
         self.node_rank = node_rank
         self.nnodes = nnodes
-        self.gpus_per_node = gpus_per_node
+        self.base_gpu_id = base_gpu_id
 
         if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
             logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
@@ -160,14 +160,13 @@ class SGLangHttpServer:
             else f"{self._master_address}:{self._master_port}"
         )
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
-        replica_world_size = infer_tp * self.config.pipeline_model_parallel_size
         args = {
             "model_path": self.model_config.local_path,
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
             "enable_memory_saver": True,
-            "base_gpu_id": (0 + self.replica_rank * replica_world_size) % self.gpus_per_node,
+            "base_gpu_id": self.base_gpu_id,
             "gpu_id_step": 1,
             "tp_size": infer_tp,
             "dp_size": self.config.data_parallel_size,
@@ -212,9 +211,17 @@ class SGLangHttpServer:
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         server_args = ServerArgs(**args)
-        self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
-            server_args=server_args
-        )
+        if version.parse(sglang.__version__) >= version.parse("0.5.7"):
+            self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
+                server_args=server_args,
+                init_tokenizer_manager_func=sglang.srt.entrypoints.engine.init_tokenizer_manager,
+                run_scheduler_process_func=sglang.srt.entrypoints.engine.run_scheduler_process,
+                run_detokenizer_process_func=sglang.srt.entrypoints.engine.run_detokenizer_process,
+            )
+        else:
+            self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
+                server_args=server_args
+            )
 
         # In multi-node cases, non-zero rank nodes should not launch http server.
         if self.node_rank > 0:
@@ -356,17 +363,34 @@ class SGLangReplica(RolloutReplica):
         )
         worker_cuda_visible_devices = [worker_info[1] for worker_info in worker_infos]
         worker_node_ids = [worker_info[0] for worker_info in worker_infos]
-
+        base_gpu_id = 0
+        infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
+        replica_world_size = infer_tp * self.config.pipeline_model_parallel_size
+        if os.environ.get(f"RAY_EXPERIMENTAL_NOSET_{visible_devices_keyword}", None):
+            logger.warning(f"RAY_EXPERIMENTAL_NOSET_{visible_devices_keyword} is set True!")
+            base_gpu_id = (0 + self.replica_rank * replica_world_size) % self.gpus_per_node
         # create server actor in each node with node affinity and cuda visible devices
         for node_rank in range(self.nnodes):
             workers = self.workers[
                 node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
             ]
+            node_cuda_visible_devices_set = worker_cuda_visible_devices[
+                node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
+            ]
             node_cuda_visible_devices = ",".join(
-                worker_cuda_visible_devices[
-                    node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
-                ]
+                map(
+                    str,
+                    sorted(
+                        set(
+                            int(device)
+                            for worker_devices_set in node_cuda_visible_devices_set
+                            for device in worker_devices_set.split(",")
+                            if device.strip()
+                        )
+                    ),
+                )
             )
+
             node_id = worker_node_ids[node_rank * self.gpus_per_replica_node]
             name = (
                 f"sglang_server_{self.replica_rank}_{node_rank}"
@@ -389,7 +413,7 @@ class SGLangReplica(RolloutReplica):
                 node_rank=node_rank,
                 nnodes=self.nnodes,
                 cuda_visible_devices=node_cuda_visible_devices,
-                gpus_per_node=self.gpus_per_node,
+                base_gpu_id=base_gpu_id,
             )
             self.servers.append(server)
 

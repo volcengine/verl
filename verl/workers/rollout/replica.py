@@ -157,7 +157,7 @@ class RolloutReplica(ABC):
             else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
-            resource_pool_name: [self.gpus_per_node] * self.nnodes,
+            resource_pool_name: [self.gpus_per_replica_node] * self.nnodes,
         }
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
         resource_pool_manager.create_resource_pool()
