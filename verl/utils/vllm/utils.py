@@ -15,7 +15,12 @@
 
 from msgspec import field
 from packaging import version as vs
-from vllm.lora.models import LoRAModel
+
+try:
+    from vllm.lora.lora_model import LoRAModel
+except ImportError:
+    from vllm.lora.models import LoRAModel
+
 from vllm.lora.request import LoRARequest
 from vllm.lora.utils import get_adapter_absolute_path
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
@@ -82,10 +87,11 @@ class VLLMHijack:
                     "dtype": self.lora_config.lora_dtype,
                     "weights_mapper": hf_to_vllm_mapper,
                 }
-                if hasattr(self, "embedding_modules"):
-                    lora_request_kwargs["embedding_modules"] = self.embedding_modules
                 if hasattr(self, "embedding_padding_modules"):
+                    lora_request_kwargs["embedding_modules"] = self.embedding_modules
                     lora_request_kwargs["embedding_padding_modules"] = self.embedding_padding_modules
+                else:
+                    lora_request_kwargs["model_vocab_size"] = self.vocab_size
                 if hasattr(self.lora_config, "lora_extra_vocab_size"):
                     lora_request_kwargs["target_embedding_padding"] = (
                         self.vocab_size + self.lora_config.lora_extra_vocab_size

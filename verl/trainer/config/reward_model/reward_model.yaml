@@ -57,6 +57,16 @@ forward_max_token_len_per_gpu: ${critic.forward_max_token_len_per_gpu}
 # Kept for backward compatibility.
 reward_manager: naive
 
+# Reward Loop Loading Configuration (for experimental reward system)
+# Source for loading reward loop manager: "register" (default) or "importlib"
+reward_loop_source: register
+
+# Module path when using importlib (e.g., "hytuner/reward/reward_loop/xxx_reward_loop.py")
+reward_loop_module_path: null
+
+# Class name when using importlib (e.g., "XXXRewardManager")
+reward_loop_class_name: null
+
 # Whether to launch custom reward function asynchronously during log_prob
 # custom reward function executed async on CPU, during log_prob
 launch_reward_fn_async: False

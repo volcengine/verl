@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import torch
 import vllm
+from packaging import version
 
 try:
     from vllm.model_executor.layers.fused_moe.layer import FusedMoE
@@ -173,7 +174,7 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
             )
             param_scale = param_scale.squeeze(-1)
             weights_quantized.append([k, param_lp])
-            if vllm.__version__ >= "0.11.0":
+            if version.parse(vllm.__version__) >= version.parse("0.11.0"):
                 if "expert" in k:
                     weights_quantized.append([k + "_scale_inv", param_scale])
                 else:
@@ -322,7 +323,10 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
 
     del layer.weight_scale_inv
 
-    maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
+    if version.parse(vllm.__version__) == version.parse("0.11.0"):
+        maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
+    else:
+        maybe_post_process_fp8_weight_block(layer)
 
 
 def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:
@@ -403,7 +407,6 @@ def process_weights_after_loading_moe_for_vllm10(self, layer) -> None:
 
 def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
     """This function is used to process the weights after loading for a FusedMoE layer, it is used for vllm 0.11"""
-    from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import is_rocm_aiter_moe_enabled
     from vllm.model_executor.layers.quantization.utils.flashinfer_utils import (
         swap_w13_to_w31,
     )
@@ -416,7 +419,14 @@ def process_weights_after_loading_moe_for_vllm11(self, layer) -> None:
         is_deep_gemm_e8m0_used,
     )
 
-    self.rocm_aiter_moe_enabled = is_rocm_aiter_moe_enabled()
+    try:
+        from vllm.model_executor.layers.fused_moe.rocm_aiter_fused_moe import is_rocm_aiter_moe_enabled
+
+        self.rocm_aiter_moe_enabled = is_rocm_aiter_moe_enabled()
+    except ImportError:
+        from vllm._aiter_ops import rocm_aiter_ops
+
+        self.rocm_aiter_moe_enabled = rocm_aiter_ops.is_fused_moe_enabled()
 
     assert self.block_quant and self.quant_config.is_checkpoint_fp8_serialized
     assert self.quant_config.activation_scheme == "dynamic"
@@ -459,7 +469,7 @@ def apply_vllm_fp8_patches():
     patcher1 = patch(
         func1_path,
         process_weights_after_loading_for_vllm11
-        if vllm.__version__ >= "0.11.0"
+        if version.parse(vllm.__version__) >= version.parse("0.11.0")
         else process_weights_after_loading_for_vllm10,
     )
     patcher1.start()
@@ -467,7 +477,7 @@ def apply_vllm_fp8_patches():
     patcher2 = patch(
         func2_path,
         process_weights_after_loading_moe_for_vllm11
-        if vllm.__version__ >= "0.11.0"
+        if version.parse(vllm.__version__) >= version.parse("0.11.0")
         else process_weights_after_loading_moe_for_vllm10,
     )
     patcher2.start()
