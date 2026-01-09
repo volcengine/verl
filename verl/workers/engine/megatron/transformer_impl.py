@@ -15,7 +15,7 @@
 import logging
 import os
 from functools import partial
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, ContextManager, Iterator, Optional
 
 import torch
 import torch.distributed
@@ -546,6 +546,9 @@ class MegatronEngine(BaseEngine):
             per_tensor_param = self.bridge.export_hf_weights(self.module)
         # TODO: support megatron LoRA
         return per_tensor_param, None
+
+    def disable_adapter(self) -> ContextManager:
+        return self.peft_cls.disable_adapter(self.module)
 
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")

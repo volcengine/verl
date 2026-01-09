@@ -16,7 +16,8 @@ The abstract base class defining the interface for model training engines.
 """
 
 from abc import abstractmethod
-from typing import Any, Callable, Generator, Optional
+from contextlib import nullcontext
+from typing import Any, Callable, ContextManager, Generator, Optional
 
 import torch
 from tensordict import TensorDict
@@ -217,6 +218,12 @@ class BaseEngine:
         Whether the current rank is the first rank in model parallel group that contains model outputs
         """
         raise NotImplementedError
+
+    def disable_adapter(self) -> ContextManager:
+        """
+        Disable all adapters temporarily under the context in the model for LoRA
+        """
+        return nullcontext()
 
 
 class BaseEngineCtx:
