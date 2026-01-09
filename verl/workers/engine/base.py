@@ -25,8 +25,6 @@ from verl.utils.device import get_device_name
 from verl.utils.tensordict_utils import _maybe_fix_3d_position_ids
 
 
-
-
 class BaseEngine:
     """
     Abstract base class defining the interface for model training engines. Interface is subject to
