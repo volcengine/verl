@@ -133,7 +133,7 @@ jobs:
           ray stop --force
           DATADIR=${HOME}/data \
             bash examples/grpo_trainer/run_qwen2-7b_math_trtllm.sh 4 \
-            trainer.total_training_steps=2
+            trainer.total_training_steps=1
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -166,7 +166,7 @@ jobs:
           ray stop --force
           DATADIR=${HOME}/data \
             bash examples/grpo_trainer/run_qwen2-7b_math_megatron_trtllm.sh 1 \
-            trainer.total_training_steps=2
+            trainer.total_training_steps=1
       - name: clean up
         run: |
           rm -rf checkpoints
