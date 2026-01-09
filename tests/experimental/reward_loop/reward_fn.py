@@ -15,7 +15,6 @@
 import base64
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import aiohttp
@@ -139,8 +138,7 @@ async def compute_score_ocr(
         image = Image.fromarray(image)
     assert isinstance(image, Image.Image)
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        image_base64 = await get_event_loop().run_in_executor(executor, _pil_image_to_base64, image)
+    image_base64 = await get_event_loop().run_in_executor(None, _pil_image_to_base64, image)
 
     # prepare chat template
     grm_prompt = "Please output only the text content from the image without any additional descriptions or formatting."

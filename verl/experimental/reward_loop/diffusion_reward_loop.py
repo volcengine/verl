@@ -17,7 +17,6 @@ import asyncio
 import base64
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import aiohttp
@@ -66,7 +65,7 @@ class DiffusionRewardLoopWorker:
         self.config = config
         self.reward_router_address = reward_router_address
         self._init_reward_fn()
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        self.loop = get_event_loop()
 
     def _init_reward_fn(self):
         input_tokenizer_local_path = copy_to_local(self.config.actor_rollout_ref.model.path)
@@ -190,7 +189,7 @@ class DiffusionRewardLoopWorker:
         response_image = (response_image * 255).round().clip(0, 255).astype(np.uint8)
         response_image = Image.fromarray(response_image)
 
-        image_base64 = await self.pil_image_to_base64(response_image)
+        image_base64 = await self.loop.run_in_executor(None, self._pil_image_to_base64, response_image)
         query = self.prepare_query(prompt_str, image_base64)
 
         chat.append({"role": "assistant", "content": query})
@@ -228,11 +227,6 @@ class DiffusionRewardLoopWorker:
             raise NotImplementedError(f"DiffusionRewardLoopManager does not support {engine_name}")
 
         return {"reward_score": rm_score}
-
-    async def pil_image_to_base64(self, image: Image.Image) -> str:
-        # To avoid blocking the event loop, run the conversion in a thread pool
-        base64_image = await get_event_loop().run_in_executor(self._executor, self._pil_image_to_base64, image)
-        return base64_image
 
     def _pil_image_to_base64(self, image: Image.Image) -> str:
         buffered = BytesIO()
