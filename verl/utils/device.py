@@ -30,11 +30,11 @@ def is_torch_npu_available(check_device=True) -> bool:
     try:
         if not hasattr(torch, "npu"):
             return False
+
         if check_device:
             return torch.npu.is_available()
         else:
             return True
-
     except ImportError:
         return False
 
