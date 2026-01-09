@@ -199,10 +199,6 @@ def _estimate_qwen3_vl_moe_flops(config, tokens_sum, batch_seqlens, delta_time, 
         seqlen_square_sum += seqlen * seqlen
     attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
-    # all_layer & all_token fwd & bwk flops
-    flops_all_token = dense_N_flops + attn_qkv_flops
-    flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
-
     # vit flops
     images_seqlens = kargs.get("images_seqlens", None)
     if images_seqlens is not None:
