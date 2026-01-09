@@ -291,11 +291,11 @@ class SFTTrainer:
                 global_step += 1
                 # construct tensordict
                 data = tu.get_tensordict(tensor_dict=data, non_tensor_dict=meta_info)
-                batch_seqlens = self._get_batch_seqlens(data=data)
+                batch_seqlens = self._get_batch_seqlens(data=data).tolist()
                 # this is necessary. Otherwise, it is interpreted as NonTensorStack
-                batch_seqlens = NonTensorData(batch_seqlens.tolist())
+                batch_seqlens_ntd = NonTensorData(batch_seqlens)
 
-                tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens)
+                tu.assign_non_tensor(data, update_lr_scheduler=True, global_token_num=batch_seqlens_ntd)
 
                 # start profile in SPMD mode
                 if global_step == self.start_profile_step:
@@ -314,7 +314,7 @@ class SFTTrainer:
                 metrics["train/grad_norm"] = metrics.pop("grad_norm")
                 metrics["train/lr"] = metrics.pop("lr")
                 metrics["train/mfu"] = metrics.pop("mfu")
-                metrics["train/global_tokens"] = torch.sum(torch.tensor(batch_seqlens.data, device=self.device_name)).item()
+                metrics["train/global_tokens"] = torch.sum(torch.tensor(batch_seqlens, device=self.device_name)).item()
                 total_tokens += metrics["train/global_tokens"]
                 metrics["train/total_tokens(B)"] = total_tokens / 1e9
                 tracking.log(data=metrics, step=global_step)
