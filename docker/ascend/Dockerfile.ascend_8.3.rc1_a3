@@ -41,12 +41,15 @@ RUN ARCH=$(uname -m) && \
     cd vllm-ascend && pip install -v -e . && cd .. && \
     # Install MindSpeed & Megatron
     pip install -e MindSpeed && \
-    echo "export PYTHONPATH=\$PYTHONPATH:/Megatron-LM" >> ~/.bashrc && \
     # Remove existing triton or triton-ascend installed by some third-party packages
     pip uninstall -y triton triton-ascend && \
+    # Install mbridge
+    pip install mbridge && \
     # Clear extra files
     rm -rf /tmp/* /var/tmp/* && \
     pip cache purge
+
+ENV PYTHONPATH="/Megatron-LM${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Prepare and install verl (update frequently)
 RUN git clone --depth 1 https://github.com/volcengine/verl.git && \

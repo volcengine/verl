@@ -23,6 +23,7 @@ import ray
 import sglang
 import sglang.srt.entrypoints.engine
 import torch
+from packaging import version
 from ray.actor import ActorHandle
 from sglang.srt.entrypoints.http_server import (
     ServerArgs,
@@ -43,7 +44,12 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import (
+    get_free_port,
+    get_max_position_embeddings,
+    is_valid_ipv6_address,
+    run_unvicorn,
+)
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -82,7 +88,7 @@ class SGLangHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -130,7 +136,9 @@ class SGLangHttpServer:
         quantization = self.config.get("quantization", None)
         if quantization is not None:
             if quantization == "fp8":
-                assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+                assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                    "sglang>=0.5.5 is required for FP8 quantization"
+                )
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
                     "fmt": "e4m3",
@@ -192,6 +200,9 @@ class SGLangHttpServer:
             enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED else False
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
+        if self.config.enable_rollout_routing_replay:
+            args.update({"enable_return_routed_experts": True})
+
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
@@ -214,12 +225,10 @@ class SGLangHttpServer:
         )
         app.is_single_tokenizer_mode = True
 
-        # Set warmup_thread_args to avoid AttributeError in lifespan function
-        app.warmup_thread_args = (
-            server_args,
-            None,
-            None,
-        )
+        # Set warmup_thread_{kw}args to avoid AttributeError in lifespan function
+        app.server_args = server_args
+        app.warmup_thread_kwargs = {"server_args": server_args}
+        app.warmup_thread_args = (server_args, None, None)
 
         # Manually add Prometheus middleware before starting server
         # This ensures /metrics endpoint is available immediately
@@ -262,21 +271,51 @@ class SGLangHttpServer:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_new_tokens = min(self.config.response_length, self.config.max_model_len - len(prompt_ids) - 1)
+        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+
+        if max_possible_tokens < 0:
+            raise ValueError(
+                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
+                f"({self.config.max_model_len})."
+            )
+
+        if "max_new_tokens" in sampling_params:
+            max_new_tokens = sampling_params.pop("max_new_tokens")
+        elif "max_tokens" in sampling_params:
+            # support vllm-style 'max_tokens' param
+            max_new_tokens = sampling_params.pop("max_tokens")
+        else:
+            max_new_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
+
+        # Clamp max_new_tokens to the valid range [0, max_possible_tokens]
+        max_new_tokens = max(0, min(max_new_tokens, max_possible_tokens))
+
+        assert max_new_tokens <= max_possible_tokens, (
+            f"max_new_tokens {max_new_tokens} exceeds available context space {max_possible_tokens}"
+        )
         sampling_params["max_new_tokens"] = max_new_tokens
         return_logprob = sampling_params.pop("logprobs", False)
 
-        request = GenerateReqInput(
-            rid=request_id,
-            input_ids=prompt_ids,
-            sampling_params=sampling_params,
-            return_logprob=return_logprob,
-            image_data=image_data,
-        )
-        output = await self.tokenizer_manager.generate_request(request, None).__anext__()
+        request = {
+            "rid": request_id,
+            "input_ids": prompt_ids,
+            "sampling_params": sampling_params,
+            "return_logprob": return_logprob,
+            "image_data": image_data,
+            # TODO: support video input for sglang
+            # video_data=video_data,
+        }
+
+        if self.config.enable_rollout_routing_replay:
+            request.update({"return_routed_experts": True})
+
+        generate_request = GenerateReqInput(**request)
+
+        output = await self.tokenizer_manager.generate_request(generate_request, None).__anext__()
         if return_logprob:
             output_token_logprobs = output["meta_info"]["output_token_logprobs"]
             log_probs, token_ids = zip(
@@ -285,7 +324,26 @@ class SGLangHttpServer:
         else:
             token_ids = output["output_ids"]
             log_probs = None
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+
+        routed_experts = None
+        if self.config.enable_rollout_routing_replay:
+            if self.config.skip_tokenizer_init:
+                routed_experts = output.get("meta_info", {}).get("routed_experts", None)
+            else:
+                from sglang.srt.layers.moe.routed_experts_capturer import extract_routed_experts_from_meta_info
+
+                hf_config = self.model_config.hf_config
+                if not hasattr(hf_config, "num_hidden_layers") or not hasattr(hf_config, "num_experts_per_tok"):
+                    raise AttributeError(
+                        "enable_rollout_routing_replay is set, but hf_config is missing "
+                        "'num_hidden_layers' or 'num_experts_per_tok'. This feature requires an MoE model "
+                        "configuration that defines these attributes."
+                    )
+                routed_experts = extract_routed_experts_from_meta_info(output).reshape(
+                    -1, hf_config.num_hidden_layers, hf_config.num_experts_per_tok
+                )
+
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

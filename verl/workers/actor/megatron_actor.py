@@ -196,6 +196,9 @@ class MegatronPPOActor(BasePPOActor):
         Returns:
             DataProto: torch.Tensor: the log_prob tensor
         """
+        prev_modes = [m.training for m in self.actor_module]
+        for module in self.actor_module:
+            module.eval()
         use_dynamic_bsz = data.meta_info.get("use_dynamic_bsz", False)
         micro_batch_size = data.meta_info.get("micro_batch_size", None)
         max_token_len = data.meta_info.get("max_token_len", None)
@@ -306,6 +309,8 @@ class MegatronPPOActor(BasePPOActor):
         # add empty cache after each compute
         get_torch_device().empty_cache()
 
+        for module, mode in zip(self.actor_module, prev_modes, strict=False):
+            module.train(mode)
         return log_probs, entropys, layers_topk_idx
 
     def make_minibatch_iterator(self, data: DataProto) -> Iterable[DataProto]:
@@ -498,9 +503,9 @@ class MegatronPPOActor(BasePPOActor):
                 )
                 stats.update(pg_metrics)
 
-                # Skip if using pure rollout correction mode (metrics already in pg_metrics)
+                # Skip if using bypass_mode loss (metrics already computed in pg_metrics)
                 rollout_log_prob = data.get("rollout_log_probs", None)
-                if loss_mode != "rollout_correction" and rollout_log_prob is not None:
+                if loss_mode != "bypass_mode" and rollout_log_prob is not None:
                     # Compute metrics using CURRENT policy π_θ vs π_rollout
                     # Tracks evolving off-policy gap as π_θ updates during mini-batch training
                     from verl.trainer.ppo.rollout_corr_helper import compute_rollout_corr_metrics_from_logprobs

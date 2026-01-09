@@ -60,7 +60,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs_tensordict
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
@@ -601,7 +601,8 @@ class FSDPEngine(BaseEngine):
         """
         Save FSDP checkpoint, handling parameter offload as needed.
         """
-        if self._is_offload_param:
+        origin_module_device = next(self.module.parameters()).device.type
+        if self._is_offload_param or origin_module_device == "cpu":
             load_fsdp_model_to_gpu(self.module)
 
         self.checkpoint_manager.save_checkpoint(
@@ -637,8 +638,7 @@ class FSDPEngine(BaseEngine):
     def get_per_tensor_param(self, layered_summon=False, base_sync_done=False):
         log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
 
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.module)
+        load_fsdp_model_to_gpu(self.module)
 
         log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
 
@@ -723,17 +723,33 @@ class FSDPEngineWithLMHead(FSDPEngine):
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
         temperature = micro_batch["temperature"]
-
+        temperature_item = temperature
+        if use_fused_kernels:
+            assert not isinstance(temperature, torch.Tensor), (
+                "use_fused_kernels does not support per sample temperature yet"
+            )
         assert pad_mode == DatasetPadMode.NO_PADDING, f"pad_mode {pad_mode} not supported"
 
-        multi_modal_inputs = extract_multi_modal_inputs_tensordict(micro_batch)
+        multi_modal_inputs = extract_multi_modal_inputs(micro_batch.get("multi_modal_inputs", []))
         input_ids = micro_batch["input_ids"]
         position_ids = micro_batch["position_ids"]
+
+        if not isinstance(temperature, torch.Tensor):
+            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
+
+        temperature = temperature.to(torch.float32)
+        assert temperature.shape[0] == input_ids.shape[0]
 
         # args used to get outputs
         output_args = {}
 
         if use_remove_padding:
+            # support per sample temperature
+            # temperature (bsz,)
+            # input_ids (bsz, j1)
+            temperature_rmpad = verl_F.expand_as_nested(temperature, input_ids).values()  # (total_nnz,)
+            temperature_rmpad = temperature_rmpad.unsqueeze(0)  # (1, total_nnz)
+
             if pad_mode == DatasetPadMode.NO_PADDING:
                 input_ids_rmpad = input_ids.values().unsqueeze(0)  # (1, total_nnz)
                 if position_ids.dim() == 3:
@@ -761,6 +777,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         input_ids_rmpad,
                         position_ids_rmpad=position_ids_rmpad,
                         sp_size=self.ulysses_sequence_parallel_size,
+                        skip_position_ids_rmpad=True if self.__class__.__name__ == "VeOmniEngineWithLMHead" else False,
                     )
                 input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
                     input_ids_rmpad_rolled,
@@ -768,10 +785,16 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     sp_size=self.ulysses_sequence_parallel_size,
                 )
 
+                temperature_rmpad, _, _ = ulysses_pad_and_slice_inputs(
+                    temperature_rmpad, position_ids_rmpad=None, sp_size=self.ulysses_sequence_parallel_size, pad_value=1
+                )
+
                 output_args["pad_size"] = pad_size
 
             input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
+            temperature_rmpad = temperature_rmpad.squeeze(0)
             output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+            output_args["temperature_rmpad"] = temperature_rmpad
 
             # only pass input_ids and position_ids to enable flash_attn_varlen
 
@@ -794,6 +817,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 input_ids_rmpad_rolled = torch.roll(input_ids.values(), shifts=-1, dims=0)
                 output_args["input_ids_rmpad_rolled"] = input_ids_rmpad_rolled
+                # we store the per sample temperature
+                output_args["temperature"] = temperature
 
                 input_ids = torch.nested.to_padded_tensor(
                     input_ids, padding=pad_token_id, output_size=(batch_size, max_seq_len)
@@ -819,12 +844,13 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     "attention_mask": attention_mask,
                     "position_ids": position_ids,
                 }
+
             else:
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         extra_args = {}
         if use_fused_kernels:
-            extra_args["temperature"] = temperature
+            extra_args["temperature"] = temperature_item
             extra_args["return_dict"] = True
 
         model_inputs.update(multi_modal_inputs)
@@ -836,21 +862,23 @@ class FSDPEngineWithLMHead(FSDPEngine):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
-        temperature = micro_batch["temperature"]
         calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
 
         model_output = {}
 
         input_ids = micro_batch["input_ids"]
+
         if use_remove_padding:
             input_ids_rmpad_rolled = output_args["input_ids_rmpad_rolled"]
+            temperature_rmpad = output_args["temperature_rmpad"]
 
             if use_fused_kernels:
+                # temperature is singleton
                 log_probs = output.log_probs.squeeze(0)  # (total_nnz,)
                 entropy_rmpad = output.entropy.squeeze(0)  # (total_nnz,)
             else:
                 logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
-                logits_rmpad.div_(temperature)
+                logits_rmpad.div_(temperature_rmpad.clamp(min=1e-8).unsqueeze(-1).to(logits_rmpad.dtype))
 
                 # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                 inplace_backward = True
@@ -906,8 +934,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 entropy = output.entropy[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:
-                logits = output.logits
-                logits.div_(temperature)
+                logits = output.logits  # (bsz, response_length, vocab_size)
+                temperature = output_args["temperature"]  # (bsz,)
+                temperature = temperature.unsqueeze(-1).unsqueeze(-1)
+                logits.div_(temperature.clamp(min=1e-8).to(logits.dtype))
 
                 if calculate_entropy:
                     if not self.engine_config.entropy_checkpointing:
@@ -982,10 +1012,8 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
 
+        input_ids = micro_batch["input_ids"]
         if use_remove_padding:
-            input_ids = micro_batch["input_ids"]
-            batch_size, seqlen = input_ids.shape
-
             if hasattr(self.module, "v_head"):
                 # For trl.AutoModelForCausalLMWithValueHead
                 values_rmpad = output[2].squeeze(0).unsqueeze(-1)

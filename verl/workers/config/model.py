@@ -92,6 +92,9 @@ class HFModelConfig(BaseConfig):
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
 
+    # TiledMLP configuration for memory-efficient MLP computation
+    tiled_mlp: dict = field(default_factory=lambda: {"enabled": False, "num_shards": 4})
+
     architectures: Optional[list[str]] = None
 
     def __post_init__(self):
@@ -104,7 +107,7 @@ class HFModelConfig(BaseConfig):
 
         self.local_path = copy_to_local(self.path, use_shm=self.use_shm)
 
-        # constuct tokenizer
+        # construct tokenizer
         if self.load_tokenizer:
             self.local_tokenizer_path = copy_to_local(self.tokenizer_path, use_shm=self.use_shm)
             self.tokenizer = hf_tokenizer(self.local_tokenizer_path, trust_remote_code=self.trust_remote_code)
@@ -121,7 +124,7 @@ class HFModelConfig(BaseConfig):
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code
         )
 
-        # constuct hf_config
+        # construct hf_config
         attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
         self.hf_config = AutoConfig.from_pretrained(
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation

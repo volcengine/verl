@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import inspect
 from functools import partial, wraps
 from types import FunctionType
@@ -20,7 +19,7 @@ from tensordict import TensorDict
 
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
-from verl.utils.tensordict_utils import concat_tensordict
+from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict, contiguous
 from verl.utils.transferqueue_utils import BatchMeta
 
 # here we add a magic number of avoid user-defined function already have this attribute
@@ -72,20 +71,32 @@ init_predefined_dispatch_mode()
 init_predefined_execute_mode()
 
 
+def _consolidate_tuple_td(chunked_arg):
+    return tuple(contiguous(val).consolidate() for val in chunked_arg)
+
+
 def _split_args_kwargs_data_proto(chunks, *args, **kwargs):
     from verl.protocol import DataProto, DataProtoFuture
 
     splitted_args = []
     for arg in args:
         assert isinstance(arg, DataProto | DataProtoFuture | BatchMeta | TensorDict)
-        chunked_arg = arg.chunk(chunks=chunks)
+        if isinstance(arg, TensorDict):
+            chunked_arg = chunk_tensordict(arg, chunks)
+            chunked_arg = _consolidate_tuple_td(chunked_arg)
+        else:
+            chunked_arg = arg.chunk(chunks=chunks)
         assert len(chunked_arg) == chunks
         splitted_args.append(chunked_arg)
 
     splitted_kwargs = {}
     for key, val in kwargs.items():
         assert isinstance(val, DataProto | DataProtoFuture | BatchMeta | TensorDict)
-        chunked_kwarg = val.chunk(chunks=chunks)
+        if isinstance(val, TensorDict):
+            chunked_kwarg = chunk_tensordict(val, chunks)
+            chunked_kwarg = _consolidate_tuple_td(chunked_kwarg)
+        else:
+            chunked_kwarg = val.chunk(chunks=chunks)
         assert len(chunked_kwarg) == chunks
         splitted_kwargs[key] = chunked_kwarg
 
@@ -442,7 +453,7 @@ def register(dispatch_mode=Dispatch.ALL_TO_ALL, execute_mode=Execute.ALL, blocki
     _check_execute_mode(execute_mode=execute_mode)
 
     def decorator(func):
-        func = tqbridge()(func)
+        func = tqbridge(dispatch_mode=dispatch_mode)(func)
 
         @wraps(func)
         def inner(*args, **kwargs):

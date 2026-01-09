@@ -24,8 +24,7 @@ from typing import Optional
 
 import numpy as np
 import torch
-from tensordict import TensorDict
-from tensordict.utils import LinkedList
+from tensordict.tensorclass import NonTensorData
 from torch import nn
 from transformers import (
     AutoConfig,
@@ -718,6 +717,10 @@ def extract_multi_modal_inputs(
         selected_batch_data = [batch_data[i] for i in indices if i < len(batch_data)]
 
     for inputs in selected_batch_data:
+        inputs = inputs.data if isinstance(inputs, NonTensorData) else inputs
+        # Mixed pure text and multi-modal dataset.
+        if inputs is None:
+            continue
         if "image_bound" in inputs:
             has_image_bound = True
         for key, value in inputs.items():
@@ -732,20 +735,6 @@ def extract_multi_modal_inputs(
         else:
             multi_modal_inputs[key] = torch.cat(values, dim=0)
 
-    return multi_modal_inputs
-
-
-def extract_multi_modal_inputs_tensordict(batch_data: TensorDict):
-    """Extract multi-modal inputs from TensorDict NonTensorStack."""
-    multi_modal_inputs = {}
-    for key in ["pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw"]:
-        if key in batch_data:
-            assert isinstance(batch_data[key], LinkedList), f"{key} must be a LinkedList"
-            tensors = []
-            for tensor in batch_data[key]:
-                if tensor is not None:
-                    tensors.append(tensor)
-            multi_modal_inputs[key] = torch.cat(tensors, dim=0)
     return multi_modal_inputs
 
 

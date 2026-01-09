@@ -24,6 +24,8 @@ VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mis
 class Config:
     def __init__(self, config_dict):
         for key, value in config_dict.items():
+            if isinstance(value, dict):
+                value = Config(value)
             setattr(self, key, value)
 
 
@@ -206,6 +208,82 @@ CONFIG = {
         # total: 986195089686528 / 1e12 = 986.195089686528
         "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
     },
+    "gpt_oss": {
+        "config": {
+            "model_type": "gpt_oss",
+            "vocab_size": 201088,
+            "hidden_size": 2880,
+            "num_hidden_layers": 24,
+            "num_attention_heads": 64,
+            "num_key_value_heads": 8,
+            "head_dim": 64,
+            "intermediate_size": 2880,
+            "num_local_experts": 32,
+            "num_experts_per_tok": 4,
+            "sliding_window": 128,
+            "layer_types": [
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+            ],
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # GPT-OSS has alternating sliding / full attention
+        # Even layers (12 layers) use sliding window attention with window_size = 128
+        # Odd layers  (12 layers) use full attention
+        #
+        # Non-attention FLOPs:
+        # vocab part: 201088 * 2880 * 2 = 1158266880
+        # attn linear part per layer:
+        #   Q: 2880 * (64 * 64) = 11796480
+        #   K: 2880 * (8  * 64) = 1474560
+        #   V: 2880 * (8  * 64) = 1474560
+        #   O: (64 * 64) * 2880 = 11796480
+        #   attn linear total = 26542080
+        # mlp (MoE, SwiGLU) part per layer:
+        #   gate: 2880 * 32 = 92160
+        #   active experts: 3 * 2880 * 2880 * 4 = 99532800
+        #   mlp total = 99624960
+        # total per layer: 26542080 + 99624960 = 126167040
+        # all layers:
+        #   126167040 * 24 = 3028008960
+        # total dense params:
+        #   3028008960 + 1158266880 = 4186275840
+        #
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 4186275840 * 3584 = 90021675663360
+        # seqlen_square_sum: 71565312 (calculated with sliding window logic)
+        # attn flops: 12 * 71565312 * 64 * 64 = 3517578215424
+        # total: 93539253878784 / 1e12 = 93.539253878784
+        #
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 4186275840 * 12288 = 308646629068800
+        # seqlen_square_sum: 622854144 (calculated with sliding window logic)
+        # attn flops: 12 * 622854144 * 64 * 64 = 30613642948608
+        # total: 339260272017408 / 1e12 = 339.260272017408
+        "expected_flops_tuple": (93539253878784 / 1e12, 339260272017408 / 1e12),
+    },
     "apertus": {
         "config": {  # swiss-ai/Apertus-8B
             "model_type": "apertus",
@@ -224,23 +302,101 @@ CONFIG = {
         # S*(2*V*H + L*(4*H**2 + k_mlp*H*I + k_qkn*H)) * (SUM[seqlen]) + 12*SUM[seqlen**2]*L*H
         "expected_flops_tuple": (199154680725504 / 1e12, 732294071451648 / 1e12),
     },
+    "qwen3_vl": {
+        "config": {  # Qwen/Qwen3-VL-8B
+            "model_type": "qwen3_vl",
+            # -------- Text config --------
+            "text_config": {
+                "vocab_size": 151936,
+                "hidden_size": 4096,
+                "intermediate_size": 12288,
+                "num_hidden_layers": 36,
+                "num_attention_heads": 32,
+                "num_key_value_heads": 8,
+                "head_dim": 128,
+            },
+            # -------- Vision config (ViT) --------
+            "vision_config": {
+                "deepstack_visual_indexes": [8, 16, 24],
+                "num_heads": 16,
+                "depth": 27,
+                "hidden_size": 1152,
+                "intermediate_size": 4304,
+                "out_hidden_size": 4096,
+                "spatial_merge_size": 2,
+                "temporal_patch_size": 2,
+                "in_channels": 3,
+                "patch_size": 16,
+            },
+        },
+        "batch_seqlens_tuple": (
+            [512, 1024, 2048],
+            [4096, 4096, 4096],
+        ),
+        "images_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # -----Text-----
+        # 6*(vocab*hidden*2
+        #   + layer*(hidden*(q+k+v+o) + hidden*inter*3)
+        # )*token_sum
+        # + 12*sum(seqlen^2)*layer*hidden
+        #
+        # -----ViT-----
+        # patch_embed_N =hidden*temporal_patch_size*in_channels* patch_size^2
+        # attn_linear_N =hidden*(4*hidden)
+        # mlp_N =hidden*inter*2
+        # merger_N =((o+hidden*spatial_merge_size^2) * (hidden*spatial_merge_size^2))
+        # deepstack_merger_N =merger_N * 3
+        # dense_N =patch_embed_N + (attn_linear_N + mlp_N) * 27 + deepstack_merger_N + merger_N
+        #
+        # 6*(151936*4096*2
+        #   + 36*(4096*(4096+1024+1024+4096) + 4096*12288*3)
+        # )*(512+1024+2048)
+        # + 12*(512*512+1024*1024+2048*2048)*36*4096
+        # + 6 * dense_N * (512 + 1024 + 2048)
+        # + 12 * (512**2 + 1024**2 + 2048**2) * 27 * 16 * 72
+        #
+        # 6*(151936*4096*2
+        #   + 36*(4096*(4096+1024+1024+4096) + 4096*12288*3)
+        # )*(4096+4096+4096)
+        # + 12*(4096*4096+4096*4096+4096*4096)*36*4096
+        # + 6 * dense_N * (4096 + 4096 + 2048)
+        # + 12 * (4096**2 + 4096**2 + 4096**2) * 27 * 16 * 72
+        "expected_flops_tuple": (
+            200250312622080 / 1e12,
+            753976643420160 / 1e12,
+        ),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus", "gpt_oss", "qwen3_vl"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
     config = Config(test_config["config"])
     flops_counter = FlopsCounter(config)
-    for batch_seqlens, expected_flops in zip(
-        test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
-    ):
-        # set delta time to 1 to get the flops
-        counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
-        print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
-        assert math.isclose(counted_flops, expected_flops), (
-            f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
-        )
+    if "images_seqlens_tuple" in test_config:
+        for batch_seqlens, images_seqlens, expected_flops in zip(
+            test_config["batch_seqlens_tuple"],
+            test_config["images_seqlens_tuple"],
+            test_config["expected_flops_tuple"],
+            strict=True,
+        ):
+            # set delta time to 1 to get the flops
+            counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1, images_seqlens=images_seqlens)
+            print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
+            assert math.isclose(counted_flops, expected_flops), (
+                f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+            )
+    else:
+        for batch_seqlens, expected_flops in zip(
+            test_config["batch_seqlens_tuple"], test_config["expected_flops_tuple"], strict=True
+        ):
+            # set delta time to 1 to get the flops
+            counted_flops, _ = flops_counter.estimate_flops(batch_seqlens, 1)
+            print(f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}")
+            assert math.isclose(counted_flops, expected_flops), (
+                f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
+            )

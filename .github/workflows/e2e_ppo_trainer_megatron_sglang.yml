@@ -43,11 +43,11 @@ on:
     paths:
       - "**/*.py"
       # Other entrypoints
-      - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe/**"
-      # FSDP
+      - "!verl/trainer/fsdp_sft_trainer.py" # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
   pull_request:
     branches:
       - main
@@ -62,11 +62,11 @@ on:
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"
-      - "!verl/trainer/fsdp_sft_trainer.py"
-      # Recipes
-      - "!recipe/**"
-      # FSDP
+      - "!verl/trainer/fsdp_sft_trainer.py" # FSDP
       - "!verl/workers/**/*dp_*.py"
+      - "!verl/utils/fsdp_utils.py"
+      - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
+      - "!verl/model_merger/fsdp_model_merger.py"
       # Entrypoints
       - "verl/worksers/rollout/sglang_rollout/*"
       - ".github/workflows/e2e_ppo_trainer_megatron_sglang.yml"
@@ -86,7 +86,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -122,7 +122,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -136,11 +137,6 @@ jobs:
           export VLLM_USE_V1=1
           ray start --head
           ENGINE=sglang MODE=async RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
-      - name: Test Megatron checkpoints merging function (DeepSeek Actor and Critic)
-        run: |
-          exp_name="deepseek-coder-1.3b-instruct-megatron-gsm8k-minimal"
-          python -m verl.model_merger test --backend megatron --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
-          python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
       - name: Profiling GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
@@ -173,7 +169,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install --no-deps -e .[test]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
@@ -181,11 +178,6 @@ jobs:
         run: |
           ray stop --force
           ALL_OFFLOAD=True VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 LR_WARMUP_STEPS=1 TOTAL_TRAIN_STEPS=2 MODEL_ID=Qwen/Qwen3-0.6B bash tests/special_e2e/run_ppo_trainer_megatron.sh
-      - name: Test Megatron checkpoints merging function (Qwen3 Actor and Critic)
-        run: |
-          exp_name="qwen3-0.6b-megatron-gsm8k-minimal"
-          python -m verl.model_merger test --backend megatron --tie-word-embedding --local_dir checkpoints/verl-test/${exp_name}/global_step_1/actor --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/actor/huggingface
-          python -m verl.model_merger test --backend megatron --is-value-model --local_dir checkpoints/verl-test/${exp_name}/global_step_1/critic --test_hf_dir checkpoints/verl-test/${exp_name}/global_step_1/critic/huggingface
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with FP8 rollout
         run: |
           ray stop --force
@@ -198,11 +190,7 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     needs:
-      [
-        setup,
-        e2e_ppo_trainer_megatron-deepseek,
-        e2e_ppo_trainer_megatron-qwen3,
-      ]
+      [setup, e2e_ppo_trainer_megatron-deepseek, e2e_ppo_trainer_megatron-qwen3]
     if: always()
     steps:
       - id: destroy-runner

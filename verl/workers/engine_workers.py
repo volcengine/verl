@@ -13,24 +13,21 @@
 # limitations under the License.
 import logging
 import os
-import warnings
 from functools import partial
+from itertools import chain
 from typing import Any, Optional
 
-import psutil
 import torch
 from codetiming import Timer
 from omegaconf import DictConfig, open_dict
-from tensordict import TensorDict
+from tensordict import NonTensorData, TensorDict
 from torch.distributed.device_mesh import init_device_mesh
 
-from verl import DataProto
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import (
-    get_device_id,
     get_device_name,
     get_torch_device,
     set_expandable_segments,
@@ -38,19 +35,19 @@ from verl.utils.device import (
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
-from verl.utils.profiler import DistProfiler, DistProfilerExtension, log_gpu_memory_usage
+from verl.utils.metric.utils import Metric
+from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
 from verl.utils.torch_functional import allgather_dict_into_dict
-from verl.workers.config import ActorConfig, CriticConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
+from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
-from verl.workers.utils.losses import ppo_loss, value_loss
-from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
+from verl.workers.utils.losses import ppo_loss
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class TrainingWorker(Worker):
+class TrainingWorker(Worker, DistProfilerExtension):
     """
     TrainingWorker provides a Tinker-like API (https://thinkingmachines.ai/tinker/) as a RayWorkerGroup
     to a single controller. Currently, we only provide more coarse grained APIs,
@@ -75,11 +72,15 @@ class TrainingWorker(Worker):
         self.engine_config.use_remove_padding = self.model_config.use_remove_padding
 
         # TODO: add DistProfilerExtension
-        # self.profiler_config = self.config.profiler_config
-        # tool_config = self.profiler_config.tool_config
-        # DistProfilerExtension.__init__(
-        #     self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        # )
+        self.profiler_config = self.config.profiler_config
+        if self.profiler_config is not None:
+            self.profiler_tool_config = self.profiler_config.tool_config.get(self.profiler_config.tool, {})
+        else:
+            self.profiler_tool_config = None
+
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=self.profiler_tool_config)
+        )
 
         self.engine: BaseEngine = EngineRegistry.new(
             model_type=self.config.model_type,
@@ -171,8 +172,91 @@ class TrainingWorker(Worker):
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    def train_mini_batch(self, data: TensorDict) -> TensorDict:
+        """Split a batch into N mini-batches run for multiple epochs
+
+        Args:
+            data:
+
+        Returns:
+
+        """
+
+        batch_size_per_dp = data.shape[0]
+        disable_auto_offload = tu.pop(data, key="disable_auto_offload", default=False)
+        mini_batch_size = tu.pop(data, key="mini_batch_size", default=None)
+        num_mini_batch = tu.pop(data, key="num_mini_batch", default=None)
+        epochs = tu.pop(data, key="epochs", default=1)
+        seed = tu.pop(data, key="seed", default=42)
+        dataloader_kwargs = tu.pop(data, key="dataloader_kwargs", default={})
+
+        assert mini_batch_size is not None or num_mini_batch is not None
+
+        if mini_batch_size is None:
+            assert batch_size_per_dp % num_mini_batch == 0, f"Got {batch_size_per_dp=} and {num_mini_batch=}"
+            mini_batch_size_per_gpu = batch_size_per_dp // num_mini_batch
+        else:
+            assert mini_batch_size % self.engine.get_data_parallel_size() == 0, (
+                f"Got {mini_batch_size=} and {self.engine.get_data_parallel_size()=}"
+            )
+            mini_batch_size_per_gpu = mini_batch_size // self.engine.get_data_parallel_size()
+
+        # make iterator
+        dataloader = tu.make_iterator(
+            data,
+            mini_batch_size=mini_batch_size_per_gpu,
+            epochs=epochs,
+            seed=seed + self.engine.get_data_parallel_rank(),
+            dataloader_kwargs=dataloader_kwargs,
+        )
+
+        with (
+            self.engine.train_mode(disable_auto_offload=disable_auto_offload),
+            Timer(name="train_batch", logger=None),
+        ):
+            # update
+            output_lst = []
+            total_num_iterations = data.shape[0] // mini_batch_size_per_gpu * epochs
+
+            for batch_idx, mini_batch_td in enumerate(dataloader):
+                # add global token num
+                global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
+                # allgather from dp rank
+                global_token_num_output = [None] * self.engine.get_data_parallel_size()
+                torch.distributed.all_gather_object(
+                    global_token_num_output, global_token_num, self.engine.get_data_parallel_group()
+                )
+                global_token_num = [x for xs in global_token_num_output for x in xs]
+                tu.assign_non_tensor(
+                    mini_batch_td,
+                    global_token_num=NonTensorData(global_token_num),
+                    update_lr_scheduler=batch_idx == total_num_iterations - 1,
+                    disable_auto_offload=True,
+                )
+                actor_output = self.train_batch(mini_batch_td)
+                output_lst.append(actor_output)
+
+            if self.engine.is_mp_src_rank_with_outputs():
+                actor_output = [tu.get(output, "metrics") for output in output_lst]
+                metrics = {}
+                for output in actor_output:
+                    for key, val in output.items():
+                        # flattn dp and micro batch
+                        if isinstance(val, list):
+                            output[key] = (
+                                Metric.chain(val) if isinstance(val[0], Metric) else list(chain.from_iterable(val))
+                            )
+                    append_to_dict(metrics, output)
+
+                output = tu.get_tensordict(tensor_dict={}, non_tensor_dict={"metrics": metrics}).cpu()
+            else:
+                output = None
+        return output
+
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
+        assert not self.engine_config.forward_only, "Can't run `train_batch` when forward_only is in the engine config."
         # global_token_num should be a list of number of tokens of each seq in this batch
         global_token_num = tu.get(data, key="global_token_num")
         disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
@@ -213,9 +297,10 @@ class TrainingWorker(Worker):
                 output["metrics"]["lr"] = lr
             final_output = self._postprocess_output(
                 output, global_token_num=global_token_num, delta_time=delta_time, forward_only=False
-            )
+            ).cpu()
         else:
             final_output = None
+
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
@@ -250,179 +335,11 @@ class TrainingWorker(Worker):
         if self.engine.is_mp_src_rank_with_outputs():
             final_output = self._postprocess_output(
                 output, global_token_num=global_token_num, delta_time=delta_time, forward_only=True
-            )
+            ).cpu()
         else:
             final_output = None
+
         return final_output
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
-        return self.engine.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
-        return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
-
-
-class CriticWorker(Worker, DistProfilerExtension):
-    """
-    This worker can be instantiated as a standalone actor or a standalone rollout or a standalone reference policy
-    or a hybrid engine based on the config.rollout
-    """
-
-    def __init__(self, config: CriticConfig):
-        self.config = config
-        Worker.__init__(self)
-        self.profiler_config = self.config.profiler
-        tool_config = self.profiler_config.tool_config
-        DistProfilerExtension.__init__(
-            self, DistProfiler(rank=self.rank, config=self.profiler_config, tool_config=tool_config)
-        )
-
-        initialize_global_process_group_ray(timeout_second=None)
-
-        self.loss_fn = partial(value_loss, config=self.config)
-
-    def _build_engine(self):
-        from copy import copy, deepcopy
-
-        self.model_config = copy(self.config.model_config)
-        self.model_config.hf_config = deepcopy(self.config.model_config.hf_config)
-        self.engine_config = self.config.engine
-        self.optimizer_config = self.config.optim
-        self.checkpoint_config = self.config.checkpoint
-
-        from verl.workers.engine import BaseEngine, EngineRegistry
-
-        # replace AutoModelForSequenceClassification to AutoModelForTokenClassification
-        hf_config = self.model_config.hf_config
-
-        arch = hf_config.architectures[0]
-        # This logic assumes the critic is a token classification model.
-        # If the provided model is a CausalLM, we adapt it.
-        if "ForCausalLM" in arch:
-            model_name = arch.split("ForCausalLM")[0]
-            new_arch = f"{model_name}ForTokenClassification"
-            warnings.warn(f"Implicitly changing critic architecture from '{arch}' to '{new_arch}'", stacklevel=2)
-            hf_config.architectures[0] = new_arch
-        elif "ForTokenClassification" not in arch and "ForSequenceClassification" not in arch:
-            raise ValueError(
-                f"Unsupported critic architecture: {arch}. "
-                f"Critic worker expects an architecture suitable for value function estimation, "
-                f"such as '...ForTokenClassification' or '...ForSequenceClassification'."
-            )
-
-        # make sure output dropout is 0
-        hf_config.classifier_dropout = 0
-
-        self.engine: BaseEngine = EngineRegistry.new(
-            model_type="value_model",
-            backend=self.config.strategy,
-            model_config=self.model_config,
-            engine_config=self.engine_config,
-            optimizer_config=self.optimizer_config,
-            checkpoint_config=self.checkpoint_config,
-        )
-
-        # build dispatch info
-        self._register_dispatch_collect_info(
-            mesh_name="critic",
-            dp_rank=self.engine.get_data_parallel_rank(),
-            is_collect=self.engine.is_mp_src_rank_with_outputs(),
-        )
-
-        # aggregate with bon sampling
-        self.ppo_mini_batch_size = self.config.ppo_mini_batch_size * self.config.rollout_n
-        assert self.ppo_mini_batch_size % self.engine.get_data_parallel_size() == 0, (
-            f"{self.ppo_mini_batch_size=} is not divisible by {self.engine.get_data_parallel_size()=}"
-        )
-        self.ppo_mini_batch_size_per_dp = self.ppo_mini_batch_size // self.engine.get_data_parallel_size()
-
-        # setup flops counter
-        self.flops_counter = FlopsCounter(self.model_config.hf_config)
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def init_model(self):
-        self._build_engine()
-        self.engine.initialize()
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def set_loss_fn(self, loss_fn):
-        self.loss_fn = loss_fn
-
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
-    @DistProfiler.annotate(color="blue", role="critic_compute_values")
-    def compute_values(self, data: DataProto):
-        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        if self.config.use_dynamic_bsz:
-            data.meta_info["max_token_len_per_gpu"] = self.config.ppo_infer_max_token_len_per_gpu
-        else:
-            data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_infer_micro_batch_size_per_gpu
-
-        with self.engine.eval_mode():
-            # TODO: make worker API to accept TensorDict as well
-            data = data.to_tensordict()
-            data = left_right_2_no_padding(data)
-            output = self.engine.infer_batch(data)
-
-        if self.engine.is_mp_src_rank_with_outputs():
-            # in megatron, only last pp contains valid data and returned to the single controller
-            output = output["model_output"]
-            values = output["values"]
-            values = no_padding_2_padding(values, data)  # (bsz, response_length)
-
-            output = DataProto.from_dict(
-                tensors={"values": values.float()},
-            )
-            output = output.to("cpu")
-
-        return output
-
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
-    @DistProfiler.annotate(color="red", role="critic_update")
-    def update_critic(self, data: DataProto):
-        data.meta_info["use_dynamic_bsz"] = self.config.use_dynamic_bsz
-        if self.config.use_dynamic_bsz:
-            data.meta_info["max_token_len_per_gpu"] = self.config.ppo_max_token_len_per_gpu
-        else:
-            data.meta_info["micro_batch_size_per_gpu"] = self.config.ppo_micro_batch_size_per_gpu
-
-        metrics = {}
-        # Support all hardwares
-        data = data.to(get_device_id())
-        # perform forward computation
-        with self.engine.train_mode():
-            dataloader = data.make_iterator(
-                mini_batch_size=self.ppo_mini_batch_size_per_dp,
-                epochs=self.config.ppo_epochs,
-                seed=self.config.data_loader_seed + self.engine.get_data_parallel_rank(),
-                dataloader_kwargs={"shuffle": self.config.shuffle},
-            )
-            with Timer(name="update_policy", logger=None) as timer:
-                for batch_idx, mini_batch in enumerate(dataloader):
-                    mini_batch.meta_info["global_batch_size"] = self.ppo_mini_batch_size
-                    # TODO: make worker API to accept TensorDict as well
-                    mini_batch = mini_batch.to_tensordict()
-                    mini_batch = left_right_2_no_padding(mini_batch)
-                    output = self.engine.train_batch(mini_batch, self.loss_fn)
-                    mini_batch_metrics = output.get("metrics", {})
-                    append_to_dict(metrics, mini_batch_metrics, prefix="critic/")
-
-            delta_time = timer.last
-
-            global_num_tokens = data.meta_info["global_token_num"]
-            estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
-            metrics["perf/mfu/critic"] = estimated_flops * self.config.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
-
-            lr = self.engine.lr_scheduler_step()
-            metrics["critic/lr"] = lr
-
-            output = DataProto(batch=None, meta_info={"metrics": metrics})
-
-        return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
@@ -447,6 +364,31 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self.actor: TrainingWorker = None
         self.ref: TrainingWorker = None
         self.rollout: BaseRollout = None
+        assert self.role in ["actor", "rollout", "ref", "actor_rollout", "actor_rollout_ref"]
+        self._is_actor = self.role in ["actor", "actor_rollout", "actor_rollout_ref"]
+        self._is_rollout = self.role in ["rollout", "actor_rollout", "actor_rollout_ref"]
+        self._is_ref = self.role in ["ref", "actor_rollout_ref"]
+
+        if self._is_actor:
+            omega_profiler_config = config.actor.get("profiler", {})
+        elif self._is_rollout:
+            # NOTE: In colocation mode, rollout config may not take effect (follow the actor config)
+            # This is for extendability in AsyncRL cases
+            omega_profiler_config = config.rollout.get("profiler", {})
+        else:
+            omega_profiler_config = config.ref.get("profiler", {})
+
+        profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
+        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory"]:
+            tool_config = omega_conf_to_dataclass(
+                omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
+            )
+        else:
+            tool_config = None
+
+        DistProfilerExtension.__init__(
+            self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
+        )
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
@@ -530,7 +472,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 assert self.config.actor.ppo_max_token_len_per_gpu is not None
             else:
                 assert self.config.rollout.log_prob_micro_batch_size_per_gpu is not None
-                assert self.config.rollout.ppo_micro_batch_size_per_gpu is not None
+                assert self.config.actor.ppo_micro_batch_size_per_gpu is not None
 
             self.loss_fn = partial(ppo_loss, config=actor_config)
             self.actor = TrainingWorker(config=actor_training_config)
@@ -576,18 +518,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.ref.infer_batch(data=data).cpu()
+        output = self.ref.infer_batch(data=data)
+        return output.cpu() if output is not None else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
-        return self.actor.infer_batch(data).cpu()
+        output = self.actor.infer_batch(data)
+        return output.cpu() if output is not None else None
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"), blocking=False)
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
-    def train_batch(self, data: TensorDict) -> TensorDict:
-        output = self.actor.train_batch(data=data)
-        return output
+    def update_actor(self, data: TensorDict) -> TensorDict:
+        output = self.actor.train_mini_batch(data=data)
+        return output.cpu() if output is not None else None
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
@@ -622,7 +566,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         set_expandable_segments(False)
 
         # 1. get per tensor generator from engine, this will load model to gpu
-        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param()
+        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param(
+            layered_summon=self.layered_summon, base_sync_done=self.base_sync_done
+        )
 
         # 2. resume weights and update weights
         if self.config.rollout.free_cache_engine:

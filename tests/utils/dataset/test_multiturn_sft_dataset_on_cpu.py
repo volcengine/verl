@@ -17,6 +17,7 @@ Test the MultiTurnSFTDataset implementation
 
 import os
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -30,15 +31,17 @@ from transformers.utils import get_json_schema
 
 from verl.utils.dataset.dataset_utils import DatasetPadMode, SFTTensorCollator
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
-from verl.utils.model import extract_multi_modal_inputs_tensordict
+from verl.utils.model import extract_multi_modal_inputs
+
+custom_model_prefix = Path("~/models").expanduser().resolve()
 
 
 @pytest.mark.parametrize(
     "model_path",
     [
-        "Qwen/Qwen2.5-0.5B",
-        "Qwen/Qwen2.5-Coder-7B-Instruct",
-        "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        f"{custom_model_prefix}/Qwen/Qwen2.5-0.5B",
+        f"{custom_model_prefix}/Qwen/Qwen2.5-Coder-7B-Instruct",
+        f"{custom_model_prefix}/Qwen/Qwen3-30B-A3B-Instruct-2507",
         # "Qwen/Qwen3-30B-A3B-Thinking-2507" # Thinking series models add <think></think> tags to last turn.
     ],
 )
@@ -330,7 +333,7 @@ def vlm_data_file():
 
 def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    model_path = "Qwen/Qwen3-VL-2B-Instruct"
+    model_path = f"{custom_model_prefix}/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
     config = {"max_length": 512, "pad_mode": "no_padding", "truncation": "error", "messages_key": "messages"}
@@ -342,8 +345,8 @@ def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
         input_ids = item["input_ids"]
         loss_mask = item["loss_mask"]
         position_ids = item["position_ids"]
-        pixel_values = item.get("pixel_values", None)
-        image_grid_thw = item.get("image_grid_thw", None)
+        pixel_values = item.get("multi_modal_inputs", {}).get("pixel_values")
+        image_grid_thw = item.get("multi_modal_inputs", {}).get("image_grid_thw")
 
         assert input_ids.shape == loss_mask.shape, "Shapes of input_ids and loss_mask must be equal"
         assert position_ids.dim() == 2, "position_ids must be 2-dimensional"
@@ -386,7 +389,7 @@ def test_multiturn_sft_vlm_dataset_on_cpu(vlm_data_file):
 
 def test_multiturn_sft_vlm_dataloader_on_cpu(vlm_data_file):
     df = pd.read_parquet(vlm_data_file)
-    model_path = "Qwen/Qwen3-VL-2B-Instruct"
+    model_path = f"{custom_model_prefix}/Qwen/Qwen3-VL-2B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     processor = AutoProcessor.from_pretrained(model_path)
     config = {"max_length": 512, "pad_mode": "no_padding", "truncation": "error", "messages_key": "messages"}
@@ -425,7 +428,7 @@ def test_multiturn_sft_vlm_dataloader_on_cpu(vlm_data_file):
 
         # 3. verify multi-modal data
         td = TensorDict(**batch, batch_size=batch_size)
-        multi_modal_inputs = extract_multi_modal_inputs_tensordict(td)
+        multi_modal_inputs = extract_multi_modal_inputs(td["multi_modal_inputs"])
         pixel_values = multi_modal_inputs["pixel_values"]
         image_grid_thw = multi_modal_inputs["image_grid_thw"]
 

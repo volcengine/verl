@@ -1,7 +1,7 @@
 RL(HF) algorithms with LoRA Support
 ===========================================
 
-Last updated: 06/05/2025.
+Last updated: 12/17/2025.
 
 We support LoRA (Low-Rank Adaptation) for reinforcement learning algorithms such as PPO, GRPO, and others.
 
@@ -16,8 +16,13 @@ The benefits this brings include:
 
 This guide explains how to enable LoRA in RL training and configure related parameters.
 
-Usage Guide
+FSDP Backend Usage Guide
 ------------------------
+
+.. note::
+
+   This section applies to **FSDP/FSDP2 backend only**. For Megatron backend, see the :ref:`megatron-lora` section below.
+
 1. Lora is available in the `verl.trainer.ppo.ray_trainer.RayPPOTrainer`. Examples are provided via the `verl.trainer.main_ppo` entry point.
 
 2. Currently, LoRA is supported via huggingface peft, only with fsdp/fsdp2 and vllm backend (sglang support coming soon).
@@ -43,6 +48,101 @@ Usage Guide
 - `actor_rollout_ref.model.use_shm=True`: preload the model into `/dev/shm` to improve model loading speed.
 - `actor_rollout_ref.rollout.layered_summon=True`: this enables the actor-model to gather the FSDP shards per layers when synchronizing the LoRA Adapter to vLLM, thereby reducing GPU peak memory. Recommended if the model is very large (70B+) or the GPU memory is limited (< 48GB)
 
+.. _megatron-lora:
+
+Megatron Backend Usage Guide
+----------------------------
+
+.. warning::
+
+   The FSDP-specific config options are **NOT applicable** to Megatron backend, and they will be ignored if set. Only options listed under ``lora`` key are applicable:
+
+   - ``actor_rollout_ref.model.lora.*``
+   - ``critic.model.lora.*``
+
+You need to install and enable Megatron-Bridge for Megatron LoRA support.
+
+Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `this commit <https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/550924c04368a175ef261a72230204410f455260>`_ or later for proper support, and use the following settings to enable Megatron-Bridge:
+
+- ``actor_rollout_ref.actor.megatron.use_mbridge=True``
+- ``actor_rollout_ref.actor.megatron.vanilla_mbridge=False``
+
+**Key Differences from FSDP LoRA:**
+
+1. **LoRA Implementation**: Verl Megatron backend uses Megatron-Bridge's native LoRA implementation, which differs from HuggingFace PEFT.
+
+2. **Weight Sync Mechanism**: Currently, Megatron-Bridge syncs weights by merging LoRA adapters into the base model weights before transferring to vLLM rather than loading separate adapters. This is necessary because Megatron-Bridge's LoRA format is not directly integratable with vLLM's LoRA loading mechanism (HF PEFT format), and LoRA bridge is not yet supported.
+
+**Configuration for Megatron LoRA:**
+
+.. code-block:: yaml
+
+   actor_rollout_ref:
+     model:
+      lora:
+        # LoRA type: "lora", "vlm_lora", "canonical_lora", or "dora"
+        type: lora
+
+        # LoRA rank (Dimension of the low-rank projection space.). Set to 0 to disable LoRA
+        rank: 0
+        
+        #  Weighting factor for the low-rank projection. Defaults to 32
+        alpha: 32
+        
+        # Dropout rate for the low-rank projection. Defaults to 0.0
+        dropout: 0.0
+        
+        # A list of module names to apply LoRA to.
+        # For fused LoRA, Defaults to all linear layers ['linear_qkv', 'linear_proj', 'linear_fc1', 'linear_fc2'].
+        # For canonical LoRA: ["linear_q", "linear_k", "linear_v", "linear_proj", "linear_fc1_up", "linear_fc1_gate", "linear_fc2"]
+        # - 'linear_qkv': Apply LoRA to the fused linear layer used for query, key, and value projections in self-attention
+        # - 'linear_proj': Apply LoRA to the linear layer used for projecting the output of self-attention
+        # - 'linear_fc1': Apply LoRA to the first fully-connected layer in MLP
+        # - 'linear_fc2': Apply LoRA to the second fully-connected layer in MLP
+        # Target modules can also contain wildcards. For example, you can specify
+        # target_modules=['*.layers.0.*.linear_qkv', '*.layers.1.*.linear_qkv'] to add LoRA to only linear_qkv on the first two layers
+        target_modules:
+          - linear_qkv
+          - linear_proj
+          - linear_fc1
+          - linear_fc2
+        
+        # A list of module names not to apply LoRa to. It will match all nn.Linear & nn.Linear-adjacent modules whose name
+        # does not match any string in exclude_modules. If used, will require target_modules to be empty list or None
+        exclude_modules: []
+
+        # Position for applying dropout, can be 'pre' (before the low-rank projection) or 'post' (after). Defaults to 'pre'
+        dropout_position: pre
+
+        # Initialization method for the low-rank matrix A. Defaults to "xavier".
+        lora_A_init_method: xavier
+
+        # Initialization method for the low-rank matrix B. Defaults to "zero".
+        lora_B_init_method: zero
+
+        # Enables the experimental All-to-All (A2A) communication strategy. Defaults to False
+        a2a_experimental: False
+
+        # Parameter data type for LoRA weights. Default to null, which will use model's dtype.
+        dtype: null
+
+        # Path to pre-trained LoRA adapter weights (null to train from scratch)
+        adapter_path: null
+
+        # VLMLoRA additionally allows the user to specify whether the language or vision models should be frozen.
+        # For example, a common finetuning workload for multimodal models is to apply adapters to language model and fully
+        # finetune the vision model.
+        freeze_vision_model: True
+        freeze_vision_projection: True
+        freeze_language_model: True
+
+
+**Current Limitations:**
+
+1. **No HuggingFace PEFT Export**: Currently there is no built-in way to export Megatron LoRA adapters to HuggingFace PEFT format for inference with standard HF/vLLM pipelines, such support is coming soon with Megatron-Bridge `LoRA bridge <https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1536>`_.
+
+2. **LoRA Merge Overhead**: As we don't have LoRA bridge for now, each weight sync (refit) requires merging LoRA weights, which adds some overhead compared to direct dynamic adapter loading.
+
 
 Best Practices and Notes
 -------------------------
@@ -60,7 +160,7 @@ Best Practices and Notes
 
 .. image:: https://github.com/eric-haibin-lin/verl-community/blob/f2b80b8b26829124dd393b7a795a0640eff11644/docs/lora.jpg?raw=true
 
-3. Reference configuration for RL training with the Qwen2.5-72B model using 8 x 80GB GPUs (increase lora_rank if needed):
+3. **FSDP-Specific:** Reference configuration for RL training with the Qwen2.5-72B model using 8 x 80GB GPUs (increase lora_rank if needed):
 
 .. code-block::
 
@@ -90,5 +190,12 @@ Example Scripts
 
 For end-to-end examples, refer to the scripts below:
 
+**FSDP Examples:**
+
 - LoRA training from scratch: examples/grpo_trainer/run_qwen2_5-3b_gsm8k_grpo_lora.sh
 - LoRA training from adapter path: examples/grpo_trainer/run_qwen2_5-3b_gsm8k_grpo_lora_from_adapter.sh
+
+**Megatron Examples:**
+
+- LoRA training with Dense: examples/grpo_trainer/run_qwen2-7b_math_megatron_lora.sh
+- LoRA training with MoE: examples/grpo_trainer/run_qwen3moe-30b_megatron_lora.sh
