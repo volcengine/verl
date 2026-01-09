@@ -230,7 +230,8 @@ jobs:
         setup,
         e2e_grpo_trainer_fsdp-qwen2,
         e2e_grpo_trainer_megatron-qwen2,
-        e2e_ppo_trainer_megatron-qwen3,
+        # TODO: add back when dummy RM is ready.
+        # e2e_ppo_trainer_megatron-qwen3
       ]
     if: always()
     steps:
