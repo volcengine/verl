@@ -37,11 +37,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import agg_loss
-from verl.trainer.ppo.metric_utils import (
-    compute_data_metrics,
-    compute_throughout_metrics,
-    compute_timing_metrics,
-)
+from verl.trainer.ppo.metric_utils import compute_data_metrics, compute_throughout_metrics, compute_timing_metrics
 from verl.trainer.ppo.ray_trainer import (
     RayPPOTrainer,
     ResourcePoolManager,
@@ -54,9 +50,7 @@ from verl.trainer.ppo.utils import Role, WorkerType, need_reference_policy, need
 from verl.utils import omega_conf_to_dataclass
 from verl.utils.checkpoint.checkpoint_manager import should_save_ckpt_esi
 from verl.utils.debug import marked_timer
-from verl.utils.metric import (
-    reduce_metrics,
-)
+from verl.utils.metric import reduce_metrics
 from verl.utils.tracking import ValidationGenerationsLogger
 
 
@@ -119,8 +113,11 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.device_name = device_name if device_name else self.config.trainer.device
         self.validation_generations_logger = ValidationGenerationsLogger()
 
+        lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = config.actor_rollout_ref.model.get("lora_rank", 0)
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = config.actor_rollout_ref.model.get("lora_rank", 0) > 0
+        self.ref_in_actor = lora_rank > 0
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
