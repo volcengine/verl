@@ -124,16 +124,17 @@ jobs:
         run: |
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
-      - name: Prepare GSM8K and MATH datasets
+      - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-          python3 examples/data_preprocess/math_dataset.py --local_dataset_path ${HOME}/models/hf_data/math
       - name: Running GSM8K E2E training tests with FSDP on 8 L20 GPUs (Qwen)
         run: |
           ray stop --force
           DATADIR=${HOME}/data \
             bash examples/grpo_trainer/run_qwen2-7b_math_trtllm.sh 4 \
-            trainer.total_training_steps=1
+            trainer.total_training_steps=1 \
+            data.train_files="['${HOME}/data/gsm8k/train.parquet']" \
+            data.val_files="['${HOME}/data/gsm8k/test.parquet']"
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -157,16 +158,17 @@ jobs:
         run: |
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
-      - name: Prepare GSM8K and MATH datasets
+      - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
-          python3 examples/data_preprocess/math_dataset.py --local_dataset_path ${HOME}/models/hf_data/math
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Qwen)
         run: |
           ray stop --force
           DATADIR=${HOME}/data \
             bash examples/grpo_trainer/run_qwen2-7b_math_megatron_trtllm.sh 1 \
-            trainer.total_training_steps=1
+            trainer.total_training_steps=1 \
+            data.train_files="['${HOME}/data/gsm8k/train.parquet']" \
+            data.val_files="['${HOME}/data/gsm8k/test.parquet']"
       - name: clean up
         run: |
           rm -rf checkpoints
