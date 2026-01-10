@@ -60,6 +60,7 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
+    build_cli_args_from_config,
     get_vllm_max_lora_rank,
 )
 
@@ -364,25 +365,7 @@ class vLLMHttpServer:
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
 
-        server_args = ["serve", self.model_config.local_path]
-        for k, v in args.items():
-            if v is None:
-                continue
-            if isinstance(v, bool):
-                if v:
-                    server_args.append(f"--{k}")
-            elif isinstance(v, list):
-                if not v:
-                    # Skip empty lists - vLLM uses nargs="+" which requires at least one value
-                    continue
-                # Lists need to be expanded as multiple separate arguments
-                # e.g., --cuda-graph-sizes 1 2 4 8 becomes ['--cuda-graph-sizes', '1', '2', '4', '8']
-                server_args.append(f"--{k}")
-                server_args.extend([str(item) for item in v])
-            else:
-                server_args.append(f"--{k}")
-                # Use json.dumps for dict to ensure valid JSON format
-                server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
+        server_args = ["serve", self.model_config.local_path] + build_cli_args_from_config(args)
 
         if self.replica_rank == 0:
             pprint(server_args)
