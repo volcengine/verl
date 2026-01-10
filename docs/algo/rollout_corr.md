@@ -123,22 +123,32 @@ from verl.trainer.config.algorithm import RolloutCorrectionConfig
 
 # === Decoupled PPO mode (3 policies: π_rollout, π_old, π_θ) ===
 # IS weights correct for gap between π_old and π_rollout
-config = RolloutCorrectionConfig.decoupled_token_is()   # Token-TIS
-config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
-config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
-config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS
-config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
+config = RolloutCorrectionConfig.decoupled_token_is()           # Token-TIS
+config = RolloutCorrectionConfig.decoupled_seq_is()             # Seq-TIS
+config = RolloutCorrectionConfig.decoupled_seq_is_rs()          # Seq-MIS
+config = RolloutCorrectionConfig.decoupled_k1_rs()              # K1-RS (divergence mode)
+config = RolloutCorrectionConfig.decoupled_geo_rs()             # Geo-RS (ratio mode)
+config = RolloutCorrectionConfig.decoupled_k1_rs_token_tis()    # K1-RS + Token-TIS
+config = RolloutCorrectionConfig.decoupled_geo_rs_token_tis()   # Geo-RS + Token-TIS
+
+# === K3 KL Estimator presets (more stable for small KL) ===
+config = RolloutCorrectionConfig.decoupled_k3_rs()              # K3-RS only
+config = RolloutCorrectionConfig.decoupled_k3_rs_token_tis()    # K3-RS + Token-TIS
 
 # === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
 # PPO ratio handles IS, so no explicit IS weights needed
-config = RolloutCorrectionConfig.bypass_ppo_clip()          # PPO-clip only
-config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()   # PPO-clip + Geo-RS
+config = RolloutCorrectionConfig.bypass_ppo_clip()              # PPO-clip only
+config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs()        # PPO-clip + K1-RS (divergence)
+config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()       # PPO-clip + Geo-RS (ratio)
+config = RolloutCorrectionConfig.bypass_ppo_clip_k3_rs()        # PPO-clip + K3-RS
 
 # === Bypass PG mode (2 policies, no PPO clipping) - fast ===
 # IS weights computed on-the-fly as π_θ / π_rollout
-config = RolloutCorrectionConfig.bypass_pg_is()                # Seq-TIS + PG
-config = RolloutCorrectionConfig.bypass_pg_rs()                # Geo-RS + PG
-config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_is()                 # Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_k1_rs()              # K1-RS + PG (divergence)
+config = RolloutCorrectionConfig.bypass_pg_geo_rs()             # Geo-RS + PG (ratio)
+config = RolloutCorrectionConfig.bypass_pg_k1_rs_token_tis()    # K1-RS + Token-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_token_tis()   # Geo-RS + Token-TIS + PG
 
 # === Other ===
 config = RolloutCorrectionConfig.disabled()             # Metrics only (no correction)
@@ -154,9 +164,9 @@ algorithm:
     rollout_is: token                      # IS weights: "token", "sequence", or null
     rollout_is_threshold: 2.0              # Upper threshold for IS weights
     rollout_is_batch_normalize: false      # Batch normalize IS weights to mean=1.0
-    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", or null
+    rollout_rs: null                       # Rejection sampling: "token", "sequence", "geometric", "k3", or null
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
-    rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
+    rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null, ignored for k3 modes)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
     bypass_mode: false  # Skip old_log_prob computation (sets π_old = π_rollout)
     loss_type: ppo_clip            # Loss type in bypass mode: "ppo_clip" (default) or "reinforce"
@@ -224,10 +234,25 @@ Upper threshold for IS weight truncation. Default: `2.0`
 ### `rollout_rs` (str or null)
 Rejection sampling aggregation level:
 - `null` = No rejection sampling
+
+**IS Ratio Modes (ideal = 1.0, uses [lower, upper] threshold bounds):**
 - `"token"`: Reject individual tokens with outlier ratios
 - `"sequence"`: Reject entire sequences with outlier ratios
-- `"geometric"`: Geometric mean aggregation for rejection
+- `"geometric"`: Geometric mean IS ratio exp(E[log(r)])
+  - Length-normalized ratio mode
   - Typical threshold: 1.0002 - 1.001
+
+**KL Divergence Modes (ideal = 0.0, uses only upper threshold):**
+
+Both K1 and K3 estimate KL(π_rollout || π_train) — the **reverse KL** measured under the rollout distribution.
+
+- `"k1"`: K1 divergence at sequence level: |E[log(r)]|
+  - K1 >= 0 always, so only upper threshold applies
+  - Typical threshold: 0.0001 - 0.001
+- `"k3"`: K3 divergence at sequence level: E[r - log(r) - 1]
+  - More stable than K1 (each token term is non-negative)
+  - K3 >= 0 always, so only upper threshold applies
+  - Typical threshold: 0.001 - 0.01
 
 ### `rollout_rs_threshold` (float or null)
 Upper threshold for rejection sampling. Default: `null`
@@ -241,11 +266,11 @@ Lower threshold for rejection sampling. Default: `null`
 
 ### `rollout_token_veto_threshold` (float or null)
 Per-token veto for catastrophic outliers. Default: `null`
-- Checks **unclamped per-token ratios** before safety bounds
-- If ANY token has ratio < threshold, entire sequence is rejected
+- Checks **unclamped per-token absolute ratios** before safety bounds
+- If ANY token has an absolute ratio > threshold, entire sequence is rejected
 - Independent of `rollout_is` and `rollout_rs` settings
-- Typical values: `1e-4` to `1e-6` when enabled
-- Example: `1e-4` catches tokens 10,000x less likely
+- Typical values: `1e2` to `1e4` when enabled
+- Example: `1e4` catches tokens 10,000x less likely
 
 ### `rollout_is_batch_normalize` (bool)
 Apply batch normalization to IS weights. Default: `False`
@@ -297,15 +322,24 @@ This section provides detailed guidance on choosing and using the verified prese
 | `decoupled_token_is()` | Token-TIS | Decoupled | token | - | Per-token IS weights |
 | `decoupled_seq_is()` | Seq-TIS | Decoupled | sequence | - | Sequence-level IS weights |
 | `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
-| `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
-| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + clipped weight |
+| `decoupled_k1_rs()` | K1-RS | Decoupled | - | k1 + veto | K1 RS + veto (divergence mode) |
+| `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto (ratio mode) |
+| `decoupled_k1_rs_token_tis()` | K1-RS-Token-TIS | Decoupled | token | k1 + veto | K1 filter + token clipped weight |
+| `decoupled_geo_rs_token_tis()` | Geo-RS-Token-TIS | Decoupled | token | geometric + veto | Geometric filter + token clipped weight |
+| **K3 KL Estimator** (more stable for small KL values) |
+| `decoupled_k3_rs()` | K3-RS | Decoupled | - | k3 + veto | K3 rejection, no IS weights |
+| `decoupled_k3_rs_token_tis()` | K3-RS-Token-TIS | Decoupled | token | k3 + veto | K3 filter + token clipped weight |
 | **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
 | `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
-| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS |
+| `bypass_ppo_clip_k1_rs()` | K1-RS | Bypass (PPO-clip) | - | k1 + veto | PPO-clip + K1-RS (divergence) |
+| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS (ratio) |
+| `bypass_ppo_clip_k3_rs()` | K3-RS | Bypass (PPO-clip) | - | k3 + veto | PPO-clip + K3-RS |
 | **Bypass Mode (REINFORCE)** (2 policies; explicit IS weights, no PPO clipping) |
 | `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | sequence | - | REINFORCE with explicit IS |
-| `bypass_pg_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS |
-| `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | sequence | geometric + veto | REINFORCE + Geo filter + seq IS |
+| `bypass_pg_k1_rs()` | K1-RS | Bypass (REINFORCE) | - | k1 + veto | REINFORCE with K1-RS (divergence) |
+| `bypass_pg_geo_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS (ratio) |
+| `bypass_pg_k1_rs_token_tis()` | K1-RS-Token-TIS | Bypass (REINFORCE) | token | k1 + veto | REINFORCE + K1 filter + token IS |
+| `bypass_pg_geo_rs_token_tis()` | Geo-RS-Token-TIS | Bypass (REINFORCE) | token | geometric + veto | REINFORCE + Geo filter + token IS |
 | **Other** |
 | `disabled()` | - | - | - | - | Metrics only, no correction |
 
@@ -314,7 +348,7 @@ This section provides detailed guidance on choosing and using the verified prese
   - `"ppo_clip"` (default): PPO clipped objective where ratio = π_θ/π_rollout already handles IS
   - `"reinforce"`: REINFORCE with explicit IS weights as π_θ / π_rollout
 - Both loss types benefit from rejection sampling (RS) which masks out-of-distribution samples.
-- Estimators (Token-TIS, Seq-TIS, Seq-MIS, Geo-RS, Geo-RS-Seq-TIS) are compatible with Decoupled and Bypass modes.
+- Estimators (Token-TIS, Seq-TIS, Seq-MIS, Geo-RS, K1-RS-Token-TIS) are compatible with Decoupled and Bypass modes.
 
 #### Other Supported Combinations (Manual Configuration Required)
 
@@ -439,18 +473,18 @@ algorithm:
 
 ---
 
-### 4. Decoupled Mode with Geometric Rejection Sampling (`decoupled_geo_rs`)
+### 4. Decoupled Mode with K1 Rejection Sampling (`decoupled_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_threshold=1e-4)
+config = RolloutCorrectionConfig.decoupled_k1_rs(rs_threshold=0.001, veto_threshold=1e4)
 ```
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
 - **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: None (pure rejection)
-- **RS**: Geometric-level rejection (Geo-RS)
+- **RS**: K1 divergence-level rejection (K1-RS)
 - **Veto**: Enabled
 
 **Equivalent YAML:**
@@ -458,70 +492,68 @@ config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_thres
 algorithm:
   rollout_correction:
     rollout_is: null
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.001
-    rollout_rs_threshold_lower: 0.999
-    rollout_token_veto_threshold: 1e-4
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
+    rollout_token_veto_threshold: 1e4
     bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
 - No IS weights (pure rejection)
-- Geometric mean aggregation (more sensitive than arithmetic product)
-- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
-- Rejects sequences based on average per-token ratio deviation
+- K1 divergence: |E[log(r)]| (length-normalized)
+- Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
+- Rejects sequences based on average per-token log-ratio deviation
 
-**Why Geo-RS?** Standard IS estimators have a **Length Trap**: they penalize long sequences because the importance ratio grows exponentially with length. For reasoning models (CoT) and agents, this causes "Context Collapse" - the model learns from short answers while rejecting long chains of thought. Geo-RS normalizes by sequence length, making rejection length-invariant.
+**Why K1-RS?** Standard IS estimators have a **Length Trap**: they penalize long sequences because the importance ratio grows exponentially with length. For reasoning models (CoT) and agents, this causes "Context Collapse" - the model learns from short answers while rejecting long chains of thought. K1 divergence normalizes by sequence length, making rejection length-invariant.
 
-**Why tight thresholds?** Geometric mean is very sensitive. For 100 tokens with ratio 1.01 each:
-- Product: 1.01^100 ≈ 2.7
-- Geometric mean: 1.01
+**Why tight thresholds?** K1 divergence is very sensitive. For 100 tokens with log-ratio 0.01 each:
+- Product ratio: e^(100 * 0.01) ≈ 2.7
+- K1 divergence: |0.01| = 0.01
 
-A threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
+A threshold of 0.001 rejects sequences with average per-token log-deviation > 0.1%.
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
-### 5. Geo-RS with Sequence IS (`geo_rs_seq_tis`)
+### 5. K1-RS with Token IS (`decoupled_k1_rs_token_tis`)
 
-**Also known as: Geo-RS-Seq-TIS**
+**Also known as: K1-RS-Token-TIS**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.geo_rs_seq_tis(
+config = RolloutCorrectionConfig.decoupled_k1_rs_token_tis(
     is_threshold=2.0,
-    rs_threshold=1.001,
-    veto_threshold=1e-4
+    rs_threshold=0.001,
+    veto_threshold=1e4
 )
 ```
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
 - **Loss**: PPO with clipping (only for the second drift correction)
-- **IS Aggregation**: Sequence-level (Seq-TIS) for debiasing
-- **RS**: Geometric-level rejection (Geo-RS) for length-invariant filtering
+- **IS Aggregation**: Token-level (Token-TIS) for variance reduction
+- **RS**: K1 divergence-level rejection (K1-RS) for length-invariant filtering
 - **Veto**: Enabled
 
 **Equivalent YAML:**
 ```yaml
 algorithm:
   rollout_correction:
-    rollout_is: sequence
+    rollout_is: token
     rollout_is_threshold: 2.0
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.001
-    rollout_rs_threshold_lower: 0.999
-    rollout_token_veto_threshold: 1e-4
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
+    rollout_token_veto_threshold: 1e4
     bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- Combines **Geometric Filter** (length-invariant validity) with **Clipped Sequence Weight** (correct debiasing)
+- Combines **K1 Filter** (length-invariant validity) with **Token-level IS weights** (lower variance)
 - Suitable for reasoning models (CoT, o1-style) and agents with long action sequences
-- Solves the Length Trap while maintaining IS correction for bias reduction
+- Solves the Length Trap while maintaining IS correction for variance reduction
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -562,13 +594,13 @@ algorithm:
 
 ---
 
-### 6b. Bypass Mode with PPO-clip + Geo-RS (`bypass_ppo_clip_geo_rs`)
+### 6b. Bypass Mode with PPO-clip + K1-RS (`bypass_ppo_clip_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs(
-    rs_threshold=1.001,
-    veto_threshold=1e-4
+config = RolloutCorrectionConfig.bypass_ppo_clip_k1_rs(
+    rs_threshold=0.001,
+    veto_threshold=1e4
 )
 ```
 
@@ -576,7 +608,7 @@ config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs(
 - **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
 - **Loss**: PPO-clip (IS handled by ratio, no explicit IS weights)
 - **IS Aggregation**: None (PPO ratio handles it)
-- **RS**: Geometric-level rejection
+- **RS**: K1 divergence-level rejection
 - **Veto**: Enabled
 
 **Equivalent YAML:**
@@ -584,26 +616,25 @@ config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs(
 algorithm:
   rollout_correction:
     rollout_is: null
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.001
-    rollout_rs_threshold_lower: 0.999
-    rollout_token_veto_threshold: 1e-4
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: ppo_clip
 ```
 
 **Properties:**
-- PPO clipped objective in bypass mode with geometric RS
+- PPO clipped objective in bypass mode with K1 divergence RS
 - The PPO ratio = π_θ/π_rollout already handles IS (no explicit IS weights needed)
 - Skips `actor.compute_log_prob()` forward pass (2 policies instead of 3)
-- Geometric RS masks outliers
+- K1 divergence RS masks outliers (length-invariant)
 - Veto mechanism enabled
 - Solves Length Trap problem for CoT/agent workloads
 
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
 
-**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geo/K1)](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -640,13 +671,13 @@ algorithm:
 
 ---
 
-### 8. REINFORCE with Rejection Sampling (`bypass_pg_rs`)
+### 8. REINFORCE with K1 Rejection Sampling (`bypass_pg_k1_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_pg_rs(
-    rs_threshold=1.001,
-    veto_threshold=1e-4
+config = RolloutCorrectionConfig.bypass_pg_k1_rs(
+    rs_threshold=0.001,
+    veto_threshold=1e4
 )
 ```
 
@@ -654,7 +685,7 @@ config = RolloutCorrectionConfig.bypass_pg_rs(
 - **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
 - **Loss**: REINFORCE (no PPO clipping)
 - **IS Aggregation**: None
-- **RS**: Geometric-level rejection
+- **RS**: K1 divergence-level rejection
 - **Veto**: Enabled
 
 **Equivalent YAML:**
@@ -662,65 +693,63 @@ config = RolloutCorrectionConfig.bypass_pg_rs(
 algorithm:
   rollout_correction:
     rollout_is: null
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.001
-    rollout_rs_threshold_lower: 0.999
-    rollout_token_veto_threshold: 1e-4
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: reinforce
 ```
 
 **Properties:**
-- Pure geometric RS (no IS weights, only rejection)
+- Pure K1 divergence RS (no IS weights, only rejection)
 - Skips `actor.compute_log_prob()` forward pass (bypass mode)
 - Veto mechanism enabled
-- Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
+- Typical threshold: 0.0001 - 0.001 (divergence >= 0, ideal = 0)
 
-**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geo/K1)](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
-### 9. REINFORCE with Geo-RS-Seq-TIS (`bypass_pg_geo_rs_seq_tis`)
+### 9. REINFORCE with K1-RS-Token-TIS (`bypass_pg_k1_rs_token_tis`)
 
-**Also known as: Geo-RS-Seq-TIS in bypass mode**
+**Also known as: K1-RS-Token-TIS in bypass mode**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis(
+config = RolloutCorrectionConfig.bypass_pg_k1_rs_token_tis(
     is_threshold=2.0,
-    rs_threshold=1.001,
-    veto_threshold=1e-4
+    rs_threshold=0.001,
+    veto_threshold=1e4
 )
 ```
 
 **Components:**
 - **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
 - **Loss**: REINFORCE (no PPO clipping)
-- **IS Aggregation**: Sequence-level (Seq-TIS)
-- **RS**: Geometric-level rejection (Geo-RS)
+- **IS Aggregation**: Token-level (Token-TIS)
+- **RS**: K1 divergence-level rejection (K1-RS)
 - **Veto**: Enabled
 
 **Equivalent YAML:**
 ```yaml
 algorithm:
   rollout_correction:
-    rollout_is: sequence
+    rollout_is: token
     rollout_is_threshold: 2.0
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.001
-    rollout_rs_threshold_lower: 0.999
-    rollout_token_veto_threshold: 1e-4
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
+    rollout_token_veto_threshold: 1e4
     bypass_mode: true
     loss_type: reinforce
 ```
 
 **Properties:**
-- Combines geometric filter + clipped sequence weight with REINFORCE loss
+- Combines K1 divergence filter + token-level IS weights with REINFORCE loss
 - Skips `actor.compute_log_prob()` forward pass (bypass mode)
 - Suitable for reasoning models (CoT, o1-style) when you want bypass mode efficiency
 - No PPO clipping - relies on IS/RS for stability
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric--k1-divergence-aggregation-geo-rs--k1-rs)
 
 ---
 
@@ -800,7 +829,7 @@ IS weights (`rollout_is_weights`) go through a fixed processing pipeline:
 Rejection sampling modifies `response_mask` (NOT weights) through `compute_rollout_rejection_mask()`:
 - Computes safety-bounded ratios independently
 - Creates binary mask: tokens/sequences outside [lower_threshold, upper_threshold] → 0 (rejected)
-- Veto: Checks **unclamped per-token ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
+- Veto: Checks **unclamped per-token absolute ratios** (before safety bound), rejects entire sequences containing catastrophic tokens
 - Modified mask used for loss aggregation (rejected samples excluded from training)
 
 ## Operation Modes
@@ -860,9 +889,9 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 | `rollout_is` | `rollout_rs` | Behavior |
 |--------------|--------------|----------|
 | `null` | `null` | **Disabled**: No computation, no metrics, no rejection |
-| `null` | `"token"`, `"sequence"`, or `"geometric"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
+| `null` | `"token"`, `"sequence"`, `"geometric"`, `"k1"` or `"k3"` | **Rejection only**: Compute metrics, NO weight correction, YES rejection sampling |
 | `"token"` or `"sequence"` | `null` | **IS weights only**: Weight correction enabled, NO rejection sampling |
-| `"token"` or `"sequence"` | `"token"`, `"sequence"`, or `"geometric"` | **Full correction**: Both weight correction and rejection sampling enabled |
+| `"token"` or `"sequence"` | `"token"`, `"sequence"`, `"geometric"`, `"k1"` or `"k3"`| **Full correction**: Both weight correction and rejection sampling enabled |
 
 ### Key Insights
 
@@ -980,14 +1009,14 @@ These metrics cover both:
 - **`rollout_is_veto_fraction`**: Fraction of sequences rejected by veto mechanism
   - **Important**: Sequences are rejected via `response_mask=0`, NOT by modifying IS weights
   - **IS weights unchanged by veto**: Already safety-bounded and truncated
-  - Veto checks **unclamped per-token ratios** (true ratios before safety bound)
-    - Decoupled mode: π_old(t)/π_rollout(t)
-    - Bypass/Pure IS mode: π_θ(t)/π_rollout(t)
-  - Detects catastrophic tokens (true ratio < veto_threshold, e.g., < 1e-4)
+  - Veto checks **unclamped per-token absolute ratios** (true absolute ratios before safety bound)
+    - Decoupled mode: |π_old(t)/π_rollout(t)|
+    - Bypass/Pure IS mode: |π_θ(t)/π_rollout(t)|
+  - Detects catastrophic tokens (true abs(ratio) > veto_threshold, e.g., > 1e4)
 
-- **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens below veto threshold
+- **`rollout_is_catastrophic_token_fraction`**: Fraction of tokens above veto threshold
   - Identifies problematic tokens before sequence-level veto is applied
-  - Checks **unclamped per-token ratios** (true ratios, not safety-bounded)
+  - Checks **unclamped per-token absolute ratios** (true absolute ratios, not safety-bounded)
   - Each catastrophic token causes its entire sequence to be rejected
 
 #### **Threshold Exceedance Metrics**
@@ -1072,10 +1101,10 @@ In bypass/pure IS mode, metrics measure the drift between π_θ and π_rollout d
   - **Formula**: `mean(log_prob_rollout - log_prob_training)`
   - **Note**: Can be negative (rollout is less confident)
 
-- **`k3_kl`**: K3 KL estimator
+- **`k3_kl`**: K3 divergence (equals KL(π_rollout || π_training) in expectation)
   - **Formula**: `mean(exp(log_ratio) - log_ratio - 1)`
-  - More stable for small KL values
-  - Always non-negative
+  - More stable than direct KL (non-negative per token)
+  - Always >= 0
 
 - **`chi2_token`**: Chi-squared divergence at token level
   - **Formula**: `mean(ratio²) - 1` where ratio = π_training/π_rollout
@@ -1103,7 +1132,7 @@ weights_proto, modified_response_mask, metrics = compute_rollout_correction_and_
     rollout_rs="token",  # Enable rejection sampling at token level
     rollout_rs_threshold=2.0,
     rollout_rs_threshold_lower=0.5,
-    rollout_token_veto_threshold=1e-4,  # Enable veto for catastrophic outliers
+    rollout_token_veto_threshold=1e4,  # Enable veto for catastrophic outliers
 )
 
 # Extract IS weights (processed, zeroed at padding)
@@ -1117,8 +1146,8 @@ is_weights = weights_proto.batch["rollout_is_weights"]
 
 # modified_response_mask has rejection applied (since rollout_rs="token"):
 # 1. RS rejection: tokens outside [0.5, 2.0] masked to 0 via response_mask
-# 2. Veto rejection: sequences with catastrophic tokens (ratio < 1e-4) masked to 0
-# Note: Veto checks unclamped per-token ratios (before safety bounds)
+# 2. Veto rejection: sequences with catastrophic tokens (abs ratio > 1e4) masked to 0
+# Note: Veto checks unclamped per-token absolute ratios (before safety bounds)
 # Note: RS and IS are separate mechanisms - both can be enabled independently
 
 # All metrics have 'rollout_corr/' prefix
@@ -1276,15 +1305,14 @@ algorithm:
     rollout_rs_threshold_lower: 0.5
 ```
 
-### Example 3: Both IS and RS (Geometric RS)
+### Example 3: Both IS and RS (K1 RS)
 ```yaml
 algorithm:
   rollout_correction:
     rollout_is: token
     rollout_is_threshold: 2.0
-    rollout_rs: geometric
-    rollout_rs_threshold: 1.0002
-    rollout_rs_threshold_lower: 0.9998
+    rollout_rs: k1
+    rollout_rs_threshold: 0.001
 ```
 
 ### Example 4: Full Correction with Veto
@@ -1296,7 +1324,7 @@ algorithm:
     rollout_rs: token
     rollout_rs_threshold: 2.0
     rollout_rs_threshold_lower: 0.5
-    rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
+    rollout_token_veto_threshold: 1e4  # Veto catastrophic tokens
 ```
 
 ### Example 5: Bypass Mode with PPO-clip (Default)
@@ -1330,8 +1358,8 @@ algorithm:
   rollout_correction:
     rollout_is: sequence                   # Computed for metrics
     rollout_is_threshold: 2.0
-    rollout_rs: geometric                  # Rejection sampling enabled
-    rollout_rs_threshold: 1.001
+    rollout_rs: k1                         # K1 rejection sampling enabled
+    rollout_rs_threshold: 0.001
     bypass_mode: true
     loss_type: ppo_clip            # PPO clipped objective (IS handled by ratio)
 ```
@@ -1355,7 +1383,7 @@ algorithm:
    ```yaml
    algorithm:
      rollout_correction:
-       rollout_token_veto_threshold: 1e-3
+       rollout_token_veto_threshold: 1e5
    ```
 2. Check for numerical issues in log prob computation
 3. Verify policies aren't completely different
