@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import bisect
 import json
 import logging
 import os
 import warnings
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 import torch
@@ -51,6 +52,14 @@ class FSDPConfig:
 
     FSDP_version: int
     world_size: int
+
+
+@dataclass(order=True)
+class _CheckpointState:
+    """State of a checkpoint, used for sorting."""
+
+    val_loss: float
+    local_path: str = field(compare=False)
 
 
 class FSDPCheckpointManager(BaseCheckpointManager):
@@ -94,6 +103,8 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             processing_class=processing_class,
             checkpoint_config=checkpoint_config,
         )
+
+        self.previous_val_loss: list[_CheckpointState] = []  # [_CheckpointState]
 
     def load_checkpoint(self, local_path: str, hdfs_path: str = None, del_local_after_load=False):
         """
@@ -177,7 +188,9 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         # wait for everyone to load checkpoints
         torch.distributed.barrier()
 
-    def save_checkpoint(self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None):
+    def save_checkpoint(
+        self, local_path: str, hdfs_path: str = None, global_step: int = 0, max_ckpt_to_keep=None, current_val_loss=None
+    ) -> bool:
         """
         Save an FSDP checkpoint for this rank.
 
@@ -194,21 +207,38 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             hdfs_path: Unused (for API compatibility).
             global_step: Current training step (used for bookkeeping).
             max_ckpt_to_keep: Number of recent checkpoints to retain.
+            current_val_loss: Validation loss of current model. Used for save best functionality
+        Returns:
+            Boolean value for whether the checkpoint was saved
         """
         if local_path is None:
-            return
+            return False
 
         # record the previous global step
         self.previous_global_step = global_step
 
+        max_ckpt_defined = max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0
+        save_best = current_val_loss is not None
+
+        if self.rank == 0 and save_best:
+            num_to_keep = max_ckpt_to_keep if max_ckpt_defined else 1
+
+            # Don't save if we have enough checkpoints and the current one is not better than the worst saved one.
+            if len(self.previous_val_loss) >= num_to_keep and current_val_loss >= self.previous_val_loss[-1].val_loss:
+                return False
+
+            # If we are going to save, make space if the list is full.
+            # This also handles cases where num_to_keep is reduced mid-training.
+            while len(self.previous_val_loss) >= num_to_keep:
+                ckpt_to_remove = self.previous_val_loss.pop()  # remove worst
+                if ckpt_to_remove.local_path in self.previous_saved_paths:
+                    self.previous_saved_paths.remove(ckpt_to_remove.local_path)
+                self.remove_previous_save_local_path(ckpt_to_remove.local_path)
+
+            bisect.insort(self.previous_val_loss, _CheckpointState(current_val_loss, local_path))
+
         # remove previous local_path, only rank 0 should do this
-        if (
-            self.rank == 0
-            and max_ckpt_to_keep
-            and isinstance(max_ckpt_to_keep, int)
-            and max_ckpt_to_keep > 0
-            and len(self.previous_saved_paths) >= max_ckpt_to_keep
-        ):
+        elif self.rank == 0 and max_ckpt_defined and len(self.previous_saved_paths) >= max_ckpt_to_keep:
             keep_start = len(self.previous_saved_paths) - max_ckpt_to_keep + 1
             self.remove_previous_save_local_path(self.previous_saved_paths[:keep_start])
             self.previous_saved_paths = self.previous_saved_paths[keep_start:]
@@ -368,3 +398,4 @@ class FSDPCheckpointManager(BaseCheckpointManager):
             torch.distributed.barrier()
 
         self.previous_saved_paths.append(local_path)
+        return True

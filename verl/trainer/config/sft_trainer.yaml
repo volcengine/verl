@@ -70,6 +70,10 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   max_ckpt_to_keep: null  # Maximum number of checkpoints to keep, set to null to keep all
+  # Set to save the best checkpoints only
+  # Respects max_ckpt_to_keep if set, otherwise saves only the single best
+  # save_freq must be multiple of test_freq if set
+  save_best: False
 
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
