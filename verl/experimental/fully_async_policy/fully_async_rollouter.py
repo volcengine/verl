@@ -173,7 +173,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         from concurrent.futures import ThreadPoolExecutor
 
         cpu_cores = multiprocessing.cpu_count()
-        # 按场景选：CPU 密集型用 cpu_cores，IO 密集型用 cpu_cores*2
+        # cpu case use cpu_cores; io case use cpu_cores*2
         self.validate_executor = ThreadPoolExecutor(max_workers=cpu_cores)
         self.parallel_validate_and_rollout = config.async_training.get("parallel_validate_and_rollout", False)
 
