@@ -53,9 +53,10 @@ class RolloutWorkerTest:
         check_allclose: bool = True,
     ) -> None:
         self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
-        local_path = copy_to_local(model_path)
-        self.model = AutoModelForCausalLM.from_pretrained(local_path, torch_dtype=torch.bfloat16)
-        self.model.to(device)
+        if check_allclose:
+            local_path = copy_to_local(model_path)
+            self.model = AutoModelForCausalLM.from_pretrained(local_path, torch_dtype=torch.bfloat16)
+            self.model.to(device)
         self.check_allclose = check_allclose
         self.received_weights: dict[str, torch.Tensor] = {}
 
@@ -119,7 +120,7 @@ def create_rollout_worker_group(
         model_path=model_path,
         checkpoint_backend=checkpoint_backend,
         checkpoint_kwargs=checkpoint_kwargs,
-        device="npu",
+        device=get_device_name(),
         **kwargs,
     )
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, device_name=get_device_name())
