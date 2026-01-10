@@ -186,9 +186,9 @@ class SandboxFusionTool(BaseTool):
         if metadata["run_status"] == "Finished":
             actual_output = metadata["stdout"] + metadata["stderr"]
             logger.debug(f"actual_output from sandbox fusion: {actual_output},{instance_id}")
-            return ToolResponse(text=actual_output)
+            return actual_output
         else:
-            return ToolResponse(text="no stdout here")
+            return "no stdout here"
 
     async def calc_reward(self, instance_id: str, **kwargs) -> str:
         return self._instance_dict[instance_id]["reward"]
