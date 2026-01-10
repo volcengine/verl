@@ -134,7 +134,8 @@ jobs:
             bash examples/grpo_trainer/run_qwen2-7b_math_trtllm.sh 4 \
             trainer.total_training_steps=1 \
             data.train_files="['${HOME}/data/gsm8k/train.parquet']" \
-            data.val_files="['${HOME}/data/gsm8k/test.parquet']"
+            data.val_files="['${HOME}/data/gsm8k/test.parquet']" \
+            trainer.logger='["console"]'
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -168,7 +169,8 @@ jobs:
             bash examples/grpo_trainer/run_qwen2-7b_math_megatron_trtllm.sh 1 \
             trainer.total_training_steps=1 \
             data.train_files="['${HOME}/data/gsm8k/train.parquet']" \
-            data.val_files="['${HOME}/data/gsm8k/test.parquet']"
+            data.val_files="['${HOME}/data/gsm8k/test.parquet']" \
+            trainer.logger='["console"]'
       - name: clean up
         run: |
           rm -rf checkpoints
