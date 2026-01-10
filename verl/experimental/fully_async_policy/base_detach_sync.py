@@ -59,13 +59,13 @@ class BaseDetachNcclSync:
     def record_sync_metrics(cls, bucket_size_mb, sync_time):
         """Dynamically adjust the bucket size based on past synchronization times."""
         bucket_size_mb_value = bucket_size_mb[0] if isinstance(bucket_size_mb, list) else bucket_size_mb
-        print(f"[DetachNcclSync] record_sync_metrics: storing bucket_size_mb={bucket_size_mb_value:.2f}MB, sync_time={sync_time:.2f}s")
+        print(f"[DetachNcclSync] sync_metrics: bucket_size_mb={bucket_size_mb_value:.2f}MB, sync_time={sync_time:.2f}s")
         cls._sync_history.append((bucket_size_mb_value, sync_time))
         if len(cls._sync_history) > cls._max_history_size:
             cls._sync_history.pop(0)
 
         MIN_BUCKET_SIZE_MB = 512
-        MAX_BUCKET_SIZE_MB = 8192 # 8GB
+        MAX_BUCKET_SIZE_MB = 8192  # 8GB
 
         if len(cls._sync_history) < 4:
             cls._bucket_size_mb = min(MAX_BUCKET_SIZE_MB, cls._bucket_size_mb * 1.5)
@@ -79,7 +79,9 @@ class BaseDetachNcclSync:
 
             performance_improved = recent_avg_time < previous_avg_time
             bucket_increased = recent_avg_bucket > previous_avg_bucket
-            time_change_ratio = abs(recent_avg_time - previous_avg_time) / previous_avg_time if previous_avg_time > 0 else 0.0
+            time_change_ratio = (
+                abs(recent_avg_time - previous_avg_time) / previous_avg_time if previous_avg_time > 0 else 0.0
+            )
 
             if time_change_ratio > 0.2:
                 increase_step, decrease_step = 1.2, 0.8
@@ -90,7 +92,9 @@ class BaseDetachNcclSync:
             else:
                 increase_step, decrease_step = 1.02, 0.98
 
-            should_increase = (performance_improved and bucket_increased) or (not performance_improved and not bucket_increased)
+            should_increase = (performance_improved and bucket_increased) or (
+                not performance_improved and not bucket_increased
+            )
             step = increase_step if should_increase else decrease_step
             new_size = cls._bucket_size_mb * step
             cls._bucket_size_mb = min(MAX_BUCKET_SIZE_MB, max(MIN_BUCKET_SIZE_MB, new_size))
@@ -184,8 +188,7 @@ class BaseDetachNcclSync:
         flush_batch()
         cls = type(self)
         cls._last_avg_bucket_size = (
-            sum(actual_bucket_sizes) / len(actual_bucket_sizes) if actual_bucket_sizes
-            else self.get_bucket_size_mb()
+            sum(actual_bucket_sizes) / len(actual_bucket_sizes) if actual_bucket_sizes else self.get_bucket_size_mb()
         )
 
     def _sync_vllm_weights(self, inference_model, params, sync_group_name):
@@ -214,4 +217,3 @@ class BaseDetachNcclSync:
 
         if self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
             await inference_engine.flush_cache()
-

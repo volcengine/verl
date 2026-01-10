@@ -14,10 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import logging
 import os
-import threading
 import time
 
 import torch
@@ -35,7 +33,7 @@ from verl.utils.device import (
     get_torch_device,
 )
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
-from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
+from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -44,13 +42,12 @@ device_name = get_device_name()
 
 __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
+
 class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
-    
     def __init__(self, config: DictConfig, role: str):
         BaseDetachNcclSync.__init__(self, config, role)
 
         AsyncActorRolloutRefWorker.__init__(self, config, role)
-        
 
     def _get_actor_params(self):
         pass
@@ -70,17 +67,20 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
             if rollout_name == "vllm":
                 inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
                 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
                 patch_vllm_moe_model_weight_loader(inference_model)
             elif rollout_name == "sglang":
                 inference_model = self.rollout._engine
                 if inference_model is None:
                     print("[sync_rollout_weights] Initialize server adapter engine")
+
                     async def init_engine():
                         if hasattr(self.rollout, "_init_server_adapter"):
                             await self.rollout._init_server_adapter()
                         else:
                             print("[sync_rollout_weights] No _init_server_adapter method found")
                         return self.rollout._engine
+
                     inference_model = self._run_async_safely(init_engine())
                     if inference_model is None:
                         raise RuntimeError(
@@ -162,6 +162,7 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
             if rollout_name == "vllm":
                 inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
                 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+
                 patch_vllm_moe_model_weight_loader(inference_model)
             elif rollout_name == "sglang":
                 inference_model = self.rollout._engine
@@ -217,11 +218,10 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
 
 
 class DetachActorWorker(DetachNcclSync):
-    
     def __init__(self, config: DictConfig, role: str):
         print("[DetachAsyncRolloutWorker] Initializing via DetachNcclSync...")
         DetachNcclSync.__init__(self, config, role)
-        
+
     def _get_actor_params_generator(self):
         assert self._is_actor
         if self.bridge is not None:

@@ -43,6 +43,7 @@ device_name = get_device_name()
 
 __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
+
 class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
     def __init__(self, config: DictConfig, role: str):
         BaseDetachNcclSync.__init__(self, config, role)
