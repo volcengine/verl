@@ -6,10 +6,10 @@ export VERL_LOGGING_LEVEL=INFO
 export VERL_PPO_LOGGING_LEVEL=INFO
 
 NUM_GPUS=${NUM_GPUS:-8}
-
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B}
 MODEL_PATH=${MODEL_PATH:-${HOME}/models/${MODEL_ID}}
 RM_MODEL_PATH=${RM_MODEL_PATH:-${HOME}/models/Skywork/Skywork-Reward-V2-Llama-3.2-1B}
+RM_NUM_WORKERS=${RM_NUM_WORKERS:-8}
 #huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_PATH}"
 
 USE_DUMMY_MODEL=${USE_DUMMY_MODEL:-False}
@@ -69,6 +69,7 @@ COMMON_ETP=${COMMON_ETP:-1}
 
 TRAIN_TP=${TRAIN_TP:-$COMMON_TP}
 INFER_TP=${INFER_TP:-$COMMON_TP}
+RM_TP=${RM_TP:-$INFER_TP}
 
 ACTOR_PP=${ACTOR_PP:-$COMMON_PP}
 ACTOR_VPP=${ACTOR_VPP:-$COMMON_VPP}
@@ -244,10 +245,10 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     reward_model.use_reward_loop=True \
     reward_model.rollout.name=${ENGINE} \
     reward_model.rollout.gpu_memory_utilization=0.6 \
-    reward_model.rollout.tensor_model_parallel_size=${INFER_TP} \
+    reward_model.rollout.tensor_model_parallel_size=${RM_TP} \
     reward_model.rollout.prompt_length=${MAX_RM_LENGTH} \
     reward_model.rollout.response_length=${MAX_RESPONSE_LENGTH} \
-    reward_model.num_workers=8 \
+    reward_model.num_workers=${RM_NUM_WORKERS} \
     algorithm.use_kl_in_reward=False \
     algorithm.kl_penalty=kl \
     algorithm.kl_ctrl.kl_coef=0.001 \

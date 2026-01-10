@@ -218,6 +218,19 @@ class RewardLoopWorker:
             }
             output = await self._post_request(payloads, "v1/embeddings")
             rm_score = output["data"][-1]["embedding"][-1]
+        elif engine_name == "trtllm":
+            return {"reward_score": 0.3}  # WAR: Tenative returning a fake reward score to test PPO e2e
+
+            payloads = {
+                "model": model_name,
+                "prompt": disrm_prompt,
+                # "max_tokens": 1024,
+                "return_context_logits": True,
+            }
+
+            output = await self._post_request(payloads, "v1/completions")
+            assert "choices" in output and output["choices"], "TRTLLM OpenAI server response is missing choices field"
+            rm_score = output["choices"][0]["context_logits"]
         else:
             raise NotImplementedError(f"RewardLoopManager does not support {engine_name}")
 
