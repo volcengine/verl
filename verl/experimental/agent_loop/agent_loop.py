@@ -904,7 +904,7 @@ class AgentLoopManager:
         if rollout_config.prometheus.enable:
             if rollout_config.disable_log_stats:
                 raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
-            update_prometheus_config(rollout_config.prometheus, self.server_addresses)
+            update_prometheus_config(rollout_config.prometheus, self.server_addresses, rollout_config.name)
 
     def _init_agent_loop_workers(self):
         self.agent_loop_workers = []
