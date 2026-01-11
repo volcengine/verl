@@ -454,7 +454,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
                 async with self.lock:
                     while self.paused:
-                        self.idle_start_time = time.time()
+                        # Set idle_start_time when processor loop actually enters idle state
+                        if self.idle_start_time is None:
+                            self.idle_start_time = time.time()
                         await self.condition.wait()
                 continue
 
@@ -682,16 +684,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def pause(self):
         """pause rollout"""
-        print("[FullyAsyncRollouter][Public][Pause]")
+        print("[FullyAsyncRollouter][Public][Pause] partial rollout:", self.config.async_training.partial_rollout)
         async with self.lock:
             self.paused = True
             # Cancel all rollout tasks
             if self.config.async_training.partial_rollout:
                 await self.async_rollout_manager.cancel()
+                print("[FullyAsyncRollouter][Public][Pause] Unfinished rollout tasks canceled")
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            print("[FullyAsyncRollouter][Public][Pause] Prefix cache reset")
+            # Always clear KV cache to release GPU memory during weight synchronization,
+            # regardless of partial_rollout setting.
             await self.async_rollout_manager.clear_kv_cache()
             self.monitor_loop_trigger = False
 
@@ -700,8 +706,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             ray.get(dependency_ref)
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
-            if self.config.async_training.partial_rollout:
-                await self.async_rollout_manager.resume()
+            await self.async_rollout_manager.resume()
             self.paused = False
             self.monitor_loop_trigger = True
             self.condition.notify_all()
