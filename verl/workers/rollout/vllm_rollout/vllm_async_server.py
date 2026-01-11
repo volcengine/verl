@@ -318,6 +318,7 @@ class vLLMHttpServer:
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
             "hf_overrides": hf_overrides,
+            "scheduling_policy": self.config.scheduling_policy,
             **engine_kwargs,
         }
 
@@ -470,6 +471,7 @@ class vLLMHttpServer:
         request_id: str,
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
+        priority: int = 0,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # Calculate the maximum possible new tokens based on available context space
@@ -520,7 +522,11 @@ class vLLMHttpServer:
                 )
 
         generator = self.engine.generate(
-            prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
+            prompt=prompt,
+            sampling_params=sampling_params,
+            request_id=request_id,
+            lora_request=lora_request,
+            priority=priority,
         )
 
         # Get final response

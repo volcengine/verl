@@ -13,6 +13,7 @@
 # limitations under the License.
 import logging
 import os
+from contextlib import nullcontext
 from functools import partial
 from itertools import chain
 from typing import Any, Optional
@@ -38,6 +39,7 @@ from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
+from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
@@ -181,7 +183,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         Returns:
 
         """
-
+        maybe_fix_3d_position_ids(data)
         batch_size_per_dp = data.shape[0]
         disable_auto_offload = tu.pop(data, key="disable_auto_offload", default=False)
         mini_batch_size = tu.pop(data, key="mini_batch_size", default=None)
@@ -309,6 +311,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         global_token_num = tu.get(data, key="global_token_num")
         compute_loss = tu.get(data, key="compute_loss", default=True)
         disable_auto_offload = tu.get(data, key="disable_auto_offload", default=False)
+        no_lora_adapter = tu.pop(data, key="no_lora_adapter", default=False)
 
         default_keys = dict(
             use_remove_padding=self.model_config.use_remove_padding,
@@ -329,7 +332,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
             self.engine.eval_mode(disable_auto_offload=disable_auto_offload),
             Timer(name="eval_batch", logger=None) as timer,
         ):
-            output = self.engine.infer_batch(data, loss_function=loss_function)
+            adapter_ctx = self.engine.disable_adapter() if no_lora_adapter else nullcontext()
+            with adapter_ctx:
+                output = self.engine.infer_batch(data, loss_function=loss_function)
         delta_time = timer.last
 
         if self.engine.is_mp_src_rank_with_outputs():
