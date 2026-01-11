@@ -295,8 +295,11 @@ class RLHFDataset(Dataset):
             messages: List of messages with replaced placeholder.
         """
         messages: list = example[self.prompt_key]
-        images = example.pop(self.image_key, [])
-        videos = example.pop(self.video_key, [])
+        # Use .get() instead of .pop() to avoid mutating the input example.
+        # This is important because `doc2len` (called in `maybe_filter_out_long_prompts`)
+        # relies on the original `image_key`/`video_key` fields being present in the doc.
+        images = example.get(self.image_key, [])
+        videos = example.get(self.video_key, [])
 
         image_offset, video_offset = 0, 0
         for message in messages:
@@ -323,7 +326,14 @@ class RLHFDataset(Dataset):
                     image_offset += 1
                 elif segment == "<video>":
                     assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
-                    content_list.append({"type": "video", "video": videos[video_offset]})
+                    if isinstance(videos[video_offset], str):
+                        content_list.append({"type": "video", "video": videos[video_offset]})
+                    elif isinstance(videos[video_offset], dict): 
+                        # Rich config case: video is a dict with metadata (e.g., fps, min_frames)
+                        # We expect the dict to contain video path and optional params.
+                        # Add "type": "video" to make it compatible with Qwen-VL processor.
+                        videos[video_offset]['type'] = 'video'
+                        content_list.append(videos[video_offset])
                     video_offset += 1
                 else:
                     content_list.append({"type": "text", "text": segment})
@@ -389,57 +399,6 @@ class RLHFDataset(Dataset):
 
         images, videos = process_vision_info(messages, image_patch_size=image_patch_size, return_video_metadata=True)
         return images, videos
-
-    def split(self, num_splits: int):
-        """
-        split the dataset into num_splits sub-datasets
-        Args:
-            num_splits: specified number of splits
-        Returns:
-            List[RLHFDataset]: list of RLHFDataset splits
-        Raises:
-            ValueError: if num_splits is not a positive integer
-        """
-        if not isinstance(num_splits, int) or num_splits <= 0:
-            raise ValueError(f"num_splits must be a positive integer, got {num_splits}")
-
-        if not hasattr(self, "dataframe"):
-            raise AttributeError(
-                "dataframe not found in RLHFDataset\n"
-                "reason: _read_files_and_tokenize() not called or Parquet file loading failed"
-            )
-        if self.dataframe is None:
-            raise ValueError("RLHFDataset dataframe 为 None!")
-
-        total_samples = len(self.dataframe)
-        print(f"total_samples: {total_samples}")
-        if total_samples == 0:
-            raise ValueError("Cannot split an empty dataset")
-        if total_samples % num_splits != 0:
-            raise ValueError(f"Cannot split dataset size {total_samples} into {num_splits} splits")
-        split_size = total_samples // num_splits
-        splits = []
-
-        for i in range(num_splits):
-            start_idx = i * split_size
-            end_idx = (i + 1) * split_size if i < num_splits - 1 else total_samples
-
-            split_dataframe = self.dataframe.select(range(start_idx, end_idx))
-
-            split_dataset = RLHFDataset(
-                data_files=self.data_files,
-                tokenizer=self.tokenizer,
-                config=self.config,
-                processor=self.processor,
-                max_samples=self.max_samples,
-            )
-            split_dataset.dataframe = split_dataframe
-            split_dataset.serialize_dataset = self.serialize_dataset
-            split_dataset.original_data_files = self.original_data_files
-
-            splits.append(split_dataset)
-
-        return splits
 
 
 def get_dataset_class(data_config: DictConfig):
