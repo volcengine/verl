@@ -105,6 +105,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 list | grep cupy || true
+          pip3 list | grep cupy | xargs pip3 uninstall -y || true
           pip3 install hf_transfer
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
