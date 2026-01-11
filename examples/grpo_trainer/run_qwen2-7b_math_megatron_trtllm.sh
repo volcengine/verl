@@ -14,6 +14,7 @@ export RAY_DEDUP_LOGS=0
 # Config
 # -----
 TP=${1:-4}
+ACTOR_TP=${ACTOR_TP:-4}
 PROJECT_NAME=${PROJECT_NAME:-"verl_grpo_example_gsm8k_math"}
 EXP_NAME=megatron-trtllm-qwen2-7b-tp${TP}-8gpus
 
@@ -58,7 +59,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
-    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${ACTOR_TP} \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
@@ -72,7 +73,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.rollout.max_batch_size=${MAX_BATCH_SIZE} \
     actor_rollout_ref.rollout.max_num_batched_tokens=32768 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
-    actor_rollout_ref.ref.megatron.tensor_model_parallel_size=4 \
+    actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${ACTOR_TP} \
     +actor_rollout_ref.rollout.engine_kwargs.trtllm.batch_wait_timeout_iters=32 \
     +actor_rollout_ref.rollout.engine_kwargs.trtllm.batch_wait_max_tokens_ratio=0.5 \
     actor_rollout_ref.rollout.calculate_log_probs=True \

@@ -168,6 +168,7 @@ jobs:
         run: |
           ray stop --force
           DATADIR=${HOME}/data \
+          ACTOR_TP=2 \
             bash examples/grpo_trainer/run_qwen2-7b_math_megatron_trtllm.sh 2 \
             trainer.total_training_steps=1 \
             data.train_files="['${HOME}/data/gsm8k/train.parquet']" \
