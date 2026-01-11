@@ -55,19 +55,46 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
         # 3. generate sequences
         metrics = {}
+        request_id = uuid4().hex
+
+        new_token_ids = kwargs.get("new_token_ids", [])
+        finished = kwargs.get("finished", False)
+        if finished:
+            with simple_timer("generate_sequences", metrics):
+                response_mask = [1] * len(new_token_ids)
+            return AgentLoopOutput(
+                prompt_ids=prompt_ids,
+                response_ids=new_token_ids[: self.response_length],
+                response_mask=response_mask[: self.response_length],
+                response_logprobs=None,
+                routed_experts=None,
+                multi_modal_data=multi_modal_data,
+                num_turns=2,
+                metrics=metrics,
+            )
+
+        origin_prompt_length = len(prompt_ids)
+        prompt_ids += new_token_ids
+
         with simple_timer("generate_sequences", metrics):
             output = await self.server_manager.generate(
-                request_id=uuid4().hex,
+                request_id=request_id,
                 prompt_ids=prompt_ids,
                 sampling_params=sampling_params,
                 image_data=images,
                 video_data=videos,
+                global_id=kwargs.get("global_id")
             )
-        response_mask = [1] * len(output.token_ids)
+
+        if output.log_probs is not None or output.routed_experts is not None:
+            raise Exception("[fault_manager TODO fix")
+
+        all_token_ids = new_token_ids + output.token_ids
+        response_mask = [1] * len(all_token_ids)
 
         output = AgentLoopOutput(
-            prompt_ids=prompt_ids,
-            response_ids=output.token_ids[: self.response_length],
+            prompt_ids=prompt_ids[:origin_prompt_length],
+            response_ids=all_token_ids[: self.response_length],
             response_mask=response_mask[: self.response_length],
             response_logprobs=output.log_probs[: self.response_length] if output.log_probs else None,
             routed_experts=(
