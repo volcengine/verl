@@ -124,7 +124,7 @@ def create_role_worker_mapping(config):
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
 
     # Add reference policy (if KL loss or reward is required)
-    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+    if need_reference_policy(config):
         role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
 
     return role_worker_mapping, ray_worker_group_cls
@@ -151,7 +151,7 @@ class OneStepTaskRunner:
         # validate config
         validate_config(
             config=config,
-            use_reference_policy=need_reference_policy(role_worker_mapping),
+            use_reference_policy=need_reference_policy(config),
             use_critic=need_critic(config),
         )
 

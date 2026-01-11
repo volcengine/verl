@@ -23,13 +23,8 @@ import ray
 from omegaconf import OmegaConf
 
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
-from verl.trainer.main_ppo import (
-    TaskRunner as MainTaskRunner,
-)
-from verl.trainer.main_ppo import (
-    create_rl_dataset,
-    create_rl_sampler,
-)
+from verl.trainer.main_ppo import TaskRunner as MainTaskRunner
+from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
 from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
@@ -148,7 +143,7 @@ class TaskRunner(MainTaskRunner):
         # validate config
         validate_config(
             config=config,
-            use_reference_policy=need_reference_policy(self.role_worker_mapping),
+            use_reference_policy=need_reference_policy(config),
             use_critic=need_critic(config),
         )
 

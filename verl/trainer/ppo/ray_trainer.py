@@ -339,7 +339,7 @@ class RayPPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(self.config)
         # legacy reward model implementation
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
@@ -1244,8 +1244,14 @@ class RayPPOTrainer:
             # step 2: convert from padding to nopadding
             batch_td = left_right_2_no_padding(batch_td)
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=False, compute_loss=False)
-            output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
+            metadata = {"calculate_entropy": False, "compute_loss": False}
+            if self.ref_in_actor:
+                metadata["no_lora_adapter"] = True
+            tu.assign_non_tensor(batch_td, **metadata)
+            if self.ref_in_actor:
+                output = self.actor_rollout_wg.compute_log_prob(batch_td)
+            else:
+                output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
             # step 4. No padding to padding

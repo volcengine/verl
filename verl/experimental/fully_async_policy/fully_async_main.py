@@ -26,7 +26,7 @@ from verl.experimental.fully_async_policy.fully_async_rollouter import FullyAsyn
 from verl.experimental.fully_async_policy.fully_async_trainer import FullyAsyncTrainer
 from verl.experimental.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
-from verl.trainer.ppo.utils import Role
+from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.fs import copy_to_local
 
 
@@ -122,7 +122,7 @@ def create_role_worker_mapping(config):
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
 
     # Add reference policy (if KL loss or reward is required)
-    if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+    if need_reference_policy(config):
         role_worker_mapping[Role.RefPolicy] = ray.remote(DetachActorWorker)
 
     return role_worker_mapping, ray_worker_group_cls
