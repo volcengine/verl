@@ -13,8 +13,11 @@
 # limitations under the License.
 
 import asyncio
+import functools
+import multiprocessing
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pprint import pformat
 
 import numpy as np
@@ -168,10 +171,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.active_tasks = set()
         self.cancel_queue = asyncio.Queue()
 
-        # Initilize asyncio thread pool executor for validate
-        import multiprocessing
-        from concurrent.futures import ThreadPoolExecutor
-
         cpu_cores = multiprocessing.cpu_count()
         # cpu case use cpu_cores; io case use cpu_cores*2
         self.validate_executor = ThreadPoolExecutor(max_workers=cpu_cores)
@@ -266,22 +265,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             print(
                 f"[FullyAsyncRollouter] need_validate: {need_validate}, parallel_validate_and_rollout: {self.parallel_validate_and_rollout}"
             )
-            if need_validate == False:
+            if not need_validate:
                 data = ValidateMetrics(
                     timing_raw=timing_raw, metrics=None, global_steps=global_steps, param_version=version
                 )
-            elif need_validate and self.parallel_validate_and_rollout == False:
+            elif need_validate and not self.parallel_validate_and_rollout:
                 data = self._validate_wrapper(timing_raw, version, global_steps, use_trainer_do_validate)
 
-            if need_validate == False or self.parallel_validate_and_rollout == False:
+            if not need_validate or not self.parallel_validate_and_rollout:
                 await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
             self.version_start_time = time.time()
 
         if need_validate and self.parallel_validate_and_rollout:
-            asyncio.create_task(
-                self.do_validate_async(timing_raw, version, validate, global_steps, use_trainer_do_validate)
-            )
+            await self.do_validate_async(timing_raw, version, validate, global_steps, use_trainer_do_validate)
 
     def _validate_wrapper(
         self, timing_raw: dict, version: int, global_steps: int = 0, use_trainer_do_validate: bool = False
@@ -302,9 +299,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         global_steps: int = 0,
         use_trainer_do_validate: bool = False,
     ):
-        print(f"[FullyAsyncRollouter] validate_executor work queue size: {self.validate_executor._work_queue.qsize()}")
         loop = asyncio.get_running_loop()
-        import functools
 
         data = await loop.run_in_executor(
             self.validate_executor,

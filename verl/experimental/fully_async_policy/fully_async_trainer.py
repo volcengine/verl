@@ -274,7 +274,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
             assert self.config.actor_rollout_ref.rollout.mode == "async"
             self.async_rollout_mode = True
             print("[FullyAsyncTrainer] Init async rollout manager")
-            from recipe.fully_async_policy.agent_loop import FullyAsyncAgentLoopManager
+            from experimental.fully_async_policy.agent_loop import FullyAsyncAgentLoopManager
 
             self.async_rollout_manager = await FullyAsyncAgentLoopManager.create(
                 config=self.config, worker_group=self.actor_rollout_wg
