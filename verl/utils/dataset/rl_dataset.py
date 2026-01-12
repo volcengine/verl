@@ -317,7 +317,7 @@ class RLHFDataset(Dataset):
                     assert image_offset < len(images), f"image_offset {image_offset} >= len(images) {len(images)}"
                     image = images[image_offset]
                     if isinstance(image, Image.Image):
-                        image= image.convert("RGB")
+                        image = image.convert("RGB")
                         content_list.append({"type": "image", "image": image})
                     elif isinstance(image, dict):
                         if "bytes" in image:
