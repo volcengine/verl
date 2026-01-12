@@ -14,6 +14,7 @@
 import os
 from importlib.metadata import PackageNotFoundError, version
 
+from .vllm_omni_rollout import vLLMOmniAsyncRollout  # noqa: F401
 from .vllm_rollout import vLLMAsyncRollout  # noqa: F401
 
 
