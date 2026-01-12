@@ -133,7 +133,7 @@ class VeOmniEngine(FSDPEngine):
             optimizer=self.optimizer,
             lr_scheduler=self.lr_scheduler,
             processing_class=self.model_config.get_processor(),
-            checkpoint_contents=self.checkpoint_config,
+            checkpoint_config=self.checkpoint_config,
         )
 
         self.to(
@@ -197,7 +197,7 @@ class VeOmniEngine(FSDPEngine):
             enable_mixed_precision=self.engine_config.mixed_precision,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
-            basic_modules=self.module._no_split_modules + self.engine_config.basic_modules,
+            basic_modules=module._no_split_modules + self.engine_config.basic_modules,
             enable_reentrant=self.engine_config.enable_reentrant,
             enable_forward_prefetch=self.engine_config.forward_prefetch,
         )
