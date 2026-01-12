@@ -285,8 +285,8 @@ class RLHFDataset(Dataset):
     def _build_messages(self, example: dict):
         """Replace <image> and <video> placeholder in messages with corresponding image and video
         which is required by processor.apply_chat_template.
-        - <image>: {"type": "image", "image": image}
-        - <video>: {"type": "video", "video": video}
+        - <image>: {"type": "image", **image}
+        - <video>: {"type": "video", **video}
 
         Args:
             example: Row dictionary from dataframe.
@@ -295,8 +295,9 @@ class RLHFDataset(Dataset):
             messages: List of messages with replaced placeholder.
         """
         messages: list = example[self.prompt_key]
-        images = example.pop(self.image_key, [])
-        videos = example.pop(self.video_key, [])
+        # When concatenating image and video datasets, pop will return None for image or video sample
+        images = example.pop(self.image_key, None) or []
+        videos = example.pop(self.video_key, None) or []
 
         image_offset, video_offset = 0, 0
         for message in messages:
@@ -317,13 +318,17 @@ class RLHFDataset(Dataset):
                     image = images[image_offset]
                     if isinstance(image, Image.Image):
                         image = image.convert("RGB")
-                    elif isinstance(image, dict) and "bytes" in image:
-                        image["image"] = Image.open(BytesIO(image["bytes"]))
-                    content_list.append({"type": "image", "image": image})
+                        content_list.append({"type": "image", "image": image})
+                    elif isinstance(image, dict):
+                        if "bytes" in image:
+                            image["image"] = Image.open(BytesIO(image["bytes"]))
+                        content_list.append({"type": "image", **image})
+                    else:
+                        raise TypeError(f"image must be dict or PIL.Image, unsupported image type: {type(image)}")
                     image_offset += 1
                 elif segment == "<video>":
                     assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
-                    content_list.append({"type": "video", "video": videos[video_offset]})
+                    content_list.append({"type": "video", **videos[video_offset]})
                     video_offset += 1
                 else:
                     content_list.append({"type": "text", "text": segment})
