@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 from typing import Any, Optional
+from uuid import uuid4
 
 import hydra
 import numpy as np
@@ -42,9 +43,33 @@ from verl.utils.rollout_trace import (
     rollout_trace_attr,
 )
 from verl.utils.transferqueue_utils import tqbridge
+from verl.workers.rollout.replica import ImageOutput
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+class AsyncDiffusionLLMServerManager(AsyncLLMServerManager):
+    """Asynchronous LLM server manager for diffusion models."""
+
+    async def generate(
+        self,
+        request_id,
+        *,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
+    ) -> ImageOutput:
+        server = self._choose_server(request_id)
+        output = await server.generate.remote(
+            request_id=uuid4().hex,  # use new request_id for each turn
+            prompt_ids=prompt_ids,
+            sampling_params=sampling_params,
+            image_data=image_data,
+            video_data=video_data,
+        )
+        return output
 
 
 class DiffusionAgentLoopOutput(BaseModel):
@@ -108,7 +133,7 @@ class DiffusionAgentLoopWorker:
 
         # for recipe to change
         if not hasattr(self, "server_manager"):
-            self.server_manager = AsyncLLMServerManager(config, server_handles)
+            self.server_manager = AsyncDiffusionLLMServerManager(config, server_handles)
 
         self.dataset_cls = get_dataset_class(config.data)
         self.reward_router_address = reward_router_address
@@ -459,6 +484,6 @@ class DiffusionAgentLoopWorker:
         client_name = get_random_string(length=6)
 
         self.tq_client = create_transferqueue_client(
-            client_id=f"AgentLoopWorker_{client_name}",
+            client_id=f"DiffusionAgentLoopWorker_{client_name}",
             config=self.config.transfer_queue,
         )

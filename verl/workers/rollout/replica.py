@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional
 
+import torch
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
@@ -37,6 +38,13 @@ class TokenOutput(BaseModel):
     """logprobs of response token ids"""
     routed_experts: Optional[Any] = None
     """routed experts of response token ids"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
+
+
+class ImageOutput(BaseModel):
+    images: torch.Tensor
+    """generated images tensor"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
 
