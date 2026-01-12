@@ -175,6 +175,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # cpu case use cpu_cores; io case use cpu_cores*2
         self.validate_executor = ThreadPoolExecutor(max_workers=cpu_cores)
         self.parallel_validate_and_rollout = config.async_training.get("parallel_validate_and_rollout", False)
+        self.validate_task = None
 
     def _init_async_objects(self):
         # Initialize asyncio synchronization primitives.
@@ -278,7 +279,11 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             self.version_start_time = time.time()
 
         if need_validate and self.parallel_validate_and_rollout:
-            await self.do_validate_async(timing_raw, version, validate, global_steps, use_trainer_do_validate)
+            if self.validate_task and not self.validate_task.done():
+                print(f"[FullyAsyncRollouter] validate_task is running, wait last validate_task to finish")
+                self.validate_task.get()
+            self.validate_task = asyncio.create_task(self.do_validate_async(timing_raw, version, validate, global_steps))
+
 
     def _validate_wrapper(
         self, timing_raw: dict, version: int, global_steps: int = 0, use_trainer_do_validate: bool = False
