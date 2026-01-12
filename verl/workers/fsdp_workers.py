@@ -832,6 +832,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
                 log_gpu_memory_usage("After offload actor optimizer during init", logger=logger)
+        else:
+             self.actor_module_fsdp = None
 
         if self._is_actor:
             actor_cfg = omega_conf_to_dataclass(self.config.actor)
