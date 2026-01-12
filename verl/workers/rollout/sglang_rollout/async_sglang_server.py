@@ -201,10 +201,10 @@ class SGLangHttpServer:
 
             args["log_level"] = "info"
             args["load_format"] = "auto"
-            
+
             # Enable weights CPU backup for sglang >= 0.5.6
             if sglang.__version__ >= "0.5.6":
-                args['enable_weights_cpu_backup'] = True
+                args["enable_weights_cpu_backup"] = True
                 args["enable_draft_weights_cpu_backup"] = True
 
             # args['enable_memory_saver'] = False
@@ -215,8 +215,6 @@ class SGLangHttpServer:
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         server_args = ServerArgs(**args)
-
-        print(f"server_args: {server_args}")
 
         self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
             server_args=server_args

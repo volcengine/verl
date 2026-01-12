@@ -29,6 +29,7 @@ import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
 from megatron.core.distributed import finalize_model_grads
+
 # from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.optimizer import DistributedOptimizer
 from megatron.core.pipeline_parallel import get_forward_backward_func
@@ -166,6 +167,7 @@ class MegatronPPOActor(BasePPOActor):
             if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
                 # Unwrap each model in the actor_module to get the actual GPTModel
                 from verl.utils.megatron_utils import unwrap_model
+
                 for model in self.actor_module:
                     unwrapped_model = unwrap_model(model)
                     patch_mtp_layer_get_embeddings(unwrapped_model)
@@ -775,7 +777,7 @@ class MegatronPPOActor(BasePPOActor):
                 mtp_metrics = {}
                 for key, value in total_loss_dict.items():
                     # Convert key to have proper prefix and format
-                    formatted_key = f"{key.replace(' ', '_')}"
+                    formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
                     mtp_metrics[formatted_key] = [value.cpu().item()]
                 losses_reduced["mtp_losses"] = [mtp_metrics]
 

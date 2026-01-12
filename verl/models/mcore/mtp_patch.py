@@ -81,22 +81,6 @@ def _megatron_gptmodel_postprocess(
     the output layer, and computes language model loss when labels are provided.
     """
 
-    # if labels is not None:
-    #     print(
-    #         f"hzg _megatron_gptmodel_postprocess\n"
-    #         f"\t input_ids: {input_ids.shape}\n"
-    #         f"\t position_ids: {position_ids.shape}\n"
-    #         f"\t labels: {labels.shape}\n"
-    #         f"\t hidden states: {hidden_states.shape}\n"
-    #     )
-    # else:
-    #     print(
-    #         f"hzg _megatron_gptmodel_postprocess\n"
-    #         f"\t input_ids: {input_ids.shape}\n"
-    #         f"\t position_ids: {position_ids.shape}\n"
-    #         f"\t hidden states: {hidden_states.shape}\n"
-    #     )
-
     # logits and loss
     output_weight = None
     if self.share_embeddings_and_output_weights:
@@ -117,12 +101,6 @@ def _megatron_gptmodel_postprocess(
             embedding=self.embedding,
             **(extra_block_kwargs or {}),
         )
-        # print(
-        #     f"hzg mtp_in_postprocess\n"
-        #     f"\tinput_ids {input_ids.shape}\n"
-        #     f"\thidden states: {hidden_states.shape}\n"
-        #     f"\tself.post_process: {self.post_process}\n"
-        # )
 
     if not self.post_process:
         return hidden_states
@@ -167,7 +145,6 @@ def _megatron_gptmodel_postprocess(
             )
 
             mtp_loss = loss_mask * mtp_loss
-            # print(f"hzg mtp_loss: {torch.sum(mtp_loss) / num_tokens}")
             if self.training:
                 # TODO(shifangx): remove the use of parallel_state here
                 # after moving loss logging to loss_func in pretrain_gpt.py
@@ -200,7 +177,7 @@ def patch_mtp_layer_get_embeddings(model: torch.nn.Module):
         target_layers.append(model)
     elif isinstance(model, GPTModel):
         # Check if GPTModel has MTP and find the layers
-        if hasattr(model, 'mtp') and hasattr(model.mtp, 'layers'):
+        if hasattr(model, "mtp") and hasattr(model.mtp, "layers"):
             for layer in model.mtp.layers:
                 if isinstance(layer, MultiTokenPredictionLayer):
                     target_layers.append(layer)
@@ -233,7 +210,7 @@ def unpatch_mtp_layer_get_embeddings(model: torch.nn.Module):
         target_layers.append(model)
     elif isinstance(model, GPTModel):
         # Check if GPTModel has MTP and find the layers
-        if hasattr(model, 'mtp') and hasattr(model.mtp, 'layers'):
+        if hasattr(model, "mtp") and hasattr(model.mtp, "layers"):
             for layer in model.mtp.layers:
                 if isinstance(layer, MultiTokenPredictionLayer):
                     target_layers.append(layer)
@@ -270,12 +247,6 @@ def _patched_get_embeddings_for_detach(
     This is a modified version that you can customize according to your needs.
     The original implementation is preserved below with modifications.
     """
-    # print(
-    #     f"hzg _patched_get_embeddings\n"
-    #     f"\t input_ids: {input_ids.shape}\n"
-    #     f"\t position_ids: {position_ids.shape}\n"
-    #     f"\t hidden states: {hidden_states.shape}\n"
-    # )
 
     # You can modify the logic here as needed
     # For example, you could:
@@ -311,14 +282,6 @@ def _patched_get_embeddings_for_detach(
     # For example: decoder_input = some_custom_function(decoder_input)
 
     hidden_states = make_viewless_tensor(inp=hidden_states, requires_grad=True, keep_graph=True)
-
-    print(
-        f"hzg _patched_get_embeddings after processing\n"
-        f"\t input_ids: {input_ids.shape}\n"
-        f"\t position_ids: {position_ids.shape}\n"
-        f"\t decoder_input: {decoder_input.shape}\n"
-        f"\t hidden states: {hidden_states.shape}\n"
-    )
 
     # detach decoder_input and hidden_states
     decoder_input = decoder_input.detach()

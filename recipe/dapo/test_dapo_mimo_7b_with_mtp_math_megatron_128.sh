@@ -49,10 +49,18 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
-gen_tp=1
-train_tp=8
+gen_tp=4
+train_tp=2
 train_pp=2
-train_cp=4
+train_cp=2
+
+common_params=(
+actor_rollout_ref.model.mtp.enable=True
+actor_rollout_ref.model.mtp.enable=True
+actor_rollout_ref.model.mtp.enable_train=True
+actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1
+actor_rollout_ref.model.mtp.detach_encoder=True
+)
 
 python -m verl.trainer.main_ppo \
     --config-path=config \
@@ -86,6 +94,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${train_tp} \
+    actor_rollout_ref.actor.megatron.context_parallel_size=${train_cp} \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.optim.clip_grad=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
@@ -104,6 +113,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
+    actor_rollout_ref.ref.megatron.context_parallel_size=${train_cp} \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
@@ -127,13 +137,6 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.prometheus.port=44398 \
     actor_rollout_ref.model.trust_remote_code=True \
     data.trust_remote_code=True \
+    trainer.total_training_steps=400 \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
-    actor_rollout_ref.model.mtp.enable=True \
-    actor_rollout_ref.model.mtp.enable_train=True \
-    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1 \
-    actor_rollout_ref.actor.megatron.context_parallel_size=${train_cp} \
-    actor_rollout_ref.ref.megatron.context_parallel_size=${train_cp}
-
-
-#    actor_rollout_ref.rollout.max_num_seqs=32 \
-#    +actor_rollout_ref.rollout.engine_kwargs.sglang.cuda_graph_max_bs=32
+    "${common_params[@]}"

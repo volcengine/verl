@@ -30,26 +30,25 @@ __all__ = ["HFModelConfig", "MtpConfig"]
 @dataclass
 class MtpConfig(BaseConfig):
     """
-    Configuration for mtp model.
+    Configuration for MTP model.
 
-    enable: 开启mtp参数的加载和保存，不进行使用
+    enable: Enable loading and saving of MTP parameters, but do not use them
 
-    enable_train: 是否开启 train 使用 mtp 参数
-    enable_rollout: 是否开启 rollout 使用 mtp 参数
+    enable_train: Whether to enable using MTP parameters during training
+    enable_rollout: Whether to enable using MTP parameters during rollout
 
-    train 参数：
-        detach_encoder: 是否 mtp 训练期间 detach encoder的参数
-        mtp_loss_scaling_factor: mtp 训练期间 loss 缩放因子
+    Training parameters:
+        detach_encoder: Whether to detach encoder parameters during MTP training
+        mtp_loss_scaling_factor: Loss scaling factor during MTP training
 
-    vllm rollout 参数：
-        num-speculative-tokens 1
+    vLLM rollout parameters:
+        num-speculative-tokens: 1
 
-
-    sglang rollout 参数：
-        speculative-algorithm EAGLE
-        speculative-num-steps 2
-        speculative-eagle-topk 2
-        speculative-num-draft-tokens
+    SGLang rollout parameters:
+        speculative-algorithm: EAGLE
+        speculative-num-steps: 2
+        speculative-eagle-topk: 2
+        speculative-num-draft-tokens: [value]
 
     """
 

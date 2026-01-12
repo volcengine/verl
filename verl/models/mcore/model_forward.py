@@ -71,33 +71,14 @@ def model_forward_gen(vision_model: bool = False):
             )
             input_ids_rmpad = input_ids_rmpad.contiguous()
 
-            # print(
-            #     f"hzg model_forward\n"
-            #     f"\t pre_process {pre_process}\n"
-            #     f"\t post_process {post_process}\n"
-            #     f"\t input_ids: {input_ids.shape}\n"
-            #     f"\t input_ids_rmpad: {input_ids_rmpad.shape}\n"
-            #     f"\t position_ids: {position_ids.shape}\n"
-            # )
-
             # when pp > 1 and processor is not None, we need to pass the labels and loss_mask to the model
             if mtp_config and mtp_config.enable_train and post_process:
                 args = {
-                    k: preprocess_packed_seqs(
-                        v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding
-                    )[0]
+                    k: preprocess_packed_seqs(v, attention_mask, pre_process=True, use_fp8_padding=use_fp8_padding)[0]
                     for k, v in logits_processor_args.items()
                 }
                 model_kwargs["labels"] = args["label"].contiguous()
                 model_kwargs["loss_mask"] = args["label_mask"].contiguous()
-
-                # print(
-                #     f"hzg model_forward\n"
-                #     f"\t labels {logits_processor_args['label'].shape}\n"
-                #     f"\t labels_rmpad {model_kwargs['labels'].shape}\n"
-                #     f"\t loss_mask {logits_processor_args['label_mask'].shape}\n"
-                #     f"\t loss_mask_rmpad {model_kwargs['loss_mask'].shape}\n"
-                # )
 
             input_args = dict(
                 input_ids=input_ids_rmpad,
