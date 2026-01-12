@@ -20,8 +20,6 @@ rollout_is=token
 rollout_is_threshold=2.0
 rollout_rs=null
 rollout_rs_threshold=null
-rollout_rs_threshold_lower=null
-rollout_token_veto_threshold=null
 
 max_prompt_length=$((1024))
 max_response_length=$((1024 * 20))
@@ -101,8 +99,6 @@ RAY_ADDRESS='http://127.0.0.1:8265' ray job submit --runtime-env=${RUNTIME_ENV} 
     algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_correction.rollout_rs=${rollout_rs} \
     algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
-    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
-    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
     actor_rollout_ref.actor.clip_ratio_low=${clip_ratio_low} \

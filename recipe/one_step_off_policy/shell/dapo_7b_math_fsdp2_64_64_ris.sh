@@ -69,10 +69,8 @@ test_freq=20
 #  rollout_correction:
 #    rollout_is: null
 #    rollout_is_threshold=null
-#    rollout_rs: geometric
-#    rollout_rs_threshold: 1.001
-#    rollout_rs_threshold_lower: 0.999
-#    rollout_token_veto_threshold: 1e-4
+#    rollout_rs: seq_mean_k1
+#    rollout_rs_threshold: 0.999_1.001
 #    bypass_mode: false  # Decoupled mode
 
 python -m recipe.one_step_off_policy.main_ppo \
@@ -152,8 +150,6 @@ python -m recipe.one_step_off_policy.main_ppo \
     rollout.n_gpus_per_node="${NGPUS_PER_NODE}" \
     algorithm.rollout_correction.rollout_is=null \
     algorithm.rollout_correction.rollout_is_threshold=null \
-    algorithm.rollout_correction.rollout_rs=geometric \
-    algorithm.rollout_correction.rollout_rs_threshold=1.001 \
-    algorithm.rollout_correction.rollout_rs_threshold_lower=0.999 \
-    algorithm.rollout_correction.rollout_token_veto_threshold=1e-4 \
+    algorithm.rollout_correction.rollout_rs=seq_mean_k1 \
+    algorithm.rollout_correction.rollout_rs_threshold="0.999_1.001" \
     algorithm.rollout_correction.bypass_mode=false
