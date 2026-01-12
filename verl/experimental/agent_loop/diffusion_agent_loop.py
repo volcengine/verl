@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 
 from verl.experimental.agent_loop.agent_loop import (
+    AgentLoopManager,
     AgentLoopMetrics,
     AsyncLLMServerManager,
     DictConfigWrap,
@@ -35,6 +36,7 @@ from verl.experimental.agent_loop.agent_loop import (
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward_loop import RewardLoopWorker
 from verl.protocol import DataProto
+from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.utils import hf_processor, hf_tokenizer
 from verl.utils.dataset.rl_dataset import get_dataset_class
 from verl.utils.fs import copy_to_local
@@ -43,7 +45,7 @@ from verl.utils.rollout_trace import (
     rollout_trace_attr,
 )
 from verl.utils.transferqueue_utils import tqbridge
-from verl.workers.rollout.replica import ImageOutput
+from verl.workers.rollout.replica import ImageOutput, get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -487,3 +489,40 @@ class DiffusionAgentLoopWorker:
             client_id=f"DiffusionAgentLoopWorker_{client_name}",
             config=self.config.transfer_queue,
         )
+
+
+class DiffusionAgentLoopManager(AgentLoopManager):
+    """Agent loop manager that manages a group of agent loop workers."""
+
+    def __init__(
+        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+    ):
+        """Initialize agent loop manager.
+
+        Args:
+            config (DictConfig): trainer config.
+            worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
+            rm_resource_pool (RayResourcePool): Resource pool for reward model (Standalone mode).
+        """
+        self.config = config
+        self.worker_group = worker_group
+        self.reward_model_manager = None
+        self.reward_router_address = None
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            from verl.experimental.reward_loop import RewardModelManager
+
+            self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
+            self.reward_router_address = self.reward_model_manager.get_router_address()
+
+        # for recipe to change
+        if not hasattr(self, "rollout_replica_class"):
+            self.rollout_replica_class = get_rollout_replica_class(self.config.actor_rollout_ref.rollout.name)
+        if not hasattr(self, "agent_loop_workers_class"):
+            self.agent_loop_workers_class = ray.remote(DiffusionAgentLoopWorker)
+
+        self._initialize_llm_servers()
+        self._init_agent_loop_workers()
+
+        # Initially we're in sleep mode.
+        if self.config.actor_rollout_ref.rollout.free_cache_engine:
+            self.sleep()
