@@ -67,7 +67,7 @@ from verl.utils.debug import marked_timer
 from verl.utils.metric import reduce_metrics
 from verl.utils.rollout_skip import RolloutSkip
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
-from verl.utils.torch_functional import masked_mean
+from verl.utils.torch_functional import masked_mean,masked_whiten
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, tqbridge
 
@@ -263,6 +263,34 @@ def compute_advantage(
             index=data.non_tensor_batch["uid"],
             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
         )
+    elif adv_estimator == AdvantageEstimator.GDPO:
+        ## only handle two reward now
+        token_level_scores_correctness = data.batch['token_level_scores_correctness']
+        token_level_scores_format = data.batch['token_level_scores_format']
+
+        # shared variables
+        index = data.non_tensor_batch['uid']
+        responses = data.batch['responses']
+        response_length = responses.size(-1)
+        attention_mask = data.batch['attention_mask']
+        response_mask = attention_mask[:, -response_length:]
+
+        ## handle correctness first
+        correctness_normalized_score, _ = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_scores_correctness,
+                                                                        eos_mask=response_mask,
+                                                                        index=index)
+
+        ## handle format now
+        format_normalized_score, _ = core_algos.compute_grpo_outcome_advantage(token_level_rewards=token_level_scores_format,
+                                                                        eos_mask=response_mask,
+                                                                        index=index)
+
+        new_advantage = correctness_normalized_score + format_normalized_score
+
+        advantages = masked_whiten(new_advantage, response_mask) * response_mask
+
+        data.batch['advantages'] = advantages
+        data.batch['returns'] = advantages
     else:
         # handle all other adv estimator type other than GAE and GRPO
         adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
