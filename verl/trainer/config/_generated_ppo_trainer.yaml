@@ -428,6 +428,9 @@ critic:
     lora_rank: 0
     lora_alpha: 16
     target_modules: all-linear
+    tiled_mlp:
+      enabled: false
+      num_shards: 4
   _target_: verl.workers.config.FSDPCriticConfig
   rollout_n: ${oc.select:actor_rollout_ref.rollout.n,1}
   strategy: fsdp
