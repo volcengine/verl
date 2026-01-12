@@ -317,10 +317,14 @@ class RLHFDataset(Dataset):
                     assert image_offset < len(images), f"image_offset {image_offset} >= len(images) {len(images)}"
                     image = images[image_offset]
                     if isinstance(image, Image.Image):
-                        image = image.convert("RGB")
-                    elif isinstance(image, dict) and "bytes" in image:
-                        image["image"] = Image.open(BytesIO(image["bytes"]))
-                    content_list.append({"type": "image", **image})
+                        image= image.convert("RGB")
+                        content_list.append({"type": "image", "image": image})
+                    elif isinstance(image, dict):
+                        if "bytes" in image:
+                            image["image"] = Image.open(BytesIO(image["bytes"]))
+                        content_list.append({"type": "image", **image})
+                    else:
+                        raise TypeError(f"image must be dict or PIL.Image, unsupported image type: {type(image)}")
                     image_offset += 1
                 elif segment == "<video>":
                     assert video_offset < len(videos), f"video_offset {video_offset} >= len(videos) {len(videos)}"
