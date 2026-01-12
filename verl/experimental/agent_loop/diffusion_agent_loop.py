@@ -49,8 +49,8 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
-class AsyncDiffusionLLMServerManager(AsyncLLMServerManager):
-    """Asynchronous LLM server manager for diffusion models."""
+class AsyncDiffusionServerManager(AsyncLLMServerManager):
+    """Asynchronous Diffusion server manager for diffusion models."""
 
     async def generate(
         self,
@@ -133,7 +133,7 @@ class DiffusionAgentLoopWorker:
 
         # for recipe to change
         if not hasattr(self, "server_manager"):
-            self.server_manager = AsyncDiffusionLLMServerManager(config, server_handles)
+            self.server_manager = AsyncDiffusionServerManager(config, server_handles)
 
         self.dataset_cls = get_dataset_class(config.data)
         self.reward_router_address = reward_router_address

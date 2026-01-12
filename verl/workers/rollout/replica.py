@@ -43,8 +43,10 @@ class TokenOutput(BaseModel):
 
 
 class ImageOutput(BaseModel):
-    images: torch.Tensor
-    """generated images tensor"""
+    image: torch.Tensor
+    """generated image tensor"""
+    log_probs: Optional[list[float]] = None
+    """logprobs of generated image"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
 
