@@ -220,6 +220,8 @@ actor_rollout_ref:
     max_num_seqs: 1024
     enable_chunked_prefill: true
     enable_prefix_caching: true
+    logprobs_mode: processed_logprobs
+    scheduling_policy: fcfs
     load_format: dummy
     log_prob_micro_batch_size: null
     log_prob_micro_batch_size_per_gpu: null
@@ -319,6 +321,9 @@ actor_rollout_ref:
     use_fused_kernels: false
     fused_kernel_options:
       impl_backend: torch
+    tiled_mlp:
+      enabled: false
+      num_shards: 4
     mtp:
       _target_: verl.workers.config.MtpConfig
       enable: false

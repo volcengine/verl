@@ -73,6 +73,12 @@ enable_chunked_prefill: True
 # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
 enable_prefix_caching: True
 
+# logprobs mode for rollout logprobs
+logprobs_mode: processed_logprobs
+
+# scheduling policy for vllm rollout
+scheduling_policy: fcfs
+
 # Which loader to use for rollout model weights: dummy, hf, megatron, etc.
 # safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
 load_format: dummy
@@ -208,7 +214,7 @@ agent:
   # default agent loop to use if `agent_name` not set in RL dataset
   default_agent_loop: single_turn_agent
 
-  # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
+  # custom agent loop config path, which should contain list of configs to initialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
   #
   # - name: react_agent

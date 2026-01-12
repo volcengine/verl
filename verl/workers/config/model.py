@@ -129,10 +129,12 @@ class HFModelConfig(BaseConfig):
     # path to pre-trained LoRA adapter to load for continued training
     lora_adapter_path: Optional[str] = None
     use_liger: bool = False
-    lora: dict = field(default_factory=dict)
 
     use_fused_kernels: bool = False
     fused_kernel_options: dict = field(default_factory=dict)
+
+    # TiledMLP configuration for memory-efficient MLP computation
+    tiled_mlp: dict = field(default_factory=lambda: {"enabled": False, "num_shards": 4})
 
     architectures: Optional[list[str]] = None
 
@@ -165,7 +167,7 @@ class HFModelConfig(BaseConfig):
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code
         )
 
-        # constuct hf_config
+        # construct hf_config
         attn_implementation = self.override_config.get("attn_implementation", "flash_attention_2")
         self.hf_config = AutoConfig.from_pretrained(
             self.local_hf_config_path, trust_remote_code=self.trust_remote_code, attn_implementation=attn_implementation

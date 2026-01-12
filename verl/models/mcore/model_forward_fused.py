@@ -26,6 +26,7 @@ from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
 from megatron.core.utils import deprecate_inference_params
+from packaging import version
 from torch import Tensor
 
 from verl.models.mcore.util import preprocess_packed_seqs
@@ -49,7 +50,9 @@ def _get_patching_model(model: torch.nn.Module):
 
 
 def patch_fused_forward(model: torch.nn.Module):
-    assert mcore.__version__ >= "0.13.0", "Fused forward patching requires mecore >= 0.13.0"
+    assert version.parse(mcore.__version__) >= version.parse("0.13.0"), (
+        "Fused forward patching requires mecore >= 0.13.0"
+    )
     model = _get_patching_model(model)
     if model is not None:
         model.forward_backup = model.forward
