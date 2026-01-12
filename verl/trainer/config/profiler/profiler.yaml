@@ -59,6 +59,13 @@ tool_config:
     # stop profile mini-batch in training
     step_end: null
 
+    # Contents to profile, can be empty
+    # options: cuda, cpu, memory, shapes, stack
+    contents: []
+
+    # True for each task has its own database, False for all tasks in one training step share one database.
+    discrete: False
+
     # manual save
     manual_save: True
 

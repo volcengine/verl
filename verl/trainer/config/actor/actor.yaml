@@ -222,6 +222,13 @@ profiler:
       # stop profile mini-batch in training
       step_end: null
 
+      # Contents to profile, can be empty
+      # options: cuda, cpu, memory, shapes, stack
+      contents: []
+
+      # True for each task has its own database, False for all tasks in one training step share one database.
+      discrete: False
+
     # torch memory profiler config
     torch_memory:
 

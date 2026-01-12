@@ -13,129 +13,10 @@
 # limitations under the License.
 
 import functools
-import os
 from typing import Callable, Optional
 
-import torch
-import torch.distributed
-
 from ..memory_utils import MemorySnapshotSampler, enable_memory_visualize
-from .config import ProfilerConfig, TorchMemoryToolConfig, TorchProfilerToolConfig
-
-
-class Profiler:
-    """A PyTorch profiler wrapper class for collecting performance metrics.
-
-    TODO(haibin.lin): this should implement the DistProfiler interface, and the config should be unified.
-
-    This profiler provides a convenient interface for profiling PyTorch operations,
-    with support for:
-
-    - CPU and CUDA activity profiling
-    - Configurable profiling schedule (wait/warmup/active steps)
-    - Multi-rank profiling support
-    - Chrome trace export
-
-    Args:
-        config: Configuration object containing profiling parameters
-    """
-
-    def __init__(
-        self, config: ProfilerConfig, tool_config: Optional[TorchProfilerToolConfig] = None, save_file_prefix=None
-    ):
-        # note : if we do not set use_profile, it will be set as None, so that all function will be skip
-        if not config:
-            config = ProfilerConfig(ranks=[], enable=False)
-
-        self.save_file_prefix = save_file_prefix
-
-        if not tool_config:
-            assert not config.enable, "tool_config must be provided when profiler is enabled"
-        self.prof = None
-        self.saved = False
-        self.enable = config.enable
-        if not config.enable:
-            return
-        self.config = config
-        self.tool_config = tool_config
-        self.rank = torch.distributed.get_rank()
-        # we need to validate the config before using the profiler
-        self._validate()
-
-        if self.rank in self.config.ranks or self.config.all_ranks:
-            print(f"[Profiler] Profiler init for rank {self.rank}")
-
-            self.prof = torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA,
-                ],
-                schedule=torch.profiler.schedule(
-                    wait=max(self.tool_config.step_start - 1, 0),
-                    warmup=1 if self.tool_config.step_start > 0 else 0,
-                    active=self.tool_config.step_end - self.tool_config.step_start,
-                    repeat=1,
-                ),
-                record_shapes=True,
-                with_stack=True,
-            )
-
-    def _trace_handler(self, prof):
-        if not os.path.exists(self.config.save_path):
-            os.makedirs(self.config.save_path)
-
-        save_file_name = f"prof_rank-{self.rank}.json.gz"
-        if self.save_file_prefix is not None:
-            save_file_name = self.save_file_prefix + "_" + save_file_name
-        save_path = os.path.join(self.config.save_path, save_file_name)
-        print(f"[Profiler] Saving trace to {save_path}")
-        prof.export_chrome_trace(save_path)
-        self.enable = False
-        self.saved = True
-
-    def _validate(self):
-        if self.enable:
-            if self.config.ranks is None:
-                print("[WARNING] Profile ranks is not set, default to rank 0")
-                self.config.ranks = [0]
-            assert self.tool_config.step_start >= 0, "[ERROR] Profile step start must be greater than 0"
-            assert self.tool_config.step_end >= 0, "[ERROR] Profile step end must be greater than 0"
-            assert self.tool_config.step_start < self.tool_config.step_end, (
-                "[ERROR] Profile step start must be less than step end"
-            )
-
-    def check(self):
-        return self.prof is not None and self.enable
-
-    def start(self):
-        if self.check():
-            print(f"[Profiler] started for rank {self.rank}")
-            self.prof.start()
-
-    def step(self):
-        if self.check():
-            self.prof.step()
-
-    def stop(self):
-        if self.check():
-            self.step()
-            print(f"[Profiler] stopped for rank {self.rank}")
-            self.prof.stop()
-            self.save()
-
-    def save(self):
-        if self.prof is not None and not self.saved and self.tool_config.manual_save:
-            self._trace_handler(prof=self.prof)
-
-    def stop_and_save(self):
-        if self.check():
-            self.stop()
-            self.save()
-
-    def stop_trace(self):
-        if self.check():
-            print(f"[Profiler] Trace stopped for rank {self.rank}")
-            self.enable = False
+from .config import ProfilerConfig, TorchMemoryToolConfig
 
 
 def mark_start_range(
@@ -235,8 +116,9 @@ class DistProfiler:
 
             self._impl = _Npu(rank=rank, config=config, tool_config=tool_config, **kwargs)
         elif self._tool == "torch":
-            # Use the torch profiler wrapper defined above
-            self._impl = Profiler(config=config, tool_config=tool_config)
+            from .torch_profile import Profiler as _Torch
+
+            self._impl = _Torch(rank=rank, config=config, tool_config=tool_config)
         elif self._tool == "torch_memory":
             self._impl = TorchMemoryProfiler(rank=rank, config=config, tool_config=tool_config)
         else:
