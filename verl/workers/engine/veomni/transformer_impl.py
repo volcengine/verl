@@ -96,7 +96,6 @@ class VeOmniEngine(FSDPEngine):
 
         self.use_remove_padding = self.model_config.use_remove_padding
 
-        # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
         self._is_offload_optimizer = self.engine_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
@@ -156,13 +155,11 @@ class VeOmniEngine(FSDPEngine):
         )
         get_optimizer_pre_hook = getattr(module, "get_optimizer_pre_hook", None)
         if get_optimizer_pre_hook is not None:
-            optimizer_pre_hook = get_optimizer_pre_hook(
-                module, module.config, self.engine_config.data_parallel_mode
-            )
+            optimizer_pre_hook = get_optimizer_pre_hook(module, module.config, self.engine_config.data_parallel_mode)
             optimizer.register_step_pre_hook(optimizer_pre_hook)
 
         return optimizer
-    
+
     def _build_lr_scheduler(self, optimizer):
         optim_config = self.optimizer_config
         lr_scheduler = build_lr_scheduler(
@@ -214,7 +211,7 @@ class VeOmniEngine(FSDPEngine):
         else:
             optimizer = None
             lr_scheduler = None
-        
+
         self.module = module
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
