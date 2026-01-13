@@ -31,12 +31,9 @@ import verl.utils.torch_functional as verl_F
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.device import (
-    get_device_id,
-)
-from verl.utils.fsdp_utils import (
-    fsdp_version,
-)
+from verl.utils.device import get_device_id
+from verl.utils.fsdp_utils import fsdp_version
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -95,7 +92,6 @@ class VeOmniEngine(FSDPEngine):
 
         self.use_remove_padding = self.model_config.use_remove_padding
 
-        # set FSDP offload params
         self._is_offload_param = self.engine_config.param_offload
         self._is_offload_optimizer = self.engine_config.optimizer_offload
         self._is_lora = self.model_config.lora_rank > 0
@@ -121,13 +117,63 @@ class VeOmniEngine(FSDPEngine):
 
     def initialize(self):
         """
-        Build the model, optimizer, and learning rate scheduler under FSDP.
+        Build the model, optimizer, and learning rate scheduler under VeOmni.
 
         Applies device, dtype, and precision configurations, including mixed precision.
         Sets up checkpoint manager and FLOPs counter.
         """
+        self._build_model_optimizer()
 
-        self.module = build_foundation_model(
+        self.checkpoint_manager = FSDPCheckpointManager(
+            model=self.module,
+            optimizer=self.optimizer,
+            lr_scheduler=self.lr_scheduler,
+            processing_class=self.model_config.get_processor(),
+            checkpoint_config=self.checkpoint_config,
+        )
+
+        self.to(
+            device="cpu",
+            model=self._is_offload_param,
+            optimizer=self._is_offload_optimizer,
+            grad=self._is_offload_optimizer,
+        )
+
+        log_gpu_memory_usage("After offload model/optimizer/grad during init", logger=logger)
+
+    def _build_optimizer(self, module):
+        optimizer = build_optimizer(
+            module,
+            lr=self.optimizer_config.lr,
+            betas=self.optimizer_config.betas,
+            weight_decay=self.optimizer_config.weight_decay,
+            optimizer_type=self.optimizer_config.optimizer,
+        )
+        get_optimizer_pre_hook = getattr(module, "get_optimizer_pre_hook", None)
+        if get_optimizer_pre_hook is not None:
+            optimizer_pre_hook = get_optimizer_pre_hook(module, module.config, self.engine_config.data_parallel_mode)
+            optimizer.register_step_pre_hook(optimizer_pre_hook)
+
+        return optimizer
+
+    def _build_lr_scheduler(self, optimizer):
+        optim_config = self.optimizer_config
+        lr_scheduler = build_lr_scheduler(
+            optimizer,
+            train_steps=optim_config.total_training_steps,
+            lr=optim_config.lr,
+            lr_min=optim_config.lr_min,
+            lr_decay_style=optim_config.lr_scheduler_type,
+            lr_decay_ratio=optim_config.lr_decay_ratio,
+            lr_warmup_ratio=optim_config.lr_warmup_steps_ratio,
+            lr_start=optim_config.lr_start,
+        )
+
+        return lr_scheduler
+
+    def _build_model_optimizer(self):
+        # Load base model with specified configuration and dtype
+        module = build_foundation_model(
             config_path=self.model_config.hf_config_path,
             weights_path=self.model_config.path,
             torch_dtype="float32" if self.engine_config.mixed_precision else "bfloat16",
@@ -135,55 +181,36 @@ class VeOmniEngine(FSDPEngine):
             moe_implementation=self.engine_config.moe_implementation,
             init_device=self.engine_config.init_device,
         )
+        log_gpu_memory_usage("After load base model", logger=logger)
 
-        module_config = self.module.config
-
-        get_optimizer_pre_hook = getattr(self.module, "get_optimizer_pre_hook", None)
-        self.module = build_parallelize_model(
-            self.module,
+        # Applies parallel strategies to the model.
+        log_gpu_memory_usage("Before parallelize model", logger=logger)
+        module = build_parallelize_model(
+            module,
             init_device=self.engine_config.init_device,
             weights_path=self.model_config.path,
             enable_full_shard=self.engine_config.enable_full_shard,
             enable_mixed_precision=self.engine_config.mixed_precision,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
-            basic_modules=self.module._no_split_modules + self.engine_config.basic_modules,
+            basic_modules=module._no_split_modules + self.engine_config.basic_modules,
             enable_reentrant=self.engine_config.enable_reentrant,
             enable_forward_prefetch=self.engine_config.forward_prefetch,
         )
+        log_gpu_memory_usage("After parallelize model", logger=logger)
 
-        self.optimizer = build_optimizer(
-            self.module,
-            lr=self.optimizer_config.lr,
-            betas=self.optimizer_config.betas,
-            weight_decay=self.optimizer_config.weight_decay,
-            optimizer_type=self.optimizer_config.optimizer,
-        )
-        if get_optimizer_pre_hook is not None:
-            optimizer_pre_hook = get_optimizer_pre_hook(
-                self.module, module_config, self.engine_config.data_parallel_mode
-            )
-            self.optimizer.register_step_pre_hook(optimizer_pre_hook)
+        if not self.engine_config.forward_only:
+            # Initialize optimizer with model parameters and config settings
+            optimizer = self._build_optimizer(module)
+            # Create learning rate scheduler with warmup and decay settings
+            lr_scheduler = self._build_lr_scheduler(optimizer)
+        else:
+            optimizer = None
+            lr_scheduler = None
 
-        self.lr_scheduler = build_lr_scheduler(
-            self.optimizer,
-            train_steps=self.optimizer_config.total_training_steps,
-            lr=self.optimizer_config.lr,
-            lr_min=self.optimizer_config.lr_min,
-            lr_decay_style=self.optimizer_config.lr_scheduler_type,
-            lr_decay_ratio=self.optimizer_config.lr_decay_ratio,
-            lr_warmup_ratio=self.optimizer_config.lr_warmup_steps_ratio,
-            lr_start=self.optimizer_config.lr_start,
-        )
-
-        self.checkpoint_manager = FSDPCheckpointManager(
-            model=self.module,
-            optimizer=self.optimizer,
-            lr_scheduler=self.lr_scheduler,
-            processing_class=self.model_config.get_processor(),
-            checkpoint_contents=self.checkpoint_config,
-        )
-
+        self.module = module
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
         self.model_fwd_context, self.model_bwd_context = build_activation_offloading_context(
             self.model_config.enable_activation_offload,
             self.model_config.enable_gradient_checkpointing,
