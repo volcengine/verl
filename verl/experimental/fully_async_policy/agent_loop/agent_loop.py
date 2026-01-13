@@ -283,7 +283,9 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         if rollout_config.prometheus.enable:
             if rollout_config.disable_log_stats:
                 raise ValueError("PROMETHEUS needs disable_log_stats==False, but it is currently True.")
-            await asyncio.to_thread(update_prometheus_config, rollout_config.prometheus, self.server_addresses)
+            await asyncio.to_thread(
+                update_prometheus_config, rollout_config.prometheus, self.server_addresses, rollout_config.name
+            )
 
     async def generate_single_sample_async(
         self,
