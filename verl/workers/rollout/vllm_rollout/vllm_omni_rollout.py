@@ -36,22 +36,19 @@ import torch
 import torch.distributed
 from torch.distributed.device_mesh import DeviceMesh
 
-from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+from verl.third_party.vllm_omni import VLLM_OMNI_SLEEP_LEVEL
 from verl.utils.device import is_npu_available
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.ray_utils import ray_noset_visible_devices
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.vllm_rollout.utils import (
-    get_vllm_max_lora_rank,
-)
-from verl.workers.rollout.vllm_rollout.vllm_rollout import (
-    VLLM_ASCEND_REQUIRED_ENV_VARS,
-    _check_vllm_version_for_sleep_level,
-    vLLMAsyncRollout,
-)
+from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
+from verl.workers.rollout.vllm_rollout.vllm_rollout import vLLMAsyncRollout
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+VLLM_ASCEND_REQUIRED_ENV_VARS = {}
 
 
 class vLLMOmniAsyncRollout(vLLMAsyncRollout):
@@ -73,11 +70,11 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
             else {}
         )
 
-        if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
+        if config.layered_summon:
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
             self.sleep_level = 1
         else:
-            self.sleep_level = VLLM_SLEEP_LEVEL
+            self.sleep_level = VLLM_OMNI_SLEEP_LEVEL
 
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""

@@ -79,8 +79,8 @@ class DiffusionAgentLoopOutput(BaseModel):
 
     prompt_ids: list[int]
     """Prompt token ids."""
-    response_image: torch.Tensor
-    """Response image"""
+    response_image: list[list[list[float]]]
+    """Response image (HWC format)."""
     response_logprobs: Optional[list[float]] = None
     """Log probabilities for the response tokens."""
     multi_modal_data: Optional[dict[str, Any]] = None

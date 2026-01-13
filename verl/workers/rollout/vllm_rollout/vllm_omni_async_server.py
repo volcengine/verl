@@ -23,6 +23,7 @@ from typing import Any, Optional
 import ray
 import vllm_omni.entrypoints.cli.serve
 from vllm.usage.usage_lib import UsageContext
+from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncEngineArgs
 from vllm_omni.entrypoints import AsyncOmniDiffusion
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
@@ -30,18 +31,14 @@ from vllm_omni.outputs import RequestOutput
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.replica import ImageOutput, RolloutReplica
-from verl.workers.rollout.utils import (
-    run_unvicorn,
-)
+from verl.workers.rollout.replica import ImageOutput
+from verl.workers.rollout.utils import run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMOmniAsyncRollout
-from verl.workers.rollout.vllm_rollout.utils import (
-    get_vllm_max_lora_rank,
-)
+from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     ExternalZeroMQDistributedExecutor,
-    FlexibleArgumentParser,
     vLLMHttpServer,
+    vLLMReplica,
 )
 
 logger = logging.getLogger(__file__)
@@ -292,7 +289,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 _rollout_worker_actor_cls = ray.remote(vLLMOmniAsyncRollout)
 
 
-class vLLMOmniReplica(RolloutReplica):
+class vLLMOmniReplica(vLLMReplica):
     def __init__(
         self,
         replica_rank: int,

@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional
 
-import torch
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
@@ -44,8 +43,8 @@ class TokenOutput(BaseModel):
 
 
 class ImageOutput(BaseModel):
-    image: torch.Tensor
-    """generated image tensor"""
+    image: list[list[list[float]]]
+    """generated image tensor (HWC format)"""
     log_probs: Optional[list[float]] = None
     """logprobs of generated image"""
     stop_reason: Optional[str] = None
@@ -245,7 +244,7 @@ def _load_vllm():
 
 
 def _load_vllm_omni():
-    from verl.workers.rollout.vllm_omni_rollout.vllm_omni_async_server import vLLMOmniReplica
+    from verl.workers.rollout.vllm_rollout.vllm_omni_async_server import vLLMOmniReplica
 
     return vLLMOmniReplica
 
