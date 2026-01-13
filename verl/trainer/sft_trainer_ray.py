@@ -114,7 +114,9 @@ class SFTTrainer:
         ray_cls_with_init = RayClassWithInitArgs(ray.remote(TrainingWorker), config=config)
         self.training_client = RayWorkerGroup(resource_pool=self.resource_pool, ray_cls_with_init=ray_cls_with_init)
         self.training_client.set_loss_fn(loss_fn=self.loss_fn)
+        self.training_client.check_engine_config()
         self.training_client.reset()
+        self.training_client.patch_engine_mtp()
 
     def _build_dataset(self):
         config = self.config
