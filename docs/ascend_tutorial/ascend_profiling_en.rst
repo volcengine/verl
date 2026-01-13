@@ -108,12 +108,37 @@ Discrete Mode Collection
          actor:
             profiler:
                enable: True
-               all_ranks: True
+               all_ranks: False
+               ranks: [0]  # Collect specific global rank
                tool_config:
                   npu:
                      discrete: True
                      contents: [npu, cpu]  # Control collection list, default cpu, npu, can configure memory, shapes, module, etc.
-        # rollout & ref follow actor settings
+         rollout:
+            profiler:
+               enable: True
+               all_ranks: False
+               ranks: [0]  # Replica Rank of the inference instance in Agent Loop mode
+               tool_config:
+                  npu:
+                     discrete: True  # Discrete mode must be enabled in Agent Loop mode
+         # ref follow actor settings
+
+**Agent Loop Scenario Description**:
+
+When Rollout runs in `Agent Loop <../advance/agent_loop.rst>`_ mode, performance data for the Rollout phase **must be collected using discrete mode**. At this time, the Profiler is triggered by the inference engine backend, and export paths and other parameters **must be set via environment variables**:
+
+- **vLLM Engine**
+   - Reference: `vLLM Profiling <https://github.com/vllm-project/vllm/blob/v0.12.0/docs/contributing/profiling.md>`_
+   - Environment Variables:
+      - ``VLLM_TORCH_PROFILER_DIR``: Sets the save path (**Required**).
+      - ``VLLM_TORCH_PROFILER_WITH_STACK``: Controls stack tracing (1: on, 0: off, default: on).
+
+- **SGLang Engine**
+   - Reference: `SGLang Profiling <https://github.com/sgl-project/sglang/blob/main/docs/developer_guide/benchmark_and_profiling.md>`_
+   - Environment Variables:
+      - ``SGLANG_TORCH_PROFILER_DIR``: Sets the save path.
+      - ``SGLANG_PROFILE_WITH_STACK``: Controls stack tracing (1: on, 0: off, default: on).
 
 
 Visualization
