@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
@@ -90,18 +90,7 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        # TODO: make lora config irrelevant to the model engine choice
-        # Convert megatron lora config to HFModelConfig
-        # If model_config is not an OmegaConf object, convert it first
-        if OmegaConf.is_config(model_config):
-            model_config_dict = OmegaConf.to_container(model_config)
-            model_config_dict.pop("lora", None)
-
-            self.model_config: HFModelConfig = omega_conf_to_dataclass(
-                OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
-            )
-        else:
-            self.model_config: HFModelConfig = model_config
+        self.model_config: HFModelConfig = model_config
 
         self.world_size = (
             self.config.tensor_model_parallel_size
@@ -251,13 +240,36 @@ def _load_sglang():
         import vllm  # noqa: F401
     except ImportError:
         import sys
+        import types
         from unittest.mock import Mock
 
-        mock_vllm = Mock()
-        mock_vllm._custom_ops = Mock()
-        mock_vllm._custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm = types.ModuleType("vllm")
+
+        mock_custom_ops = types.ModuleType("vllm._custom_ops")
+        mock_custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm._custom_ops = mock_custom_ops
+
+        mock_model_executor = types.ModuleType("vllm.model_executor")
+        mock_layers = types.ModuleType("vllm.model_executor.layers")
+        mock_activation = types.ModuleType("vllm.model_executor.layers.activation")
+
+        class GeluAndMul:  # noqa: N801
+            pass
+
+        class SiluAndMul:  # noqa: N801
+            pass
+
+        mock_activation.GeluAndMul = GeluAndMul
+        mock_activation.SiluAndMul = SiluAndMul
+        mock_layers.activation = mock_activation
+        mock_model_executor.layers = mock_layers
+        mock_vllm.model_executor = mock_model_executor
+
         sys.modules["vllm"] = mock_vllm
-        sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
+        sys.modules["vllm._custom_ops"] = mock_custom_ops
+        sys.modules["vllm.model_executor"] = mock_model_executor
+        sys.modules["vllm.model_executor.layers"] = mock_layers
+        sys.modules["vllm.model_executor.layers.activation"] = mock_activation
 
     from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangReplica
 

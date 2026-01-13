@@ -557,12 +557,24 @@ def offload_megatron_optimizer(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
         if _opt.optimizer is not None:
-            opt_state_dict_values = _opt.optimizer.state.values()
-            for v in opt_state_dict_values:
-                if "exp_avg" in v:
-                    v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
-                if "exp_avg_sq" in v:
-                    v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
+            # HybridDeviceOptimizer: offload all sub-optimizer states to CPU
+            # TODO: this should be a method in Megatron-LM's HybridDeviceOptimizer
+            hdo = _opt.optimizer
+            if all(hasattr(hdo, attr) for attr in ("sub_optimizers", "inner_param_to_orig_param", "state")):
+                for optimizer in hdo.sub_optimizers:
+                    for param, state in optimizer.state.items():
+                        for k, v in state.items():
+                            if not isinstance(v, torch.Tensor):
+                                continue
+                            orig_param = hdo.inner_param_to_orig_param.get(param, param)
+                            hdo.state[orig_param][k] = state[k] = v.to("cpu")
+            else:
+                opt_state_dict_values = _opt.optimizer.state.values()
+                for v in opt_state_dict_values:
+                    if "exp_avg" in v:
+                        v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
+                    if "exp_avg_sq" in v:
+                        v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
         gc.collect()
         get_torch_device().empty_cache()
 
@@ -1220,3 +1232,29 @@ def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
             config.param_sync_func = [model_chunk.start_param_sync for model_chunk in model]
             if len(model) == 1:
                 config.param_sync_func = config.param_sync_func[0]
+
+
+def mapping_string_to_attn_backend(args: dict) -> dict:
+    if "attention_backend" in args and isinstance(args["attention_backend"], str):
+        from megatron.core.transformer.enums import AttnBackend
+
+        args["attention_backend"] = AttnBackend[args["attention_backend"]]
+    return args
+
+
+def get_megatron_module_device(models: list[Any]) -> str:
+    if not models:
+        return "cpu"
+
+    model_chunk = models[0]
+    if not model_chunk.buffers:
+        try:
+            return next(model_chunk.module.parameters()).device.type
+        except StopIteration:
+            return "cpu"
+
+    buffer = model_chunk.buffers[0]
+    if buffer.param_data.storage().size() == 0:
+        return "cpu"
+    else:
+        return get_device_name()

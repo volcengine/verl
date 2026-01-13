@@ -139,16 +139,21 @@ def apply_patch():
                 self.config.qk_head_dim + self.config.v_head_dim,
             )
 
+            cp_size = parallel_state.get_context_parallel_world_size()
             if inference_context is not None:
                 # add offset to the sequence start for inference
                 sequence_start = inference_context.sequence_len_offset
                 sequence_end = sequence_start + q_len
                 rotary_pos_emb = rotary_pos_emb[sequence_start:sequence_end]
-            else:
+            elif packed_seq_params is None or cp_size == 1:
                 # Shorten rotary_pos_emb to the sequence length when inference_params
                 # is not provided. This makes sure we can run forward directly with
                 # any sequence length. During training, the sequence length is always
-                # the full rotary_pos_emb length.
+                # the full rotary_pos_emb length, except for sequence packing + CP.
+                # When sequence packing and context parallel are both enabled, the
+                # position embedding will not split rotary_pos_emb, so it may exceed
+                # the sequence length on this CP rank, but we need the full rotary_pos_emb
+                # to cover the full sequence, so we do not shorten it here.
                 rotary_pos_emb = rotary_pos_emb[0:q_len]
 
             # [s, b, 64] -> [s, b, 1, 64]
