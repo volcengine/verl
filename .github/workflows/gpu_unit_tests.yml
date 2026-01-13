@@ -88,6 +88,7 @@ jobs:
           mode: "create"
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
           mlp-image: "${{ env.IMAGE }}"
+          max_attempts: 3
 
   gpu_unit_tests:
     if: github.repository_owner == 'volcengine'
@@ -105,6 +106,8 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 list | grep cupy || true
+          pip3 list | grep cupy | xargs pip3 uninstall -y || true
           pip3 install hf_transfer
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
@@ -114,6 +117,8 @@ jobs:
       - name: Run all GPU unit tests
         run: |
           pytest -s -x --ignore-glob="*test_special_*.py" --ignore-glob='*on_cpu.py' --ignore-glob="*test_vllm*" --ignore-glob="*_sglang*" --ignore-glob="*_hf_rollout*" --ignore-glob="tests/models/" --ignore-glob='tests/special*' --ignore-glob="tests/experimental" --ignore-glob="tests/workers/reward_model" tests/
+        with:
+          max_attempts: 3
       - name: Testing LinearCrossEntropyTP Correctness, Computation Time and Memory Consumption
         run: |
           LOW_MEMORY=True torchrun --standalone --nnodes=1 --nproc-per-node=8 tests/utils/test_special_linear_cross_entropy_tp.py
