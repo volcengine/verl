@@ -154,6 +154,7 @@ class TrainingWorker(Worker):
             final_metrics["grad_norm"] = grad_norm
         if lr is not None:
             final_metrics["lr"] = lr
+        
 
         # TODO: confirm the mtp loss IS same across dp
         for k, v in final_metrics.items():
@@ -344,6 +345,42 @@ class TrainingWorker(Worker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
         return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
+    
+    def check_engine_config(self):
+        has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
+            hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
+        enable_mtp = self.model_config.mtp.enable
+        enable_mtp_train = self.model_config.mtp.enable_train
+        
+        if enable_mtp:
+            assert enable_mtp_train, "current not support enable_mtp while not training"
+
+        # Modify the hf_config before initialization, and apply patch after innitialization
+        if enable_mtp and not has_mtp:
+            logger.error('enable mtp while model has no mtp layer, ignore model.mtp.enable')
+            self.model_config.mtp.enable = False
+            self.model_config.mtp.enable_train = False
+        elif has_mtp and not enable_mtp:
+            self.model_config.hf_config.num_nextn_predict_layers = 0
+
+
+    def patch_engine_mtp(self):
+        if self.model_config.mtp.enable:
+            logger.warning('Applying mtp patch...')
+            from verl.models.mcore.mtp_patch import patch_postprocess
+
+            print(self.engine.module)
+            if isinstance(self.engine.module, list):
+                for m in self.engine.module:
+                    patch_postprocess(m)
+            else:
+                patch_postprocess(self.engine.module)
+
+            # Todo: add it back, used for loading mtp without propergate loss to encoder
+            #if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
+            #    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
+            #    patch_mtp_layer_get_embeddings(model)
+
 
 
 class ActorRolloutRefWorker(Worker, DistProfilerExtension):

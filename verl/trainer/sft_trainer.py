@@ -136,33 +136,9 @@ class SFTTrainer:
         if self.test_freq == "after_each_epoch":
             self.test_freq = self.steps_per_epoch
 
-        has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
-            hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
-        enable_mtp = self.model_config.mtp.enable
-
-        # Modify the hf_config before initialization, and apply patch after innitialization
-        if enable_mtp and not has_mtp:
-            logger.error('enable MTP while model has no mtp layer, ignore model.mtp.enable')
-            self.model_config.mtp.enable = False
-        elif has_mtp and not enable_mtp:
-            self.model_config.hf_config.num_nextn_predict_layers = 0
-
+        self.training_client.check_engine_config()
         self.training_client.reset()
-
-        if self.model_config.mtp.enable:
-            logger.info('Applying mtp patch...')
-            from verl.models.mcore.mtp_patch import patch_postprocess
-
-            model = self.engine.module
-            if isinstance(model, list):
-                for m in model:
-                    patch_postprocess(m)
-            else:
-                patch_postprocess(model)
-            #Todo: add it back
-            #if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
-            #    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
-            #    patch_mtp_layer_get_embeddings(model)
+        self.training_client.patch_engine_mtp()
 
     def _build_dataset(self):
         config = self.config

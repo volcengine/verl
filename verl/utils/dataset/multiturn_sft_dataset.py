@@ -35,10 +35,38 @@ from verl.utils.chat_template import extract_system_prompt_and_generation
 from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.dataset.vision_utils import process_image, process_video
 from verl.utils.fs import copy_local_path_from_hdfs
+from functools import wraps
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+def once(func):
+    """Decorator to ensure a function runs only once. Subsequent calls do nothing."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if not hasattr(wrapper, 'called'):
+            wrapper.called = True
+            return func(*args, **kwargs)
+        # Explicitly do nothing (no-op)
+    return wrapper
+
+@once
+def tokenize_full_and_print(tokenizer, message_list, input_ids, loss_mask, attn_mask, tools):
+    # 使用tokenizer的apply_chat_template方法对message_list进行tokenize（不encode）
+    tokenized = tokenizer.apply_chat_template(message_list, tokenize=False, tools=tools)
+    str1 = f'tokenized as whole:\n{tokenized}'
+    # 对input_ids进行decode
+    str2 = f'tokenized seperately:\n{tokenizer.decode(input_ids)}'
+    #masked_token = input_ids * loss_mask
+    #masked_token = [t for t in masked_token if t != 0]
+    #str3 = f'tokenized seperately covered with loss mask:\n{tokenizer.decode(masked_token)}'
+    #masked_token = input_ids * attn_mask
+    #masked_token = [t for t in masked_token if t != 0]
+    #str4 = f'tokenized seperately covered with attn mask:\n{tokenizer.decode(masked_token)}'
+    sep='\n\n'
+    #print(str1+sep+str2+sep+str3+sep+str4)
+    print(str1+sep+str2)
+    
 
 def convert_nested_value_to_list_recursive(data_item):
     if isinstance(data_item, dict):
@@ -51,6 +79,7 @@ def convert_nested_value_to_list_recursive(data_item):
     else:
         # Base case: item is already a primitive type (int, str, float, bool, etc.)
         return data_item
+
 
 
 class MultiTurnSFTDataset(Dataset):
@@ -91,6 +120,7 @@ class MultiTurnSFTDataset(Dataset):
         )
         self.tools_key = config.get("tools_key", "tools")
         self.enable_thinking_key = config.get("enable_thinking_key", "enable_thinking")
+        self.enable_thinking_default = config.get("enable_thinking_default", None)
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
         self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
@@ -125,7 +155,8 @@ class MultiTurnSFTDataset(Dataset):
 
         dataframes = []
         for parquet_file in self.parquet_files:
-            dataframe = pd.read_parquet(parquet_file)
+            # default loader loads some list as np.ndarray, which fails the tokenizer
+            dataframe = pd.read_parquet(parquet_file, dtype_backend='pyarrow')
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
 
@@ -167,6 +198,7 @@ class MultiTurnSFTDataset(Dataset):
         self,
         index: int,
         message: dict[str, Any],
+        full_message: list, 
         tools: Optional[list[dict[str, Any]]] = None,
         enable_thinking: Optional[bool] = None,
     ) -> tuple[list[int], list[int], list[int]]:
@@ -188,6 +220,7 @@ class MultiTurnSFTDataset(Dataset):
         apply_chat_template_kwargs = {**self.apply_chat_template_kwargs}
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
+            apply_chat_template_kwargs["thinking"] = enable_thinking
 
         inputs = processor.apply_chat_template(
             [message],
@@ -262,12 +295,13 @@ class MultiTurnSFTDataset(Dataset):
         assert image_offset == len(images), f"image_offset {image_offset} != len(images) {len(images)}"
         assert video_offset == len(videos), f"video_offset {video_offset} != len(videos) {len(videos)}"
         return messages
+    
 
     def __getitem__(self, item):
         row_dict: dict = self.dataframe.iloc[item].to_dict()
         messages = self._build_messages(row_dict)
         tools = self.tools[item] if self.tools is not None else None
-        enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else None
+        enable_thinking = self.enable_thinking[item] if self.enable_thinking is not None else self.enable_thinking_default
 
         # 1. tokenize each message
         input_ids, loss_mask, attention_mask, multi_modal_inputs = [], [], [], {}
@@ -275,6 +309,7 @@ class MultiTurnSFTDataset(Dataset):
             _input_ids, _loss_mask, _attention_mask, _inputs = self._process_single_message(
                 index=i,
                 message=message,
+                full_message=messages,
                 tools=tools if i == 0 else None,
                 enable_thinking=enable_thinking,
             )
@@ -290,6 +325,8 @@ class MultiTurnSFTDataset(Dataset):
         assert input_ids.shape == loss_mask.shape == attention_mask.shape, (
             f"Shape mismatch: {input_ids.shape}, {loss_mask.shape}, {attention_mask.shape}"
         )
+
+        tokenize_full_and_print(self.tokenizer, messages, input_ids, loss_mask, attention_mask, tools)
         self.sanity_check(input_ids, messages, tools, enable_thinking)
 
         # Since the tokenizer may return user-customized results, we need to filter out inconsistent tensor shapes
@@ -416,4 +453,8 @@ class MultiTurnSFTDataset(Dataset):
             if self.ignore_input_ids_mismatch:
                 logger.warning_once(error_message)
             else:
+                print(input_ids) 
+                print() 
+                print() 
+                print(inputs["input_ids"].squeeze(0))
                 raise AssertionError(error_message)

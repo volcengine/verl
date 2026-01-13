@@ -219,6 +219,7 @@ class MegatronEngine(BaseEngine):
         )
         self.tf_config = updated_tf_config
         print(f"module: {module}")
+       
 
         if self.engine_config.use_dist_checkpointing:
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
@@ -467,7 +468,6 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_optimizer:
             offload_megatron_optimizer(self.optimizer)
 
-    # train_batch
     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         tu.assign_non_tensor(data, sp_size=self.engine_config.context_parallel_size)
 
@@ -661,8 +661,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         logits_processor_args = {"label": label}
 
-        #has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
-        #    hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
         has_mtp = self.model_config.mtp.enable
 
         output = forward_fn(
@@ -720,8 +718,6 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
-        #has_mtp = self.model_config.hf_config.num_nextn_predict_layers > 0 if \
-        #    hasattr(self.model_config.hf_config,'num_nextn_predict_layers') else False
         has_mtp = self.model_config.mtp.enable
 
         output = forward_fn(
