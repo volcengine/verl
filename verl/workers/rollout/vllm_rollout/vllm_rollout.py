@@ -29,6 +29,7 @@ When working with Megatron:
 import gc
 import logging
 import os
+import time
 from typing import Any, Generator, Optional
 
 import ray
@@ -46,14 +47,7 @@ from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.vllm_rollout.utils import TensorMetadata, get_device_uuid
 
 logger = logging.getLogger(__file__)
-logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
-
-VLLM_ASCEND_REQUIRED_ENV_VARS = {"VLLM_ALL2ALL_BACKEND": "flashinfer_all2allv", "VLLM_ASCEND_ENABLE_NZ": "0"}
-
-# TODO
-# 1. support pp in vllm
-# 2. passing tokenizer is not necessary? no encoding/decoding is happending here
-# 3. simplify init logics
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 
 
 def _check_vllm_version_for_sleep_level():
@@ -149,6 +143,7 @@ class ServerAdapter(BaseRollout):
     @torch.no_grad()
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update model weights via CUDA IPC to inference workers."""
+        start_time = time.time()
         future = await self._execute_method(
             "update_weights_from_ipc",
             non_block=True,
@@ -156,7 +151,8 @@ class ServerAdapter(BaseRollout):
         )
 
         # build cuda ipc buffer
-        bucket_size = int(self.config.update_weights_bucket_megabytes) << 20
+        bucket_size_mb = self.config.update_weights_bucket_megabytes
+        bucket_size = int(bucket_size_mb) << 20
         buffer = torch.empty(bucket_size, dtype=torch.uint8, device=f"{get_device_name()}:0")
         handle = reduce_tensor(buffer)
         s = self.zmq_context.socket(zmq.REQ)
@@ -179,9 +175,10 @@ class ServerAdapter(BaseRollout):
                 bucket_meta = {}
                 offset = 0
 
+            # TODO: slice embedding layer weight into chunks
             assert offset + weight.nbytes <= bucket_size, (
-                f"Weight {name}({weight.shape}, {weight.dtype}) is too large to fit in the bucket. Please increase "
-                f"rollout.update_weights_bucket_megabytes({self.config.update_weights_bucket_megabytes} MB)."
+                f"Weight {name}({weight.shape}, {weight.dtype}) is too large to fit in the bucket."
+                f"Please increase rollout.update_weights_bucket_megabytes({bucket_size_mb} MB)."
             )
             bucket_meta[name] = {
                 "name": name,
@@ -204,10 +201,13 @@ class ServerAdapter(BaseRollout):
         get_torch_device().empty_cache()
         await future
 
+        if self.replica_rank == 0 and self.rollout_rank == 0:
+            logger.info(f"update_weights done, time cost: {time.time() - start_time:.2f}s")
+
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode.
 
-        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        Note: ServerAdapter uses async server mode and does not support synchronous
         generation. Since SPMD mode was retired (PR #4411), the generation workflow
         should use the async server interface instead.
 
@@ -215,7 +215,7 @@ class ServerAdapter(BaseRollout):
             NotImplementedError: Always raised as sync generation is not supported.
         """
         raise NotImplementedError(
-            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "ServerAdapter does not support synchronous generate_sequences(). "
             "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
             "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
             "or use HFRollout for synchronous generation. "

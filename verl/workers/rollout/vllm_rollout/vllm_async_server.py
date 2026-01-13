@@ -52,7 +52,7 @@ from verl.workers.rollout.utils import (
     is_valid_ipv6_address,
     run_unvicorn,
 )
-from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
+from verl.workers.rollout.vllm_rollout import ServerAdapter
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
@@ -597,7 +597,7 @@ class vLLMHttpServer:
             return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
-_rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
+_rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
 
 class vLLMReplica(RolloutReplica):

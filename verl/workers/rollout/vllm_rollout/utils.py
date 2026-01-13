@@ -114,12 +114,13 @@ class vLLMColocateWorkerExtension:
     2. Online FP8 quantization
     """
 
-    def __new__(cls):
+    def __new__(cls, **kwargs):
         # 1. patch for Lora
         VLLMHijack.hijack()
         # 2. patch online fp8 quant
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             apply_vllm_fp8_patches()
+        return super().__new__(cls)
 
     def monkey_patch_model(self, vocab_size: int):
         # patch compute_logits to avoid sampling OOV token
