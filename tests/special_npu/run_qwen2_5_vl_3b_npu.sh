@@ -1,5 +1,4 @@
 set -x
-export VLLM_ASCEND_ENABLE_NZ=0
 
 ENGINE=${1:-vllm}
 

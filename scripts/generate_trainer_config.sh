@@ -23,7 +23,7 @@ generate_config() {
     echo "# The file is usually only for reference and never used." >> "$tmp_header"
     echo "" >> "$tmp_header"
     
-    /Users/arron/miniconda3/bin/python scripts/print_cfg.py --cfg job ${config_arg} > "$tmp_cfg"
+    python3 scripts/print_cfg.py --cfg job ${config_arg} > "$tmp_cfg"
     
     cat "$tmp_header" > "$target_cfg"
     sed -n '/^actor_rollout_ref/,$p' "$tmp_cfg" >> "$target_cfg"

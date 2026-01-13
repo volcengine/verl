@@ -164,8 +164,13 @@ class MegatronPPOActor(BasePPOActor):
             for model in self.actor_module:
                 patch_postprocess(model)
 
-                if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
-                    patch_mtp_layer_get_embeddings(model)
+            if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
+                # Unwrap each model in the actor_module to get the actual GPTModel
+                from verl.utils.megatron_utils import unwrap_model
+
+                for model in self.actor_module:
+                    unwrapped_model = unwrap_model(model)
+                    patch_mtp_layer_get_embeddings(unwrapped_model)
 
         self.optimizer_step_args = OmegaConf.create(
             {
@@ -508,6 +513,7 @@ class MegatronPPOActor(BasePPOActor):
 
                 entropy_coeff = self.config.entropy_coeff
                 loss_agg_mode = self.config.loss_agg_mode
+
                 loss_mode = self.config.policy_loss.get("loss_mode", "vanilla")
 
                 policy_loss_fn = get_policy_loss_fn(loss_mode)

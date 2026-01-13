@@ -9,7 +9,7 @@ Last updated: 12/20/2025.
 
 .. warning::
    Reward Loop is ready for use, but the API may change in future releases.
-   User can set ``reward_model.reward_loop=True`` or ``False`` to control whether to enable reward loop.
+   User can set ``reward_model.use_reward_loop=True`` or ``False`` to control whether to enable reward loop.
 
 Reward Loop is designed to support flexible and user-friendly reward computation, with most implementation in ``verl/experimental/reward_loop``.
 
