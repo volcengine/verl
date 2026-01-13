@@ -38,11 +38,7 @@ from dataclasses import dataclass
 import torch
 import torch.distributed as dist
 
-from verl.utils.device import (
-    get_device_capability,
-    get_device_name,
-    is_cuda_available,
-)
+from verl.utils.device import get_device_capability, get_device_name, is_cuda_available
 
 try:
     import triton
@@ -81,6 +77,24 @@ elif SUPPORT_CUDA_TMA:
     # TMA descriptors require a global memory allocation
     def alloc_fn(size: int, alignment: int, stream: typing.Optional[int]):
         return torch.empty(size, device=get_device_name(), dtype=torch.int8)
+
+    # https://github.com/triton-lang/triton/commit/43625fc968b693ab51884ca95adbcf3e43483fd0
+    # Triton 3.5.0 stores allocators in ContextVar; values do not propagate to new
+    # threads by default. Some execution paths in verl use thread pools (e.g.,
+    # concurrent.futures), so we set a ContextVar *default* to avoid falling
+    # back to NullAllocator in worker threads.
+    try:
+        import contextvars
+
+        import triton.runtime._allocation as _triton_allocation
+
+        if isinstance(getattr(_triton_allocation, "_allocator", None), contextvars.ContextVar):
+            _triton_allocation._allocator = contextvars.ContextVar(
+                _triton_allocation._allocator.name,
+                default=alloc_fn,
+            )
+    except (ImportError, AttributeError):
+        pass
 
     triton.set_allocator(alloc_fn)
 

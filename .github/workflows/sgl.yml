@@ -32,7 +32,7 @@
 name: sgl
 
 on:
-#  workflow_dispatch: # Manual
+  #  workflow_dispatch: # Manual
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   push:
@@ -52,15 +52,13 @@ on:
       - "!examples/**"
       - "!tests/**"
       - "!verl/trainer/main_*.py"
-      - "!verl/trainer/fsdp_sft_trainer.py"
-      # FSDP
+      - "!verl/trainer/fsdp_sft_trainer.py" # FSDP
       - "!verl/workers/**/*dp_*.py"
       # Megatron
       - "!verl/workers/**/megatron_*.py"
       # vLLM
       - "!**/*vllm*"
-      # Recipes
-      - "!recipe/**"
+
       # Entrypoints
       - ".github/workflows/sgl.yml"
       - "tests/rollout/*sglang*"
@@ -77,7 +75,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl055.dev2"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:sgl056.latest"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -115,8 +113,9 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install hf_transfer fastmcp
-          pip3 install -e .[test]
+          pip3 install hf_transfer fastmcp pytest-asyncio
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force

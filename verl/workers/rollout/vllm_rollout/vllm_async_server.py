@@ -57,6 +57,7 @@ from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
+    build_cli_args_from_config,
     get_vllm_max_lora_rank,
 )
 
@@ -72,8 +73,7 @@ if _VLLM_VERSION > version.parse("0.11.0"):
         get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
-if _VLLM_VERSION >= version.parse("0.12.0"):
-    pass
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -304,15 +304,7 @@ class vLLMHttpServer:
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
 
-        server_args = ["serve", self.model_config.local_path]
-        for k, v in args.items():
-            if isinstance(v, bool):
-                if v:
-                    server_args.append(f"--{k}")
-            elif v is not None:
-                server_args.append(f"--{k}")
-                # Use json.dumps for dict to ensure valid JSON format
-                server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
+        server_args = ["serve", self.model_config.local_path] + build_cli_args_from_config(args)
 
         if self.replica_rank == 0:
             pprint(server_args)

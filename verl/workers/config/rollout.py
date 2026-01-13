@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -148,6 +149,8 @@ class RolloutConfig(BaseConfig):
     tensor_model_parallel_size: int = 2
     pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
+    logprobs_mode: Optional[str] = "processed_logprobs"
+    scheduling_policy: Optional[str] = "fcfs"
 
     # TODO: enable train_kwargs
     # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
@@ -219,6 +222,20 @@ class RolloutConfig(BaseConfig):
 
     def __post_init__(self):
         """Validate the rollout config"""
+        # Deprecation warning for mode field - only async mode is supported
+        if self.mode == "sync":
+            raise ValueError(
+                "Rollout mode 'sync' has been removed. Please set "
+                "`actor_rollout_ref.rollout.mode=async` or remove the mode setting entirely."
+            )
+        if self.mode != "async":
+            warnings.warn(
+                f"Unknown rollout mode '{self.mode}'. Only 'async' mode is supported. "
+                "The 'mode' field is deprecated and will be removed in a future version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         if self.expert_parallel_size > 1:
             assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
                 "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"

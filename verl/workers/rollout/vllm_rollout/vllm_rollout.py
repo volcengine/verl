@@ -48,6 +48,8 @@ from verl.workers.rollout.vllm_rollout.utils import TensorMetadata, get_device_u
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+VLLM_ASCEND_REQUIRED_ENV_VARS = {"VLLM_ALL2ALL_BACKEND": "flashinfer_all2allv", "VLLM_ASCEND_ENABLE_NZ": "0"}
+
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -203,5 +205,19 @@ class ServerAdapter(BaseRollout):
         await future
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Batch generate sequences in sync mode."""
-        raise NotImplementedError
+        """Batch generate sequences in sync mode.
+
+        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        generation. Since SPMD mode was retired (PR #4411), the generation workflow
+        should use the async server interface instead.
+
+        Raises:
+            NotImplementedError: Always raised as sync generation is not supported.
+        """
+        raise NotImplementedError(
+            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
+            "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
+            "or use HFRollout for synchronous generation. "
+            "See https://github.com/volcengine/verl/issues/4682 for more details."
+        )

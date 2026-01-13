@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import gc
+import json
 import logging
 import os
 from dataclasses import asdict
 from types import MethodType
-from typing import Callable, TypedDict
+from typing import Any, Callable, TypedDict
 
 import torch
 import zmq
@@ -194,3 +195,44 @@ class vLLMColocateWorkerExtension:
         if not hasattr(self, "device_uuid") or not self.device_uuid:
             self.device_uuid = get_device_uuid(self.device.index)
         return f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
+
+
+def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
+    """
+    Convert a config dictionary to CLI arguments for vLLM server.
+
+    Handles different value types appropriately:
+    - None: skipped
+    - bool True: adds '--key'
+    - bool False: skipped
+    - list: expands to '--key item1 item2 ...'
+    - empty list: skipped (vLLM uses nargs="+" which requires at least one value)
+    - dict: JSON serialized
+    - other: string converted
+
+    Args:
+        config: Dictionary of configuration key-value pairs
+
+    Returns:
+        List of CLI argument strings
+    """
+    cli_args = []
+    for k, v in config.items():
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            if v:
+                cli_args.append(f"--{k}")
+        elif isinstance(v, list):
+            if not v:
+                # Skip empty lists - vLLM uses nargs="+" which requires at least one value
+                continue
+            # Lists need to be expanded as multiple separate arguments
+            # e.g., --cuda-graph-sizes 1 2 4 8 becomes ['--cuda-graph-sizes', '1', '2', '4', '8']
+            cli_args.append(f"--{k}")
+            cli_args.extend([str(item) for item in v])
+        else:
+            cli_args.append(f"--{k}")
+            # Use json.dumps for dict to ensure valid JSON format
+            cli_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
+    return cli_args
