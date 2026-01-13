@@ -269,8 +269,8 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
 
     async def _init_async_rollout_manager(self):
         # use async rollout do validate
+        print(f"[FullyAsyncTrainer] use_trainer_do_validate: {self.config.async_training.use_trainer_do_validate}")
         if self.config.async_training.use_trainer_do_validate:
-            print(f"[FullyAsyncTrainer] use_trainer_do_validate: {self.config.async_training.use_trainer_do_validate}")
             assert self.config.actor_rollout_ref.rollout.mode == "async"
             self.async_rollout_mode = True
             print("[FullyAsyncTrainer] Init async rollout manager")
