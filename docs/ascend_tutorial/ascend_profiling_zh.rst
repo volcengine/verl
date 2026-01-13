@@ -103,12 +103,37 @@ Last updated: 12/20/2025.
          actor:
             profiler:
                enable: True
-               all_ranks: True
+               all_ranks: False
+               ranks: [0]  # 采集的全局 Rank
                tool_config:
                   npu:
                      discrete: True
                      contents: [npu, cpu]  # 控制采集列表，默认cpu、npu，可配置memory、shapes、module等
-        # rollout & ref follow actor settings
+         rollout:
+            profiler:
+               enable: True
+               all_ranks: False
+               ranks: [0]  # Agent Loop 模式下对应推理实例的 Replica Rank
+               tool_config:
+                  npu:
+                     discrete: True  # Agent Loop 模式下必须开启离散模式，其余参数由环境变量控制
+         # ref follow actor settings
+
+**Agent Loop 场景说明**：
+
+当 Rollout 运行在 `Agent Loop <../advance/agent_loop.rst>`_ 模式时，Rollout 阶段的性能数据 **必须使用离散模式** 采集。此时 Profiler 由推理引擎后端触发，**必须通过环境变量** 设置导出路径等参数：
+
+- **vLLM 引擎**
+   - 参考文档：`vLLM Profiling <https://github.com/vllm-project/vllm/blob/v0.12.0/docs/contributing/profiling.md>`_
+   - 环境变量：
+      - ``VLLM_TORCH_PROFILER_DIR``: 设置 Profiler 数据保存路径（**必选**）。
+      - ``VLLM_TORCH_PROFILER_WITH_STACK``: 是否记录调用栈 (1开启, 0关闭，默认开启)。
+
+- **SGLang 引擎**
+   - 参考文档：`SGLang Profiling <https://github.com/sgl-project/sglang/blob/main/docs/developer_guide/benchmark_and_profiling.md>`_
+   - 环境变量：
+      - ``SGLANG_TORCH_PROFILER_DIR``: 设置 Profiler 数据保存路径。
+      - ``SGLANG_PROFILE_WITH_STACK``: 是否记录调用栈 (1开启, 0关闭，默认开启)。
 
 
 可视化
