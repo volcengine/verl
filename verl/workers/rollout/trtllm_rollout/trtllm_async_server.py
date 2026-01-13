@@ -34,7 +34,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-@ray.remote(num_cpus=1)
+@ray.remote
 class TRTLLMHttpServer:
     """TensorRT LLM HTTP server in single node.
 
@@ -184,7 +184,7 @@ class TRTLLMHttpServer:
             # Call all workers to switch between trainer mode and rollout mode.
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            await self.llm.resume(tags=["kv_cache", "weights"])
+            await self.llm.resume(tags=TRTLLMAsyncRollout.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip wake_up in standalone mode")
 
@@ -192,7 +192,7 @@ class TRTLLMHttpServer:
         if self.rollout_mode == RolloutMode.HYBRID:
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            await self.llm.release(tags=["kv_cache", "weights"])
+            await self.llm.release(tags=TRTLLMAsyncRollout.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
@@ -219,21 +219,37 @@ class TRTLLMReplica(RolloutReplica):
             config=self.config,
             model_config=self.model_config,
             device_mesh=None,
+            replica_rank=self.replica_rank,
         )
         return worker_dict_cls
 
+    def rollout_worker_use_gpu(self) -> bool:
+        return False
+
     def get_pgs_and_bundle_indices(self) -> tuple[list[PlacementGroup], list[list[int]]]:
         """Get placement groups and bundle indices for the replica."""
-        assert not isinstance(self.resource_pool, SubRayResourcePool), "SubRayResourcePool is not supported yet."
 
-        pg_bundle_count = self.resource_pool.pgs[0].bundle_count
-        for off, pg in enumerate(self.resource_pool.pgs):
-            assert pg.bundle_count == pg_bundle_count, (
-                "all placement groups must have the same bundle count, "
-                f"got {pg.bundle_count} and {pg_bundle_count} for {off}-th placement group"
+        start_pg_index = 0
+        local_bundle_index = 0
+
+        # For SubRayResourcePool, the replica is assigned sub pool specific for this replica.
+        if isinstance(self.resource_pool, SubRayResourcePool):
+            assert self.resource_pool.subgroup_world_size == self.world_size, (
+                "Subgroup world size must be equal to world size"
             )
+            local_bundle_index = self.resource_pool.start_bundle_index
+        # For RayResourcePool, the replica is assigned to entire resource pool.
+        # We need to find start pg index and local bundle index based on replica rank.
+        else:
+            local_bundle_index = self.world_size * self.replica_rank
 
-        assert self.world_size <= pg_bundle_count, "Can't support world size > bundle count now."
+        while local_bundle_index >= self.resource_pool.pgs[start_pg_index].bundle_count:
+            start_pg_index += 1
+            local_bundle_index -= self.resource_pool.pgs[start_pg_index].bundle_count
+        assert (
+            start_pg_index < len(self.resource_pool.pgs)
+            and local_bundle_index < self.resource_pool.pgs[start_pg_index].bundle_count
+        ), "Start pg index or local bundle index out of range"
 
         # Global Bundle View for Replica x 2 & TP=4:
         # ┌───────────────────┬───────────────────┐
@@ -246,23 +262,20 @@ class TRTLLMReplica(RolloutReplica):
         #       (4 GPUs)            (4 GPUs)
 
         left_bundle_count = self.world_size
-        start_local_bundle_index = self.world_size * self.replica_rank
 
         pgs = []
         bundle_indices = []
 
-        for pg in self.resource_pool.pgs:
+        for pg in self.resource_pool.pgs[start_pg_index:]:
             if left_bundle_count == 0:
                 break
-            if start_local_bundle_index >= pg_bundle_count:
-                start_local_bundle_index -= pg_bundle_count
-                continue
-            left_bundle_count_in_pg = min(left_bundle_count, pg_bundle_count - start_local_bundle_index)
-            pg_bundle_indices = [start_local_bundle_index + idx for idx in range(left_bundle_count_in_pg)]
+
+            left_bundle_count_in_pg = min(left_bundle_count, pg.bundle_count - local_bundle_index)
+            pg_bundle_indices = [local_bundle_index + idx for idx in range(left_bundle_count_in_pg)]
             pgs.append(pg)
             bundle_indices.append(pg_bundle_indices)
             left_bundle_count -= left_bundle_count_in_pg
-            start_local_bundle_index = 0
+            local_bundle_index = 0
 
         assert left_bundle_count == 0, "all bundle indices should be assigned"
 
@@ -277,10 +290,10 @@ class TRTLLMReplica(RolloutReplica):
         # Check server process should be launched on the same node as first bundle of first pg.
         first_pg_data = placement_group_table(pgs[0])
         node_id = first_pg_data["bundles_to_node_id"][bundle_indices[0][0]]
-        logger.info(f"TRTLLMReplica: {self.replica_rank}")
-        logger.info(f"pg node_id: {node_id}")
-        logger.info(f"pgs: {pgs}")
-        logger.info(f"bundle_indices: {bundle_indices}")
+        print(f"TRTLLMReplica: {self.replica_rank}")
+        print(f"pg node_id: {node_id}")
+        print(f"pgs: {pgs}")
+        print(f"bundle_indices: {bundle_indices}")
 
         # TRTLLMReplica is a 1:1 map from replica to TRTLLMHttpServer.
         name = (

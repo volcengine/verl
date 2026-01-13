@@ -370,6 +370,7 @@ class RayWorkerGroup(WorkerGroup):
         """
         self._master_addr = kwargs.pop("master_addr", None)
         self._master_port = kwargs.pop("master_port", None)
+        self.use_gpu = kwargs.pop("use_gpu", resource_pool.use_gpu if resource_pool is not None else True)
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -535,6 +536,8 @@ class RayWorkerGroup(WorkerGroup):
     def _create_worker(self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached):
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
+        if self.use_gpu and not use_gpu:
+            raise ValueError("use_gpu is True but resource_pool.use_gpu is False")
         local_world_size = resource_pool.store[0]
         num_gpus = 1 / resource_pool.max_colocate_count
 
@@ -585,7 +588,7 @@ class RayWorkerGroup(WorkerGroup):
         worker = ray_cls_with_init(
             placement_group=pg,
             placement_group_bundle_idx=local_rank,
-            use_gpu=use_gpu,
+            use_gpu=self.use_gpu,
             num_gpus=num_gpus,
             device_name=self.device_name,
         )

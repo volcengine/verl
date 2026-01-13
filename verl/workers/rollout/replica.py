@@ -154,6 +154,7 @@ class RolloutReplica(ABC):
         """
         self.rollout_mode = RolloutMode.COLOCATED
         self.resource_pool = resource_pool
+        use_gpu = self.rollout_worker_use_gpu()
 
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
@@ -162,6 +163,7 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_colocate_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_colocate_{self.replica_rank}",
+            use_gpu=use_gpu,
         )
         self.workers = worker_group.workers
         await self.launch_servers()
@@ -183,7 +185,7 @@ class RolloutReplica(ABC):
         self.resource_pool = resource_pool_manager.resource_pool_dict[resource_pool_name]
 
         # create worker group for this rollout
-
+        use_gpu = self.rollout_worker_use_gpu()
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
             ray_cls_with_init=self.get_ray_class_with_init_args(),
@@ -191,6 +193,7 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_standalone_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_standalone_{self.replica_rank}",
+            use_gpu=use_gpu,
         )
         self.workers = worker_group.workers
         await self.launch_servers()
@@ -214,6 +217,9 @@ class RolloutReplica(ABC):
     def server_handle(self) -> ActorHandle:
         """Get rollout server handle for Token-in-token-out generation."""
         return self._server_handle
+
+    def rollout_worker_use_gpu(self) -> bool:
+        return True
 
     async def wake_up(self):
         """Wake up each rollout server."""
