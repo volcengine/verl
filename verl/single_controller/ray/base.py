@@ -377,7 +377,7 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
         # this WorkerGroup.
         self.sub_cls_name = ""
-        self.device_name = kwargs.get("device_name", "cuda")
+        self.device_name = get_device_name()
         self.profile_steps = kwargs.get("profile_steps", None)
         self.worker_nsight_options = kwargs.get("worker_nsight_options", None)
         self.customized_worker_env = kwargs.get("worker_env", {})
