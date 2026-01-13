@@ -542,6 +542,7 @@ class RayWorkerGroup(WorkerGroup):
                     TwoPhaseInitWorker.init_worker(self)
                     original_worker_cls.__init__(self, *self._init_args, **self._init_kwargs)
 
+            ray_cls_with_init = deepcopy(ray_cls_with_init)
             ray_cls_with_init.cls = ray.remote(TwoPhaseInitWrapper)
 
         # Step 2: Create all workers
