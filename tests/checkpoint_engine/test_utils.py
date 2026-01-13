@@ -19,17 +19,17 @@ from transformers import AutoModelForCausalLM
 from verl.checkpoint_engine import CheckpointEngineRegistry
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.device import get_device_name
 from verl.utils.fs import copy_to_local
 from verl.workers.config import FSDPEngineConfig, HFModelConfig
 from verl.workers.engine_workers import TrainingWorker, TrainingWorkerConfig
-from verl.utils.device import get_device_name
 
 
 class TrainingWorkerTest(TrainingWorker):
     def __init__(self, config: TrainingWorkerConfig, checkpoint_backend: str, checkpoint_kwargs: dict) -> None:
         copy_to_local(config.model_config.path)
         super().__init__(config)
-        if torch.distributed.get_rank() == 0 and checkpoint_backend in["nccl","hccl"]:
+        if torch.distributed.get_rank() == 0 and checkpoint_backend in ["nccl", "hccl"]:
             checkpoint_kwargs["is_master"] = True
         self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
 

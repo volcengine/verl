@@ -15,14 +15,15 @@
 
 import ctypes
 import os
+import socket
 from datetime import timedelta
-import socket 
 
 import ray
 import torch.distributed
 
 from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device, is_npu_available
 from verl.utils.net_utils import is_ipv6
+
 
 def set_numa_affinity():
     if is_npu_available:
@@ -90,6 +91,7 @@ def initialize_global_process_group_ray(timeout_second=None):
             init_method=os.environ.get("DIST_INIT_METHOD", None),
         )
 
+
 def stateless_init_process_group(master_address, master_port, rank, world_size, device):
     """
     vLLM provides `StatelessProcessGroup` to create a process group
@@ -102,16 +104,16 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
     # the following can be used:
     # from sglang.srt.distributed.device_communicators.pynccl import PyNcclCommunicator
     # from sglang.srt.distributed.utils import statelessprocessgroup
-    
+
     from torch.distributed import TCPStore
     from vllm.distributed.utils import StatelessProcessGroup
+
     from verl.utils.device import is_npu_available
 
     if is_npu_available:
         from vllm_ascend.distributed.device_communicators.pyhccl import PyHcclCommunicator as PyNcclCommunicator
     else:
         from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-    from vllm.distributed.utils import StatelessProcessGroup
 
     def create_process_group(
         host: str,
@@ -161,4 +163,3 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
 
     pynccl = PyNcclCommunicator(pg, device=device)
     return pynccl
-    

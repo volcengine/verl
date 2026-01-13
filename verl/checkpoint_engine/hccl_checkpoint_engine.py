@@ -21,12 +21,11 @@ from typing import AsyncGenerator, Generator
 import ray
 import torch
 import zmq
+from vllm.distributed.utils import StatelessProcessGroup
 
 from verl.checkpoint_engine.base import CheckpointEngine, CheckpointEngineRegistry, TensorMeta
-from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
-from vllm.distributed.utils import StatelessProcessGroup
 from verl.utils.distributed import stateless_init_process_group
-
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -37,7 +36,7 @@ class MasterMetadata:
     zmq_ip: str
     zmq_port: int
     dist_ip: str
-    dist_port: int 
+    dist_port: int
 
 
 class BroadcastOperation:
@@ -132,10 +131,11 @@ class HCCLCheckpointEngine(CheckpointEngine):
         self.send_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device="npu")
         self.recv_buf = torch.zeros(self.bucket_size, dtype=torch.uint8, device="npu")
 
-        return MasterMetadata(zmq_ip=self.ip, 
-                              zmq_port=self.zmq_port, 
-                              dist_ip=self.ip, 
-                              dist_port=self.dist_port) if self.is_master else None
+        return (
+            MasterMetadata(zmq_ip=self.ip, zmq_port=self.zmq_port, dist_ip=self.ip, dist_port=self.dist_port)
+            if self.is_master
+            else None
+        )
 
     def finish(self):
         """Destroy the HCCL process group if rebuild_group is True."""
@@ -191,11 +191,8 @@ class HCCLCheckpointEngine(CheckpointEngine):
 
         if self.rebuild_group or self.pyhccl is None:
             self.pyhccl = stateless_init_process_group(
-                master_metadata.dist_ip, 
-                master_metadata.dist_port, 
-                rank, world_size, 
-                self.device
-                )
+                master_metadata.dist_ip, master_metadata.dist_port, rank, world_size, self.device
+            )
             self.rank = rank
             self.world_size = world_size
         else:
@@ -206,11 +203,10 @@ class HCCLCheckpointEngine(CheckpointEngine):
 
         if self.rank > 0:
             self._connect_zmq_client(master_metadata)
-       
+
         # barrier
         signal = torch.tensor([1], dtype=torch.int8, device=torch.npu.current_device())
         self.pyhccl.all_reduce(signal)
-
 
         logger.info(f"init_process_group rank: {self.rank}, world_size: {self.world_size}")
 
