@@ -40,11 +40,10 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
-from verl.utils.device import get_device_name, get_torch_device, is_npu_available
-from verl.utils.vllm import VLLMHijack, is_version_ge
+from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.vllm_rollout.utils import npu_generate_uuid
+from verl.workers.rollout.vllm_rollout.utils import TensorMetadata, get_device_uuid
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -53,10 +52,6 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
 # 3. simplify init logics
-
-
-if is_version_ge(pkg="vllm", minver="0.7.3"):
-    VLLMHijack.hijack()
 
 
 def _check_vllm_version_for_sleep_level():
@@ -85,12 +80,15 @@ class ServerAdapter(BaseRollout):
         self.server_handle: ray.actor.ActorHandle = None
 
         rank = int(os.environ["RANK"])
+        local_world_size = int(os.environ["RAY_LOCAL_WORLD_SIZE"])
         rollout_world_size = (
             self.config.tensor_model_parallel_size
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
+        self.replica_rank = rank // rollout_world_size
         self.rollout_rank = rank % rollout_world_size
+        self.node_rank = rank % local_world_size
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -98,15 +96,9 @@ class ServerAdapter(BaseRollout):
         else:
             self.sleep_level = VLLM_SLEEP_LEVEL
 
-        # Attributes related to weight updates
-        self.device = get_torch_device()
-
-        from vllm.platforms import current_platform
-
-        self.device_uuid = npu_generate_uuid(rank) if is_npu_available else current_platform.get_device_uuid(0)
+        self.device_uuid = get_device_uuid(get_device_id())
         self.zmq_context = zmq.Context()
-        self.zmq_address_counter = 0
-        self.zmq_handles: dict[str, str] = None
+        self.zmq_handle = f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
 
     async def _execute_method(
         self,
@@ -131,8 +123,9 @@ class ServerAdapter(BaseRollout):
         if self.rollout_rank != 0:
             return None
 
-        if not hasattr(self, "server_handle") or self.server_handle is None:
-            raise RuntimeError("vLLMHttpServer handle not set")
+        # Lazy init http server adapter because http server is launched after hybrid engine.
+        if self.server_handle is None:
+            self.server_handle = ray.get_actor(f"vllm_server_{self.replica_rank}_{self.node_rank}")
 
         future = self.server_handle.collective_rpc.remote(method, timeout=timeout, args=args, kwargs=kwargs)
         return future if non_block else await future
@@ -151,102 +144,64 @@ class ServerAdapter(BaseRollout):
         if self.config.free_cache_engine:
             await self._execute_method("sleep", kwargs={"level": self.sleep_level})
 
+    @torch.no_grad()
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
         """Update model weights via CUDA IPC to inference workers."""
-        peft_config, base_sync_done = kwargs.get("peft_config", None), kwargs.get("base_sync_done", False)
-        if peft_config and base_sync_done:
-            await self._execute_method(
-                "update_lora_weights_from_ipc",
-                non_block=True,
-                kwargs={
-                    "peft_config": peft_config,
-                    "zmq_handles": self.zmq_handles,
-                },
-            )
-        else:
-            await self._execute_method(
-                "update_weights_from_ipc",
-                non_block=True,
-                kwargs={
-                    "zmq_handles": self.zmq_handles,
-                },
-            )
-        await self._update_weights(weights)
+        future = await self._execute_method(
+            "update_weights_from_ipc",
+            non_block=True,
+            kwargs=kwargs,
+        )
 
-    async def _update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
-        # align size to avoid misaligned address
-        align_size = 256
-
-        def get_size(p: torch.Tensor) -> int:
-            return (p.nbytes + align_size - 1) // align_size * align_size
-
-        # use update_weights_buffer_slot_bytes * 2 as buffer size (default: 512 MB)
-        update_weights_buffer_bytes = (int(self.config.update_weights_bucket_megabytes) << 20) * 8
-        buffer = torch.empty(update_weights_buffer_bytes, dtype=torch.uint8, device=f"{get_device_name()}:0")
-        s = self.zmq_context.socket(zmq.REQ)
-        s.bind(self.zmq_address)
+        # build cuda ipc buffer
+        bucket_size = int(self.config.update_weights_bucket_megabytes) << 20
+        buffer = torch.empty(bucket_size, dtype=torch.uint8, device=f"{get_device_name()}:0")
         handle = reduce_tensor(buffer)
-
-        offset = 0
-        buckets: list[tuple[list[dict], list[torch.Tensor]]] = []
-        named_tensors: list[dict] = []
-        real_tensors: list[torch.Tensor] = []
-        for name, p in weights:
-            size = get_size(p)
-            if size > update_weights_buffer_bytes:
-                raise ValueError(
-                    f"Parameter {name} size ({size // 1024 // 1024} MB) exceeds buffer size "
-                    f"({self.config.update_weights_bucket_megabytes * 8} MB, "
-                    f"actor_rollout_ref.rollout.update_weights_bucket_megabytes * 8), "
-                    f"please increase its value."
-                )
-            if offset + size > buffer.numel():
-                buckets.append((named_tensors, real_tensors))
-                named_tensors, real_tensors = [], []
-                offset = 0
-            # assume tensors are contiguous
-            named_tensors.append({"name": name, "dtype": p.dtype, "shape": p.shape, "offset": offset})
-            real_tensors.append(p)
-            offset += size
-        if named_tensors:
-            buckets.append((named_tensors, real_tensors))
+        s = self.zmq_context.socket(zmq.REQ)
+        s.bind(self.zmq_handle)
         s.send_pyobj(handle)
         s.recv()
-        for named_tensors, real_tensors in buckets:
-            offset = 0
-            for p in real_tensors:
-                buffer[offset : offset + p.nbytes].data.copy_(
-                    p.data.view(-1).view(dtype=torch.uint8), non_blocking=True
-                )
-                offset += get_size(p)
-            self.device.synchronize()
-            s.send_pyobj(named_tensors)
-            s.recv()
-        s.send_pyobj(None)
+
+        # send bucket weights
+        offset = 0
+        bucket_meta: dict[str, TensorMetadata] = {}
+        for name, weight in weights:
+            # model parameters are in fp32 full precision
+            weight = weight.to(self.config.dtype)
+
+            # fill the tensor bucket
+            if offset + weight.nbytes > bucket_size:
+                get_torch_device().synchronize()
+                s.send_pyobj({"bucket_meta": bucket_meta, "is_last": False})
+                s.recv()
+                bucket_meta = {}
+                offset = 0
+
+            assert offset + weight.nbytes <= bucket_size, (
+                f"Weight {name}({weight.shape}, {weight.dtype}) is too large to fit in the bucket. Please increase "
+                f"rollout.update_weights_bucket_megabytes({self.config.update_weights_bucket_megabytes} MB)."
+            )
+            bucket_meta[name] = {
+                "name": name,
+                "shape": weight.shape,
+                "dtype": weight.dtype,
+                "offset": offset,
+            }
+            buffer[offset : offset + weight.nbytes].copy_(weight.view(-1).view(torch.uint8), non_blocking=True)
+            offset += weight.nbytes
+
+        # send the last bucket
+        get_torch_device().synchronize()
+        s.send_pyobj({"bucket_meta": bucket_meta, "is_last": True})
         s.recv()
+
+        # clean up
         s.close()
         del buffer
         gc.collect()
-        self.device.empty_cache()
+        get_torch_device().empty_cache()
+        await future
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         """Batch generate sequences in sync mode."""
         raise NotImplementedError
-
-    # ==================== server mode public methods ====================
-
-    def set_server_handle(self, server_handle: ray.actor.ActorHandle):
-        """Set vLLMHttpServer handle"""
-        if self.rollout_rank == 0:
-            self.server_handle = server_handle
-
-    def get_update_weights_zmq_handle(self) -> dict[str, str]:
-        """Get ZMQ handle for weight updates."""
-        suffix = f"{self.device_uuid}-{self.zmq_address_counter}"
-        self.zmq_address = f"ipc:///tmp/rl-colocate-zmq-{suffix}.sock"
-        self.zmq_address_counter += 1
-        return {self.device_uuid: self.zmq_address}
-
-    def set_update_weights_zmq_handles(self, zmq_handles: dict[str, str]):
-        """Set ZMQ handles for all workers."""
-        self.zmq_handles = zmq_handles

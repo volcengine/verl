@@ -21,11 +21,9 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any, Optional
 
 import numpy as np
 import psutil
-import ray
 import torch
 import torch.distributed
 import torch.distributed as dist
@@ -1943,35 +1941,3 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     async def sleep(self):
         await self.trainer_mode()
         return True
-
-    # ============================ vLLM related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def set_server_handle(self, server_handle: ray.actor.ActorHandle):
-        return self.rollout.set_server_handle(server_handle)
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def get_update_weights_zmq_handle(self):
-        return self.rollout.get_update_weights_zmq_handle()
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def set_update_weights_zmq_handles(self, zmq_handles: dict[str, str]):
-        return self.rollout.set_update_weights_zmq_handles(zmq_handles)
-
-    # ============================ SGLang related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def chat_completion(self, json_request):
-        ret = await self.rollout.chat_completion(json_request)
-        return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
-        return ret
