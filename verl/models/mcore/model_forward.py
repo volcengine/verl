@@ -192,7 +192,7 @@ def gptmodel_forward_no_padding(
         input_ids_rmpad, packed_seq_params = preprocess_thd_no_padding(input_ids, pre_process=pre_process)
         input_ids_rmpad = input_ids_rmpad.contiguous()
 
-        if enable_mtp:
+        if enable_mtp and post_process:
             args = {
                 k: preprocess_thd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
                 for k, v in logits_processor_args.items()
@@ -245,7 +245,7 @@ def gptmodel_forward_no_padding(
             input_ids, pre_process=pre_process
         )
 
-        if enable_mtp:
+        if enable_mtp and post_process:
             args = {
                 k: preprocess_bshd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
                 for k, v in logits_processor_args.items()

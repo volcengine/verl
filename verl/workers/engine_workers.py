@@ -380,6 +380,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
 
     def patch_engine_mtp(self):
+        from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
         if self.model_config.mtp.enable:
             logger.warning('Applying mtp patch...')
             from verl.models.mcore.mtp_patch import patch_postprocess
@@ -388,14 +389,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
             if isinstance(self.engine.module, list):
                 for m in self.engine.module:
                     patch_postprocess(m)
+                    if self.mtp_config.detach_encoder:
+                        patch_mtp_layer_get_embeddings(m)
             else:
                 patch_postprocess(self.engine.module)
-
-            # Todo: add it back, used for loading mtp without propergate loss to encoder
-            #if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
-            #    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
-            #    patch_mtp_layer_get_embeddings(model)
-
+                if self.mtp_config.detach_encoder:
+                    patch_mtp_layer_get_embeddings(self.engine.module)
 
 
 class ActorRolloutRefWorker(Worker, DistProfilerExtension):
