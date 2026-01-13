@@ -27,6 +27,7 @@ from verl.experimental.fully_async_policy.fully_async_trainer import FullyAsyncT
 from verl.experimental.fully_async_policy.message_queue import MessageQueue, MessageQueueClient
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
 from verl.trainer.ppo.utils import Role, need_reference_policy
+from verl.utils.device import auto_set_device
 from verl.utils.fs import copy_to_local
 
 
@@ -303,6 +304,7 @@ def main(config):
         raise RuntimeError("must set async_training config")
     from time import time
 
+    auto_set_device(config)
     start_time = time()
     run_ppo(config, task_runner_class=FullyAsyncTaskRunner)
     print(f"total time: {time() - start_time:.2f} seconds")
