@@ -115,17 +115,26 @@ def scaled_fp8_blockwise(
 
     block_size1 = weight_block_size[1]
     block_size0 = weight_block_size[0]
-    assert data_hp.shape[1] % block_size1 == 0, (
-        f"data_hp.shape[1] {data_hp.shape[1]}  must be a multiple of block_size1: {block_size1}."
-    )
-    assert data_hp.shape[0] % block_size0 == 0, (
-        f"data_hp.shape[0] {data_hp.shape[0]} must be a multiple of block_size0: {block_size0}."
-    )
+
+    # Save unpadded shape for later cropping
+    unpadded_shape = data_hp.shape
+
+    # Pad dimensions to be multiples of block size if needed
+    pad_dim0 = (block_size0 - data_hp.shape[0] % block_size0) % block_size0
+    pad_dim1 = (block_size1 - data_hp.shape[1] % block_size1) % block_size1
+
+    if pad_dim0 > 0 or pad_dim1 > 0:
+        logger.debug(
+            f"Padding weight from {data_hp.shape} to "
+            f"({data_hp.shape[0] + pad_dim0}, {data_hp.shape[1] + pad_dim1}) "
+            f"for blockwise FP8 quantization"
+        )
+        data_hp = torch.nn.functional.pad(data_hp, (0, pad_dim1, 0, pad_dim0), mode="constant", value=0)
 
     # FP8
     max_dtype = torch.finfo(torch.float8_e4m3fn).max
 
-    original_shape = data_hp.shape
+    padded_shape = data_hp.shape
     blk_m, blk_n = data_hp.shape[0] // block_size0, data_hp.shape[1] // block_size1
 
     assert block_size1 == block_size0
@@ -153,7 +162,10 @@ def scaled_fp8_blockwise(
     fp_data = data_lp.to(torch.float8_e4m3fn)
 
     # (BLK_M, BLK_N, BLOCK_SIZE_M * BLOCK_SIZE_N) to (M, N)
-    fp_data = fp_data.reshape(blk_m, blk_n, block_size0, block_size1).permute(0, 2, 1, 3).reshape(original_shape)
+    fp_data = fp_data.reshape(blk_m, blk_n, block_size0, block_size1).permute(0, 2, 1, 3).reshape(padded_shape)
+
+    # Remove padding to restore original shape
+    fp_data = fp_data[: unpadded_shape[0], : unpadded_shape[1]]
 
     # Convert to target format, but still in original precision container
     return fp_data, descale_fp
