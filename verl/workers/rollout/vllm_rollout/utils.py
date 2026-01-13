@@ -11,11 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import ctypes
 import gc
 import json
 import logging
 import os
+import platform
+import signal
+import threading
 from dataclasses import asdict
 from types import MethodType
 from typing import Any, Callable, TypedDict
@@ -35,6 +38,16 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 VLLM_LORA_INT_ID = 123
 VLLM_LORA_NAME = "123"
 VLLM_LORA_PATH = "simon_lora_path"
+
+
+def set_death_signal():
+    """Kill the current process when the parent process exits."""
+    if platform.system() != "Linux":
+        return
+    libc = ctypes.CDLL("libc.so.6")
+    libc.prctl(1, signal.SIGKILL)
+    if os.getppid() == 1:
+        os.kill(os.getpid(), signal.SIGKILL)
 
 
 def get_device_uuid(device_id: int) -> str:
@@ -115,6 +128,8 @@ class vLLMColocateWorkerExtension:
     """
 
     def __new__(cls, **kwargs):
+        set_death_signal()
+
         # 1. patch for Lora
         VLLMHijack.hijack()
         # 2. patch online fp8 quant
@@ -196,6 +211,23 @@ class vLLMColocateWorkerExtension:
         if not hasattr(self, "device_uuid") or not self.device_uuid:
             self.device_uuid = get_device_uuid(self.device.index)
         return f"ipc:///tmp/rl-colocate-zmq-{self.device_uuid}.sock"
+
+
+class SuppressSignalInThread:
+    def __enter__(self):
+        self.original_signal = signal.signal
+
+        def no_op_signal(sig, action):
+            if threading.current_thread() is not threading.main_thread():
+                print(f"Ignored signal {sig} in thread {threading.current_thread().name}")
+                return
+            return self.original_signal(sig, action)
+
+        signal.signal = no_op_signal
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        signal.signal = self.original_signal
 
 
 def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:

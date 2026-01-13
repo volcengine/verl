@@ -27,6 +27,7 @@ from packaging import version
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
+from vllm.entrypoints.cli.serve import run_headless
 from vllm.entrypoints.openai.api_server import (
     build_app,
     init_app_state,
@@ -36,27 +37,21 @@ from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
 from vllm.v1.engine.async_llm import AsyncLLM
-from vllm.v1.engine.core import EngineCoreProc
-from vllm.v1.engine.utils import CoreEngineProcManager
-from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_resource_name, get_visible_devices_keyword
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import (
-    get_free_port,
-    get_max_position_embeddings,
-    is_valid_ipv6_address,
-    run_unvicorn,
-)
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 from verl.workers.rollout.vllm_rollout import ServerAdapter
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
+    SuppressSignalInThread,
     build_cli_args_from_config,
     get_vllm_max_lora_rank,
 )
@@ -65,14 +60,13 @@ _VLLM_VERSION = version.parse(vllm.__version__)
 
 if _VLLM_VERSION > version.parse("0.11.0"):
     from vllm.utils.argparse_utils import FlexibleArgumentParser
-    from vllm.utils.network_utils import get_tcp_uri
 
     if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
 
         get_encoding()
 else:
-    from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+    from vllm.utils import FlexibleArgumentParser
 
 
 logger = logging.getLogger(__file__)
@@ -141,6 +135,7 @@ class vLLMHttpServer:
             self._master_address = None
             self._master_port = None
             self._dp_rpc_port = None
+            self._dp_master_port = None
 
         logger.info(
             f"vLLMHttpServer, replica_rank: {self.replica_rank}, node_rank: {self.node_rank}, "
@@ -295,15 +290,15 @@ class vLLMHttpServer:
             )
 
         # used for torch.distributed.init_process_group
-        os.environ["VLLM_HOST_IP"] = self._master_address
-        os.environ["VLLM_PORT"] = str(self._master_port)
         if self.nnodes > 1:
             args.update(
                 {
                     "master_addr": self._master_address,
-                    "master_port": str(self._master_port),
+                    "master_port": self._master_port,
                     "node_rank": self.node_rank,
                     "nnodes": self.nnodes,
+                    "data_parallel_address": self._master_address,
+                    "data_parallel_rpc_port": self._dp_rpc_port,
                 }
             )
 
@@ -341,12 +336,11 @@ class vLLMHttpServer:
 
         # 3. launch server
         if self.node_rank == 0:
-            # close master socket for torch.distributed
             self._master_sock.close()
             await self.run_server(server_args)
         else:
-            # TODO: wait for master socket to be closed, find a more robust way.
-            await asyncio.sleep(2)
+            # TODO: avoid connect before master_sock close
+            await asyncio.sleep(3)
             await self.run_headless(server_args)
 
     async def run_server(self, args: argparse.Namespace):
@@ -382,30 +376,26 @@ class vLLMHttpServer:
         self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
 
     async def run_headless(self, args: argparse.Namespace):
-        # Create the EngineConfig.
-        engine_args = vllm.AsyncEngineArgs.from_cli_args(args)
-        usage_context = UsageContext.OPENAI_API_SERVER
-        vllm_config = engine_args.create_engine_config(usage_context=usage_context, headless=True)
+        """Run headless server in a separate thread."""
 
-        parallel_config = vllm_config.parallel_config
-        local_engine_count = parallel_config.data_parallel_size_local
+        def run_headless_wrapper():
+            with SuppressSignalInThread():
+                run_headless(args)
 
-        host = parallel_config.data_parallel_master_ip
-        port = engine_args.data_parallel_rpc_port  # add to config too
-        handshake_address = get_tcp_uri(host, port)
+        def on_run_headless_done(future: asyncio.Future):
+            try:
+                exc = future.exception()
+                if exc:
+                    logger.exception(f"run_headless failed with exception: {exc}")
+                else:
+                    logger.warning("run_headless completed successfully, but it's not expected.")
+            except Exception as e:
+                logger.exception(f"get result from run_headless failed: {e}")
+            finally:
+                os._exit(1)
 
-        # Create the engines.
-        self.engine_manager = CoreEngineProcManager(
-            target_fn=EngineCoreProc.run_engine_core,
-            local_engine_count=local_engine_count,
-            start_index=vllm_config.parallel_config.data_parallel_rank,
-            local_start_index=0,
-            vllm_config=vllm_config,
-            local_client=False,
-            handshake_address=handshake_address,
-            executor_class=Executor.get_class(vllm_config),
-            log_stats=not engine_args.disable_log_stats,
-        )
+        self.task = asyncio.create_task(asyncio.to_thread(run_headless_wrapper))
+        self.task.add_done_callback(on_run_headless_done)
 
     async def generate(
         self,

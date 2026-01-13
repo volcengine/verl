@@ -201,7 +201,8 @@ class ServerAdapter(BaseRollout):
         del buffer
         gc.collect()
         get_torch_device().empty_cache()
-        await future
+        if future is not None:
+            await future
 
         if self.replica_rank == 0 and self.rollout_rank == 0:
             logger.info(f"update_weights done, time cost: {time.time() - start_time:.2f}s")

@@ -41,15 +41,11 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import (
-    get_free_port,
-    get_max_position_embeddings,
-    is_valid_ipv6_address,
-    run_unvicorn,
-)
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
