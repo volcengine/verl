@@ -32,9 +32,9 @@ loss_type="ppo_clip"
 # Model and Data Configuration
 # ==============================================================================
 
-MODEL_PATH=${MODEL_PATH:-"/mnt/hdfs/tiktok_aiic/user/codeai/hf_models/Qwen2.5-3B"}
-TRAIN_FILE=${TRAIN_FILE:-"/mnt/hdfs/tiktok_aiic/user/xujiawei/rl_datasets/DAPO-Math-17k/train_dedupe.parquet"}
-TEST_FILE=${TEST_FILE:-"/mnt/hdfs/tiktok_aiic/user/xujiawei/rl_datasets/MATH-500/test.parquet"}
+MODEL_PATH=${MODEL_PATH:-"Qwen/Qwen2.5-7B"}
+TRAIN_FILE=${TRAIN_FILE:-"data/train.parquet"}
+TEST_FILE=${TEST_FILE:-"data/test.parquet"}
 
 max_prompt_length=2048
 max_response_length=4096
@@ -60,12 +60,12 @@ gamma=1.0
 # ==============================================================================
 
 python3 -m verl.trainer.main_ppo \
-    hydra.run.dir="$HOME/debug" \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.max_prompt_length=${max_prompt_length} \
     data.max_response_length=${max_response_length} \
     data.train_batch_size=${train_batch_size} \
+    data.truncation='left' \
     algorithm.adv_estimator=${adv_estimator} \
     algorithm.gamma=${gamma} \
     algorithm.rollout_correction.rollout_is=${rollout_is} \
@@ -83,10 +83,9 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.name=vllm \
-    trainer.logger='["console"]' \
+    trainer.logger='["console","wandb"]' \
     trainer.project_name="rollout_corr_multi_rs_example" \
     trainer.experiment_name="ppo_clip_multi_rs" \
-    trainer.n_gpus_per_node=4 \
     trainer.total_epochs=5
 
 echo "Training completed!"
