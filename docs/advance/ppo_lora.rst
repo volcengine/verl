@@ -62,7 +62,7 @@ Megatron Backend Usage Guide
 
 You need to install and enable Megatron-Bridge for Megatron LoRA support.
 
-Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `this commit <https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/550924c04368a175ef261a72230204410f455260>`_ or later for proper support, and use the following settings to enable Megatron-Bridge:
+Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `this commit <https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/83a7c1134c562d8c6decd10a1f0a6e6a7a8a3a44>`_ or later for proper support, and use the following settings to enable Megatron-Bridge:
 
 - ``actor_rollout_ref.actor.megatron.use_mbridge=True``
 - ``actor_rollout_ref.actor.megatron.vanilla_mbridge=False``
@@ -71,7 +71,7 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
 
 1. **LoRA Implementation**: Verl Megatron backend uses Megatron-Bridge's native LoRA implementation, which differs from HuggingFace PEFT.
 
-2. **Weight Sync Mechanism**: Currently, Megatron-Bridge syncs weights by merging LoRA adapters into the base model weights before transferring to vLLM rather than loading separate adapters. This is necessary because Megatron-Bridge's LoRA format is not directly integratable with vLLM's LoRA loading mechanism (HF PEFT format), and LoRA bridge is not yet supported.
+2. **Weight Sync / Refit Mechanism**: Currently, Megatron-Bridge can support syncing weights by either merging LoRA adapters into the base model weights before transferring to vLLM (for better inference speed but more refit time and potential precision loss), as well as loading separate adapters.
 
 **Configuration for Megatron LoRA:**
 
@@ -82,6 +82,9 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
       lora:
         # LoRA type: "lora", "vlm_lora", "canonical_lora", or "dora"
         type: lora
+
+        # whether to sync weights / refit by either merging LoRA adapters into the base model weights before transferring to vLLM (for better inference speed but more refit time and potential precision loss). If this is False, it will load separate adapters.
+        merge: False
 
         # LoRA rank (Dimension of the low-rank projection space.). Set to 0 to disable LoRA
         rank: 0
@@ -101,6 +104,11 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
         # - 'linear_fc2': Apply LoRA to the second fully-connected layer in MLP
         # Target modules can also contain wildcards. For example, you can specify
         # target_modules=['*.layers.0.*.linear_qkv', '*.layers.1.*.linear_qkv'] to add LoRA to only linear_qkv on the first two layers
+        # 
+        # Note:
+        # For MLA (e.g., DeepSeek), you should use ["linear_kv_down_proj","linear_kv_up_proj","linear_q_down_proj","linear_q_up_proj","linear_q_proj"]
+        # Instead of "linear_qkv" or ["linear_q","linear_k","linear_v"]
+        # By default, MoE routers are excluded from LoRA adaptation, and you will need to specify "router" in target_modules to include them.
         target_modules:
           - linear_qkv
           - linear_proj
@@ -136,12 +144,11 @@ Make sure you use Megatron-Bridge later than 0.2.0, and we recommended using `th
         freeze_vision_projection: True
         freeze_language_model: True
 
+LoRA training experiment with Qwen3-8B on 8 * H200 single node comparing FSDP and Megatron backend (script adapted from examples/grpo_trainer/run_qwen2-7b_math_megatron_lora.sh):
 
-**Current Limitations:**
-
-1. **No HuggingFace PEFT Export**: Currently there is no built-in way to export Megatron LoRA adapters to HuggingFace PEFT format for inference with standard HF/vLLM pipelines, such support is coming soon with Megatron-Bridge `LoRA bridge <https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1536>`_.
-
-2. **LoRA Merge Overhead**: As we don't have LoRA bridge for now, each weight sync (refit) requires merging LoRA weights, which adds some overhead compared to direct dynamic adapter loading.
+.. image:: https://github.com/user-attachments/assets/0482f423-01a3-4e52-a7ee-8b9cd79b7b1a
+.. image:: https://github.com/user-attachments/assets/6ce10400-8164-47d8-90a6-c1bf002fb9e8
+.. image:: https://github.com/user-attachments/assets/092d3a43-4eba-425e-a584-8d83c1f02de4
 
 
 Best Practices and Notes
