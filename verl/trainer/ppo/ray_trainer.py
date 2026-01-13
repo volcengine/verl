@@ -583,8 +583,8 @@ class RayPPOTrainer:
             reward_tensor = result["reward_tensor"]
             if sum_reward:
                 reward_tensor = reward_tensor.sum(dim=-1)
-            reward_extra_info = result.get("reward_extra_info", {})
-            return reward_tensor, reward_extra_info
+            reward_extra_infos_dict = result.get("reward_extra_info", {})
+            return reward_tensor, reward_extra_infos_dict
         else:
             reward_tensor, reward_extra_infos_dict = compute_reward(batch, reward_fn)
             if sum_reward:
