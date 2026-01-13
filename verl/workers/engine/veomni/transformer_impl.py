@@ -31,13 +31,9 @@ import verl.utils.torch_functional as verl_F
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.debug import log_gpu_memory_usage
-from verl.utils.device import (
-    get_device_id,
-)
-from verl.utils.fsdp_utils import (
-    fsdp_version,
-)
+from verl.utils.device import get_device_id
+from verl.utils.fsdp_utils import fsdp_version
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
