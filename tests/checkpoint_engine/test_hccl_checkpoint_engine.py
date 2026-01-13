@@ -42,6 +42,7 @@ def test_hccl_checkpoint_engine(
                 "HCCL_CONNECT_TIMEOUT" : "1500",
                 "HCCL_HOST_SOCKET_PORT_RANGE":"60000-60050",
                 "HCCL_NPU_SOCKET_PORT_RANGE":"61000-61050",
+                "VERL_LOGGING_LEVEL": "DEBUG",
             }
         }
     )
@@ -108,5 +109,5 @@ if __name__ == "__main__":
         num_nodes=1,
         num_gpus_per_node=8,
         check_allclose=False,
-        model_path="/home/ma-user/dev/models/qwen3-1.7b",
+        model_path=os.environ["HDFS_ROOT"] + "/model/Qwen3-30B-A3B-Base",
     )
