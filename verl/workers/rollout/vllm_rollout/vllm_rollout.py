@@ -42,6 +42,7 @@ from torch.multiprocessing.reductions import reduce_tensor
 from verl import DataProto
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL, get_version
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
+from verl.utils.torch_dtypes import PrecisionType
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.vllm_rollout.utils import TensorMetadata, get_device_uuid
@@ -84,7 +85,7 @@ class ServerAdapter(BaseRollout):
         )
         self.replica_rank = rank // rollout_world_size
         self.rollout_rank = rank % rollout_world_size
-        self.node_rank = rank % local_world_size
+        self.node_rank = self.rollout_rank // local_world_size
 
         if config.layered_summon or (config.expert_parallel_size > 1 and not _check_vllm_version_for_sleep_level()):
             logger.warning("Setting the sleep level to 1 may cause a memory overflow.")
@@ -163,9 +164,10 @@ class ServerAdapter(BaseRollout):
         # send bucket weights
         offset = 0
         bucket_meta: dict[str, TensorMetadata] = {}
+        dtype = PrecisionType.to_dtype(self.config.dtype)
         for name, weight in weights:
             # model parameters are in fp32 full precision
-            weight = weight.to(self.config.dtype)
+            weight = weight.to(dtype)
 
             # fill the tensor bucket
             if offset + weight.nbytes > bucket_size:

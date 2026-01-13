@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from pprint import pprint
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import ray
@@ -137,15 +137,17 @@ class vLLMHttpServer:
             # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
             self._dp_rpc_port, self._dp_rpc_sock = get_free_port(self._server_address)
             self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address)
-            logger.info(
-                f"vLLMHttpServer, replica_rank: {self.replica_rank}, master_address: {self._master_address}, "
-                f"master_port: {self._master_port}, data_parallel_rpc_port: {self._dp_rpc_port}, "
-                f"data_parallel_master_port: {self._dp_master_port}"
-            )
         else:
             self._master_address = None
             self._master_port = None
             self._dp_rpc_port = None
+
+        logger.info(
+            f"vLLMHttpServer, replica_rank: {self.replica_rank}, node_rank: {self.node_rank}, "
+            f"{get_visible_devices_keyword()}: {cuda_visible_devices}, "
+            f"master_address: {self._master_address}, master_port: {self._master_port}, "
+            f"data_parallel_rpc_port: {self._dp_rpc_port}, data_parallel_master_port: {self._dp_master_port}"
+        )
 
     def get_master_address(self):
         """Get master address and port for data parallel.
@@ -158,6 +160,20 @@ class vLLMHttpServer:
         """Get http server address and port."""
         assert self._server_port is not None, "http server is not launched, port is None"
         return self._server_address, self._server_port
+
+    async def collective_rpc(
+        self,
+        method: str | Callable,
+        timeout: float | None = None,
+        args: tuple = (),
+        kwargs: dict[str, Any] | None = None,
+    ):
+        await self.engine.collective_rpc(
+            method=method,
+            timeout=timeout,
+            args=args,
+            kwargs=kwargs,
+        )
 
     async def launch_server(self, master_address: str = None, master_port: int = None, dp_rpc_port: int = None):
         if self.node_rank != 0:
