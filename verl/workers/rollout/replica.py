@@ -97,11 +97,12 @@ class RolloutReplica(ABC):
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
-        self.gpus_per_node = min(gpus_per_node, self.world_size)
-        assert self.world_size % self.gpus_per_node == 0, (
-            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
+        self.gpus_per_node = gpus_per_node
+        self.gpus_per_replica_node = min(gpus_per_node, self.world_size)
+        assert self.world_size % self.gpus_per_replica_node == 0, (
+            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_replica_node}"
         )
-        self.nnodes = self.world_size // self.gpus_per_node
+        self.nnodes = self.world_size // self.gpus_per_replica_node
         self.is_reward_model = is_reward_model
 
         self.rollout_mode: RolloutMode = None
@@ -156,7 +157,7 @@ class RolloutReplica(ABC):
             else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
-            resource_pool_name: [self.gpus_per_node] * self.nnodes,
+            resource_pool_name: [self.gpus_per_replica_node] * self.nnodes,
         }
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
         resource_pool_manager.create_resource_pool()
