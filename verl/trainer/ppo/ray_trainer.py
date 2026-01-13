@@ -540,7 +540,7 @@ class RayPPOTrainer:
         reward_fn=None,
         reward_for_val: bool = False,
         sum_reward: bool = False,
-    ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor | dict[str, Any]:
+    ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
         Compute or extract reward from batch.
 
