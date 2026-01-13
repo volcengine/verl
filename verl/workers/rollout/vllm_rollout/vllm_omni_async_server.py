@@ -23,12 +23,9 @@ from typing import Any, Optional
 import ray
 import vllm_omni.entrypoints.cli.serve
 from vllm.usage.usage_lib import UsageContext
-from vllm_omni import SamplingParams
 from vllm_omni.engine.arg_utils import AsyncEngineArgs
 from vllm_omni.entrypoints import AsyncOmniDiffusion
 from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_state
-from vllm_omni.inputs import TokensPrompt
-from vllm_omni.lora.request import LoRARequest
 from vllm_omni.outputs import RequestOutput
 
 from verl.single_controller.ray import RayClassWithInitArgs
@@ -39,9 +36,6 @@ from verl.workers.rollout.utils import (
 )
 from verl.workers.rollout.vllm_rollout import vLLMOmniAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import (
-    VLLM_LORA_INT_ID,
-    VLLM_LORA_NAME,
-    VLLM_LORA_PATH,
     get_vllm_max_lora_rank,
 )
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
@@ -258,45 +252,20 @@ class vLLMOmniHttpServer(vLLMHttpServer):
                 f"({self.config.max_model_len})."
             )
 
-        # Determine max_tokens from sampling_params or use configured response_length as default
-        if "max_tokens" in sampling_params:
-            max_tokens = sampling_params.pop("max_tokens")
-        elif "max_new_tokens" in sampling_params:
-            # support sglang-style 'max_new_tokens' param
-            max_tokens = sampling_params.pop("max_new_tokens")
-        else:
-            # Default to a calculation that considers configured lengths
-            max_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
-
-        # Clamp max_tokens to the valid range [0, max_possible_tokens]
-        max_tokens = max(0, min(max_tokens, max_possible_tokens))
-
-        assert max_tokens <= max_possible_tokens, (
-            f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"
-        )
-        sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
-        sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
-        sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         multi_modal_data = {}
         if image_data is not None:
             multi_modal_data["image"] = image_data
         if video_data is not None:
             multi_modal_data["video"] = video_data
 
-        prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
-
         # Add lora request
         lora_request = None
         if self.model_config.lora_rank > 0:
             # Make sure we also check that the lora is already loaded in the engine
-            lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
-            if lora_loaded:
-                lora_request = LoRARequest(
-                    lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH
-                )
+            raise NotImplementedError("vLLM-Omni lora inference is not implemented yet.")
 
         generator = self.engine.generate(
-            prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
+            prompt_ids=prompt_ids, request_id=request_id, lora_request=lora_request, **sampling_params
         )
 
         # Get final response

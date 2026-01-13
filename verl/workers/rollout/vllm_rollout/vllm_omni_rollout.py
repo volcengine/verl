@@ -35,14 +35,6 @@ import ray
 import torch
 import torch.distributed
 from torch.distributed.device_mesh import DeviceMesh
-from vllm.config import LoRAConfig
-
-try:
-    from vllm.worker.worker_base import WorkerWrapperBase
-except ModuleNotFoundError:
-    # https://github.com/vllm-project/vllm/commit/6a113d9aed8221a9c234535958e70e34ab6cac5b
-    from vllm.v1.worker.worker_base import WorkerWrapperBase
-
 
 from verl.third_party.vllm import VLLM_SLEEP_LEVEL
 from verl.utils.device import is_npu_available
@@ -73,7 +65,7 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
     ):
         super().__init__(config, model_config, device_mesh)
         self.tokenizer = self.model_config.tokenizer
-        self.inference_engine: WorkerWrapperBase = None
+        self.inference_engine = None
         self.address = self._init_zeromq()
         self.lora_config = (
             {"max_loras": 1, "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank)}
@@ -108,10 +100,12 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
         )
         self.vllm_config = all_kwargs[0]["vllm_config"]
         if self.lora_config:
-            lora_dtype = getattr(torch, self.config.dtype)
-            self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
+            raise NotImplementedError
         if self.config.quantization is not None:
             raise NotImplementedError("vLLM-Omni does not support quantization yet.")
+
+        # TODO (mike): change to vllm-omni
+        from vllm.worker.worker_base import WorkerWrapperBase
 
         self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
         self.inference_engine.init_worker(all_kwargs)
