@@ -720,8 +720,8 @@ class RayPPOTrainer:
                 "reward_model",
                 "data_source",
             ]
-            # if "rm_scores" in batch_meta.field_names:
-            #     compute_reward_fields = ["rm_scores"]
+            if "rm_scores" in batch_meta.field_names:
+                compute_reward_fields = ["rm_scores", "acc"]
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
             result = compute_val_reward_decorated(self.val_reward_fn, val_reward_meta, return_dict=True)
@@ -1325,7 +1325,7 @@ class RayPPOTrainer:
                             "data_source",
                         ]
                         if "rm_scores" in batch_meta.field_names:
-                            compute_reward_fields.append("rm_scores")
+                            compute_reward_fields.extend(["rm_scores", "acc"])
 
                         compute_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
