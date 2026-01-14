@@ -39,6 +39,8 @@ VLLM_LORA_INT_ID = 123
 VLLM_LORA_NAME = "123"
 VLLM_LORA_PATH = "simon_lora_path"
 
+VLLM_ASCEND_REQUIRED_ENV_VARS = {"VLLM_ALL2ALL_BACKEND": "flashinfer_all2allv", "VLLM_ASCEND_ENABLE_NZ": "0"}
+
 
 def set_death_signal():
     """Kill the current process when the parent process exits."""
@@ -135,6 +137,15 @@ class vLLMColocateWorkerExtension:
         # 2. patch online fp8 quant
         if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1":
             apply_vllm_fp8_patches()
+
+        # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
+        # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
+        # This is only a fix for vllm version < v0.13.0.
+        if is_npu_available:
+            for k in VLLM_ASCEND_REQUIRED_ENV_VARS:
+                if k not in os.environ:
+                    os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
+
         return super().__new__(cls)
 
     def monkey_patch_model(self, vocab_size: int):
