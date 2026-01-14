@@ -60,9 +60,9 @@ tracking metrics to diagnose and correct off-policy issues.
 - Off-policy RL (theoretical basis for IS): https://fengyao.notion.site/off-policy-rl
 """
 
-from typing import Any, Optional, Union
-
 import math
+from typing import Any, Optional
+
 import torch
 
 import verl.utils.torch_functional as verl_F
@@ -91,19 +91,17 @@ TOKEN_LEVEL_ROLLOUT_RS_OPTIONS: set[str] = {"token_k1", "token_k2", "token_k3"}
 
 
 def _parse_rollout_rs_thresholds(
-    options: list[str], threshold_spec: Optional[Union[str, float]]
+    options: list[str], threshold_spec: Optional[str | float]
 ) -> dict[str, dict[str, Optional[float]]]:
     if threshold_spec is None:
         raise ValueError("rollout_rs_threshold must be provided for rejection sampling.")
 
-    if isinstance(threshold_spec, (int, float)):
+    if isinstance(threshold_spec, int | float):
         raw_specs: list[str] = [str(threshold_spec)]
     elif isinstance(threshold_spec, str):
         raw_specs = [part.strip() for part in threshold_spec.split(",") if part.strip()]
     else:
-        raise TypeError(
-            "rollout_rs_threshold must be a string or numeric value specifying per-option thresholds."
-        )
+        raise TypeError("rollout_rs_threshold must be a string or numeric value specifying per-option thresholds.")
 
     if not raw_specs:
         raise ValueError("rollout_rs_threshold must contain at least one threshold value.")
@@ -118,7 +116,7 @@ def _parse_rollout_rs_thresholds(
         raw_specs = raw_specs * len(options)
 
     thresholds: dict[str, dict[str, Optional[float]]] = {}
-    for option, spec in zip(options, raw_specs):
+    for option, spec in zip(options, raw_specs, strict=False):
         if option.endswith("k1"):
             if "_" in spec:
                 lower_str, upper_str = spec.split("_", 1)
@@ -129,9 +127,7 @@ def _parse_rollout_rs_thresholds(
                 lower = float(lower_str)
                 upper = float(upper_str)
             except ValueError as exc:
-                raise ValueError(
-                    f"Invalid numeric threshold '{spec}' for option '{option}'."
-                ) from exc
+                raise ValueError(f"Invalid numeric threshold '{spec}' for option '{option}'.") from exc
             if lower <= 0 or upper <= 0:
                 raise ValueError(f"Thresholds for option '{option}' must be positive, got {spec}.")
             thresholds[option] = {
@@ -147,9 +143,7 @@ def _parse_rollout_rs_thresholds(
             try:
                 upper = float(spec)
             except ValueError as exc:
-                raise ValueError(
-                    f"Invalid numeric threshold '{spec}' for option '{option}'."
-                ) from exc
+                raise ValueError(f"Invalid numeric threshold '{spec}' for option '{option}'.") from exc
             if upper <= 0:
                 raise ValueError(f"Threshold for option '{option}' must be positive, got {spec}.")
             thresholds[option] = {
@@ -163,7 +157,7 @@ def compute_rollout_rejection_mask(
     log_ratio: torch.Tensor,
     response_mask: torch.Tensor,
     rollout_rs: str = "token_k1",
-    rollout_rs_threshold: Optional[Union[str, float]] = None,
+    rollout_rs_threshold: Optional[str | float] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute hard trust region mask using divergence estimators.
 
@@ -175,7 +169,7 @@ def compute_rollout_rejection_mask(
     All requested options must pass for a token/sequence to remain valid.
 
     Supported KL divergence-based modes (ideal = 0.0 unless noted):
-    - "token_k{1,2,3}": Token-level divergences (-log r, χ²/2, KL third-order estimator).
+    - "token_k{1,2,3}": Token-level divergences.
     - "seq_sum_k{1,2,3}": Sum of token divergences per sequence.
     - "seq_mean_k{1,2,3}": Mean of token divergences per sequence.
     - "seq_max_k{2,3}": Maximum token divergence per sequence.
@@ -362,9 +356,7 @@ def compute_rollout_rejection_mask(
         seq_valid_float = seq_valid_mask.float()
         if seq_valid_float.sum() > 0:
             seq_keep_float = seq_keep_bool_tensor.to(dtype=log_ratio.dtype)
-            seq_masked_fraction = (
-                ((1.0 - seq_keep_float) * seq_valid_float).sum() / seq_valid_float.sum()
-            ).item()
+            seq_masked_fraction = (((1.0 - seq_keep_float) * seq_valid_float).sum() / seq_valid_float.sum()).item()
         else:
             seq_masked_fraction = 0.0
         metrics[f"rollout_rs_{option_name}_masked_fraction"] = token_masked_fraction
@@ -729,7 +721,7 @@ def compute_rollout_correction_and_rejection_mask(
     rollout_is_threshold: Optional[float] = 2.0,
     rollout_is_batch_normalize: bool = False,
     rollout_rs: Optional[str] = None,
-    rollout_rs_threshold: Optional[Union[str, float]] = None,
+    rollout_rs_threshold: Optional[str | float] = None,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
     """Unified interface for computing IS weights and rejection masks.
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from verl.base_config import BaseConfig
 
@@ -98,18 +98,18 @@ class RolloutCorrectionConfig(BaseConfig):
         rollout_rs (Optional[str]): Rejection sampling aggregation modes.
             Accepts a comma-delimited list (duplicates removed) of canonical options implemented in
             ``rollout_corr_helper``:
-            - "token_k1": Token-level ``-log r`` bounds (ratio thresholds supplied via
+            - "token_k1": Token-level rejection with ``-log r`` (ratio thresholds supplied via
               ``rollout_rs_threshold`` as ``lower_upper``)
-            - "token_k2": Token-level χ²/2 estimator ``0.5 * (log r)^2`` (upper bound only)
-            - "token_k3": Token-level third-order KL estimator ``exp(log r) - 1 - log r`` (upper bound only)
+            - "token_k2": Token-level rejection with ``0.5 * (log r)^2`` (upper bound only)
+            - "token_k3": Token-level rejection with ``exp(log r) - 1 - log r`` (upper bound only)
             - "seq_sum_k1": Sequence sum of ``-log r`` (ratio bounds)
-            - "seq_sum_k2": Sequence sum of χ²/2
-            - "seq_sum_k3": Sequence sum of third-order KL
+            - "seq_sum_k2": Sequence sum of rejection with ``0.5 * (log r)^2`` (upper bound only)
+            - "seq_sum_k3": Sequence sum of rejection with ``exp(log r) - 1 - log r`` (upper bound only)
             - "seq_mean_k1": Sequence mean of ``-log r`` (ratio bounds)
-            - "seq_mean_k2": Sequence mean of χ²/2
-            - "seq_mean_k3": Sequence mean of third-order KL
-            - "seq_max_k2": Sequence max of χ²/2
-            - "seq_max_k3": Sequence max of third-order KL
+            - "seq_mean_k2": Sequence mean of rejection with ``0.5 * (log r)^2`` (upper bound only)
+            - "seq_mean_k3": Sequence mean of rejection with ``exp(log r) - 1 - log r`` (upper bound only)
+            - "seq_max_k2": Sequence max of rejection with ``0.5 * (log r)^2`` (upper bound only)
+            - "seq_max_k3": Sequence max of rejection with ``exp(log r) - 1 - log r`` (upper bound only)
             names automatically. Default: None
 
         rollout_rs_threshold (Optional[Union[str, float]]): Threshold specification for rejection sampling.
@@ -174,7 +174,7 @@ class RolloutCorrectionConfig(BaseConfig):
     rollout_is_threshold: float = 2.0
     rollout_is_batch_normalize: bool = False
     rollout_rs: Optional[str] = None
-    rollout_rs_threshold: Optional[Union[str, float]] = None
+    rollout_rs_threshold: Optional[str | float] = None
     bypass_mode: bool = False
     loss_type: str = "ppo_clip"
 
@@ -210,7 +210,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def decoupled_seq_is_rs(
         cls,
         is_threshold: float = 2.0,
-        rs_threshold: Optional[Union[str, float]] = "0.5_2.0",
+        rs_threshold: Optional[str | float] = "0.5_2.0",
     ) -> "RolloutCorrectionConfig":
         """Decoupled Mode with Sequence-level IS + Rejection Sampling.
 
@@ -234,7 +234,7 @@ class RolloutCorrectionConfig(BaseConfig):
     @classmethod
     def decoupled_geo_rs(
         cls,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Decoupled Mode with Geometric Mean Rejection Sampling (ratio-based).
 
@@ -276,7 +276,7 @@ class RolloutCorrectionConfig(BaseConfig):
     @classmethod
     def bypass_ppo_clip_geo_rs(
         cls,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Bypass mode with PPO-clip loss and Geometric Mean RS (ratio-based).
 
@@ -346,7 +346,7 @@ class RolloutCorrectionConfig(BaseConfig):
     @classmethod
     def bypass_pg_geo_rs(
         cls,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Bypass mode with REINFORCE loss and Geometric Mean RS (ratio-based).
 
@@ -371,7 +371,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def decoupled_geo_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Decoupled mode with Geometric Mean RS and Sequence-level Truncated IS (ratio-based).
 
@@ -396,7 +396,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def decoupled_geo_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Decoupled mode with Geometric Mean RS and Token-level Truncated IS (ratio-based).
 
@@ -421,7 +421,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def bypass_pg_geo_rs_seq_tis(
         cls,
         is_threshold: float = 2.0,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Bypass mode with REINFORCE loss, Geo-RS, and Sequence-level IS.
 
@@ -449,7 +449,7 @@ class RolloutCorrectionConfig(BaseConfig):
     def bypass_pg_geo_rs_token_tis(
         cls,
         is_threshold: float = 2.0,
-        rs_threshold: Optional[Union[str, float]] = "0.999_1.001",
+        rs_threshold: Optional[str | float] = "0.999_1.001",
     ) -> "RolloutCorrectionConfig":
         """Bypass mode with REINFORCE loss, Geo-RS, and Token-level IS.
 
