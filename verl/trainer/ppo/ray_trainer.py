@@ -551,13 +551,12 @@ class RayPPOTrainer:
         Args:
             batch: DataProto containing the batch data
             reward_fn: Reward function to use if rm_scores doesn't exist (for training/validation)
-            reward_for_val: Calculate reward for validation (for validation)
+            reward_for_val: Whether this is for validation
             sum_reward: Whether to sum reward tensor along last dimension (for REMAX baseline)
 
         Returns:
-            If reward_for_val=True: reward_tensor (2D tensor)
             If reward_for_val=False and sum_reward=True: summed reward_tensor (1D tensor)
-            If reward_for_val=False and sum_reward=False: reward_tensor (2D tensor)
+            Otherwise: tuple of (reward_tensor, reward_extra_infos_dict)
         """
         # When rm_scores already exists, extract it directly (format conversion only)
         if "rm_scores" in batch.batch.keys():
