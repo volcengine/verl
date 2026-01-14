@@ -191,6 +191,10 @@ class BaseDetachNcclSync:
             sum(actual_bucket_sizes) / len(actual_bucket_sizes) if actual_bucket_sizes else self.get_bucket_size_mb()
         )
 
+        # Resume kv_cache after weights sync to restore GPU memory released during pause
+        if self._is_rollout and self.rollout_device_mesh["infer_tp"].get_local_rank() == 0:
+            self._run_async_safely(inference_model.resume_memory_occupation(tags=["kv_cache"]))
+
     def _sync_vllm_weights(self, inference_model, params, sync_group_name):
         for key, shape, dtype in self._weights_info:
             tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())

@@ -454,9 +454,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
                 async with self.lock:
                     while self.paused:
-                        # Set idle_start_time when processor loop actually enters idle state
-                        if self.idle_start_time is None:
-                            self.idle_start_time = time.time()
+                        self.idle_start_time = time.time()
                         await self.condition.wait()
                 continue
 
@@ -706,7 +704,8 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             ray.get(dependency_ref)
         print("[FullyAsyncRollouter][Public][Resume]")
         async with self.lock:
-            await self.async_rollout_manager.resume()
+            if self.config.async_training.partial_rollout:
+                await self.async_rollout_manager.resume()
             self.paused = False
             self.monitor_loop_trigger = True
             self.condition.notify_all()

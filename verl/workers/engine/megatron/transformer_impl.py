@@ -123,7 +123,7 @@ class MegatronEngine(BaseEngine):
         if self.vanilla_bridge:
             from verl.models.mcore.mbridge import AutoBridge
 
-            bridge = AutoBridge.from_config(self.model_config.hf_config)
+            bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
             bridge.set_extra_args(**override_transformer_config)
             tf_config = bridge.config
             tf_config.fp16 = self.param_dtype == torch.float16

@@ -18,7 +18,6 @@ from typing import Any, Optional
 import ray
 import torch
 from ray.actor import ActorHandle
-from sglang.srt.managers.io_struct import GenerateReqInput
 
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode
@@ -82,6 +81,8 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
 
         sampling_params.pop("logprobs", None)
         return_logprob = True
+        from sglang.srt.managers.io_struct import GenerateReqInput
+
         request = GenerateReqInput(
             rid=request_id,
             input_ids=prompt_ids,
@@ -153,8 +154,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
 
     async def resume(self):
         async with self.lock:
-            # Call parent's resume to move tensors back to GPU after clear_kv_cache
-            await super().resume()
             self.paused = False
 
     async def reset_prefix_cache(self):

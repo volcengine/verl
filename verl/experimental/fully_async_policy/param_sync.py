@@ -124,8 +124,6 @@ class ParameterSynchronizer:
             f"[ParameterSynchronizer] sync_weights success. cost {end_time - start_time:.2f} seconds, "
             f"pause:{pause_time - start_time:.2f}s, sync:{end_time - pause_time:.2f}s"
         )
-        # Async resume rollout version & validation
-        ray.get(self.rollouter.resume.remote(None))
         # async train do validate
         print(f"[ParameterSynchronizer] validate: {validate}, use_trainer_do_validate: {use_trainer_do_validate}")
         if validate and use_trainer_do_validate:
@@ -137,8 +135,7 @@ class ParameterSynchronizer:
         self.wait_last_update = self.rollouter.update_param_version.remote(
             version, validate, global_steps, use_trainer_do_validate
         )
-        # self.wait_last_resume = self.rollouter.resume.remote(self.wait_last_update)
-        self.wait_last_resume = None
+        self.wait_last_resume = self.rollouter.resume.remote(self.wait_last_update)
 
     def wait_last_valid(self):
         print("[ParameterSynchronizer] Waiting last sync and validate...")

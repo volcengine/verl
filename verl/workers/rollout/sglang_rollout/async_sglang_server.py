@@ -261,12 +261,6 @@ class SGLangHttpServerBase:
         obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache"])
         await self.tokenizer_manager.release_memory_occupation(obj, None)
 
-    async def resume(self):
-        # Move tensors back to GPU after clear_kv_cache was called during pause.
-        # This is called when resuming rollout to restore GPU memory.
-        obj = ResumeMemoryOccupationReqInput(tags=["kv_cache"])
-        await self.tokenizer_manager.resume_memory_occupation(obj, None)
-
     async def generate(
         self,
         prompt_ids: torch.Tensor,
