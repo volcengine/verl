@@ -14,6 +14,7 @@
 import asyncio
 import heapq
 import logging
+import math
 import os
 import random
 from abc import ABC, abstractmethod
@@ -100,6 +101,7 @@ class AsyncLLMServerManager:
         sampling_params: dict[str, Any],
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
+        priority: Optional[int] = None,
     ) -> TokenOutput:
         """Generate tokens from prompt ids.
 
@@ -118,6 +120,7 @@ class AsyncLLMServerManager:
             sampling_params=sampling_params,
             image_data=image_data,
             video_data=video_data,
+            priority=priority,
         )
         return output
 
@@ -848,6 +851,8 @@ class AgentLoopManager:
         self.worker_group = worker_group
         self.reward_model_manager = None
         self.reward_router_address = None
+        self.scheduling_policy = self.config.actor_rollout_ref.rollout.engine_kwargs.vllm.scheduling_policy
+        self.name = self.config.actor_rollout_ref.rollout.name
         if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
             from verl.experimental.reward_loop import RewardModelManager
 
@@ -939,13 +944,57 @@ class AgentLoopManager:
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
-        chunkes = prompts.chunk(len(self.agent_loop_workers))
-        outputs = ray.get(
-            [
-                worker.generate_sequences.remote(chunk)
-                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
-            ]
-        )
+        if self.name == "vllm" and self.scheduling_policy == "priority":
+            chunked_size = math.lcm(self.config.data.gen_batch_size, len(self.agent_loop_workers))
+            time_consumed_detection_chunkes = prompts[:chunked_size].chunk(len(self.agent_loop_workers))
+
+            ref_to_chunk = {}
+
+            refs_for_time_measure = []
+            for worker, chunk in zip(self.agent_loop_workers, time_consumed_detection_chunkes, strict=True):
+                ref = worker.generate_sequences.remote(chunk)
+                refs_for_time_measure.append(ref)
+                ref_to_chunk[ref] = chunk
+
+            threshold = 0.9
+
+            _, unfinished_refs = ray.wait(
+                refs_for_time_measure,
+                num_returns=math.floor(chunked_size * threshold),
+                timeout=None,
+            )
+
+            time_consumed_tasks = set()
+            for ref in unfinished_refs:
+                time_consumed_tasks.add(ref_to_chunk[ref].non_tensor_batch["index"][0])
+
+            chunkes = prompts[chunked_size:].chunk(len(self.agent_loop_workers))
+            for chunk in chunkes:
+                if chunk.non_tensor_batch["index"][0] in time_consumed_tasks:
+                    chunk.meta_info["priority"] = [0]
+                else:
+                    chunk.non_tensor_batch["priority"] = [1]
+
+            outputs = ray.get(refs_for_time_measure)
+
+            remaining_outputs = ray.get(
+                [
+                    worker.generate_sequences.remote(chunk)
+                    for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+                ]
+            )
+
+            outputs.extend(remaining_outputs)
+
+        else:
+            chunkes = prompts.chunk(len(self.agent_loop_workers))
+            outputs = ray.get(
+                [
+                    worker.generate_sequences.remote(chunk)
+                    for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
+                ]
+            )
+
         output = DataProto.concat(outputs)
         # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
         self.sleep()

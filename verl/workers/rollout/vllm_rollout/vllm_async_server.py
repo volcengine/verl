@@ -255,6 +255,7 @@ class vLLMHttpServer:
         if self.config.cudagraph_capture_sizes:
             engine_kwargs["cuda_graph_sizes"] = self.config.cudagraph_capture_sizes
 
+        # engine_kwargs["scheduling_policy"] = "priority"
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
         override_generation_config = dict(
@@ -464,7 +465,7 @@ class vLLMHttpServer:
         request_id: str,
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
-        priority: int = 0,
+        priority: Optional[int] = 0,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # Calculate the maximum possible new tokens based on available context space
