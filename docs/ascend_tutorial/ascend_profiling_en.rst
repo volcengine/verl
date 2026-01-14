@@ -107,38 +107,41 @@ Discrete Mode Collection
       actor_rollout_ref:
          actor:
             profiler:
-               enable: True
+               enable: True  # Set to True to profile training
                all_ranks: False
-               ranks: [0]  # Collect specific global rank
+               ranks: [0]  # Global Rank 0
                tool_config:
                   npu:
                      discrete: True
-                     contents: [npu, cpu]  # Control collection list, default cpu, npu, can configure memory, shapes, module, etc.
+                     contents: [npu, cpu]
          rollout:
             profiler:
-               enable: True
+               enable: True  # Set to True to profile inference
                all_ranks: False
-               ranks: [0]  # Replica Rank of the inference instance in Agent Loop mode
+               ranks: [0]  # In Agent Loop mode, this is the Replica Rank (e.g., 0-th instance)
                tool_config:
                   npu:
-                     discrete: True  # Discrete mode must be enabled in Agent Loop mode
+                     discrete: True  # Must be enabled in Agent Loop mode
          # ref follow actor settings
 
 **Agent Loop Scenario Description**:
 
-When Rollout runs in `Agent Loop <../advance/agent_loop.rst>`_ mode, performance data for the Rollout phase **must be collected using discrete mode**. At this time, the Profiler is triggered by the inference engine backend, and export paths and other parameters **must be set via environment variables**:
+When Rollout runs in `Agent Loop <../advance/agent_loop.rst>`_ mode, performance data for the Rollout phase **must be collected using discrete mode**. At this time, the Profiler is triggered by the inference engine backend.
 
-- **vLLM Engine**
-   - Reference: `vLLM Profiling <https://github.com/vllm-project/vllm/blob/v0.12.0/docs/contributing/profiling.md>`_
-   - Environment Variables:
-      - ``VLLM_TORCH_PROFILER_DIR``: Sets the save path (**Required**).
-      - ``VLLM_TORCH_PROFILER_WITH_STACK``: Controls stack tracing (1: on, 0: off, default: on).
+1. **Rank Meaning**: ``ranks`` in the Rollout config refers to the **Replica Rank** (instance index), not the global rank.
+2. **Inference Engine Setup**:
 
-- **SGLang Engine**
-   - Reference: `SGLang Profiling <https://github.com/sgl-project/sglang/blob/main/docs/developer_guide/benchmark_and_profiling.md>`_
-   - Environment Variables:
-      - ``SGLANG_TORCH_PROFILER_DIR``: Sets the save path.
-      - ``SGLANG_PROFILE_WITH_STACK``: Controls stack tracing (1: on, 0: off, default: on).
+   - **vLLM Engine**
+      - **Must be configured via environment variables**:
+         - ``VLLM_TORCH_PROFILER_DIR``: Directory to save traces (**Required**).
+         - ``VLLM_TORCH_PROFILER_WITH_STACK``: Control stack tracing (1: on, 0: off, default: on).
+         - ``VLLM_TORCH_PROFILER_RECORD_SHAPES``: Set to 1 to record shapes of operator inputs.
+         - ``VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY``: Set to 1 to track tensor memory allocation/free.
+         - ``VLLM_TORCH_PROFILER_WITH_FLOPS``: Set to 1 to estimate FLOPS.
+      - *Note: vLLM ignores the save_path and contents in yaml.*
+
+   - **SGLang Engine**
+      - **Zero Configuration**. Automatically reads configuration from ``ppo_trainer.yaml``.
 
 
 Visualization
