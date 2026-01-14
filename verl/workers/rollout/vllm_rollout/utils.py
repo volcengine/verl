@@ -19,7 +19,6 @@ import os
 import platform
 import signal
 import threading
-from dataclasses import asdict
 from types import MethodType
 from typing import Any, Callable, TypedDict
 
@@ -200,7 +199,7 @@ class vLLMColocateWorkerExtension:
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
                 lora_path=VLLM_LORA_PATH,
-                peft_config=asdict(peft_config),
+                peft_config=peft_config,
                 lora_tensors=weights,
             )
             self.add_lora(lora_request)
