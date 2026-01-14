@@ -971,7 +971,7 @@ class AgentLoopManager:
             chunkes = prompts[chunked_size:].chunk(len(self.agent_loop_workers))
             for chunk in chunkes:
                 if chunk.non_tensor_batch["index"][0] in time_consumed_tasks:
-                    chunk.meta_info["priority"] = [0]
+                    chunk.non_tensor_batch["priority"] = [0]
                 else:
                     chunk.non_tensor_batch["priority"] = [1]
 
