@@ -19,6 +19,7 @@ import contextlib
 import logging
 import os
 import pickle
+import threading
 from contextlib import asynccontextmanager
 from typing import Any, Generator, Optional
 
@@ -91,30 +92,39 @@ def nvml_context():
             pass
 
 
+_NVML_INITIALIZED = False
+_NVML_LOCK = threading.Lock()
+
+
 def get_device_uuid(id: int) -> str:
     """Get the UUID of a CUDA device using NVML."""
+    global _NVML_INITIALIZED
+    with _NVML_LOCK:
+        if not _NVML_INITIALIZED:
+            try:
+                pynvml.nvmlInit()
+                _NVML_INITIALIZED = True
+            except pynvml.NVMLError as e:
+                raise RuntimeError(f"Failed to initialize NVML: {e}") from e
 
     # The process has visibility to all GPUs within the TP group
     global_device_idx = device_id_to_physical_device_id(id)
 
     # Get the device handle and UUID
-    with nvml_context():
-        try:
-            handle = pynvml.nvmlDeviceGetHandleByIndex(global_device_idx)
-            uuid = pynvml.nvmlDeviceGetUUID(handle)
-            # Ensure the UUID is returned as a string, not bytes
-            if isinstance(uuid, bytes):
-                return uuid.decode("utf-8")
-            elif isinstance(uuid, str):
-                return uuid
-            else:
-                raise RuntimeError(
-                    f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {global_device_idx})"
-                )
-        except pynvml.NVMLError as e:
+    try:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(global_device_idx)
+        uuid = pynvml.nvmlDeviceGetUUID(handle)
+        # Ensure the UUID is returned as a string, not bytes
+        if isinstance(uuid, bytes):
+            return uuid.decode("utf-8")
+        elif isinstance(uuid, str):
+            return uuid
+        else:
             raise RuntimeError(
-                f"Failed to get device UUID for device {id} (global index: {global_device_idx}): {e}"
-            ) from e
+                f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {global_device_idx})"
+            )
+    except pynvml.NVMLError as e:
+        raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {global_device_idx}): {e}") from e
 
 
 async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
