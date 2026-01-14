@@ -944,8 +944,8 @@ def apply_bypass_mode(
 
 
 def configure_bypass_mode(
-    rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
-    policy_loss_config: PolicyLossConfig = None,
+    rollout_corr_config: RolloutCorrectionConfig,
+    policy_loss_config: PolicyLossConfig,
 ) -> None:
     """
     Setup bypass mode: Use rollout_log_probs as old_log_probs.
