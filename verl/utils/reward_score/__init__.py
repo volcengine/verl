@@ -132,4 +132,4 @@ def _default_compute_score(
     )
 
 
-__all__ = ["default_compute_score"]
+__all__ = ["default_compute_score", "compute_score", "compute_score_async", "batch_compute_scores"]

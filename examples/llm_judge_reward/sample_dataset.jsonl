@@ -1,0 +1,10 @@
+{"prompt": "What is 7 * 8?", "answer": "56", "extra_info": {"question": "What is 7 * 8?"}}
+{"prompt": "What is the capital of France?", "answer": "Paris", "extra_info": {"question": "What is the capital of France?"}}
+{"prompt": "Explain what photosynthesis is.", "answer": "Photosynthesis is the process by which plants convert sunlight, water, and carbon dioxide into glucose and oxygen.", "extra_info": {"question": "Explain what photosynthesis is."}}
+{"prompt": "Write a Python function to reverse a string.", "answer": "def reverse_string(s): return s[::-1]", "extra_info": {"question": "Write a Python function to reverse a string."}}
+{"prompt": "What are the three primary colors?", "answer": "Red, blue, and yellow", "extra_info": {"question": "What are the three primary colors?"}}
+{"prompt": "What is the chemical formula for water?", "answer": "H2O", "extra_info": {"question": "What is the chemical formula for water?"}}
+{"prompt": "When did World War II end?", "answer": "1945", "extra_info": {"question": "When did World War II end?"}}
+{"prompt": "What is the boiling point of water in Celsius?", "answer": "100", "extra_info": {"question": "What is the boiling point of water in Celsius?"}}
+{"prompt": "What is the largest planet in our solar system?", "answer": "Jupiter", "extra_info": {"question": "What is the largest planet in our solar system?"}}
+{"prompt": "What is the square root of 144?", "answer": "12", "extra_info": {"question": "What is the square root of 144?"}}
