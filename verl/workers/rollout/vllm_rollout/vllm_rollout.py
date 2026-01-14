@@ -177,6 +177,19 @@ class vLLMAsyncRollout(BaseRollout):
                 await self.socket.send(pickle.dumps(e))
                 break
 
+    def _build_inference_engine(self) -> WorkerWrapperBase:
+        """Create a vLLM worker wrapper across vLLM versions.
+
+        vLLM changed WorkerWrapperBase signature (i.e., removing vllm_config from
+        __init__). We keep a small runtime fallback to support multiple versions.
+
+        https://github.com/vllm-project/vllm/commit/aafd4d23548ae54adeca1d4898cc15a4d2c390ac
+        """
+        try:
+            return WorkerWrapperBase(vllm_config=self.vllm_config)
+        except TypeError:
+            return WorkerWrapperBase()
+
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
@@ -212,7 +225,7 @@ class vLLMAsyncRollout(BaseRollout):
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
 
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+        self.inference_engine = self._build_inference_engine()
         self.inference_engine.init_worker(all_kwargs)
 
     def _load_model(self, *args, **kwargs):
