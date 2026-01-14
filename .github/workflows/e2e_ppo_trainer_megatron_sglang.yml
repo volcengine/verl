@@ -131,16 +131,12 @@ jobs:
         run: |
           ray stop --force
           OPTIM_MEMORY_EFFICIENT=True ENGINE=sglang SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (DeepSeek)
         run: |
           ray stop --force
           export VLLM_USE_V1=1
           ray start --head
           ENGINE=sglang MODE=async RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: Profiling GRPO GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron (Deepseek)
         run: |
           ray stop --force
@@ -151,8 +147,6 @@ jobs:
           else
             echo "[SUCCESS] profile success"
           fi
-        with:
-          max_attempts: 3
       - name: clean up
         run: |
           rm -rf checkpoints

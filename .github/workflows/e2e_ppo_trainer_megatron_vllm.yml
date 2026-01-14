@@ -153,15 +153,11 @@ jobs:
           ray stop --force
           ALL_OFFLOAD=True SAVE_FREQ=1 MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct COMMON_PP=4 LORA_RANK=8 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False USE_DIST_CKPT=False \
           bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with Megatron, use Megatron-Bridge LoRA e2e to pre-load and save (Deepseek)
         run: |
           ray stop --force
           RESUME_MODE=auto MODEL_ID=deepseek-ai/deepseek-coder-1.3b-instruct TOTAL_TRAIN_STEPS=2 SAVE_FREQ=1 COMMON_PP=4 LORA_RANK=8 COMMON_VPP=null COMMON_CP=1 USE_MBRIDGE=True VANILLA_MBRIDGE=False VALUE_VANILLA_MBRIDGE=False USE_DIST_CKPT=False \
           bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: clean up
         run: |
           rm -rf checkpoints
@@ -193,15 +189,11 @@ jobs:
         run: |
           ray stop --force
           ALL_OFFLOAD=True VAL_BEFORE_TRAIN=True TEST_FREQ=1 SAVE_FREQ=1 LR_WARMUP_STEPS=1 TOTAL_TRAIN_STEPS=2 MODEL_ID=Qwen/Qwen3-0.6B bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: Running GSM8K E2E training tests with 3D parallelism on 8 L20 GPUs with FP8 rollout
         run: |
           ray stop --force
           export VLLM_USE_V1=1
           ROLLOUT_QUANTIZATION=fp8 TOTAL_TRAIN_STEPS=2 MODEL_ID=Qwen/Qwen3-0.6B bash tests/special_e2e/run_ppo_trainer_megatron.sh
-        with:
-          max_attempts: 3
       - name: clean up
         run: |
           rm -rf checkpoints
