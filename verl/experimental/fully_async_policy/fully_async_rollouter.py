@@ -284,7 +284,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 print("[FullyAsyncRollouter] validate_task is running, wait last validate_task to finish")
                 self.validate_task.get()
             self.validate_task = asyncio.create_task(
-                self.do_validate_async(timing_raw, version, validate, global_steps)
+                self.do_validate_async(timing_raw, version, global_steps, use_trainer_do_validate)
             )
 
     def _validate_wrapper(
@@ -302,7 +302,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self,
         timing_raw: dict,
         version: int,
-        validate: bool = False,
         global_steps: int = 0,
         use_trainer_do_validate: bool = False,
     ):
