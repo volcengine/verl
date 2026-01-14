@@ -685,7 +685,9 @@ class RayPPOTrainer:
             sample_uids.extend(test_batch.non_tensor_batch["uid"])
 
             # evaluate using reward_function
-            reward_tensor, reward_extra_info = self._compute_or_extract_reward(test_batch, reward_fn=self.val_reward_fn, reward_for_val=True)
+            reward_tensor, reward_extra_info = self._compute_or_extract_reward(
+                test_batch, reward_fn=self.val_reward_fn, reward_for_val=True
+            )
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
