@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,8 +32,7 @@ def get_torch_profiler(
     if role:
         save_path = os.path.join(save_path, role)
 
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+    os.makedirs(save_path, exist_ok=True)
 
     save_file_name = f"prof_rank-{rank}.json.gz"
     if save_file_prefix:
@@ -44,20 +43,20 @@ def get_torch_profiler(
         print(f"[Profiler] Saving trace to {save_path}")
         prof.export_chrome_trace(save_path)
 
+    contents = set(contents) if contents else set()
     activities = []
-    if contents is None or "cpu" in contents:
+    if not contents or "cpu" in contents:
         activities.append(torch.profiler.ProfilerActivity.CPU)
-    if contents is None or "cuda" in contents:
+    if not contents or "cuda" in contents:
         activities.append(torch.profiler.ProfilerActivity.CUDA)
 
-    prof = torch.profiler.profile(
+    return torch.profiler.profile(
         activities=activities,
-        with_stack=contents is None or "stack" in contents,
-        record_shapes=contents is None or "shapes" in contents,
-        profile_memory=contents is None or "memory" in contents,
+        with_stack="stack" in contents,
+        record_shapes="shapes" in contents,
+        profile_memory="memory" in contents,
         on_trace_ready=_trace_handler,
     )
-    return prof
 
 
 class Profiler(DistProfiler):
@@ -78,16 +77,19 @@ class Profiler(DistProfiler):
     _define_count = 0
 
     def __init__(
-        self, rank, config: ProfilerConfig, tool_config: Optional[TorchProfilerToolConfig] = None, save_file_prefix=None
+        self,
+        rank,
+        config: ProfilerConfig,
+        tool_config: Optional[TorchProfilerToolConfig] = None,
+        save_file_prefix=None,
     ):
         # note : if we do not set use_profile, it will be set as None, so that all function will be skip
-        if not config:
-            config = ProfilerConfig(ranks=[], enable=False)
-
+        config = config or ProfilerConfig(ranks=[], enable=False)
         self.save_file_prefix = save_file_prefix
 
         if not tool_config:
             assert not config.enable, "tool_config must be provided when profiler is enabled"
+
         self.prof = None
         self.rank = rank
         self.config = config
@@ -146,21 +148,20 @@ class Profiler(DistProfiler):
                 if not self.discrete:
                     # In continuous mode, we just record function, profiler started globally
                     with torch.profiler.record_function(profile_name):
-                        result = func(*args, **kwargs_inner)
-                else:
-                    # In discrete mode, we start/stop profiler around the function
-                    prof = get_torch_profiler(
-                        contents=self.contents,
-                        save_path=self.save_path,
-                        role=role,
-                        save_file_prefix=self.save_file_prefix,
-                        rank=self.rank,
-                    )
-                    prof.start()
-                    with torch.profiler.record_function(profile_name):
-                        result = func(*args, **kwargs_inner)
-                    prof.stop()
+                        return func(*args, **kwargs_inner)
 
+                # In discrete mode, we start/stop profiler around the function
+                prof = get_torch_profiler(
+                    contents=self.contents,
+                    save_path=self.save_path,
+                    role=role,
+                    save_file_prefix=self.save_file_prefix,
+                    rank=self.rank,
+                )
+                prof.start()
+                with torch.profiler.record_function(profile_name):
+                    result = func(*args, **kwargs_inner)
+                prof.stop()
                 return result
 
             return wrapper

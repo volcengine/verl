@@ -110,13 +110,15 @@ class SGLangHttpServer:
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
 
-        # used for sglang server profiler
+        # used for controlling sglang server profiler
         profiler_config = self.config.profiler
-        if profiler_config is not None and profiler_config.tool in ["torch", "npu"]:
-            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
-        else:
-            logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
-            tool_config = None
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
         self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
 
         # used for NCCL process group
@@ -392,7 +394,14 @@ class SGLangHttpServer:
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
         ):
-            await self.tokenizer_manager.start_profile(**kwargs)
+            contents = self.profiler_controller.tool_config.contents
+            save_path = os.path.join(self.config.profiler.save_path, f"agent_loop_replica_{self.replica_rank}")
+            await self.tokenizer_manager.start_profile(
+                output_dir=save_path,
+                with_stack=contents is None or "stack" in contents,
+                record_shapes=contents is None or "shapes" in contents,
+                **kwargs,
+            )
 
     async def stop_profile(self):
         if (
@@ -401,6 +410,7 @@ class SGLangHttpServer:
             and self.profiler_controller.is_discrete_mode()
         ):
             await self.tokenizer_manager.stop_profile()
+
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
 

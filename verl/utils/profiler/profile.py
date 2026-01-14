@@ -89,6 +89,9 @@ class DistProfiler:
         if tool_config is None:
             tool_config = config.tool_config
 
+        self.config = config
+        self.tool_config = tool_config
+
         self._impl = None
         self._tool = getattr(config, "tool", None)
         self._enable = config.enable
@@ -104,7 +107,8 @@ class DistProfiler:
             # default rank 0 if enabled but ranks unspecified
             self._this_rank = (rank == 0) if self._enable else False
 
-        self._discrete = getattr(tool_config, "discrete", False)  # Profiler and TorchMemoryProfiler currently do not support discrete mode. 
+        # TorchMemoryProfiler currently do not support discrete mode.
+        self._discrete = getattr(tool_config, "discrete", False) if tool_config else False
 
         # Lazy import to avoid circular deps
         if self._tool == "nsys":
@@ -138,13 +142,13 @@ class DistProfiler:
         return self._discrete
 
     def start(self, **kwargs):
-        self._this_step = True
         if self.check_enable() and self.check_this_rank():
+            self._this_step = True
             return getattr(self._impl, "start", lambda **_: None)(**kwargs)
 
     def stop(self):
-        self._this_step = False
         if self.check_enable() and self.check_this_rank():
+            self._this_step = False
             return getattr(self._impl, "stop", lambda: None)()
 
     @classmethod
@@ -160,7 +164,12 @@ class DistProfiler:
             @functools.wraps(func)
             def wrapper(self_instance, *args, **kwargs_inner):
                 profiler = getattr(self_instance, "profiler", None)
-                if not profiler or not profiler.check_enable() or not profiler.check_this_step() or not profiler.check_this_rank():
+                if (
+                    not profiler
+                    or not profiler.check_enable()
+                    or not profiler.check_this_step()
+                    or not profiler.check_this_rank()
+                ):
                     return func(self_instance, *args, **kwargs_inner)
 
                 impl = profiler._impl

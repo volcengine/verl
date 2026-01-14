@@ -28,17 +28,19 @@ Each RL role (Actor, Critic, etc.) has its own `profiler` configuration:
 
 You can customize the PyTorch Profiler behavior using the following fields under `tool_config.torch`:
 
-* **`activities`**: List of activities to profile. Options: `cpu`, `cuda`. Default: `[cpu, cuda]`.
-* **`with_stack`**: Record source code file and line number. Default: `false`.
-* **`record_shapes`**: Record shapes of operator inputs. Default: `false`.
-* **`profile_memory`**: Track tensor memory allocation/free. Default: `false`.
+* **`contents`**: List of contents to profile.
+    *   **`cpu`**: Profile CPU activities.
+    *   **`cuda`**: Profile CUDA activities.
+    *   **`memory`**: Track tensor memory allocation/free.
+    *   **`shapes`**: Record shapes of operator inputs.
+    *   **`stack`**: Record source code file and line number.
 * **`schedule`**: (Advanced) configuration for `wait`, `warmup`, `active`, `repeat` cycles.
 
 ## Examples
 
-### End-to-End Collection
+### 1. End-to-End Collection
 
-Enable profiling for specific steps and roles (e.g., Actor).
+Collects performance data for all steps in a single trace file.
 
 ```yaml
 global_profiler:
@@ -53,49 +55,56 @@ actor_rollout_ref:
       tool_config:
         torch:
           discrete: False
-          activities: [cpu, cuda]
+          contents: [cpu, cuda]
+  # rollout & ref follow actor settings
 ```
 
-### Discrete Mode Collection
+### 2. Discrete Mode Collection
+
+Discrete mode saves separate trace files for each step. This is useful for detailed analysis and is **mandatory** when using Agent Loop.
+
+**Configuration Example**
+
+This configuration supports profiling both Training (Actor) and Inference (Rollout). You can enable/disable them independently.
 
 ```yaml
-global_profiler:
-  steps: [1, 2, 5]
-  save_path: ./outputs/profile
-
 actor_rollout_ref:
   actor:
     profiler:
-      enable: True
+      enable: True # Set to True to profile training
       all_ranks: False
-      ranks: [0] # Collect specific global rank
+      ranks: [0] # Global Rank 0
       tool_config:
         torch:
           discrete: True
-          activities: [cpu, cuda]
+          contents: [cpu, cuda]
   rollout:
     profiler:
-      enable: True
+      enable: True # Set to True to profile inference
       all_ranks: False
-      ranks: [0] # Replica Rank of the inference instance in Agent Loop mode
+      ranks: [0] # In Agent Loop, this is the Replica Rank (e.g. 0-th instance)
       tool_config:
         torch:
-          discrete: True # Discrete mode must be enabled in Agent Loop mode
+          discrete: True # REQUIRED 
+  # ref follow actor settings
 ```
 
-**Agent Loop Scenario Description**:
+> **Note for Agent Loop Mode**:
+> When using Agent Loop, `ranks` in rollout config refers to the **Replica Rank** (instance index), not the global rank.
 
-When Rollout runs in `Agent Loop <../advance/agent_loop.rst>`_ mode, performance data for the Rollout phase **must be collected using discrete mode**. At this time, the Profiler is triggered by the inference engine backend, and export paths and other parameters **must be set via environment variables**:
+**Inference Backend Setup (for Agent Loop)**
 
-*   **vLLM Engine**
-    *   Reference: [vLLM Profiling](https://github.com/vllm-project/vllm/blob/v0.12.0/docs/contributing/profiling.md)
-    *   `VLLM_TORCH_PROFILER_DIR`: Sets the save path (**Required**).
-    *   `VLLM_TORCH_PROFILER_WITH_STACK`: Controls stack tracing (1: on, 0: off, default: on).
+*   **vLLM Engine**:
+    *   **Environment Variables Required**:
+        *   `VLLM_TORCH_PROFILER_DIR`: **(Required)** Directory to save traces (e.g., `/mnt/traces`).
+        *   `VLLM_TORCH_PROFILER_WITH_STACK`: `1` to enable stack tracing (default).
+        *   `VLLM_TORCH_PROFILER_RECORD_SHAPES`: `1` to record shapes of operator inputs.
+        *   `VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY`: `1` to track tensor memory allocation/free.
+        *   `VLLM_TORCH_PROFILER_WITH_FLOPS`: `1` to estimate FLOPS.
+    *   *Note: vLLM ignores the `save_path` and `contents` in `ppo_trainer.yaml`.*
 
-*   **SGLang Engine**
-    *   Reference: [SGLang Profiling](https://github.com/sgl-project/sglang/blob/main/docs/developer_guide/benchmark_and_profiling.md)
-    *   `SGLANG_TORCH_PROFILER_DIR`: Sets the save path (**Required**).
-    *   `SGLANG_PROFILE_WITH_STACK`: Controls stack tracing (1: on, 0: off, default: on).
+*   **SGLang Engine**:
+    *   **Zero Configuration**: Automatically uses the settings from `ppo_trainer.yaml`.
 
 ## Visualization
 

@@ -26,6 +26,8 @@ from pathlib import Path
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
+    "verl/utils/profiler/torch_profile.py",  # appear in TorchProfiler
+    "verl/utils/profiler/config.py",  # appear in TorchProfilerToolConfig
     "verl/utils/kernel/linear_cross_entropy.py",  # appear in nvidia nvtx
     "verl/utils/rendezvous/ray_backend.py",  # appear in cupy importance
     "verl/single_controller/ray/base.py",  # appear in default device_name

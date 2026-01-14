@@ -45,8 +45,8 @@ from vllm.v1.engine.utils import CoreEngineProcManager
 from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
-from verl.utils.profiler.profile import DistProfiler
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.profiler.profile import DistProfiler
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -224,13 +224,15 @@ class vLLMHttpServer:
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
 
-        # used for vllm server profiler
+        # used for controlling vllm server profiler
         profiler_config = self.config.profiler
-        if profiler_config is not None and profiler_config.tool in ["torch", "npu"]:
-            tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
-        else:
-            logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
-            tool_config = None
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
         self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
         self.server_profiler_dir = os.environ.pop("VLLM_TORCH_PROFILER_DIR", None)
 

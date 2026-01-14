@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -35,18 +34,10 @@ class NsightToolConfig(BaseConfig):
 
 @dataclass
 class TorchProfilerToolConfig(BaseConfig):
-    """Torch profiler tool config.
-
-    Args:
-        step_start (int): Start step in update_policy.
-        step_end (int): End step.
-    """
+    """Torch profiler tool config."""
 
     # options: cuda, cpu, memory, shapes, stack
     contents: list[str] = field(default_factory=list)
-    step_start: int = -1
-    step_end: int = -1
-    manual_save: bool = True
     discrete: bool = False
     name: str = "torch"
 
@@ -57,7 +48,6 @@ class TorchProfilerToolConfig(BaseConfig):
                 f"Profiler contents only supports cuda, cpu, memory, shapes, stack, but gets {content}"
             )
         assert isinstance(self.contents, list), f"Profiler contents must be of type list, got {type(self.contents)}"
-        assert isinstance(self.step_start, int), f"Profiler step_start must be of type int, got {type(self.step_start)}"
 
 
 @dataclass

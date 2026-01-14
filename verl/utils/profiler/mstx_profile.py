@@ -204,7 +204,6 @@ class NPUProfiler(DistProfiler):
             self.profile_npu.stop()
             NPUProfiler._define_count -= 1
 
-
     def annotate(self, message: Optional[str] = None, role: Optional[str] = None, **kwargs_outer) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
 
