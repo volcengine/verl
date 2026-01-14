@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import argparse
-import inspect
 import json
 import logging
 import os
@@ -23,7 +22,6 @@ from typing import Any, Optional
 import ray
 import vllm_omni.entrypoints.cli.serve
 from ray.actor import ActorHandle
-from vllm.usage.usage_lib import UsageContext
 from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncEngineArgs
 from vllm_omni.entrypoints import AsyncOmniDiffusion
@@ -114,8 +112,8 @@ class vLLMOmniHttpServer(vLLMHttpServer):
             self._master_address = master_address
             self._master_port = master_port
 
-        # 1. setup vllm serve cli args
-        engine_kwargs = self.config.get("engine_kwargs", {}).get("vllm", {}) or {}
+        # 1. setup vllm-omni serve cli args
+        engine_kwargs = self.config.get("engine_kwargs", {}).get("vllm_omni", {}) or {}
         engine_kwargs = {key: val for key, val in engine_kwargs.items() if val is not None}
         if self.config.get("limit_images", None):  # support for multi-image data
             engine_kwargs["limit_mm_per_prompt"] = {"image": self.config.get("limit_images")}
@@ -124,13 +122,7 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 
         # Override default generation config from hugging face model config,
         # user can still override them by passing kwargs in each request.
-        override_generation_config = dict(
-            temperature=self.config.temperature,
-            top_k=self.config.top_k,
-            top_p=self.config.top_p,
-            repetition_penalty=1.0,
-            max_new_tokens=self.config.response_length,
-        )
+        override_generation_config = dict()
         logger.info(f"override_generation_config: {override_generation_config}")
 
         logger.info(f"enable_sleep_mode: {self.config.enable_sleep_mode}")
@@ -259,26 +251,10 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncEngineArgs.from_cli_args(args)
-        usage_context = UsageContext.OPENAI_API_SERVER
-        vllm_omni_config = engine_args.create_engine_config(usage_context=usage_context)
-        vllm_omni_config.parallel_config.data_parallel_master_port = self._dp_master_port
 
-        fn_args = set(dict(inspect.signature(AsyncOmniDiffusion.from_vllm_config).parameters).keys())
-        kwargs = {}
-        if "enable_log_requests" in fn_args:
-            kwargs["enable_log_requests"] = engine_args.enable_log_requests
-        if "disable_log_stats" in fn_args:
-            kwargs["disable_log_stats"] = engine_args.disable_log_stats
-
-        engine_client = AsyncOmniDiffusion(vllm_config=vllm_omni_config, usage_context=usage_context, **kwargs)
-
-        # Don't keep the dummy data in memory
-        await engine_client.reset_mm_cache()
-
+        engine_client = AsyncOmniDiffusion(engine_args.model)
         app = build_app(args)
-        await omni_init_app_state(engine_client, vllm_omni_config, app.state, args)
-        if self.replica_rank == 0 and self.node_rank == 0:
-            logger.info(f"Initializing a LLM-Omni engine with config: {vllm_omni_config}")
+        await omni_init_app_state(engine_client, None, app.state, args)
 
         self.engine = engine_client
         self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)
