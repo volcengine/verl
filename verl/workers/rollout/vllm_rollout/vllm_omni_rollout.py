@@ -60,7 +60,7 @@ class vLLMOmniAsyncRollout(vLLMAsyncRollout):
         model_config: HFModelConfig,
         device_mesh: DeviceMesh,
     ):
-        super().__init__(config, model_config, device_mesh)
+        super(vLLMAsyncRollout, self).__init__(config, model_config, device_mesh)
         self.tokenizer = self.model_config.tokenizer
         self.inference_engine = None
         self.address = self._init_zeromq()

@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 import ray
 import vllm_omni.entrypoints.cli.serve
+from ray.actor import ActorHandle
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils.argparse_utils import FlexibleArgumentParser
 from vllm_omni.engine.arg_utils import AsyncEngineArgs
@@ -30,9 +31,10 @@ from vllm_omni.entrypoints.openai.api_server import build_app, omni_init_app_sta
 from vllm_omni.outputs import RequestOutput
 
 from verl.single_controller.ray import RayClassWithInitArgs
+from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.replica import ImageOutput
-from verl.workers.rollout.utils import run_unvicorn
+from verl.workers.rollout.replica import ImageOutput, RolloutMode
+from verl.workers.rollout.utils import get_free_port, run_unvicorn
 from verl.workers.rollout.vllm_rollout import vLLMOmniAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
@@ -51,6 +53,60 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     vllm serve --tensor-parallel-size=8 ...
     ```
     """
+
+    def __init__(
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        rollout_mode: RolloutMode,
+        workers: list[ActorHandle],
+        replica_rank: int,
+        node_rank: int,
+        gpus_per_node: int,
+        nnodes: int,
+    ):
+        """
+        Args:
+            config (RolloutConfig): full config.
+            model_config (HFModelConfig): model config.
+            rollout_mode (RolloutMode): rollout mode.
+            replica_rank (int): replica rank, a replica may contain multiple nodes.
+            node_rank (int): node rank.
+            gpus_per_node (int): number of gpus per node.
+            nnodes (int): number of nodes.
+        """
+        super(vLLMHttpServer, self).__init__()
+
+        self.config: RolloutConfig = omega_conf_to_dataclass(config)
+        self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        self.rollout_mode = rollout_mode
+        self.workers = workers
+
+        self.replica_rank = replica_rank
+        self.node_rank = node_rank
+        self.gpus_per_node = gpus_per_node
+        self.nnodes = nnodes
+
+        if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
+            logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
+            self.config.load_format = "auto"
+
+        # used for http server
+        self._server_address = ray.util.get_node_ip_address().strip("[]")
+        self._server_port = None
+
+        # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
+        if self.node_rank == 0:
+            self._master_address = self._server_address
+            self._master_port, self._master_sock = get_free_port(self._server_address)
+            self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address)
+            logger.info(
+                f"vLLMHttpServer, replica_rank: {self.replica_rank}, master address: {self._master_address}, "
+                f"master port: {self._master_port}, data parallel master port: {self._dp_master_port}"
+            )
+        else:
+            self._master_address = None
+            self._master_port = None
 
     async def launch_server(self, master_address: str = None, master_port: int = None):
         if self.node_rank != 0:
@@ -204,8 +260,8 @@ class vLLMOmniHttpServer(vLLMHttpServer):
     async def run_server(self, args: argparse.Namespace):
         engine_args = AsyncEngineArgs.from_cli_args(args)
         usage_context = UsageContext.OPENAI_API_SERVER
-        vllm_config = engine_args.create_engine_config(usage_context=usage_context)
-        vllm_config.parallel_config.data_parallel_master_port = self._dp_master_port
+        vllm_omni_config = engine_args.create_engine_config(usage_context=usage_context)
+        vllm_omni_config.parallel_config.data_parallel_master_port = self._dp_master_port
 
         fn_args = set(dict(inspect.signature(AsyncOmniDiffusion.from_vllm_config).parameters).keys())
         kwargs = {}
@@ -214,15 +270,15 @@ class vLLMOmniHttpServer(vLLMHttpServer):
         if "disable_log_stats" in fn_args:
             kwargs["disable_log_stats"] = engine_args.disable_log_stats
 
-        engine_client = AsyncOmniDiffusion(vllm_config=vllm_config, usage_context=usage_context, **kwargs)
+        engine_client = AsyncOmniDiffusion(vllm_config=vllm_omni_config, usage_context=usage_context, **kwargs)
 
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await omni_init_app_state(engine_client, vllm_config, app.state, args)
+        await omni_init_app_state(engine_client, vllm_omni_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
-            logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
+            logger.info(f"Initializing a LLM-Omni engine with config: {vllm_omni_config}")
 
         self.engine = engine_client
         self._server_port, self._server_task = await run_unvicorn(app, args, self._server_address)

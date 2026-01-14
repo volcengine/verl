@@ -31,8 +31,14 @@ def init_config() -> DictConfig:
 
     model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
     config.actor_rollout_ref.model.path = model_path
+    config.actor_rollout_ref.model.tokenizer_path = os.path.join(model_path, "tokenizer")
     config.actor_rollout_ref.rollout.name = "vllm-omni"
     config.actor_rollout_ref.rollout.n = 4
+
+    # TODO (Mike): we test with 1 GPU card currently, later drop these
+    config.actor_rollout_ref.rollout.agent.num_workers = 1
+    config.actor_rollout_ref.rollout.tensor_model_parallel_size = 1
+    config.trainer.n_gpus_per_node = 1
 
     return config
 
