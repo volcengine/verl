@@ -879,6 +879,9 @@ class AgentLoopManager:
         self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
+        if self.config.transfer_queue.enable:
+            self.create_transferqueue_client_for_workers()
+
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
