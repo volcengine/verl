@@ -2122,10 +2122,8 @@ def compute_policy_loss_bypass_mode(
         loss_type: "ppo_clip" (default) or "reinforce"
         rollout_is: IS aggregation level ("token", "sequence", or None)
         rollout_is_threshold: Upper threshold for truncating IS weights (default: 2.0)
-        rollout_rs: Rejection sampling level ("token", "sequence", "geometric", or None)
-        rollout_rs_threshold: Upper threshold for rejection sampling
-        rollout_rs_threshold_lower: Lower threshold for rejection sampling
-        rollout_token_veto_threshold: Per-token veto threshold for catastrophic outliers
+        rollout_rs: Rejection sampling level (see rollout_corr_helper for supported modes)
+        rollout_rs_threshold: Threshold specification for rejection sampling
         rollout_is_batch_normalize: Whether to normalize IS weights to mean=1.0
 
     Returns:
@@ -2150,11 +2148,9 @@ def compute_policy_loss_bypass_mode(
     loss_type = rollout_corr_config.get("loss_type", "ppo_clip")
     rollout_is = rollout_corr_config.get("rollout_is", None)
     rollout_is_threshold = rollout_corr_config.get("rollout_is_threshold", 2.0)
+    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
     rollout_rs = rollout_corr_config.get("rollout_rs", None)
     rollout_rs_threshold = rollout_corr_config.get("rollout_rs_threshold", None)
-    rollout_rs_threshold_lower = rollout_corr_config.get("rollout_rs_threshold_lower", None)
-    rollout_token_veto_threshold = rollout_corr_config.get("rollout_token_veto_threshold", None)
-    rollout_is_batch_normalize = rollout_corr_config.get("rollout_is_batch_normalize", False)
 
     # In bypass mode: old_log_prob IS rollout_log_prob
     rollout_log_prob = old_log_prob
@@ -2169,11 +2165,9 @@ def compute_policy_loss_bypass_mode(
                 response_mask=response_mask,
                 rollout_is=rollout_is,
                 rollout_is_threshold=rollout_is_threshold,
+                rollout_is_batch_normalize=rollout_is_batch_normalize,
                 rollout_rs=rollout_rs,
                 rollout_rs_threshold=rollout_rs_threshold,
-                rollout_rs_threshold_lower=rollout_rs_threshold_lower,
-                rollout_token_veto_threshold=rollout_token_veto_threshold,
-                rollout_is_batch_normalize=rollout_is_batch_normalize,
             )
         )
 
