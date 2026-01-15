@@ -14,6 +14,7 @@
 
 import logging
 import numpy as np
+import tensordict
 import torch
 from packaging.version import parse as parse_version
 from tensordict import TensorDict
