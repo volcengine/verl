@@ -15,6 +15,7 @@
 import logging
 import numpy as np
 import torch
+from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
 from typing import Any, Iterable
