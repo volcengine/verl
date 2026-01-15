@@ -109,7 +109,7 @@ class TRTLLMHttpServer:
         cuda_graph_config = CudaGraphConfig(
             enable_padding=True,
             batch_sizes=self.config.cudagraph_capture_sizes,
-            max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_batch_size,
+            max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
         )
 
         per_worker_gpu_share = 1.0 / self.max_colocate_count
@@ -122,7 +122,7 @@ class TRTLLMHttpServer:
             "kv_cache_config": kv_cache_config,
             "cuda_graph_config": cuda_graph_config,
             "max_seq_len": self.config.max_model_len,
-            "max_batch_size": self.config.max_batch_size,
+            "max_batch_size": self.config.max_num_seqs,
             "max_num_tokens": self.config.max_num_batched_tokens,
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "trust_remote_code": self.model_config.trust_remote_code,

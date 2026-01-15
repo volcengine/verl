@@ -58,9 +58,6 @@ expert_parallel_size: 1
 # PP size for rollout.
 pipeline_model_parallel_size: 1
 
-# max batch size for rollout
-max_batch_size: 256
-
 # max number of tokens in a batch
 max_num_batched_tokens: 8192
 

@@ -151,7 +151,6 @@ class RolloutConfig(BaseConfig):
     max_num_batched_tokens: int = 8192
     logprobs_mode: Optional[str] = "processed_logprobs"
     scheduling_policy: Optional[str] = "fcfs"
-    max_batch_size: int = 256
 
     # TODO: enable train_kwargs
     # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)
