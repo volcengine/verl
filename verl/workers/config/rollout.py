@@ -150,6 +150,7 @@ class RolloutConfig(BaseConfig):
     pipeline_model_parallel_size: int = 1
     max_num_batched_tokens: int = 8192
     logprobs_mode: Optional[str] = "processed_logprobs"
+    scheduling_policy: Optional[str] = "fcfs"
 
     # TODO: enable train_kwargs
     # train_sampling_config: SamplingConfig = field(default_factory=SamplingConfig)

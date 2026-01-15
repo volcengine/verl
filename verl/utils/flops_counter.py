@@ -112,7 +112,7 @@ def _estimate_qwen2_flops(config, tokens_sum, batch_seqlens, delta_time):
     seqlen_square_sum = 0
     for seqlen in batch_seqlens:
         seqlen_square_sum += seqlen * seqlen
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
     # all_layer & all_token fwd & bwd flops
     flops_all_token = dense_N_flops + attn_qkv_flops
@@ -149,7 +149,55 @@ def _estimate_qwen3_vl_flops(config, tokens_sum, batch_seqlens, delta_time, **ka
     seqlen_square_sum = 0
     for seqlen in batch_seqlens:
         seqlen_square_sum += seqlen * seqlen
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+
+    # vit flops
+    images_seqlens = kargs.get("images_seqlens", None)
+    if images_seqlens is not None:
+        vit_flops = _estimate_qwen3_vit_flop(images_seqlens, config.vision_config)
+    else:
+        vit_flops = 0
+
+    # all_layer & all_token fwd & bwd flops
+    flops_all_token = dense_N_flops + attn_qkv_flops + vit_flops
+    flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
+    return flops_achieved
+
+
+def _estimate_qwen3_vl_moe_flops(config, tokens_sum, batch_seqlens, delta_time, **kargs):
+    # qwen3_vl uses text_config and vision_config to distinguish configs of different parts.
+    hidden_size = config.text_config.hidden_size
+    vocab_size = config.text_config.vocab_size
+    num_hidden_layers = config.text_config.num_hidden_layers
+    num_key_value_heads = config.text_config.num_key_value_heads
+    num_attention_heads = config.text_config.num_attention_heads
+    moe_intermediate_size = config.text_config.moe_intermediate_size
+    moe_num_expert = config.text_config.num_experts
+    moe_topk = config.text_config.num_experts_per_tok
+
+    head_dim = getattr(
+        config.text_config, "head_dim", config.text_config.hidden_size // config.text_config.num_attention_heads
+    )
+    q_size = num_attention_heads * head_dim
+    k_size = num_key_value_heads * head_dim
+    v_size = num_key_value_heads * head_dim
+
+    # non-attn per layer parm
+    moe_gata_N = hidden_size * moe_num_expert
+    # moe has gate_proj, up_proj and down_proj using SwiGLU in ExpertMlp layer & shared experts
+    moe_expertmlp_N = hidden_size * moe_intermediate_size * (moe_topk) * 3
+    attn_linear_N = hidden_size * (q_size + k_size + v_size + num_attention_heads * head_dim)
+    emd_and_lm_head_N = vocab_size * hidden_size * 2
+    # non-attn all_layer parm
+    moe_N = (moe_gata_N + moe_expertmlp_N + attn_linear_N) * (num_hidden_layers) + emd_and_lm_head_N
+    # non-attn all_layer & all_token fwd & bwd flops
+    dense_N_flops = 6 * moe_N * tokens_sum
+
+    # attn all_layer & all_token fwd & bwd flops
+    seqlen_square_sum = 0
+    for seqlen in batch_seqlens:
+        seqlen_square_sum += seqlen * seqlen
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
     # vit flops
     images_seqlens = kargs.get("images_seqlens", None)
@@ -256,7 +304,10 @@ def _estimate_deepseek_v3_flops(config, tokens_sum, batch_seqlens, delta_time):
     for seqlen in batch_seqlens:
         seqlen_square_sum += seqlen * seqlen * num_hidden_layers
 
-    attn_qkv_flops = 12 * seqlen_square_sum * q_head_dim * num_query_heads
+    # Core attention FLOPS for MLA with causal mask:
+    # Q @ K^T: 3 * 2 * seq^2 * q_head_dim * num_heads / 2 (causal)
+    # attn @ V: 3 * 2 * seq^2 * v_head_dim * num_heads / 2 (causal)
+    attn_qkv_flops = 3 * seqlen_square_sum * (q_head_dim + config.v_head_dim) * num_query_heads
     # all_layer & all_token fwd & bwk flops
     flops_all_token = dense_N_flops + attn_qkv_flops
     flops_achieved = flops_all_token * (1.0 / delta_time) / 1e12
@@ -293,7 +344,7 @@ def _estimate_qwen2_moe_flops(config, tokens_sum, batch_seqlens, delta_time):
     seqlen_square_sum = 0
     for seqlen in batch_seqlens:
         seqlen_square_sum += seqlen * seqlen
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
     # all_layer & all_token fwd & bwd flops
     flops_all_token = dense_N_flops + attn_qkv_flops
@@ -361,7 +412,7 @@ def _estimate_gemma3_flops(config, tokens_sum, batch_seqlens, delta_time):
             seqlen_square_sum += seqlen * seqlen
         seqlen_square_sum *= num_hidden_layers
 
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads
 
     # all_layer & all_token fwd & bwd flops
     flops_all_token = dense_N_flops + attn_qkv_flops
@@ -401,7 +452,7 @@ def _estimate_apertus_flops(config, tokens_sum, batch_seqlens, delta_time):
     seqlen_square_sum = 0
     for seqlen in batch_seqlens:
         seqlen_square_sum += seqlen * seqlen
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads * num_hidden_layers
 
     # all_layer & all_token fwd & bwd flops
     flops_all_token = dense_N_flops + attn_qkv_flops
@@ -472,7 +523,7 @@ def _estimate_gpt_oss_flops(config, tokens_sum, batch_seqlens, delta_time):
             seqlen_square_sum += seqlen * seqlen
         seqlen_square_sum *= num_hidden_layers
 
-    attn_qkv_flops = 12 * seqlen_square_sum * head_dim * num_attention_heads
+    attn_qkv_flops = 6 * seqlen_square_sum * head_dim * num_attention_heads
 
     # Total FLOPs
     flops_all_token = dense_N_flops + attn_qkv_flops
@@ -493,7 +544,7 @@ ESTIMATE_FUNC = {
     "qwen3": _estimate_qwen2_flops,
     "qwen3_moe": _estimate_qwen2_moe_flops,
     "qwen3_vl": _estimate_qwen3_vl_flops,
-    "qwen3_vl_moe": _estimate_qwen2_moe_flops,
+    "qwen3_vl_moe": _estimate_qwen3_vl_moe_flops,
     "deepseek_v3": _estimate_deepseek_v3_flops,
     "minicpmv": _estimate_qwen2_flops,
     "minicpmo": _estimate_qwen2_flops,
