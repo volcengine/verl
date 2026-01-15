@@ -18,6 +18,7 @@ import math
 import os
 import random
 from abc import ABC, abstractmethod
+from itertools import cycle
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -946,12 +947,12 @@ class AgentLoopManager:
 
         if self.name == "vllm" and self.scheduling_policy == "priority":
             chunked_size = math.lcm(self.config.data.gen_batch_size, len(self.agent_loop_workers))
-            time_consumed_detection_chunkes = prompts[:chunked_size].chunk(len(self.agent_loop_workers))
+            time_consumed_detection_chunkes = prompts[:chunked_size].chunk(chunked_size)
 
             ref_to_chunk = {}
 
             refs_for_time_measure = []
-            for worker, chunk in zip(self.agent_loop_workers, time_consumed_detection_chunkes, strict=True):
+            for worker, chunk in zip(cycle(self.agent_loop_workers), time_consumed_detection_chunkes):
                 ref = worker.generate_sequences.remote(chunk)
                 refs_for_time_measure.append(ref)
                 ref_to_chunk[ref] = chunk
@@ -970,10 +971,9 @@ class AgentLoopManager:
 
             chunkes = prompts[chunked_size:].chunk(len(self.agent_loop_workers))
             for chunk in chunkes:
-                if chunk.non_tensor_batch["index"][0] in time_consumed_tasks:
-                    chunk.non_tensor_batch["priority"] = [0]
-                else:
-                    chunk.non_tensor_batch["priority"] = [1]
+                chunk.non_tensor_batch["priority"] = [
+                    0 if i in time_consumed_tasks else 1 for i in chunk.non_tensor_batch["index"]
+                ]
 
             outputs = ray.get(refs_for_time_measure)
 
