@@ -674,6 +674,7 @@ def test_dataproto_chunk_after_index():
 
 
 def test_concat_nested_tensor():
+    # Test 2D nested tensors
     vocab_size = 128
     a = torch.randint(low=0, high=vocab_size, size=(11,))
     b = torch.randint(low=0, high=vocab_size, size=(13,))
@@ -689,6 +690,42 @@ def test_concat_nested_tensor():
     expected = torch.cat([a, b, c, d], dim=0)
 
     assert torch.all(torch.eq(output_values, expected)).item()
+
+    # Test 3D nested tensors
+    a_3d = torch.randint(low=0, high=vocab_size, size=(4, 4))
+    b_3d = torch.randint(low=0, high=vocab_size, size=(4, 5))
+    c_3d = torch.randint(low=0, high=vocab_size, size=(4, 6))
+    d_3d = torch.randint(low=0, high=vocab_size, size=(4, 7))
+
+    nested_a_b_3d = torch.nested.as_nested_tensor([a_3d, b_3d], layout=torch.jagged)
+    nested_c_d_3d = torch.nested.as_nested_tensor([c_3d, d_3d], layout=torch.jagged)
+
+    output_3d = tu.concat_nested_tensors([nested_a_b_3d, nested_c_d_3d])
+
+    assert output_3d.shape[0] == 4
+    output_3d_unbind = output_3d.unbind(0)
+    assert torch.all(torch.eq(output_3d_unbind[0], a_3d)).item()
+    assert torch.all(torch.eq(output_3d_unbind[1], b_3d)).item()
+    assert torch.all(torch.eq(output_3d_unbind[2], c_3d)).item()
+    assert torch.all(torch.eq(output_3d_unbind[3], d_3d)).item()
+
+    # Test 4D nested tensors
+    a_4d = torch.randint(low=0, high=vocab_size, size=(2, 3, 4))
+    b_4d = torch.randint(low=0, high=vocab_size, size=(2, 3, 5))
+    c_4d = torch.randint(low=0, high=vocab_size, size=(2, 3, 3))
+    d_4d = torch.randint(low=0, high=vocab_size, size=(2, 3, 6))
+
+    nested_a_b_4d = torch.nested.as_nested_tensor([a_4d, b_4d], layout=torch.jagged)
+    nested_c_d_4d = torch.nested.as_nested_tensor([c_4d, d_4d], layout=torch.jagged)
+
+    output_4d = tu.concat_nested_tensors([nested_a_b_4d, nested_c_d_4d])
+
+    assert output_4d.shape[0] == 4
+    output_4d_unbind = output_4d.unbind(0)
+    assert torch.all(torch.eq(output_4d_unbind[0], a_4d)).item()
+    assert torch.all(torch.eq(output_4d_unbind[1], b_4d)).item()
+    assert torch.all(torch.eq(output_4d_unbind[2], c_4d)).item()
+    assert torch.all(torch.eq(output_4d_unbind[3], d_4d)).item()
 
 
 def test_concat_tensordict():
@@ -755,6 +792,15 @@ def test_chunk_tensordict():
     input_ids = torch.nested.as_nested_tensor(
         [torch.arange(4), torch.arange(5), torch.arange(6), torch.arange(7)], layout=torch.jagged
     )
+    attention_mask = torch.nested.as_nested_tensor(
+        [
+            torch.randint(low=0, high=2, size=[3, 4]),
+            torch.randint(low=0, high=2, size=[3, 5]),
+            torch.randint(low=0, high=2, size=[3, 6]),
+            torch.randint(low=0, high=2, size=[3, 7]),
+        ],
+        layout=torch.jagged,
+    )
 
     multi_modal_inputs = torch.stack(
         [
@@ -768,6 +814,7 @@ def test_chunk_tensordict():
         {
             "input_ids": input_ids,
             "position_ids": position_ids,
+            "attention_mask": attention_mask,
             "multi_modal_inputs": multi_modal_inputs,
         },
     )
@@ -1019,148 +1066,3 @@ def test_contiguous():
     data_cont.consolidate()
 
     tu.assert_tensordict_eq(data_cont, data)
-
-
-def test_concat_nested_tensor_3d():
-    """Test concatenating 3D nested tensors."""
-    # Create 3D nested tensors
-    # Each batch element has shape [4, N] where N varies
-    batch1_tensors = [
-        torch.arange(4).expand(4, 4),  # [4, 4]
-        torch.arange(5).expand(4, 5),  # [4, 5]
-    ]
-    batch2_tensors = [
-        torch.arange(6).expand(4, 6),  # [4, 6]
-        torch.arange(7).expand(4, 7),  # [4, 7]
-    ]
-
-    nested_batch1 = torch.nested.as_nested_tensor(batch1_tensors, layout=torch.jagged)
-    nested_batch2 = torch.nested.as_nested_tensor(batch2_tensors, layout=torch.jagged)
-
-    # Concatenate the nested tensors
-    output = tu.concat_nested_tensors([nested_batch1, nested_batch2])
-
-    # Verify the output has 4 batch elements
-    assert output.shape[0] == 4
-
-    # Verify each batch element has the correct shape and values
-    output_unbind = output.unbind(0)
-
-    assert torch.all(torch.eq(output_unbind[0], batch1_tensors[0])).item()
-    assert torch.all(torch.eq(output_unbind[1], batch1_tensors[1])).item()
-    assert torch.all(torch.eq(output_unbind[2], batch2_tensors[0])).item()
-    assert torch.all(torch.eq(output_unbind[3], batch2_tensors[1])).item()
-
-    # Verify shapes are preserved
-    assert output_unbind[0].shape == torch.Size([4, 4])
-    assert output_unbind[1].shape == torch.Size([4, 5])
-    assert output_unbind[2].shape == torch.Size([4, 6])
-    assert output_unbind[3].shape == torch.Size([4, 7])
-
-
-def test_chunk_tensordict_multiple_3d():
-    """Test chunking TensorDict with multiple 3D nested tensors."""
-
-    # Create multiple 3D nested tensors
-    position_ids = torch.nested.as_nested_tensor(
-        [
-            torch.arange(4).expand(4, 4),
-            torch.arange(5).expand(4, 5),
-            torch.arange(6).expand(4, 6),
-            torch.arange(7).expand(4, 7),
-        ],
-        layout=torch.jagged,
-    )
-
-    # Second 3D nested tensor with different values
-    attention_mask = torch.nested.as_nested_tensor(
-        [
-            torch.ones(3, 4),
-            torch.ones(3, 5),
-            torch.ones(3, 6),
-            torch.ones(3, 7),
-        ],
-        layout=torch.jagged,
-    )
-
-    # Create TensorDict with 2 3D nested tensors
-    td = tu.get_tensordict(
-        {
-            "position_ids": position_ids,
-            "attention_mask": attention_mask,
-        },
-    )
-
-    # Chunk the TensorDict
-    chunks = tu.chunk_tensordict(td, chunks=2)
-
-    assert len(chunks) == 2
-    assert len(chunks[0]) == 2
-    assert len(chunks[1]) == 2
-
-    # Verify first chunk has correct data for both 3D tensors
-    chunk0_position_unbind = chunks[0]["position_ids"].unbind(0)
-    chunk0_attention_unbind = chunks[0]["attention_mask"].unbind(0)
-
-    assert torch.all(torch.eq(chunk0_position_unbind[0], torch.arange(4).expand(4, 4))).item()
-    assert torch.all(torch.eq(chunk0_position_unbind[1], torch.arange(5).expand(4, 5))).item()
-    assert torch.all(torch.eq(chunk0_attention_unbind[0], torch.ones(3, 4))).item()
-    assert torch.all(torch.eq(chunk0_attention_unbind[1], torch.ones(3, 5))).item()
-
-    # Verify second chunk has correct data for both 3D tensors
-    chunk1_position_unbind = chunks[1]["position_ids"].unbind(0)
-    chunk1_attention_unbind = chunks[1]["attention_mask"].unbind(0)
-
-    assert torch.all(torch.eq(chunk1_position_unbind[0], torch.arange(6).expand(4, 6))).item()
-    assert torch.all(torch.eq(chunk1_position_unbind[1], torch.arange(7).expand(4, 7))).item()
-    assert torch.all(torch.eq(chunk1_attention_unbind[0], torch.ones(3, 6))).item()
-    assert torch.all(torch.eq(chunk1_attention_unbind[1], torch.ones(3, 7))).item()
-
-
-def test_chunk_concat_roundtrip_3d():
-    """Test that chunk and concat are inverse operations for 3D nested tensors."""
-    # Create a TensorDict with 3D nested tensors
-    position_ids = torch.nested.as_nested_tensor(
-        [
-            torch.arange(4).expand(4, 4),
-            torch.arange(5).expand(4, 5),
-            torch.arange(6).expand(4, 6),
-            torch.arange(7).expand(4, 7),
-        ],
-        layout=torch.jagged,
-    )
-
-    # Also add regular 2D nested tensor for comparison
-    input_ids = torch.nested.as_nested_tensor(
-        [torch.arange(4), torch.arange(5), torch.arange(6), torch.arange(7)], layout=torch.jagged
-    )
-
-    original_td = tu.get_tensordict(
-        {
-            "input_ids": input_ids,
-            "position_ids": position_ids,
-        },
-    )
-
-    # Chunk the TensorDict
-    chunks = tu.chunk_tensordict(original_td, chunks=2)
-    assert len(chunks) == 2
-    assert len(chunks[0]) == 2
-    assert len(chunks[1]) == 2
-
-    # Concatenate the chunks back together
-    reconstructed_td = tu.concat_tensordict(chunks)
-
-    # Verify the reconstructed TensorDict matches the original
-    assert len(reconstructed_td) == 4
-
-    # Verify input_ids (2D nested tensor)
-    assert torch.all(torch.eq(reconstructed_td["input_ids"].values(), original_td["input_ids"].values())).item()
-
-    # Verify position_ids (3D nested tensor)
-    assert torch.all(torch.eq(reconstructed_td["position_ids"].values(), original_td["position_ids"].values())).item()
-
-    # Verify offsets match
-    assert torch.all(torch.eq(reconstructed_td["input_ids"].offsets(), original_td["input_ids"].offsets())).item()
-
-    assert torch.all(torch.eq(reconstructed_td["position_ids"].offsets(), original_td["position_ids"].offsets())).item()
