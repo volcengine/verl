@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -317,6 +318,21 @@ class vLLMOmniHttpServer(vLLMHttpServer):
 
         return ImageOutput(image=image, log_probs=log_probs, stop_reason=stop_reason)
 
+    async def sleep(self):
+        if self.rollout_mode == RolloutMode.HYBRID:
+            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+        elif self.rollout_mode == RolloutMode.COLOCATED:
+            if self.node_rank == 0:
+                await self.engine.sleep(level=1)
+        elif self.rollout_mode == RolloutMode.STANDALONE:
+            logger.info("skip sleep in standalone mode")
+
+    async def clear_kv_cache(self):
+        raise NotImplementedError("vLLM-Omni clear_kv_cache is not implemented.")
+
+    async def wait_for_requests_to_drain(self):
+        raise NotImplementedError("vLLM-Omni wait_for_requests_to_drain is not implemented.")
+
 
 _rollout_worker_actor_cls = ray.remote(vLLMOmniAsyncRollout)
 
@@ -342,3 +358,7 @@ class vLLMOmniReplica(vLLMReplica):
             device_mesh=None,
         )
         return worker_dict_cls
+
+    async def sleep(self):
+        """Sleep each rollout server."""
+        await asyncio.gather(*[server.sleep.remote() for server in self.servers])

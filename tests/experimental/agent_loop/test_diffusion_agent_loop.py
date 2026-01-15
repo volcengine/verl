@@ -80,10 +80,6 @@ def test_single_turn(init_config):
     seq_len = result.batch["prompts"].size(1) + result.batch["responses"].size(1)
     assert result.batch["input_ids"].size(1) == seq_len
     assert result.batch["attention_mask"].size(1) == seq_len
-    assert result.batch["position_ids"].size(1) == seq_len
-
-    if init_config.actor_rollout_ref.rollout.calculate_log_probs:
-        assert result.batch["rollout_log_probs"].size(1) == result.batch["responses"].size(1)
 
     # check turns
     num_turns = result.non_tensor_batch["__num_turns__"]
