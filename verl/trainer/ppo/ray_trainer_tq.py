@@ -302,7 +302,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
         return gen_batch_field_names
 
-    def _validate(self):
+    def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -331,45 +331,48 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             if self.config.reward_model.enable and test_batch[0]["reward_model"]["style"] == "model":
                 return {}
 
-            # Store original inputs
-            test_batch_meta = self.tq_client.put(data=test_batch, partition_id=f"val_{self.global_steps - 1}")
+            batch_meta = self.tq_client.put(data=test_batch, partition_id=f"val_{self.global_steps - 1}")
+
+            batch_meta.update_extra_info(
+                {
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                    "recompute_log_prob": False,
+                    "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
+                    "validate": True,
+                    "global_steps": self.global_steps,
+                }
+            )
+            print(f"batch_meta extra_info: {batch_meta.extra_info}")
 
             test_gen_fields = self._get_gen_batch_fields(tu.get_non_tensor_keys(test_batch))
-            del test_batch  # should not use it later
-            test_gen_meta = test_batch_meta.select_fields(list(test_gen_fields))
-            test_gen_meta.update_extra_info = {
-                "eos_token_id": self.tokenizer.eos_token_id,
-                "pad_token_id": self.tokenizer.pad_token_id,
-                "recompute_log_prob": False,
-                "do_sample": self.config.actor_rollout_ref.rollout.val_kwargs.do_sample,
-                "validate": True,
-                "global_steps": self.global_steps,
-            }
-            print(f"test_gen_batch meta info: {test_gen_meta.extra_info}")
-
-            # Note(TQ): we do not adapt pad & unpad processing in TQ version trainer
+            del test_batch
+            test_gen_meta = batch_meta.select_fields(list(test_gen_fields))
 
             if not self.async_rollout_mode:
                 test_output_gen_meta = self.actor_rollout_wg.generate_sequences(test_gen_meta)
             else:
                 test_output_gen_meta = self.async_rollout_manager.generate_sequences(test_gen_meta)
 
-            test_batch_meta = test_batch_meta.union(test_output_gen_meta)
+            batch_meta = batch_meta.union(test_output_gen_meta)
 
             print("validation generation end")
 
             # Store generated outputs
-            test_response_meta = test_output_gen_meta.select_fields(["prompts", "uid", "reward_model", "responses"])
+            test_response_meta = batch_meta.select_fields(["prompts", "responses", "uid", "reward_model"])
             data = self.tq_client.get_data(test_response_meta)
             output_ids = data["responses"]
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
+            # Store original inputs
             input_ids = data["prompts"]
+            # TODO: Can we keep special tokens except for padding tokens?
             input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
             sample_inputs.extend(input_texts)
             sample_uids.extend(data["uid"])
 
+            # Store ground truths
             ground_truths = [item.get("ground_truth", None) for item in data.get("reward_model", {})]
             sample_gts.extend(ground_truths)
 
@@ -381,13 +384,11 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 "reward_model",
                 "data_source",
             ]
+            if "rm_scores" in batch_meta.field_names:
+                compute_reward_fields = ["rm_scores", *set(batch_meta.extra_info["reward_extra_keys"])]
 
-            # TODO(TQ): merge PR https://github.com/volcengine/verl/pull/4928
-            # if "rm_scores" in batch_meta.field_names:
-            #     compute_reward_fields = ["rm_scores"]
-            val_reward_meta = test_batch_meta.select_fields(compute_reward_fields)
+            val_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
-            # evaluate using reward_function
             result = self._compute_or_extract_reward(val_reward_meta, reward_fn=self.val_reward_fn, return_dict=True)
             reward_tensor = result["reward_tensor"]
             scores = reward_tensor.sum(-1).cpu().tolist()
@@ -404,20 +405,18 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     reward_extra_infos_dict[key].extend(values if isinstance(values, list) else [values])
 
             # collect num_turns of each prompt
-            if "__num_turns__" in test_batch_meta.field_names:
-                num_turns_meta = test_batch_meta.select_fields(["__num_turns__"])
-                data = self.tq_client.get_data(num_turns_meta)
+            if "__num_turns__" in batch_meta.field_names:
+                data = self.tq_client.get_data(batch_meta.select_fields(["__num_turns__"]))
                 sample_turns.append(data["__num_turns__"])
 
             data_source = ["unknown"] * reward_tensor.shape[0]
-            if "data_source" in test_batch_meta.field_names:
-                data_source_meta = test_batch_meta.select_fields(["data_source"])
-                data = self.tq_client.get_data(data_source_meta)
+            if "data_source" in batch_meta.field_names:
+                data = self.tq_client.get_data(batch_meta.select_fields(["data_source"]))
                 data_source = data["data_source"]
 
             data_source_lst.append(data_source)
 
-            self.tq_client.clear_samples(test_batch_meta)
+            self.tq_client.clear_samples(batch_meta)
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
@@ -436,33 +435,16 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
+        if merged:
+            print("_merge_validation_results validate result will be merged")
+            return {
+                "data_sources": data_source_lst,
+                "sample_uids": sample_uids,
+                "sample_turns": sample_turns,
+                "reward_extra_infos_dict": reward_extra_infos_dict,
+            }
         data_sources = np.concatenate(data_source_lst, axis=0)
-
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
-        metric_dict = {}
-        for data_source, var2metric2val in data_src2var2metric2val.items():
-            core_var = "acc" if "acc" in var2metric2val else "reward"
-            for var_name, metric2val in var2metric2val.items():
-                n_max = max([int(name.split("@")[-1].split("/")[0]) for name in metric2val.keys()])
-                for metric_name, metric_val in metric2val.items():
-                    if (
-                            (var_name == core_var)
-                            and any(metric_name.startswith(pfx) for pfx in ["mean", "maj", "best"])
-                            and (f"@{n_max}" in metric_name)
-                    ):
-                        metric_sec = "val-core"
-                    else:
-                        metric_sec = "val-aux"
-                    pfx = f"{metric_sec}/{data_source}/{var_name}/{metric_name}"
-                    metric_dict[pfx] = metric_val
-
-        if len(sample_turns) > 0:
-            sample_turns = np.concatenate(sample_turns)
-            metric_dict["val-aux/num_turns/min"] = sample_turns.min()
-            metric_dict["val-aux/num_turns/max"] = sample_turns.max()
-            metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
-
-        return metric_dict
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
 
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
