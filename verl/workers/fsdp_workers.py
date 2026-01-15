@@ -18,23 +18,22 @@ The main entry point to run the PPO algorithm
 import datetime
 import json
 import logging
-import os
-import warnings
-from dataclasses import asdict
-from typing import Any, Optional
-
 import numpy as np
+import os
 import psutil
 import torch
 import torch.distributed
 import torch.distributed as dist
+import warnings
 from codetiming import Timer
+from dataclasses import asdict
 from omegaconf import DictConfig, OmegaConf, open_dict
 from peft import LoraConfig, TaskType, get_peft_model
 from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from typing import Any, Optional
 
 try:
     # for torch 2.5+
@@ -89,6 +88,7 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfi
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.utils.transferqueue_utils import tqbridge
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -248,7 +248,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # micro bsz
             if self.config.actor.ppo_micro_batch_size is not None:
                 self.config.actor.ppo_micro_batch_size //= (
-                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                        self.device_mesh.size() // self.ulysses_sequence_parallel_size
                 )
                 self.config.actor.ppo_micro_batch_size_per_gpu = self.config.actor.ppo_micro_batch_size
 
@@ -265,7 +265,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # normalize rollout config
         if self._is_rollout and self.config.rollout.log_prob_micro_batch_size is not None:
             self.config.rollout.log_prob_micro_batch_size //= (
-                self.device_mesh.size() // self.ulysses_sequence_parallel_size
+                    self.device_mesh.size() // self.ulysses_sequence_parallel_size
             )
             self.config.rollout.log_prob_micro_batch_size_per_gpu = self.config.rollout.log_prob_micro_batch_size
         # normalize ref config
@@ -274,21 +274,21 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
 
     def _build_model_optimizer(
-        self,
-        model_path,
-        fsdp_config: FSDPEngineConfig,
-        optim_config,
-        override_model_config,
-        use_remove_padding=False,
-        use_fused_kernels=False,
-        enable_gradient_checkpointing=False,
-        trust_remote_code=False,
-        use_liger=False,
-        role="actor",
-        enable_activation_offload=False,
-        use_prefix_grouper=False,
-        use_tiled_mlp=False,
-        tiled_mlp_shards=4,
+            self,
+            model_path,
+            fsdp_config: FSDPEngineConfig,
+            optim_config,
+            override_model_config,
+            use_remove_padding=False,
+            use_fused_kernels=False,
+            enable_gradient_checkpointing=False,
+            trust_remote_code=False,
+            use_liger=False,
+            role="actor",
+            enable_activation_offload=False,
+            use_prefix_grouper=False,
+            use_tiled_mlp=False,
+            tiled_mlp_shards=4,
     ):
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
         from transformers import (
@@ -342,9 +342,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # patch for qwen2.5-vl: when using flash_attention_3, set vision tower to use flash_attention_2
         # because the vision tower does not support flash_attention_3
         if (
-            getattr(actor_model_config, "model_type", None) == "qwen2_5_vl"
-            and attn_implementation == "flash_attention_3"
-            and hasattr(actor_model_config, "vision_config")
+                getattr(actor_model_config, "model_type", None) == "qwen2_5_vl"
+                and attn_implementation == "flash_attention_3"
+                and hasattr(actor_model_config, "vision_config")
         ):
             actor_model_config.vision_config._attn_implementation = "flash_attention_2"
 
@@ -631,8 +631,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
         else:
             is_collect = (
-                rollout_device_mesh["infer_tp"].get_local_rank() == 0
-                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+                    rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                    and rollout_device_mesh["infer_pp"].get_local_rank() == 0
             )
             self._register_dispatch_collect_info(
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
@@ -911,6 +911,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
+    @tqbridge()
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -931,11 +932,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 global_num_tokens, delta_time, images_seqlens=images_seqlens
             )
             metrics["perf/mfu/actor"] = (
-                estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
+                    estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
             )
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+            metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]
             metrics["actor/lr"] = lr.item() if torch.is_tensor(lr) else lr
@@ -1007,6 +1008,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
+    @tqbridge()
     def compute_log_prob(self, data: DataProto):
         # when is_lora is True, we use the actor without lora applied to calculate the log_prob
         # which is mostly used for ref log_prob calculation
@@ -1059,6 +1061,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
+    @tqbridge()
     def compute_ref_log_prob(self, data: DataProto):
         if self._is_lora:
             # if _is_lora, actor without lora applied is the ref
@@ -1254,10 +1257,10 @@ class CriticWorker(Worker, DistProfilerExtension):
         self.config.ppo_mini_batch_size //= torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
         if self.config.ppo_micro_batch_size is not None:
             self.config.ppo_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.forward_micro_batch_size //= (
-                torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
+                    torch.distributed.get_world_size() // self.ulysses_sequence_parallel_size
             )
             self.config.ppo_micro_batch_size_per_gpu = self.config.ppo_micro_batch_size
             self.config.forward_micro_batch_size_per_gpu = self.config.forward_micro_batch_size
@@ -1272,7 +1275,7 @@ class CriticWorker(Worker, DistProfilerExtension):
                 f"ppo_micro_batch_size_per_gpu {self.config.ppo_micro_batch_size_per_gpu}"
             )
         self._is_lora = (
-            self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
+                self.config.model.get("lora_adapter_path") is not None or self.config.model.get("lora_rank", 0) > 0
         )
         self.use_orig_params = self.config.model.fsdp_config.get("use_orig_params", False)
 
@@ -1558,6 +1561,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan", role="compute_values")
+    @tqbridge()
     def compute_values(self, data: DataProto):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -1578,6 +1582,7 @@ class CriticWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink", role="critic_update")
+    @tqbridge()
     def update_critic(self, data: DataProto):
         if self._is_offload_param:
             load_fsdp_model_to_gpu(self.critic_module)
@@ -2029,11 +2034,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

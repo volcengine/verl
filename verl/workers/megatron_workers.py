@@ -18,14 +18,13 @@ The main entry point to run the PPO algorithm
 import datetime
 import logging
 import os
-import time
-from typing import Any, Optional
-
 import psutil
+import time
 import torch
 import torch.distributed
 from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
+from typing import Any, Optional
 
 try:
     from verl.workers.engine.mindspeed.transformer_impl import repatch
@@ -80,6 +79,7 @@ from verl.workers.config import HFModelConfig, McoreCriticConfig, RolloutConfig
 from verl.workers.critic.megatron_critic import MegatronPPOCritic
 from verl.workers.reward_model.megatron.reward_model import MegatronRewardModel
 from verl.workers.rollout import get_rollout_class
+from verl.utils.transferqueue_utils import tqbridge
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -106,14 +106,14 @@ def set_random_seed(seed, only_rollout=False):
 
 class MegatronWorker(Worker):
     def _init_hf_config_and_tf_config(
-        self,
-        model_path,
-        tokenizer_or_path,
-        dtype,
-        override_model_config,
-        override_transformer_config,
-        trust_remote_code=False,
-        megatron_config=None,
+            self,
+            model_path,
+            tokenizer_or_path,
+            dtype,
+            override_model_config,
+            override_transformer_config,
+            trust_remote_code=False,
+            megatron_config=None,
     ):
         from transformers import AutoConfig
 
@@ -280,9 +280,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self._is_actor or self._is_ref:
             is_collect = (
-                mpu.get_tensor_model_parallel_rank() == 0
-                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-                and mpu.get_context_parallel_rank() == 0
+                    mpu.get_tensor_model_parallel_rank() == 0
+                    and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                    and mpu.get_context_parallel_rank() == 0
             )
             self._register_dispatch_collect_info(
                 mesh_name="actor", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
@@ -356,7 +356,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             self._ref_is_offload_param = self.config.ref.megatron.get("param_offload", False)
 
     def _build_model_optimizer(
-        self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config=None
+            self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config=None
     ):
         from verl.utils.megatron.optimizer import (
             get_megatron_optimizer,
@@ -512,8 +512,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         )
 
         is_collect = (
-            rollout_device_mesh["infer_tp"].get_local_rank() == 0
-            and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+                rollout_device_mesh["infer_tp"].get_local_rank() == 0
+                and rollout_device_mesh["infer_pp"].get_local_rank() == 0
         )
         self._register_dispatch_collect_info(
             "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
@@ -724,6 +724,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red", role="actor_update")
+    @tqbridge()
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -745,9 +746,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             global_num_tokens, delta_time, images_seqlens=images_seqlens
         )
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
-        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
-        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
+        metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024 ** 3)
+        metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024 ** 3)
+        metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024 ** 3)
         from verl.utils.megatron.optimizer import get_megatron_last_lr
 
         metrics["actor/lr"] = get_megatron_last_lr(self.actor_optimizer)
@@ -820,6 +821,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
+    @tqbridge()
     def compute_ref_log_prob(self, data: DataProto):
         if self.peft_cls is not None:
             # if is lora, actor without lora applied is the ref
@@ -846,6 +848,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
+    @tqbridge()
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -988,11 +991,11 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
+            self,
+            prompt_ids: list[int],
+            sampling_params: dict[str, Any],
+            request_id: str,
+            image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
@@ -1043,9 +1046,9 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
             )
 
         is_collect = (
-            mpu.get_tensor_model_parallel_rank() == 0
-            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-            and mpu.get_context_parallel_rank() == 0
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
         )
         self._register_dispatch_collect_info(
             mesh_name="critic", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
@@ -1067,7 +1070,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
         # TODO(sgm): support critic model offload
 
     def _build_critic_model_optimizer(
-        self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config
+            self, model_path, optim_config, override_model_config, override_transformer_config, override_ddp_config
     ):
         from verl.utils.megatron.optimizer import (
             get_megatron_optimizer,
@@ -1225,6 +1228,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan", role="compute_values")
+    @tqbridge()
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -1242,6 +1246,7 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink", role="critic_update")
+    @tqbridge()
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
 
@@ -1345,9 +1350,9 @@ class RewardModelWorker(MegatronWorker, DistProfilerExtension):
             )
 
         is_collect = (
-            mpu.get_tensor_model_parallel_rank() == 0
-            and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
-            and mpu.get_context_parallel_rank() == 0
+                mpu.get_tensor_model_parallel_rank() == 0
+                and mpu.get_pipeline_model_parallel_rank() == mpu.get_pipeline_model_parallel_world_size() - 1
+                and mpu.get_context_parallel_rank() == 0
         )
         self._register_dispatch_collect_info(
             mesh_name="reward", dp_rank=mpu.get_data_parallel_rank(), is_collect=is_collect
