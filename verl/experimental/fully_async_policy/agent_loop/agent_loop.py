@@ -31,8 +31,6 @@ from verl.experimental.agent_loop.agent_loop import (
     get_trajectory_info,
 )
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
-from verl.experimental.fully_async_policy.sglang_rollout.sglang_async_server import FullyAsyncSGLangReplica
-from verl.experimental.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
 from verl.utils.rollout_trace import (
@@ -224,9 +222,13 @@ class FullyAsyncAgentLoopManager(AgentLoopManager):
         # Select rollout replica class based on rollout name
         rollout_name = config.actor_rollout_ref.rollout.name
         if rollout_name == "sglang":
+            from verl.experimental.fully_async_policy.sglang_rollout.sglang_async_server import FullyAsyncSGLangReplica
+
             self.rollout_replica_class = FullyAsyncSGLangReplica
             print("[FullyAsyncAgentLoopManager] SGLang replica class selected")
         elif rollout_name == "vllm":
+            from verl.experimental.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
+
             self.rollout_replica_class = FullyAsyncvLLMReplica
             print("[FullyAsyncAgentLoopManager] vLLM replica class selected")
         else:
