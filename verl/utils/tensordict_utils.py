@@ -160,18 +160,19 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
     """Concatenate multiple nested tensors along the batch dimension.
 
     Takes a list of nested tensors with jagged layout and concatenates them
-    into a single nested tensor. Each input tensor must be contiguous.
+    into a single nested tensor. Each input tensor must have 2 or more dimensions and be contiguous.
 
     Args:
         tensors: List of nested tensors to concatenate. All tensors must
-            be nested and contiguous.
+            be nested, contiguous, and have 2 or more dimensions.
 
     Returns:
         A new nested tensor with jagged layout containing all rows from
         the input tensors concatenated along dimension 0.
 
     Raises:
-        AssertionError: If any tensor is not nested or not contiguous.
+        AssertionError: If any tensor is not nested, not contiguous, or
+            doesn't have 2 or more dimensions.
 
     Example:
         >>> t1 = torch.nested.as_nested_tensor([torch.randn(3), torch.randn(5)], layout=torch.jagged)
@@ -183,6 +184,7 @@ def concat_nested_tensors(tensors: list[torch.Tensor]) -> torch.Tensor:
         assert tensor.is_nested and tensor.is_contiguous()
     unbind_tensors = []
     for tensor in tensors:
+        assert len(tensor.shape) >= 2, f"nested tensor must have 2 or more dimensions. Got {tensor.shape}"
         unbind_tensor = tensor.unbind(0)
         unbind_tensors.extend(list(unbind_tensor))
 
