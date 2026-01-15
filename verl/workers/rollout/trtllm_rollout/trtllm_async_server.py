@@ -27,7 +27,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import is_cuda_available
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.trtllm_rollout.trtllm_rollout import TRTLLMAsyncRollout
+from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
 from verl.workers.rollout.utils import is_valid_ipv6_address, run_unvicorn
 
 logger = logging.getLogger(__file__)
@@ -184,7 +184,7 @@ class TRTLLMHttpServer:
             # Call all workers to switch between trainer mode and rollout mode.
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            await self.llm.resume(tags=TRTLLMAsyncRollout.get_full_tags())
+            await self.llm.resume(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip wake_up in standalone mode")
 
@@ -192,12 +192,12 @@ class TRTLLMHttpServer:
         if self.rollout_mode == RolloutMode.HYBRID:
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            await self.llm.release(tags=TRTLLMAsyncRollout.get_full_tags())
+            await self.llm.release(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 
 
-_rollout_worker_actor_cls = ray.remote(TRTLLMAsyncRollout)
+_rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
 
 class TRTLLMReplica(RolloutReplica):

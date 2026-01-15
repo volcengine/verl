@@ -51,11 +51,11 @@ flowchart TB
             space2[" "]
             style space2 fill:none,stroke:none
             
-            subgraph AsyncRollout["<b>TRTLLMAsyncRollout<br/>(per DP rank)</b>"]
-                DPLeader["<b>• DP Leader coordination</b>"]
-                IPCMgmt["<b>• IPC handle management</b>"]
-                HTTPAdapter["<b>• HTTP adapter for server communication</b>"]
-            end
+    subgraph AsyncRollout["<b>ServerAdapter<br/>(per DP rank)</b>"]
+        DPLeader["<b>• DP Leader coordination</b>"]
+        IPCMgmt["<b>• IPC handle management</b>"]
+        HTTPAdapter["<b>• HTTP adapter for server communication</b>"]
+    end
             
             AsyncRollout -->|<b>HTTP/REST API</b>| HTTPServer
             
@@ -223,7 +223,7 @@ flowchart TB
 - Validate placement group configurations
 
 
-### 3.3 `TRTLLMAsyncRollout`
+### 3.3 `ServerAdapter`
 
 **Purpose**: Rollout worker that handles weight updates, memory management, and generation via HTTP adapter.
 
@@ -256,7 +256,7 @@ Each DP rank has one leader (the first TP rank within that DP group), and that l
 ```mermaid
 sequenceDiagram
     participant Client as Client/Actor
-    participant Rollout as TRTLLMAsyncRollout
+    participant Rollout as ServerAdapter
     participant Adapter as AsyncHttpAdapter
     participant Server as TRTLLMHttpServer
     participant AsyncLLM as AsyncLLM Engine

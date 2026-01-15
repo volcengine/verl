@@ -287,7 +287,7 @@ class AsyncTRTLLMHttpAdapter:
         return await self._make_async_request("update_weights", {"weights": weights})
 
 
-class TRTLLMAsyncRollout(BaseRollout):
+class ServerAdapter(BaseRollout):
     _WEIGHTS_TAGS = [
         "sampler",
         "drafter",
@@ -301,7 +301,7 @@ class TRTLLMAsyncRollout(BaseRollout):
 
     @staticmethod
     def get_full_tags() -> list[str]:
-        return TRTLLMAsyncRollout._WEIGHTS_TAGS + ["kv_cache"]
+        return ServerAdapter._WEIGHTS_TAGS + ["kv_cache"]
 
     def __init__(
         self, config: RolloutConfig, model_config: HFModelConfig, device_mesh: DeviceMesh, replica_rank: int = -1
@@ -332,7 +332,7 @@ class TRTLLMAsyncRollout(BaseRollout):
             logger.info(f"exclude_dp_size = {self.hybrid_device_mesh['exclude_dp'].size()}")
             self.gpu_id = ray.get_gpu_ids()[0]
             self.replica_rank = self.hybrid_device_mesh["dp"].get_local_rank()
-            assert len(ray.get_gpu_ids()) == 1, "TRTLLMAsyncRollout should run on a single GPU node"
+            assert len(ray.get_gpu_ids()) == 1, "ServerAdapter should run on a single GPU node"
         else:
             rank = int(os.environ["RANK"])
             self.replica_rank = replica_rank
@@ -342,7 +342,7 @@ class TRTLLMAsyncRollout(BaseRollout):
         assert self.replica_rank >= 0, "replica_rank is not set"
         assert self.is_leader_rank is not None, "is_leader_rank is not set"
 
-        print(f"TRTLLMAsyncRollout, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
+        print(f"ServerAdapter, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
 
         self.node_ip = ray.util.get_node_ip_address().strip("[]")
 
