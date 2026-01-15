@@ -40,6 +40,7 @@ from verl.utils.distributed import destroy_global_process_group
 from verl.utils.logger import log_with_rank
 from verl.utils.tracking import Tracking
 from verl.workers.engine_workers import TrainingWorker
+from verl.utils.memory_utils import aggressive_empty_cache
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -298,6 +299,7 @@ class SFTTrainer:
 
         train_time = 0
         total_tokens = 0
+        aggressive_empty_cache(force_sync=True)
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
 
@@ -377,6 +379,7 @@ class SFTTrainer:
                     torch.distributed.barrier()
 
                 if is_last_step or (self.save_freq > 0 and is_save_step):
+                    aggressive_empty_cache(force_sync=True)
                     self.ckpt_handler.save_checkpoint(step=global_step)
 
                 if is_last_step:
