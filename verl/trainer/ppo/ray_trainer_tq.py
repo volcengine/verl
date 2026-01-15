@@ -389,13 +389,11 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
-            result = self._compute_or_extract_reward(val_reward_meta, reward_fn=self.val_reward_fn, return_dict=True)
-            reward_tensor = result["reward_tensor"]
+            reward_tensor, reward_extra_info = self._compute_or_extract_reward(val_reward_meta, reward_fn=self.val_reward_fn, reward_for_val=True)
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
-            reward_extra_info = result.get("reward_extra_info", {})
             for key, values in reward_extra_info.items():
                 if key not in reward_extra_infos_dict:
                     reward_extra_infos_dict[key] = []
@@ -844,7 +842,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             )
                         else:
                             reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
-                                compute_reward_meta, reward_fn=self.reward_fn, return_dict=False
+                                compute_reward_meta, reward_fn=self.reward_fn, reward_for_val=False
                             )
 
                     # Operating Mode Selection:
