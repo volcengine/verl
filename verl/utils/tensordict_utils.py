@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import numpy as np
 import torch
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
@@ -128,7 +129,7 @@ def unwrap_non_tensor_data(data):
     return data
 
 
-def get_non_tensor_keys(data:TensorDict)->set:
+def get_non_tensor_keys(data: TensorDict) -> set:
     """Retrieve keys for non-tensor data from a TensorDict.
 
     Args:
@@ -143,6 +144,7 @@ def get_non_tensor_keys(data:TensorDict)->set:
         if not data.is_tensor(key):
             non_tensor_keys.append(key)
     return set(non_tensor_keys)
+
 
 def get_non_tensor_data(data: TensorDict, key: str, default):
     """Retrieve and unwrap non-tensor data from a TensorDict.

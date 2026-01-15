@@ -16,14 +16,13 @@ import asyncio
 import functools
 import inspect
 import logging
+import numpy as np
 import os
 import threading
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable
-
-import numpy as np
 import torch
+from functools import wraps
 from tensordict import NonTensorData
+from typing import TYPE_CHECKING, Any, Callable, Union
 
 if TYPE_CHECKING:
     from verl.single_controller.base.decorator import Dispatch
@@ -75,7 +74,7 @@ def get_transferqueue_client() -> "AsyncTransferQueueClient | TransferQueueClien
 
 
 def repeat_dict(batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
-) -> dict[str, torch.Tensor | np.ndarray]:
+                ) -> dict[str, torch.Tensor | np.ndarray]:
     """
     Repeat the batch dict a specified number of times.
 
@@ -112,6 +111,7 @@ def repeat_dict(batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2
                 else:
                     raise ValueError(f"Unsupported type in data {type(val)}")
     return repeated_batch_dict
+
 
 # TODO (TQ): verl will make all actor async, so this can be cleanup later.
 def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
