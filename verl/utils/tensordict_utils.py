@@ -13,11 +13,10 @@
 # limitations under the License.
 
 import logging
-from typing import Any, Iterable
-
 import torch
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
+from typing import Any, Iterable
 
 
 def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
@@ -323,7 +322,7 @@ def chunk_tensordict(td: TensorDict, chunks: int) -> list[TensorDict]:
     for key in keys:
         tensors = td[key].unbind(dim=0)
         for i, td in enumerate(tds):
-            td[key] = torch.nested.as_nested_tensor(tensors[i * chunk_size : (i + 1) * chunk_size], layout=torch.jagged)
+            td[key] = torch.nested.as_nested_tensor(tensors[i * chunk_size: (i + 1) * chunk_size], layout=torch.jagged)
 
     return tds
 
@@ -864,3 +863,45 @@ def maybe_fix_3d_position_ids(data: TensorDict):
     # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
     if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
         data["position_ids"]._ragged_idx = 2
+
+
+def get_non_tensor_keys(td: TensorDict) -> set:
+    """
+    Return the non tensor keys of a tensordict.
+    Not consider the nested situation.
+    """
+    non_tensor_keys = []
+    for key, val in td.items():
+        if not isinstance(val, torch.Tensor):
+            non_tensor_keys.append(key)
+    return set(non_tensor_keys)
+
+
+def dict_to_tensordict(data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:
+    """
+    Create a TensorDict from a dict of tensors and non_tensors.
+    Note that this requires tensordict version at least 0.10
+    """
+    assert parse_version(tensordict.__version__) >= parse_version("0.10"), (
+        "Storing non-tensor data in TensorDict at least requires tensordict version 0.10"
+    )
+    tensors_batch = {}
+    batch_size = None
+
+    for key, val in data.items():
+        if isinstance(val, torch.Tensor | np.ndarray):
+            tensors_batch[key] = val
+        else:
+            raise ValueError(f"Unsupported type in data {type(val)}")
+
+        if batch_size is None:
+            batch_size = len(val)
+        else:
+            assert len(val) == batch_size
+
+    if batch_size is None:
+        batch_size = []
+    else:
+        batch_size = [batch_size]
+
+    return TensorDict(tensors_batch, batch_size=batch_size)

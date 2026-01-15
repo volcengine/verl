@@ -61,13 +61,13 @@ tracking metrics to diagnose and correct off-policy issues.
 """
 
 import math
-from typing import Any, Optional
-
 import torch
+from typing import Any, Optional
 
 import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
 from verl.trainer.config.algorithm import RolloutCorrectionConfig
+from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.config.actor import PolicyLossConfig
 
 # Safety bound to prevent numerical overflow/underflow when exponentiating
@@ -91,7 +91,7 @@ TOKEN_LEVEL_ROLLOUT_RS_OPTIONS: set[str] = {"token_k1", "token_k2", "token_k3"}
 
 
 def _parse_rollout_rs_thresholds(
-    options: list[str], threshold_spec: Optional[str | float]
+        options: list[str], threshold_spec: Optional[str | float]
 ) -> dict[str, dict[str, Optional[float]]]:
     if threshold_spec is None:
         raise ValueError("rollout_rs_threshold must be provided for rejection sampling.")
@@ -154,10 +154,10 @@ def _parse_rollout_rs_thresholds(
 
 
 def compute_rollout_rejection_mask(
-    log_ratio: torch.Tensor,
-    response_mask: torch.Tensor,
-    rollout_rs: str = "token_k1",
-    rollout_rs_threshold: Optional[str | float] = None,
+        log_ratio: torch.Tensor,
+        response_mask: torch.Tensor,
+        rollout_rs: str = "token_k1",
+        rollout_rs_threshold: Optional[str | float] = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute hard trust region mask using divergence estimators.
 
@@ -220,7 +220,7 @@ def compute_rollout_rejection_mask(
 
     log_ratio_safe: torch.Tensor = torch.clamp(log_ratio, min=-SAFETY_BOUND, max=SAFETY_BOUND)
     token_k1: torch.Tensor = -log_ratio_safe
-    token_k2: torch.Tensor = 0.5 * log_ratio_safe**2
+    token_k2: torch.Tensor = 0.5 * log_ratio_safe ** 2
     token_k3: torch.Tensor = torch.exp(log_ratio_safe) - 1.0 - log_ratio_safe
 
     response_mask_bool: torch.Tensor = response_mask.bool()
@@ -373,16 +373,16 @@ def compute_rollout_rejection_mask(
 
 
 def compute_rs_metrics(
-    option_name: str,
-    rs_statistic: torch.Tensor,
-    response_mask: torch.Tensor,
-    seq_valid_mask: torch.Tensor,
-    *,
-    level: str,
-    per_sequence_values: Optional[torch.Tensor],
-    rollout_rs_threshold: float,
-    rollout_rs_threshold_lower: float,
-    apply_lower_threshold: bool,
+        option_name: str,
+        rs_statistic: torch.Tensor,
+        response_mask: torch.Tensor,
+        seq_valid_mask: torch.Tensor,
+        *,
+        level: str,
+        per_sequence_values: Optional[torch.Tensor],
+        rollout_rs_threshold: float,
+        rollout_rs_threshold_lower: float,
+        apply_lower_threshold: bool,
 ) -> dict[str, float]:
     """Compute metrics for hard trust region enforcement (per-option).
 
@@ -479,11 +479,11 @@ def compute_rs_metrics(
 
 
 def compute_rollout_correction_weights(
-    log_ratio: torch.Tensor,
-    response_mask: torch.Tensor,
-    rollout_is: str = "token",
-    rollout_is_threshold: float = 2.0,
-    rollout_is_batch_normalize: bool = False,
+        log_ratio: torch.Tensor,
+        response_mask: torch.Tensor,
+        rollout_is: str = "token",
+        rollout_is_threshold: float = 2.0,
+        rollout_is_batch_normalize: bool = False,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute importance sampling weights to correct for off-policy distribution shifts.
 
@@ -599,11 +599,11 @@ def compute_rollout_correction_weights(
 
 
 def compute_is_metrics(
-    rollout_is_weights: torch.Tensor,
-    log_ratio_for_metrics: torch.Tensor,
-    response_mask: torch.Tensor,
-    rollout_is: str,
-    rollout_is_threshold: float,
+        rollout_is_weights: torch.Tensor,
+        log_ratio_for_metrics: torch.Tensor,
+        response_mask: torch.Tensor,
+        rollout_is: str,
+        rollout_is_threshold: float,
 ) -> dict[str, float]:
     """Compute comprehensive metrics for truncated importance sampling weights.
 
@@ -679,7 +679,7 @@ def compute_is_metrics(
         )
         mean_clamped: torch.Tensor = verl_F.masked_mean(weights_for_std, response_mask)
         rollout_is_var: torch.Tensor = (
-            verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
+                verl_F.masked_mean(weights_for_std.square(), response_mask) - mean_clamped.square()
         )
         metrics["rollout_is_std"] = torch.sqrt(torch.clamp(rollout_is_var, min=0.0)).item()
     else:
@@ -690,7 +690,7 @@ def compute_is_metrics(
     mean_for_ess: torch.Tensor = verl_F.masked_mean(weights_for_ess, response_mask)
     is_weights_normalized: torch.Tensor = weights_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
     metrics["rollout_is_eff_sample_size"] = (
-        1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
+            1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
     )
 
     # Add sequence-level metrics if weights have batch dimension
@@ -714,14 +714,14 @@ def compute_is_metrics(
 
 
 def compute_rollout_correction_and_rejection_mask(
-    old_log_prob: torch.Tensor,
-    rollout_log_prob: torch.Tensor,
-    response_mask: torch.Tensor,
-    rollout_is: Optional[str] = None,
-    rollout_is_threshold: Optional[float] = 2.0,
-    rollout_is_batch_normalize: bool = False,
-    rollout_rs: Optional[str] = None,
-    rollout_rs_threshold: Optional[str | float] = None,
+        old_log_prob: torch.Tensor,
+        rollout_log_prob: torch.Tensor,
+        response_mask: torch.Tensor,
+        rollout_is: Optional[str] = None,
+        rollout_is_threshold: Optional[float] = 2.0,
+        rollout_is_batch_normalize: bool = False,
+        rollout_rs: Optional[str] = None,
+        rollout_rs_threshold: Optional[str | float] = None,
 ) -> tuple[Optional[DataProto], torch.Tensor, dict[str, float]]:
     """Unified interface for computing IS weights and rejection masks.
 
@@ -832,9 +832,9 @@ def compute_rollout_correction_and_rejection_mask(
 
 
 def compute_offpolicy_metrics(
-    old_log_prob: torch.Tensor,
-    rollout_log_prob: Optional[torch.Tensor],
-    response_mask: torch.Tensor,
+        old_log_prob: torch.Tensor,
+        rollout_log_prob: Optional[torch.Tensor],
+        response_mask: torch.Tensor,
 ) -> dict[str, Any]:
     """Compute off-policy diagnostic metrics (helper function).
 
@@ -940,8 +940,9 @@ def compute_offpolicy_metrics(
     return metrics
 
 
+@tqbridge(put_data=False)
 def compute_rollout_correction_and_add_to_batch(
-    batch: DataProto, rollout_corr_config: RolloutCorrectionConfig
+        batch: DataProto, rollout_corr_config: RolloutCorrectionConfig
 ) -> tuple[DataProto, dict]:
     """Compute rollout correction weights and apply rejection sampling.
 
@@ -998,9 +999,9 @@ def compute_rollout_correction_and_add_to_batch(
 
 
 def compute_rollout_corr_metrics_from_logprobs(
-    log_prob: torch.Tensor,
-    rollout_log_prob: torch.Tensor,
-    response_mask: torch.Tensor,
+        log_prob: torch.Tensor,
+        rollout_log_prob: torch.Tensor,
+        response_mask: torch.Tensor,
 ) -> dict[str, float]:
     """Compute rollout correction metrics from log probabilities during training.
 
@@ -1036,11 +1037,12 @@ def compute_rollout_corr_metrics_from_logprobs(
     return metrics_with_prefix
 
 
+@tqbridge()
 def apply_bypass_mode(
-    batch: DataProto,
-    rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
-    policy_loss_config: PolicyLossConfig = None,
-) -> None:
+        batch: DataProto,
+        rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
+        policy_loss_config: PolicyLossConfig = None,
+) -> DataProto:
     """
     Setup bypass mode: Use rollout_log_probs as old_log_probs.
 
@@ -1065,10 +1067,15 @@ def apply_bypass_mode(
         )
 
     # Use rollout log probs as old log probs (zero-cost substitution)
-    batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
+    old_log_probs = batch.batch["rollout_log_probs"]
+    batch.batch["old_log_probs"] = old_log_probs
 
     with open_dict(policy_loss_config):
         # Pass rollout_correction config to actor for loss computation and metrics
         policy_loss_config["rollout_correction"] = rollout_corr_config
         # Always use bypass_mode loss function which handles both loss_types
         policy_loss_config["loss_mode"] = "bypass_mode"
+
+    output = TensorDict({"old_log_probs": old_log_probs}, batch_size=old_log_probs.size(0))
+
+    return DataProto(batch=output)
