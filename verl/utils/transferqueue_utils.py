@@ -21,7 +21,7 @@ import os
 import threading
 import torch
 from functools import wraps
-from tensordict import NonTensorData
+from tensordict.tensorclass import NonTensorData
 from typing import TYPE_CHECKING, Any, Callable, Union
 
 if TYPE_CHECKING:
