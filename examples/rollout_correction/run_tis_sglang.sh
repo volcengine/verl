@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -xeuo pipefail
 
-ID=${1:-"qwen2.5_14bInstruct_sglang_fp8_8gpu_tis_on"}
+ID=${1:-"qwen3_8b_base_sglang_fp8_8gpu_tis_on"}
 CAP=${2:-"5"}
 
 project_name='DAPO-1'
@@ -63,8 +63,8 @@ PYTHONUNBUFFERED=1 python3 -m recipe.dapo.main_dapo \
     data.prompt_key=prompt \
     data.truncation='left' \
     data.max_prompt_length=2048 \
-    data.val_max_samples=1 \
-    data.max_response_length=4096 \
+    data.val_max_samples=-1 \
+    data.max_response_length=$((1024 * 20)) \
     data.gen_batch_size=96 \
     data.train_batch_size=32 \
     actor_rollout_ref.rollout.n=16 \
@@ -115,7 +115,7 @@ PYTHONUNBUFFERED=1 python3 -m recipe.dapo.main_dapo \
     reward_model.overlong_buffer.enable=True \
     reward_model.overlong_buffer.len=4096 \
     reward_model.overlong_buffer.penalty_factor=1.0 \
-    trainer.logger=['console'] \
+    trainer.logger=['console','wandb'] \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.n_gpus_per_node=8 \
