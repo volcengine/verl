@@ -66,6 +66,7 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
+from verl.utils.transferqueue_utils import tqbridge
 
 @dataclass
 class ResourcePoolManager:
@@ -123,7 +124,7 @@ class ResourcePoolManager:
                 f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
             )
 
-
+@tqbridge(put_data=False)
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
     """Apply KL penalty to the token-level rewards.
 
@@ -184,6 +185,7 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
+@tqbridge(put_data=True)
 def compute_advantage(
     data: DataProto,
     adv_estimator: AdvantageEstimator,
@@ -478,6 +480,7 @@ class RayPPOTrainer:
 
         print(f"Dumped generations to {filename}")
 
+    @tqbridge(put_data=False)
     def _log_rollout_data(
         self, batch: DataProto, reward_extra_infos_dict: dict, timing_raw: dict, rollout_data_dir: str
     ):
@@ -534,6 +537,7 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
+    @tqbridge(put_data=False)
     def _compute_or_extract_reward(
         self,
         batch: DataProto,
@@ -1141,6 +1145,7 @@ class RayPPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
+    @tqbridge(put_data=False)
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
