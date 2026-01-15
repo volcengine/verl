@@ -694,10 +694,6 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     self.actor_rollout_wg.async_calls_finalize_fn_exec(blocking=False)
                 metrics = {}
                 timing_raw = {}
-                base_get_meta_kwargs = dict(
-                    batch_size=self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n,
-                    partition_id=f"train_{self.global_steps - 1}",  # self.global_steps starts from 1
-                )
 
                 with marked_timer("start_profile", timing_raw):
                     self._start_profiling(
@@ -710,7 +706,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 batch_dict["uid"] = np.array(
                     [str(uuid.uuid4()) for _ in range(len(batch_dict["raw_prompt"]))], dtype=object
                 )
-                # When n > 1, repeat input data before putting to data system, simulating DataProto repeat.
+
                 repeated_batch_dict = repeat_dict(
                     batch_dict, repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True
                 )
@@ -718,12 +714,10 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                 batch_meta = self.tq_client.put(data=batch, partition_id=f"train_{self.global_steps - 1}")
                 batch_meta.set_extra_info("temperature", self.config.actor_rollout_ref.rollout.temperature)
+                batch_meta.set_extra_info("global_steps", self.global_steps)  # pass global_steps to trace
 
                 gen_batch_fields = self._get_gen_batch_fields(tu.get_non_tensor_keys(batch))
                 gen_meta = batch_meta.select_fields(list(gen_batch_fields))
-
-                # pass global_steps to trace
-                gen_meta.set_extra_info("global_steps", self.global_steps)
 
                 is_last_step = self.global_steps >= self.total_training_steps
                 with marked_timer("step", timing_raw):
@@ -760,6 +754,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                                     rm_scores_output_meta = self.reward_loop_manager.compute_rm_score(batch_meta)
                                 batch_meta = batch_meta.union(rm_scores_output_meta)
 
+                            # Compute or extract reward for REMAX baseline
                             compute_reward_fields = [
                                 "responses",
                                 "prompts",
@@ -768,9 +763,13 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                                 "data_source",
                                 "rm_scores",
                             ]
+                            if "rm_scores" in batch_meta.field_names:
+                                compute_reward_fields.extend(
+                                    ["rm_scores", *set(batch_meta.extra_info["reward_extra_keys"])]
+                                )
+
                             compute_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
-                            # Compute or extract reward for REMAX baseline
                             reward_baseline_tensor = self._compute_or_extract_reward(
                                 compute_reward_meta, reward_fn=self.reward_fn, sum_reward=True
                             )
@@ -789,8 +788,6 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                     batch_meta = batch_meta.union(gen_output_meta)
 
-                    # follow wuxibin's opinion and delete all response_mask related extra operations
-                    # cuz response_mask should be put in TQ when generating sequences
                     assert "response_mask" in batch_meta.field_names
 
                     # Balance the number of valid tokens across DP ranks.
@@ -800,10 +797,10 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     if self.config.trainer.balance_batch:
                         attention_mask_meta = batch_meta.select_fields(["attention_mask"])
                         balanced_idx = self._balance_batch(attention_mask_meta, metrics=metrics)
-                        batch_meta.reorder(balanced_idx)
+                        batch_meta = batch_meta.select_samples(balanced_idx)
 
                     # compute global_valid tokens
-                    data = self.tq_client.get_data(attention_mask_meta)
+                    data = self.tq_client.get_data(batch_meta.select_fields(["attention_mask"]))
                     batch_meta.extra_info["global_token_num"] = torch.sum(data["attention_mask"], dim=-1).tolist()
 
                     # get images_seqlens
@@ -834,7 +831,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             "data_source",
                         ]
                         if "rm_scores" in batch_meta.field_names:
-                            compute_reward_fields.append("rm_scores")
+                            compute_reward_fields.extend(
+                                ["rm_scores", *set(batch_meta.extra_info["reward_extra_keys"])]
+                            )
 
                         compute_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
@@ -859,12 +858,12 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                         old_log_prob_bypass_meta = batch_meta.select_fields(["rollout_log_probs"])
 
-                        old_log_prob_output_meta = apply_bypass_mode(
+                        old_log_prob_bypass_output_meta = apply_bypass_mode(
                             batch=old_log_prob_bypass_meta,
                             rollout_corr_config=rollout_corr_config,
                             policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
                         )
-                        batch_meta = batch_meta.union(old_log_prob_output_meta)
+                        batch_meta = batch_meta.union(old_log_prob_bypass_output_meta)
                     else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
                             old_log_prob_meta_fields = [
@@ -1025,7 +1024,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_add_to_batch
 
                             # Compute IS weights, apply rejection sampling, compute metrics
-                            rollout_correction_meta = ["old_log_probs", "rollout_log_probs", "response_mask"]
+                            rollout_correction_meta_fields = ["old_log_probs", "rollout_log_probs", "response_mask"]
+                            rollout_correction_meta = batch_meta.select_fields(rollout_correction_meta_fields)
                             data, is_metrics = compute_rollout_correction_and_add_to_batch(
                                 rollout_correction_meta, rollout_corr_config
                             )  # data is a dataproto
@@ -1062,7 +1062,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                                 compute_advantage_fields.append("reward_baselines")
 
                         compute_advantage_meta = batch_meta.select_fields(compute_advantage_fields)
-                        compute_advantage_meta = compute_advantage(
+                        compute_advantage_output_meta = compute_advantage(
                             compute_advantage_meta,
                             adv_estimator=self.config.algorithm.adv_estimator,
                             gamma=self.config.algorithm.gamma,
@@ -1071,7 +1071,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                             config=self.config.algorithm,
                         )
-                        batch_meta = batch_meta.union(compute_advantage_meta)
+                        batch_meta = batch_meta.union(compute_advantage_output_meta)
 
                         if "resampled_idx" in batch_meta.field_names and self.config.transferqueue.enable:
                             resample_idx_meta = batch_meta.select_fields(["pf_ppo_reweight_idx"])
@@ -1115,7 +1115,6 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             ]
                             update_actor_meta = batch_meta.select_fields(update_actor_fields)
                             actor_output_meta = self._update_actor(update_actor_meta)
-                            # batch_meta = batch_meta.union(actor_output_meta)
                         actor_output_metrics = reduce_metrics(actor_output_meta.extra_info["metrics"])
                         metrics.update(actor_output_metrics)
 
@@ -1228,8 +1227,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
-                    # TODO (TQ) :support transfer queue
-                    self.train_dataloader.sampler.update(batch=batch)
+                    # TODO (TQ) :support this feature
+                    print("Currently TransferQueue does not support this!")
+                    #self.train_dataloader.sampler.update(batch=batch)
 
                 self.tq_client.clear_samples(full_batch_meta)
                 # TODO: make a canonical logger that supports various backend
@@ -1257,5 +1257,6 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 # in favor of a general-purpose data buffer pool
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
-                    # TODO (TQ): support transfer queue
-                    self.train_dataset.on_batch_end(batch=batch)
+                    # TODO (TQ) :support this feature
+                    print("Currently TransferQueue does not support this!")
+                    #self.train_dataset.on_batch_end(batch=batch)
