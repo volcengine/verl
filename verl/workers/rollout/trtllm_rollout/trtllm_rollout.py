@@ -31,7 +31,6 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.multiprocessing.reductions import reduce_tensor
 
-from verl.utils.device import get_torch_device
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.utils import is_valid_ipv6_address
@@ -45,17 +44,6 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_DELAY = 2.0
 DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
-
-
-def get_total_available_bytes(pg: dist.ProcessGroup, rank: int, ratio: float, message: str = "") -> int:
-    mem_allocated = get_torch_device().memory_allocated()
-    mem_reserved = get_torch_device().memory_reserved()
-    mem_free, mem_total = get_torch_device().mem_get_info()
-    mem_free = mem_free + mem_reserved - mem_allocated
-    mem_free = torch.tensor(mem_free)
-    dist.all_reduce(mem_free, op=dist.ReduceOp.MIN, group=pg)
-    mem_free = mem_free.item()
-    return int(mem_free * ratio)
 
 
 def device_id_to_physical_device_id(id: int) -> int:
@@ -419,12 +407,7 @@ class ServerAdapter(BaseRollout):
         if self.is_leader_rank:
             await self._init_server_adapter()
 
-        total_available_bytes = await asyncio.to_thread(
-            get_total_available_bytes,
-            self.hybrid_device_mesh["exclude_dp"].get_group(),
-            self.hybrid_device_mesh["exclude_dp"].get_local_rank(),
-            self.config.refit_ipc_memory_ratio,
-        )
+        total_available_bytes = int(self.config.update_weights_bucket_megabytes) * 1024 * 1024
 
         try:
             device_uuid = get_device_uuid(self.gpu_id)

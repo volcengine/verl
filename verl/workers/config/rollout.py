@@ -189,7 +189,6 @@ class RolloutConfig(BaseConfig):
     custom: Optional[dict] = None
 
     update_weights_bucket_megabytes: int = 512
-    refit_ipc_memory_ratio: float = 0.5
 
     skip_rollout: bool = False
 
