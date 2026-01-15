@@ -845,6 +845,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                                 compute_reward_meta, reward_fn=self.reward_fn, reward_for_val=False
                             )
 
+                    # TODO: simplify this workflow when integrating with TransferQueue
                     # Operating Mode Selection:
                     # - Bypass mode: Sets old_log_probs = rollout_log_probs (2 policies: π_rollout, π_θ)
                     # - Decoupled mode: Recomputes old_log_probs as proximal anchor (3 policies: π_rollout, π_old, π_θ)
@@ -963,6 +964,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             values_meta = self._compute_values(batch_meta)
                             batch_meta = batch_meta.union(values_meta)
 
+                    # TODO: dispatch adv computation to workers, or simplify the workflow if needed
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
                         reward_extra_infos_dict: dict[str, list]
