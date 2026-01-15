@@ -58,8 +58,7 @@ common_params=(
 actor_rollout_ref.model.mtp.enable=True
 actor_rollout_ref.model.mtp.enable=True
 actor_rollout_ref.model.mtp.enable_train=True
-actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1
-actor_rollout_ref.model.mtp.detach_encoder=True
+actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.0
 )
 
 python -m verl.trainer.main_ppo \

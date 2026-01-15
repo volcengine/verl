@@ -12,7 +12,7 @@ env_vars:
   CUDA_HOME: "/usr/local/cuda"
   CUDA_TMPDIR: "/tmp"
   CUDA_CACHE_PATH: "/tmp/cuda_cache"
-  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/mimo-7B/col-128-mtp-scaling0.1-detach_encoder"
+  TENSORBOARD_DIR: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/main/mimo-7B/col-128-mtp-scaling0.0"
   # Transformers cache configuration to handle MiMo model custom modules
   HF_HOME: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/tmp/hf_home_mimo"
   PYTHONPATH: "/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/tmp/hf_home_mimo/modules/"

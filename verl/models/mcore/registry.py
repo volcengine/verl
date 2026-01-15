@@ -114,13 +114,11 @@ class SupportedModel(Enum):
     QWEN3 = "Qwen3ForCausalLM"  # tested
     QWEN3_MOE = "Qwen3MoeForCausalLM"  # tested
     GLM4_MOE = "Glm4MoeForCausalLM"
-
     QWEN3_TOKEN_CLASSIFICATION = "Qwen3ForTokenClassification"
     LLAMA_TOKEN_CLASSIFICATION = "LlamaForTokenClassification"
     QWEN3_MOE_VL = "Qwen3VLMoeForConditionalGeneration"
     QWEN3_VL = "Qwen3VLForConditionalGeneration"
     GPT_OSS = "GptOssForCausalLM"
-
     MiMO = "MiMoForCausalLM"
 
 
