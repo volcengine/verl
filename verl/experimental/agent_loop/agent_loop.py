@@ -401,6 +401,9 @@ class AgentLoopWorker:
             trace_config.get("max_samples_per_step_per_worker", None),
         )
 
+        if self.config.transfer_queue.enable:
+            self._create_transferqueue_client()
+
     @tqbridge()
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
@@ -794,10 +797,10 @@ class AgentLoopWorker:
             meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
         )
 
-    def create_transferqueue_client(
+    def _create_transferqueue_client(
         self,
     ):
-        """Create a client for data system (TransferQueue)."""
+        """Create TransferQueue client."""
         from verl.single_controller.ray.base import get_random_string
         from verl.utils.transferqueue_utils import create_transferqueue_client
 
@@ -864,7 +867,7 @@ class AgentLoopManager:
         self._init_agent_loop_workers()
 
         if self.config.transfer_queue.enable:
-            self.create_transferqueue_client_for_workers()
+            self._create_transferqueue_client()
 
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
@@ -926,14 +929,27 @@ class AgentLoopManager:
                 ).remote(self.config, self.server_handles, self.reward_router_address)
             )
 
-    def generate_sequences(self, prompts: DataProto) -> DataProto:
+    def _create_transferqueue_client(self):
+        """Create TransferQueue client."""
+        from verl.single_controller.ray.base import get_random_string
+        from verl.utils.transferqueue_utils import create_transferqueue_client
+
+        client_name = get_random_string(length=6)
+
+        self.tq_client = create_transferqueue_client(
+            client_id=f"AgentLoopManager_{client_name}",
+            config=self.config.transfer_queue,
+            sync=True,
+        )
+
+    def generate_sequences(self, prompts: "DataProto|BatchMeta") -> "DataProto|BatchMeta":
         """Split input batch and dispatch to agent loop workers.
 
         Args:
-            prompts (DataProto): Input batch.
+            prompts (DataProto|BatchMeta): Input batch.
 
         Returns:
-            DataProto: Output batch.
+            DataProto|BatchMeta: Output batch.
         """
 
         # Fix for Issue #4147: Always call wake_up() to ensure weight sync
@@ -949,7 +965,13 @@ class AgentLoopManager:
                 for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=True)
             ]
         )
-        output = DataProto.concat(outputs)
+
+        if self.config.transfer_queue.enable:
+            from transfer_queue.metadata import BatchMeta
+            output = BatchMeta.concat(outputs)
+        else:
+            output = DataProto.concat(outputs)
+
         # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
         self.sleep()
         if self.reward_model_manager:
@@ -962,7 +984,7 @@ class AgentLoopManager:
         output.meta_info = {"timing": timing, **outputs[0].meta_info}
         return output
 
-    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: DataProto) -> dict[str, float]:
+    def _performance_metrics(self, metrics: list[list[dict[str, str]]], output: "DataProto|BatchMeta") -> dict[str, float]:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
@@ -975,7 +997,11 @@ class AgentLoopManager:
 
         # batch sequence generation is bounded by the slowest sample
         slowest = np.argmax(t_generate_sequences + t_tool_calls)
-        attention_mask = output.batch["attention_mask"][slowest]
+
+        if self.config.transfer_queue.enable:
+            attention_mask = self.tq_client.get_data(output[slowest])["attention_mask"]
+        else:
+            attention_mask = output.batch["attention_mask"][slowest]
         prompt_length = output.batch["prompts"].shape[1]
         timing["agent_loop/slowest/generate_sequences"] = t_generate_sequences[slowest]
         timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]

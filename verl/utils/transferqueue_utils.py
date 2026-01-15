@@ -21,6 +21,10 @@ import threading
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
 
+import numpy as np
+import torch
+from tensordict import NonTensorData
+
 if TYPE_CHECKING:
     from verl.single_controller.base.decorator import Dispatch
 
@@ -70,6 +74,45 @@ def get_transferqueue_client() -> "AsyncTransferQueueClient | TransferQueueClien
     return _TRANSFER_QUEUE_CLIENT
 
 
+def repeat_dict(batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
+) -> dict[str, torch.Tensor | np.ndarray]:
+    """
+    Repeat the batch dict a specified number of times.
+
+    Args:
+        repeat_times (int): Number of times to repeat the data.
+        interleave (bool): Whether to interleave the repeated data.
+
+    Returns:
+        dict: A new dict with repeated data.
+    """
+    if repeat_times == 1:
+        return batch_dict
+
+    repeated_batch_dict = {}
+    if batch_dict:
+        if interleave:
+            # Interleave the data
+            for key, val in batch_dict.items():
+                if isinstance(val, torch.Tensor):
+                    repeated_batch_dict[key] = val.repeat_interleave(repeat_times, dim=0)
+                elif isinstance(val, np.ndarray):
+                    repeated_batch_dict[key] = np.repeat(val, repeat_times, axis=0)
+                else:
+                    raise ValueError(f"Unsupported type in data {type(val)}")
+        else:
+            # Stack the data
+            for key, val in batch_dict.items():
+                if isinstance(val, torch.Tensor):
+                    repeated_batch_dict[key] = (
+                        val.unsqueeze(0).expand(repeat_times, *val.shape).reshape(-1, *val.shape[1:])
+                    )
+                elif isinstance(val, np.ndarray):
+                    repeated_batch_dict[key] = np.tile(val, (repeat_times,) + (1,) * (val.ndim - 1))
+                else:
+                    raise ValueError(f"Unsupported type in data {type(val)}")
+    return repeated_batch_dict
+
 # TODO (TQ): verl will make all actor async, so this can be cleanup later.
 def _run_async_in_temp_loop(async_func: Callable[..., Any], *args, **kwargs) -> Any:
     # Use a temporary event loop in a new thread because event
@@ -110,8 +153,8 @@ def _find_batchmeta(*args, **kwargs):
 
 # TODO(TQ): the batchmeta conversion should align to that for engine workers
 async def _async_batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str = "DataProto",
-                                       ) -> Union[DataProto, TensorDict]:
-    meta_info = batchmeta.extra_info.copy()
+                                       ) -> DataProto | TensorDict:
+    meta_info = batchmeta.get_all_extra_info()
     if batchmeta.samples == [] or batchmeta.samples is None:
         if convert_type == "DataProto":
             return DataProto(
@@ -136,11 +179,11 @@ async def _async_batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
 
 
 def _batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
-                           ) -> Union[DataProto, TensorDict]:
+                           ) -> DataProto | TensorDict:
     return _run_async_in_temp_loop(_async_batchmeta_to_realdata, batchmeta, convert_type)
 
 
-async def _async_update_batchmeta_with_output(output: Union[TensorDict, DataProto], batchmeta: "BatchMeta",
+async def _async_update_batchmeta_with_output(output: DataProto | TensorDict, batchmeta: "BatchMeta",
                                               func_name=None) -> "BatchMeta":
     pid = os.getpid()
 
