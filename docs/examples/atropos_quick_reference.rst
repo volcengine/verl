@@ -14,8 +14,15 @@ Quick Start Commands
    # Training mode
    python recipe/atropos/launch_atropos_verl.py --mode training
 
+   # GRPO training with Atropos token-level advantages
+   python recipe/atropos/example_gsm8k_grpo.py --config-path recipe/atropos/config --config-name gsm8k_grpo_example
+
+   # Launch Atropos + vLLM + GRPO services
+   python recipe/atropos/launch_atropos_verl_services.py --config recipe/atropos/config/gsm8k_grpo_example.yaml
+
    # Test integration
    python recipe/atropos/test_atropos_integration.py
+   python recipe/atropos/tests/test_integration.py
 
 Common Configurations
 --------------------

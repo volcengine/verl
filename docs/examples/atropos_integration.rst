@@ -6,12 +6,13 @@ Atropos-VERL Integration
 Overview
 --------
 
-The Atropos-VERL integration provides a production-ready implementation for using Atropos RL environments with VERL infrastructure, implementing **GPRO (Group Relative Policy Optimization)** for automatic policy weight synchronization during RL training.
+The Atropos-VERL integration provides a production-ready implementation for using Atropos RL environments with VERL infrastructure, including **GRPO with token-level advantage overrides** and **GPRO (Group Relative Policy Optimization)** for automatic policy weight synchronization during RL training.
 
 Key Features
 ~~~~~~~~~~~
 
 - **VERL Inference Engines**: vLLM/SGLang with weight synchronization
+- **GRPO Training**: Token-level advantage overrides from Atropos environments
 - **GPRO Advantage-weighted SFT**: Production loss computation using VERL's GPRO implementation
 - **Complete RL Training Loop**: Rollout → GPRO advantage computation → Training → Weight sync
 - **Single-GPU Training**: Production training with GPRO advantage-weighted SFT
@@ -72,8 +73,15 @@ Command Line Usage
    # Single-GPU training
    python recipe/atropos/launch_atropos_verl.py --mode training
 
+   # GRPO training with Atropos token-level advantages
+   python recipe/atropos/example_gsm8k_grpo.py --config-path recipe/atropos/config --config-name gsm8k_grpo_example
+
+   # Launch Atropos + vLLM + GRPO services
+   python recipe/atropos/launch_atropos_verl_services.py --config recipe/atropos/config/gsm8k_grpo_example.yaml
+
    # Run tests
    python recipe/atropos/test_atropos_integration.py
+   python recipe/atropos/tests/test_integration.py
 
 API Reference
 ------------
