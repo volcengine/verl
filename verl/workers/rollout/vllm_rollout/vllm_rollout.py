@@ -29,9 +29,6 @@ import asyncio
 import getpass
 import logging
 import os
-
-os.environ["VLLM_FLASHINFER_WORKSPACE_BUFFER_SIZE"] = "536870912"
-os.environ["VLLM_ALLREDUCE_USE_SYMM_MEM"] = "0"
 from dataclasses import asdict
 from types import MethodType
 from typing import Any, Generator
