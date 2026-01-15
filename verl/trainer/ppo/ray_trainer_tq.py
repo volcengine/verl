@@ -189,6 +189,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         create_transferqueue_client(
             client_id="Trainer",
             config=self.config.transfer_queue,
+            sync=True
         )
         tq_client = get_transferqueue_client()
         return tq_client
