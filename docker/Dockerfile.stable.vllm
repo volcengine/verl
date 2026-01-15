@@ -114,3 +114,7 @@ RUN pip install git+https://github.com/volcengine/verl.git@v0.6.0 && \
 
 RUN apt-get update && apt-get install -y curl \
     && rm -rf /var/lib/apt/lists/*
+
+# avoid cudnn9.10&torch2.9.0 bug
+RUN sed -i '/nvidia-cudnn-cu12/d' /usr/local/lib/python3.12/dist-packages/torch-2.9.0+cu129.dist-info/METADATA
+RUN pip install --no-deps --force-reinstall nvidia-cudnn-cu12==9.16.0.29
