@@ -317,7 +317,6 @@ class SGLangHttpServerBase:
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
 
 
-@ray.remote(num_cpus=1)
 class SGLangHttpServer(SGLangHttpServerBase):
     def __init__(
         self,
@@ -355,7 +354,7 @@ class SGLangReplica(RolloutReplica):
         is_reward_model: bool = False,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
-        self.server_class = SGLangHttpServer
+        self.server_class = ray.remote(SGLangHttpServer)
 
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""

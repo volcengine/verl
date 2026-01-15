@@ -613,19 +613,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         self.model_config = model_config
 
         # 2. build rollout device mesh
+        infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
         infer_pp = self.config.rollout.pipeline_model_parallel_size
-        infer_tp_base = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
-        infer_world_size = infer_tp_base * infer_pp
+        infer_world_size = infer_tp * infer_pp
+        dp = self.world_size // infer_world_size
         assert self.world_size % infer_world_size == 0, (
             f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
         )
-        dp = self.world_size // infer_world_size
-
-        is_sglang_async = self.config.rollout.mode == "async" and self.config.rollout.name == "sglang"
-        infer_tp = self.config.rollout.get("tensor_model_parallel_size", 1) if is_sglang_async else infer_tp_base
-        if is_sglang_async:
-            assert infer_pp == 1, "pipeline_model_parallel_size must be 1 for sglang async rollout"
-
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
         )
