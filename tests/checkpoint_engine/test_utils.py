@@ -28,7 +28,7 @@ class TrainingWorkerTest(TrainingWorker):
     def __init__(self, config: TrainingWorkerConfig, checkpoint_backend: str, checkpoint_kwargs: dict) -> None:
         copy_to_local(config.model_config.path)
         super().__init__(config)
-        if torch.distributed.get_rank() == 0 and checkpoint_backend == "nccl":
+        if torch.distributed.get_rank() == 0 and checkpoint_backend in ["nccl", "kimi_ckpt_engine"]:
             checkpoint_kwargs["is_master"] = True
         self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
 
