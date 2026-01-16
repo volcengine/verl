@@ -557,7 +557,7 @@ class vLLMHttpServer:
             log_probs=log_probs,
             routed_experts=routed_experts,
             stop_reason=stop_reason,
-            num_preempted=num_preempted if num_preempted is not None else None,
+            num_preempted=num_preempted,
         )
 
     async def wake_up(self):
