@@ -20,6 +20,7 @@ from functools import partial
 
 import numpy as np
 import pytest
+import verl.utils.distributed_backend
 import ray
 import torch
 import torch.distributed as dist

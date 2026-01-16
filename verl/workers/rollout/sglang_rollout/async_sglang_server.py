@@ -18,6 +18,7 @@ import json
 import logging
 import os
 from typing import Any, Optional
+import verl.utils.distributed_backend
 
 import ray
 import sglang

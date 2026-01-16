@@ -18,6 +18,7 @@ from typing import Any, Optional, Sequence
 
 import hydra
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 from omegaconf import DictConfig
 

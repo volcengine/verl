@@ -20,7 +20,9 @@ Rollout rank 2, 3 - Rollout rank 1
 Then, we initiate 4 p2p comms from actor to rollout
 """
 
+import verl.utils.distributed_backend
 import ray
+# 缺接口
 import ray.util.collective as collective
 import torch
 

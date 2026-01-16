@@ -17,6 +17,7 @@ from types import FunctionType
 
 from tensordict import TensorDict
 
+import verl.utils.distributed_backend
 from verl.protocol import DataProtoFuture, _padding_size_key
 from verl.utils.py_functional import DynamicEnum
 from verl.utils.tensordict_utils import chunk_tensordict, concat_tensordict

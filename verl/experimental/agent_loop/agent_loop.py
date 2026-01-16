@@ -22,6 +22,7 @@ from uuid import uuid4
 
 import hydra
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 from cachetools import LRUCache

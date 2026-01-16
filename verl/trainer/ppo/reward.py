@@ -19,6 +19,7 @@ import warnings
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+import verl.utils.distributed_backend
 import ray
 import torch
 

@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 from pprint import pprint
 from typing import Any
+import verl.utils.distributed_backend
 
 import ray
 from omegaconf import OmegaConf

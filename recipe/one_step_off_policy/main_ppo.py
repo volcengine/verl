@@ -21,6 +21,7 @@ import os
 import socket
 
 import hydra
+import verl.utils.distributed_backend
 import ray
 
 from recipe.one_step_off_policy.ray_trainer import OneStepOffRayTrainer

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 import torch.distributed

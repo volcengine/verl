@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Process
 
 import psutil
+import verl.utils.distributed_backend
 import ray
 
 from verl.trainer.ppo.utils import Role

@@ -22,6 +22,7 @@ from collections import defaultdict
 import hydra
 import numpy as np
 import pandas as pd
+import verl.utils.distributed_backend
 import ray
 from omegaconf import OmegaConf
 from tqdm import tqdm

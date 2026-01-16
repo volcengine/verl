@@ -14,6 +14,7 @@
 import gc
 import time
 
+import verl.utils.distributed_backend
 import ray
 
 from verl.single_controller.base.worker import Worker

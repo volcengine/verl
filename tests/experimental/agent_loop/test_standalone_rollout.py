@@ -15,6 +15,7 @@ import asyncio
 import os
 
 import pytest
+import verl.utils.distributed_backend
 import ray
 from omegaconf import DictConfig
 from openai import AsyncOpenAI, OpenAI

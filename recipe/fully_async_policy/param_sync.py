@@ -14,6 +14,7 @@
 
 import logging
 import time
+import verl.utils.distributed_backend
 
 import ray
 from ray.util.collective import collective

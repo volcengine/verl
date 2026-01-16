@@ -18,6 +18,7 @@ import time
 from pprint import pformat
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 from ray import ObjectRef

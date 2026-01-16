@@ -14,6 +14,7 @@
 
 import multiprocessing
 from functools import partial
+import verl.utils.distributed_backend
 
 import ray
 

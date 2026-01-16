@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import verl.utils.distributed_backend
 
 import ray
 from omegaconf import OmegaConf

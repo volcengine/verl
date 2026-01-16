@@ -15,6 +15,7 @@
 import os
 import sys
 import time
+import verl.utils.distributed_backend
 
 import ray
 

@@ -19,6 +19,7 @@ from contextlib import ExitStack
 from enum import Enum
 from typing import Any, Callable, Optional, TypeVar
 from uuid import uuid4
+import verl.utils.distributed_backend
 
 import ray
 

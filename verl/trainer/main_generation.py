@@ -19,6 +19,7 @@ import os
 
 import hydra
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 
 os.environ["NCCL_DEBUG"] = "WARN"

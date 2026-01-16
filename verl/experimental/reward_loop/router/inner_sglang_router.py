@@ -16,6 +16,7 @@ import logging
 import multiprocessing
 import os
 import time
+import verl.utils.distributed_backend
 
 import ray
 import requests

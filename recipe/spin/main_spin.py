@@ -16,6 +16,7 @@
 import os
 
 import hydra
+import verl.utils.distributed_backend
 import ray
 
 from recipe.spin.spin_trainer import RaySPINTrainer

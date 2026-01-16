@@ -16,6 +16,7 @@ import asyncio
 import time
 
 import pytest
+import verl.utils.distributed_backend
 import ray
 import torch
 from tensordict import TensorDict

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pytest
+import verl.utils.distributed_backend
 import ray
 
 from verl.utils.ray_utils import parallel_put

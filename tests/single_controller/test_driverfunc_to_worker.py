@@ -14,6 +14,7 @@
 
 import os
 
+import verl.utils.distributed_backend
 import ray
 import torch
 from tensordict import TensorDict

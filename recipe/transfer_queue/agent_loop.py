@@ -14,6 +14,7 @@
 import asyncio
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 from transfer_queue import BatchMeta
 

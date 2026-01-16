@@ -15,6 +15,7 @@
 In client, we can get the server handler and send RPC request
 """
 
+import verl.utils.distributed_backend
 import ray
 import torch
 from server import Trainer

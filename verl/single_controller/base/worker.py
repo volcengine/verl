@@ -20,6 +20,7 @@ import socket
 import warnings
 from dataclasses import dataclass
 
+import verl.utils.distributed_backend
 import ray
 
 from verl.utils.device import (

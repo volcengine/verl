@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Annotated, Any, TypedDict
 import torch
 import zmq
 from pydantic import BaseModel, PlainSerializer, PlainValidator, WithJsonSchema
+import verl.utils.distributed_backend
 from ray.util.collective import collective
 
 from verl.utils.device import (

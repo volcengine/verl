@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional
 
 import cloudpickle as pickle
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import vllm.entrypoints.cli.serve
 import zmq

@@ -34,6 +34,7 @@ from types import MethodType
 from typing import Any, Generator
 
 import cloudpickle as pickle
+import verl.utils.distributed_backend
 import ray
 import torch
 import torch.distributed
