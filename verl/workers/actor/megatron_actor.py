@@ -191,8 +191,6 @@ class MegatronPPOActor(BasePPOActor):
         print(config)
         config.finalize_model_grads_func = finalize_model_grads
 
-        print(f"hzg actor_module {self.actor_module}")
-
     def _validate_config(self, config) -> None:
         """Validate config options not implemented for Megatron backend"""
         assert config.get("ulysses_sequence_parallel_size", 1) == 1
