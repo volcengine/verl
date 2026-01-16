@@ -19,6 +19,7 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
+import verl.utils.distributed_backend
 from ray.util.collective import collective
 
 from recipe.one_step_off_policy.distributed_util import vllm_stateless_init_process_group

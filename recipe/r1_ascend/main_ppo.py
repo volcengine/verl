@@ -22,6 +22,7 @@ import logging
 import os
 
 import hydra
+import verl.utils.distributed_backend
 import ray
 from omegaconf import OmegaConf
 

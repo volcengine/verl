@@ -14,6 +14,7 @@
 import asyncio
 import logging
 from typing import Any, Optional, Sequence
+import verl.utils.distributed_backend
 
 import ray
 from ray.actor import ActorHandle

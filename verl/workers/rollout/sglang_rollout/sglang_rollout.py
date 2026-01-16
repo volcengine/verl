@@ -19,6 +19,7 @@ import logging
 import multiprocessing as mp
 import os
 from typing import Generator
+import verl.utils.distributed_backend
 
 import ray
 import sglang.srt.entrypoints.engine

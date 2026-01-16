@@ -16,6 +16,7 @@ import asyncio
 import logging
 from collections import deque
 from typing import Any
+import verl.utils.distributed_backend
 
 import ray
 from omegaconf import DictConfig

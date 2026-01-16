@@ -24,6 +24,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 import logging
 
 import hydra
+import verl.utils.distributed_backend
 import ray
 import torch
 import torch.distributed

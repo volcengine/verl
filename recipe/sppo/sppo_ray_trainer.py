@@ -24,6 +24,7 @@ from pprint import pprint
 from typing import Optional
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 from torch.utils.data import Dataset, Sampler

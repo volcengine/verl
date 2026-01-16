@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 import aiohttp
+import verl.utils.distributed_backend
 import ray
 import uvicorn
 from fastapi import FastAPI, Request

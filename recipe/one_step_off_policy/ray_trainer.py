@@ -23,6 +23,7 @@ import uuid
 from pprint import pprint
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 from omegaconf import OmegaConf

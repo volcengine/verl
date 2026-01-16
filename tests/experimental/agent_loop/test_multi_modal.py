@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import verl.utils.distributed_backend
 import ray
 from omegaconf import DictConfig
 from PIL import Image

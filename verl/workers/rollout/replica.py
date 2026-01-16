@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 
 from omegaconf import DictConfig
 from pydantic import BaseModel
+import verl.utils.distributed_backend
 from ray.actor import ActorHandle
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup

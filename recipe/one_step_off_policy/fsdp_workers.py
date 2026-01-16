@@ -19,6 +19,7 @@ import os
 import torch
 import torch.distributed
 from omegaconf import DictConfig
+import verl.utils.distributed_backend
 from ray.util.collective import collective
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 

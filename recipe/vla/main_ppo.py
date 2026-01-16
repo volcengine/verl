@@ -17,6 +17,7 @@ import logging
 
 import datasets
 import hydra
+import verl.utils.distributed_backend
 import ray
 import torch
 from omegaconf import OmegaConf

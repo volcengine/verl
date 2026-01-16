@@ -21,6 +21,7 @@ import io
 import os
 import tempfile
 from collections import deque
+import verl.utils.distributed_backend
 
 import ray
 import torch
