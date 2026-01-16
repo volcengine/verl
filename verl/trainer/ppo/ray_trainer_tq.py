@@ -192,6 +192,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         tq_client = get_transferqueue_client()
         return tq_client
 
+    # Note: Now in these functions, we remove the unpadding/padding process. When TransferQueue becomes the
+    #       default option, we can let dataloader to directly produce unpadded NestedTensor batches.
     def _compute_values(self, batch_meta: BatchMeta) -> BatchMeta:
         if self.use_legacy_worker_impl == "disable":
             batch_meta.set_extra_info("compute_loss", False)
