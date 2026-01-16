@@ -155,6 +155,11 @@ class vLLMColocateWorkerExtension:
 
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False):
         """Update the weights of the rollout model."""
+        from vllm.platforms import current_platform
+
+        if current_platform.device_type == "npu" and self.device is None:
+            self.device = torch.device(f"npu:{self.local_rank}")
+
         # In async mode, make sure the old lora is removed before adding the new one
         if peft_config and base_sync_done:
             self.remove_lora(VLLM_LORA_INT_ID)
