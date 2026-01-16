@@ -64,9 +64,11 @@ from verl.utils.fsdp_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
+    fully_shard,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     init_fn,
+    maybe_patch_fsdp_module,
 )
 from verl.utils.logger import log_with_rank
 from verl.utils.profiler import log_gpu_memory_usage
@@ -249,6 +251,9 @@ class FSDPSFTTrainer:
         self.freeze_base_model = (
             self.speculator_adapter.freeze_base_model if self.speculator_adapter is not None else False
         )
+        if self.has_speculator:
+            self.freeze_base_model = True
+            self.speculator_adapter.freeze_base_model = True
 
         # This may be very large
         init_context = get_init_weight_context_manager(
@@ -308,15 +313,6 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After model allocation", logger=logger)
 
-        # Build and attach speculator before FSDP wrapping so it is wrapped together.
-        if self.speculator_adapter is not None:
-            self.speculator = self.speculator_adapter.build_and_attach(
-                self.model,
-                attach_to_model=True,
-            )
-        else:
-            self.speculator = None
-
         mixed_precision = MixedPrecision(
             param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32
         )
@@ -336,6 +332,15 @@ class FSDPSFTTrainer:
             cpu_offload = CPUOffload(offload_params=self.config.model.fsdp_config.offload_params)
 
         fsdp_strategy = self.config.model.strategy
+        if fsdp_strategy == "fsdp":
+            # Build and attach speculator before FSDP wrapping so it is wrapped together.
+            if self.speculator_adapter is not None:
+                self.speculator = self.speculator_adapter.build_and_attach(
+                    self.model,
+                    attach_to_model=True,
+                )
+            else:
+                self.speculator = None
         if fsdp_strategy == "fsdp":
             self.fsdp_model = FSDP(
                 self.model,
@@ -368,6 +373,15 @@ class FSDPSFTTrainer:
             apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config)
             fsdp2_load_full_state_dict(self.model, full_state, self.device_mesh, cpu_offload)
             self.fsdp_model = self.model
+            if self.speculator_adapter is not None:
+                self.speculator = self.speculator_adapter.build_and_attach(
+                    self.fsdp_model,
+                    attach_to_model=True,
+                )
+                with maybe_patch_fsdp_module(self.speculator):
+                    fully_shard(self.speculator, **fsdp_kwargs)
+            else:
+                self.speculator = None
         else:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
 
