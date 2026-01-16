@@ -360,7 +360,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             "pad_token_id": self.tokenizer.pad_token_id,
         }
 
-        if self.config.model.mtp.enable:
+        if self.config.model.get("mtp", {}).get("enable", False):
             raise NotImplementedError("Right now,  MTP is not supported in FSDP")
         else:
             if hasattr(actor_model_config, "num_nextn_predict_layers"):
