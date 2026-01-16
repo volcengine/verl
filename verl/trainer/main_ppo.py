@@ -37,7 +37,7 @@ def main(config):
     """Main entry point for PPO training with Hydra configuration management.
 
     Args:
-        config_dict: Hydra configuration dictionary containing training parameters.
+        config: Hydra configuration dictionary containing training parameters.
     """
     # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
     auto_set_device(config)
