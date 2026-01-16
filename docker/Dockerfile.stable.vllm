@@ -86,7 +86,7 @@ ENV GDRCOPY_HOME=/home/dpsk_a2a/gdrcopy
 
 # Build deepep-nvshmem
 WORKDIR /home/dpsk_a2a/deepep-nvshmem
-ARG TORCH_CUDA_ARCH_LIST="80;90;100"
+ENV TORCH_CUDA_ARCH_LIST="8.0;9.0;10.0"
 RUN NVSHMEM_SHMEM_SUPPORT=0 \
     NVSHMEM_UCX_SUPPORT=0 \
     NVSHMEM_USE_NCCL=0 \
