@@ -44,7 +44,7 @@ python3 -m verl.trainer.main_ppo \
     data.train_files="$TRAIN_FILES" \
     data.val_files="$TEST_FILES" \
     data.train_batch_size=1024 \
-    data.max_prompt_length=2048 \
+    data.max_prompt_length=1024 \
     data.max_response_length=1024 \
     data.return_raw_chat=True \
     data.filter_overlong_prompts=True \
@@ -75,6 +75,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.rollout.update_weights_bucket_megabytes=4096 \
     algorithm.use_kl_in_reward=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
