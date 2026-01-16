@@ -1,7 +1,9 @@
 import json
-import torch
-import numpy as np
 from typing import Any, Optional
+
+import numpy as np
+import torch
+
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 
 """
@@ -49,6 +51,8 @@ from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
     {%- endif %}
   {%- endif %}
 """
+
+
 class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
     def tokenize_assistant(self, index, message, full_message, tools, enable_thinking):
         """
@@ -69,6 +73,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
             apply_chat_template_kwargs["thinking"] = enable_thinking
 
         tokens = []
+        prefix = "      "
         # tool_calls分支
         if has_tool_calls:
             #if is_last_user:
@@ -79,14 +84,15 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                 formatted_args = tool["function"]["arguments"]
                 if not isinstance(formatted_args, str):
                     for k, v in formatted_args.items():
-                        if isinsance(v, np.ndarray):
+                        if isinstance(v, np.ndarray):
                             formatted_args[k] = list(v)
                     formatted_args = json.dumps(formatted_args, ensure_ascii=False)
 
                 if not is_first:
                     if message.get("content") is None:
                         tokens += processor.encode(
-                            "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>"
+                            prefix 
+                            + "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>"
                             + tool["function"]["name"]
                             + "<｜tool▁sep｜>"
                             + formatted_args
@@ -95,7 +101,9 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                         )
                     else:
                         tokens += processor.encode(
-                            message["content"]
+                            prefix
+                            + "    "
+                            + message["content"]
                             + "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>"
                             + tool["function"]["name"]
                             + "<｜tool▁sep｜>"
@@ -106,14 +114,14 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                     is_first = True
                 else:
                     tokens += processor.encode(
-                        "<｜tool▁call▁begin｜>"
+                        prefix + "<｜tool▁call▁begin｜>"
                         + tool["function"]["name"]
                         + "<｜tool▁sep｜>"
                         + formatted_args
                         + "<｜tool▁call▁end｜>",
                         add_special_tokens=False,
                     )
-            tokens += processor.encode("<｜tool▁calls▁end｜><｜end▁of▁sentence｜>", add_special_tokens=False)
+            tokens += processor.encode("    <｜tool▁calls▁end｜><｜end▁of▁sentence｜>", add_special_tokens=False)
         else:
             #if is_last_user:
             #    tokens += processor.encode("<｜Assistant｜>", add_special_tokens=False)
@@ -126,7 +134,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
             #if not (index > 0 and full_message[index - 1]["role"] == "tool"):
             #    if "</think>" in content:
             #        content = content.split("</think>", 1)[1]
-            tokens += processor.encode(content + "<｜end▁of▁sentence｜>", add_special_tokens=False)
+            tokens += processor.encode(prefix + content + "<｜end▁of▁sentence｜>", add_special_tokens=False)
 
         # 构造inputs
         input_ids = torch.tensor(tokens, dtype=torch.long)
@@ -196,6 +204,8 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                 return_tensors="pt",
                 **apply_chat_template_kwargs,
             )
+        elif message["role"] == "assistant":
+            inputs = self.tokenize_assistant(index, message, full_message, tools, enable_thinking)
         else:
             inputs = processor.apply_chat_template(
                 [message],
@@ -213,9 +223,10 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
         attention_mask = inputs.pop("attention_mask")[0]
 
         # remove system prompt if exists
-        if index != 0 and message["role"] not in ["system"]:
+        if index != 0 and message["role"] not in ["system", "assistant"]:
             input_ids = input_ids[len(self.system_prompt) :]
             attention_mask = attention_mask[len(self.system_prompt) :]
+        
 
         #if message["role"] == "assistant":
         #    loss_mask = torch.ones_like(attention_mask)
@@ -230,15 +241,36 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
 
 
 if __name__ == "__main__":
+  import hydra
   from transformers import AutoTokenizer
 
-  data_paths = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/yumingxuan/dataset/rl/ds_data/train_data.parquet"
-  tokenizer = AutoTokenizer.from_pretrained("/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/deepsearch_files_ssd/LLMbasemodels/huggingface.co/deepseek-ai/DeepSeek-V3.1-bf16")
-
-  dataset = MultiTurnSFTDatasetDeepseek(
-      parquet_files=data_paths, tokenizer=tokenizer, config=None
-  )
-  
-  for data in dataset:
-    pass
+  def test():
+    from omegaconf import OmegaConf
+    config=OmegaConf.create(
+        {
+            "max_length": 100000,
+            "messages_key": "prompt"
+        }
+    )
+    data_paths = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/yumingxuan/dataset/rl/gsm8k_full_prompt/train.parquet"
     
+    
+    #data_paths = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/yumingxuan/dataset/rl/ds_data/train_data.parquet"
+    #config=OmegaConf.create(
+    #    {
+    #        "max_length": 100000,
+    #    }
+    #)
+    
+    tokenizer = AutoTokenizer.from_pretrained("/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/deepsearch_files_ssd/LLMbasemodels/huggingface.co/deepseek-ai/DeepSeek-V3.1-bf16")
+    
+
+    dataset = MultiTurnSFTDatasetDeepseek(
+        parquet_files=data_paths, tokenizer=tokenizer, config=config
+    )
+    
+    for data in dataset:
+      pass
+
+
+  test()

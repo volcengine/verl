@@ -380,20 +380,19 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
 
     def patch_engine_mtp(self):
-        from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
         if self.model_config.mtp.enable:
             logger.warning('Applying mtp patch...')
-            from verl.models.mcore.mtp_patch import patch_postprocess
+            from verl.models.mcore.mtp_patch import patch_postprocess, patch_mtp_layer_get_embeddings
 
             print(self.engine.module)
             if isinstance(self.engine.module, list):
                 for m in self.engine.module:
                     patch_postprocess(m)
-                    if self.mtp_config.detach_encoder:
+                    if self.model_config.mtp.detach_encoder:
                         patch_mtp_layer_get_embeddings(m)
             else:
                 patch_postprocess(self.engine.module)
-                if self.mtp_config.detach_encoder:
+                if self.model_config.mtp.detach_encoder:
                     patch_mtp_layer_get_embeddings(self.engine.module)
 
 

@@ -617,6 +617,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
+        loss_mask = model_inputs["loss_mask"]
 
         if not isinstance(temperature, torch.Tensor):
             temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
@@ -662,7 +663,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ret["log_probs"] = log_probs
             return ret
 
-        logits_processor_args = {"label": label, "temperature": temperature}
+        logits_processor_args = {"label": label, "temperature": temperature, "loss_mask": loss_mask}
 
         has_mtp = self.model_config.mtp.enable
 

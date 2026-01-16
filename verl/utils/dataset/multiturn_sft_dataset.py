@@ -53,7 +53,12 @@ def once(func):
 @once
 def tokenize_full_and_print(tokenizer, message_list, input_ids, loss_mask, attn_mask, tools):
     # 使用tokenizer的apply_chat_template方法对message_list进行tokenize（不encode）
-    tokenized = tokenizer.apply_chat_template(message_list, tokenize=False, tools=tools)
+    tokenized = tokenizer.apply_chat_template(
+        message_list, 
+        add_generation_prompt=False,
+        tokenize=False, 
+        tools=tools
+    )
     str1 = f'tokenized as whole:\n{tokenized}'
     # 对input_ids进行decode
     str2 = f'tokenized seperately:\n{tokenizer.decode(input_ids)}'

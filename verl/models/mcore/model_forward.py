@@ -194,12 +194,12 @@ def gptmodel_forward_no_padding(
 
         if enable_mtp and post_process:
             args = {
-                k: preprocess_thd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+                k: preprocess_thd_no_padding(v, pre_process=True, need_roll=(k == "label" or k == "loss_mask"))[0]
                 for k, v in logits_processor_args.items()
             }
             model_kwargs["labels"] = args["label"].contiguous()
-        #print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
-        #print(f'model_kwargs={model_kwargs}')
+            model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
+        logits_processor_args.pop("label_mask")
 
         # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
         attention_mask = None
@@ -247,10 +247,12 @@ def gptmodel_forward_no_padding(
 
         if enable_mtp and post_process:
             args = {
-                k: preprocess_bshd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+                k: preprocess_bshd_no_padding(v, pre_process=True, need_roll=(k == "label" or k == "loss_mask"))[0]
                 for k, v in logits_processor_args.items()
             }
             model_kwargs["labels"] = args["label"].contiguous()
+            model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
+        logits_processor_args.pop("loss_mask")
 
         #print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
         #print(f'model_kwargs={model_kwargs}')
