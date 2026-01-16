@@ -389,7 +389,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
-            reward_tensor, reward_extra_info = self._compute_or_extract_reward(val_reward_meta, reward_fn=self.val_reward_fn, reward_for_val=True)
+            reward_tensor, reward_extra_info = self._compute_or_extract_reward(val_reward_meta,
+                                                                               reward_fn=self.val_reward_fn,
+                                                                               reward_for_val=True)
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
@@ -1229,7 +1231,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 if isinstance(self.train_dataloader.sampler, AbstractCurriculumSampler):
                     # TODO (TQ) :support this feature
                     print("Currently TransferQueue does not support this!")
-                    #self.train_dataloader.sampler.update(batch=batch)
+                    # self.train_dataloader.sampler.update(batch=batch)
 
                 self.tq_client.clear_samples(full_batch_meta)
                 # TODO: make a canonical logger that supports various backend
@@ -1259,4 +1261,76 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     # The dataset may be changed after each training batch
                     # TODO (TQ) :support this feature
                     print("Currently TransferQueue does not support this!")
-                    #self.train_dataset.on_batch_end(batch=batch)
+                    # self.train_dataset.on_batch_end(batch=batch)
+
+    @tqbridge(put_data=False)
+    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
+        """Reorder the data on single controller such that each dp rank gets similar total tokens.
+
+        When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
+        the same uid together on the same rank for prefix sharing optimization.
+        """
+        attention_mask = batch.batch["attention_mask"]
+        batch_size = attention_mask.shape[0]
+        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+        workload_lst = calculate_workload(global_seqlen_lst)
+        # Get dp_size from dispatch info to correctly balance across data parallel ranks
+        # Note: world_size may include tensor/pipeline parallel dimensions, but we only want DP
+        dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
+
+        # Use group-level balancing for PrefixGrouper to keep same-uid samples together
+        if getattr(self, "use_prefix_grouper", False) and "uid" in batch.non_tensor_batch:
+            from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+            uid_list = list(batch.non_tensor_batch["uid"])
+            seqlen_list = global_seqlen_lst.tolist()
+
+            # Count number of uid groups
+            num_groups = len(set(uid_list))
+
+            if num_groups % dp_size != 0:
+                raise ValueError(
+                    f"PrefixGrouper with balance_batch requires num_uid_groups ({num_groups}) "
+                    f"% dp_size ({dp_size}) == 0. "
+                    f"This ensures each rank gets equal number of groups. "
+                    f"Current batch_size={batch_size}, adjust batch_size to be a multiple of "
+                    f"dp_size * rollout.n."
+                )
+
+            global_partition_lst = get_group_balanced_partitions(
+                seqlen_list=seqlen_list,
+                uid_list=uid_list,
+                k_partitions=dp_size,
+            )
+
+        elif keep_minibatch:
+            # Decouple the DP balancing and mini-batching.
+            minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
+            minibatch_num = len(workload_lst) // minibatch_size
+            global_partition_lst = [[] for _ in range(dp_size)]
+            for i in range(minibatch_num):
+                rearrange_minibatch_lst = get_seqlen_balanced_partitions(
+                    workload_lst[i * minibatch_size: (i + 1) * minibatch_size],
+                    k_partitions=dp_size,
+                    equal_size=True,
+                )
+                for j, part in enumerate(rearrange_minibatch_lst):
+                    global_partition_lst[j].extend([x + minibatch_size * i for x in part])
+        else:
+            global_partition_lst = get_seqlen_balanced_partitions(workload_lst, k_partitions=dp_size, equal_size=True)
+        # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
+        # Skip reordering within partitions for PrefixGrouper to maintain uid grouping
+        if not getattr(self, "use_prefix_grouper", False):
+            for idx, partition in enumerate(global_partition_lst):
+                partition.sort(key=lambda x: (workload_lst[x], x))
+                ordered_partition = partition[::2] + partition[1::2][::-1]
+                global_partition_lst[idx] = ordered_partition
+
+        # reorder based on index. The data will be automatically equally partitioned by dispatch function
+        # when enable TQ just return index instead of reorder real data here
+        global_idx = [j for partition in global_partition_lst for j in partition]
+        global_balance_stats = log_seqlen_unbalance(
+            seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
+        )
+        metrics.update(global_balance_stats)
+        return global_idx
