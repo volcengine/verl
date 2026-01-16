@@ -551,8 +551,8 @@ class vLLMHttpServer:
             stop_reason = finish_reason  # for more stop reason in the future
 
         num_preempted = None
-        
-        if hasattr(final_res.outputs[0],'num_preempted'):
+
+        if hasattr(final_res.outputs[0], "num_preempted"):
             num_preempted = final_res.output[0].num_preempted
 
         return TokenOutput(
