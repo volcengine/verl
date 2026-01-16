@@ -37,7 +37,6 @@ from omegaconf import OmegaConf
 from torch import nn
 
 from verl import DataProto
-from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
@@ -73,9 +72,9 @@ class MegatronPPOActor(BasePPOActor):
         model_config,
         hf_config,
         tf_config,
-        mtp_config: MtpConfig,
         actor_module: nn.ModuleList,
         actor_optimizer: DistributedOptimizer,
+        mtp_config: MtpConfig = None,
     ):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
@@ -162,15 +161,12 @@ class MegatronPPOActor(BasePPOActor):
             from verl.models.mcore.mtp_patch import patch_postprocess
 
             for model in self.actor_module:
-                patch_postprocess(model)
+                if self.mtp_config:
+                    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
+                    patch_postprocess(model)
 
-            if self.mtp_config and self.mtp_config.enable_train and self.mtp_config.detach_encoder:
-                # Unwrap each model in the actor_module to get the actual GPTModel
-                from verl.utils.megatron_utils import unwrap_model
-
-                for model in self.actor_module:
-                    unwrapped_model = unwrap_model(model)
-                    patch_mtp_layer_get_embeddings(unwrapped_model)
+                    if self.mtp_config.detach_encoder:
+                        patch_mtp_layer_get_embeddings(model)
 
         self.optimizer_step_args = OmegaConf.create(
             {

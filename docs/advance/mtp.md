@@ -2,7 +2,7 @@
 
 **Author**: `https://github.com/meituan-search`
 
-**Last Updated**: 2026/01/14
+Last updated: 01/16/2026
 
 # 1. Scope of Support
 

@@ -612,9 +612,9 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 model_config=self.actor_model_config,
                 hf_config=self.hf_config,
                 tf_config=self.tf_config,
-                mtp_config=self.config.model.mtp if self.config.model.mtp.enable else None,
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
+                mtp_config=self.config.model.mtp if self.config.model.mtp.enable else None,
             )
             print(f"routing replay layers: {len(RouterReplay.router_instances)}")
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
