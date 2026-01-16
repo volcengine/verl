@@ -254,6 +254,7 @@ class FSDPSFTTrainer:
         if self.has_speculator:
             self.freeze_base_model = True
             self.speculator_adapter.freeze_base_model = True
+        self.speculator = None
 
         # This may be very large
         init_context = get_init_weight_context_manager(
