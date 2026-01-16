@@ -63,7 +63,6 @@ def default_compute_score(
             solution_str,
             ground_truth,
             strict_box_verify=kwargs.get("strict_box_verify", False),
-            pause_tokens_index=kwargs.get("pause_tokens_index"),
         )
     elif data_source in [
         "numina_aops_forum",
