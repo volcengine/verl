@@ -370,6 +370,7 @@ class SGLangHttpServer(SGLangHttpServerBase):
         node_rank: int,
         nnodes: int,
         cuda_visible_devices: str,
+        base_gpu_id: int,
     ):
         super().__init__(
             config=config,
@@ -380,6 +381,7 @@ class SGLangHttpServer(SGLangHttpServerBase):
             node_rank=node_rank,
             nnodes=nnodes,
             cuda_visible_devices=cuda_visible_devices,
+            base_gpu_id=base_gpu_id,
         )
 
 
