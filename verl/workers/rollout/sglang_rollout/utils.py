@@ -22,13 +22,28 @@ import torch.distributed as dist
 
 from verl.utils.device import get_device_name
 
+SGLANG_LORA_NAME = "verl_actor_lora_name"
+
+
+def get_max_lora_rank(lora_rank: int):
+    """
+    For vLLM, the smallest `max_lora_rank` is 8, and allowed values are (8, 16, 32, 64, 128, 256, 320, 512)
+    This function automatically adjusts the `max_lora_rank` to the nearest allowed value.
+    Reference: https://github.com/vllm-project/vllm/blob/8a297115e2367d463b781adb86b55ac740594cf6/vllm/config/lora.py#L27
+    """
+    assert lora_rank > 0, f"lora_rank must be greater than 0 to invoke this function, get {lora_rank}"
+    max_lora_ranks = [8, 16, 32, 64, 128, 256, 320, 512]
+    for rank in max_lora_ranks:
+        if lora_rank <= rank:
+            return rank
+    raise ValueError(f"lora_rank must be less than or equal to {max_lora_ranks[-1]}, but got {lora_rank}")
 
 def broadcast_pyobj(
-    data: list[Any],
-    rank: int,
-    dist_group: Optional[torch.distributed.ProcessGroup] = None,
-    src: int = 0,
-    force_cpu_device: bool = False,
+        data: list[Any],
+        rank: int,
+        dist_group: Optional[torch.distributed.ProcessGroup] = None,
+        src: int = 0,
+        force_cpu_device: bool = False,
 ):
     """from https://github.com/sgl-project/sglang/blob/844e2f227ab0cce6ef818a719170ce37b9eb1e1b/python/sglang/srt/utils.py#L905
 
@@ -69,7 +84,7 @@ def broadcast_pyobj(
 
 
 def get_named_tensor_buckets(
-    iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
+        iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
 ) -> Iterator[list[tuple[str, torch.Tensor]]]:
     """
     Group tensors into buckets based on a specified size in megabytes.
