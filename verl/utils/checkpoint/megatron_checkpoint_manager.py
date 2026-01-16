@@ -17,6 +17,7 @@ import logging
 import os
 import random
 from collections.abc import Callable
+from typing import Any, Optional
 from dataclasses import asdict
 
 import numpy as np
@@ -34,6 +35,7 @@ from verl.utils.device import get_device_name, get_torch_device
 from verl.utils.fs import is_non_local, local_mkdir_safe
 from verl.utils.logger import log_with_rank
 from verl.utils.megatron.dist_checkpointing import load_dist_checkpointing, save_dist_checkpointing
+from verl.utils.checkpoint.fsdp_checkpoint_manager import load_speculator_checkpoint, save_speculator_checkpoint
 from verl.utils.megatron_utils import (
     get_dist_checkpoint_path,
     get_hf_model_checkpoint_path,
@@ -122,6 +124,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         bridge=None,
         provider=None,
         peft_cls=None,
+        speculator_module: Optional[Any] = None,
+        speculator_builder: Optional[Callable[[], Any]] = None,
+        speculator_config_obj: Optional[Any] = None,
+        speculator_host_model: Optional[Any] = None,
         **kwargs,
     ):
         super().__init__(
@@ -155,10 +161,56 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             use_dist_checkpointing or not self.bridge or (self.vanilla_bridge and self.is_value_model)
         )
         self.use_hf_checkpoint = not self.use_dist_checkpointing
+        self.speculator_module = speculator_module
+        self.speculator_builder = speculator_builder
+        self.speculator_config_obj = speculator_config_obj
+        self.speculator_host_model = speculator_host_model
 
         self.weight_saver = None
         if self.bridge is None:
             self.weight_saver = get_weight_saver(self.arch)
+
+    def set_speculator(
+        self,
+        speculator_module: Optional[Any] = None,
+        speculator_builder: Optional[Callable[[], Any]] = None,
+        speculator_config_obj: Optional[Any] = None,
+        speculator_host_model: Optional[Any] = None,
+    ) -> None:
+        if speculator_module is not None:
+            self.speculator_module = speculator_module
+        if speculator_builder is not None:
+            self.speculator_builder = speculator_builder
+        if speculator_config_obj is not None:
+            self.speculator_config_obj = speculator_config_obj
+        if speculator_host_model is not None:
+            self.speculator_host_model = speculator_host_model
+
+    def _ensure_speculator_module(self) -> Optional[Any]:
+        if self.speculator_module is not None:
+            return self.speculator_module
+        if self.speculator_builder is not None:
+            self.speculator_module = self.speculator_builder()
+        return self.speculator_module
+
+    def save_speculator_checkpoint(self, local_path: str) -> None:
+        speculator_module = self._ensure_speculator_module()
+        if speculator_module is None:
+            return
+        host_model = self.speculator_host_model or speculator_module
+        save_speculator_checkpoint(
+            host_model,
+            speculator_module,
+            os.path.join(local_path, "speculator"),
+            config_obj=self.speculator_config_obj,
+        )
+
+    def load_speculator_checkpoint(self, local_path: str, logger) -> None:
+        speculator_module = self._ensure_speculator_module()
+        if speculator_module is None:
+            return
+        host_model = self.speculator_host_model or speculator_module
+        load_speculator_checkpoint(host_model, speculator_module, local_path, logger)
 
     def get_rng_state(self, use_dist_ckpt: bool = True, data_parallel_random_init: bool = False):
         """collect rng state across data parallel ranks"""

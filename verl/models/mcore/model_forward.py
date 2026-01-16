@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import torch
+from contextlib import contextmanager
 
 from verl.utils.megatron_utils import unwrap_model
 
@@ -146,6 +147,17 @@ def model_forward_gen(vision_model: bool = False):
     return model_forward
 
 
+@contextmanager
+def _disable_post_process(model):
+    unwrapped_model = unwrap_model(model)
+    restore_post_process = unwrapped_model.post_process
+    unwrapped_model.post_process = False
+    try:
+        yield
+    finally:
+        unwrapped_model.post_process = restore_post_process
+
+
 def gptmodel_forward_no_padding(
     model,
     input_ids,
@@ -248,3 +260,27 @@ def gptmodel_forward_no_padding(
         output = output.squeeze(-1)
 
     return output
+
+
+def gptmodel_forward_no_padding_with_hidden(
+    model,
+    input_ids,
+    multi_modal_inputs: dict,
+    vision_model=False,
+    pad_token_id=None,
+    data_format: str = "thd",
+):
+    """Forward pass that returns hidden states without running post_process/logits."""
+    assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
+    with _disable_post_process(model):
+        return gptmodel_forward_no_padding(
+            model,
+            input_ids,
+            multi_modal_inputs,
+            logits_processor=None,
+            logits_processor_args=None,
+            value_model=False,
+            vision_model=vision_model,
+            pad_token_id=pad_token_id,
+            data_format=data_format,
+        )

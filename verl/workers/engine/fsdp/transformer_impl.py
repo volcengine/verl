@@ -1055,3 +1055,190 @@ class FSDPEngineWithValueHead(FSDPEngineWithLMHead):
                 raise NotImplementedError(f"pad_mode {pad_mode} not implemented")
 
         return {"values": values}
+
+
+
+@EngineRegistry.register(
+    model_type="language_model_with_speculator",
+    backend=["fsdp", "fsdp2"],
+    device=["cuda", "npu"],
+)
+class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
+    """
+    Engine that trains a base LM *and a speculator* following Arctic-style speculative decoding training.
+    """
+
+    def __init__(
+        self,
+        model_config,
+        engine_config,
+        optimizer_config,
+        checkpoint_config,
+    ):
+        super().__init__(model_config, engine_config, optimizer_config, checkpoint_config)
+
+        # Load speculator config if any
+        self.speculator_config = getattr(model_config, "speculator", None)
+        self.speculator = None
+        self.speculator_adapter = None
+        self.has_speculator = self.speculator_config is not None
+
+    def initialize(self):
+        super().initialize()
+        if not self.has_speculator or self.checkpoint_manager is None:
+            return
+        speculator_module = getattr(self.module, "speculator", None)
+        speculator_config_obj = getattr(speculator_module, "config", None) if speculator_module is not None else None
+        self.checkpoint_manager.set_speculator(
+            speculator_module=speculator_module,
+            speculator_config_obj=speculator_config_obj,
+        )
+
+    def _build_module(self):
+        # Build base module
+        module = super()._build_module()
+
+        # If there's a speculator block defined
+        if self.speculator_config is not None:
+            from verl.trainer.speculators.interface import build_speculator_adapter
+
+            module_dtype = next(module.parameters()).dtype
+            self.speculator_adapter = build_speculator_adapter(
+                config=None,
+                model_config=self.model_config,
+                device_name=get_device_name(),
+                device_mesh=self.device_mesh,
+                torch_dtype=module_dtype,
+            )
+            # Defer speculator attachment until after FSDP wrapping.
+
+        return module
+
+    def _build_model_optimizer(self):
+        from verl.utils.model import print_model_size
+
+        module = self._build_module()
+        if self._is_lora:
+            module = self._build_lora_module(module)
+
+        torch.distributed.barrier()
+        if self.rank == 0:
+            print_model_size(module)
+        log_gpu_memory_usage("After init model from HF AutoModel", logger=logger)
+
+        log_gpu_memory_usage("Before FSDP", logger=None)
+        module = self._build_fsdp_module(module)
+        log_gpu_memory_usage("After FSDP", logger=None)
+
+        # Attach speculator after FSDP wrapping to avoid DTensor conversion.
+        if self.speculator_adapter is not None:
+            self.speculator = self.speculator_adapter.build_and_attach(module)
+        else:
+            self.speculator = None
+
+        if not self.engine_config.forward_only:
+            optimizer = self._build_optimizer(module)
+            lr_scheduler = self._build_lr_scheduler(optimizer)
+        else:
+            optimizer = None
+            lr_scheduler = None
+
+        self.module = module
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+
+    def _build_optimizer(self, module):
+        from verl.workers.config.optimizer import build_optimizer
+
+        if self.speculator_adapter is not None and self.speculator_adapter.has_speculator:
+            params = self.speculator_adapter.get_optimizer_params(module)
+        else:
+            params = module.parameters()
+
+        optimizer = build_optimizer(params, self.optimizer_config)
+        return optimizer
+
+    def prepare_model_inputs(self, micro_batch):
+        model_inputs, output_args = super().prepare_model_inputs(micro_batch)
+        # Always ask for hidden states so we can feed to speculator
+        if self.has_speculator:
+            model_inputs["output_hidden_states"] = True
+        return model_inputs, output_args
+
+    def forward_step(self, micro_batch, loss_function, forward_only):
+        """Forward and backward logic with speculator training."""
+
+        # If no speculator or forward_only (inference) -> fallback
+        if self.speculator is None or forward_only:
+            return super().forward_step(micro_batch, loss_function, forward_only)
+
+        use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)
+        if use_remove_padding:
+            raise NotImplementedError("Speculator training requires use_remove_padding=False")
+
+        # micro_batch to correct device
+        micro_batch = micro_batch.to(get_device_id())
+        model_inputs, output_args = self.prepare_model_inputs(micro_batch)
+
+        with torch.autocast(device_type=get_device_name(), dtype=torch.bfloat16):
+            base_out = self.module(
+                **model_inputs,
+                use_cache=False,
+            )
+            model_output = self.prepare_model_outputs(
+                output=base_out, output_args=output_args, micro_batch=micro_batch
+            )
+
+            metrics = {}
+
+            hidden_states = base_out.hidden_states[-1]
+            spec_loss = self.speculator_adapter.compute_speculator_loss(
+                self.module,
+                input_ids=micro_batch["input_ids"],
+                attention_mask=micro_batch.get("attention_mask", None),
+                position_ids=micro_batch.get("position_ids", None),
+                loss_mask=micro_batch["loss_mask"],
+                hidden_states=hidden_states,
+            )
+
+            total_loss = spec_loss
+            metrics["train/speculator_loss"] = spec_loss.detach().item()
+
+            output = {
+                "model_output": model_output,
+                "loss": total_loss.detach().item(),
+                "metrics": metrics,
+            }
+
+            return total_loss, output
+
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ):
+
+        # Save base model first
+        super().save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep, **kwargs)
+
+        if self.speculator is None or self.checkpoint_manager is None:
+            logger.warning("No speculator, skipping save.")
+            return
+
+        self.checkpoint_manager.save_speculator_checkpoint(local_path)
+
+        torch.distributed.barrier()
+
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: int = True, **kwargs
+    ) -> None:
+        super().load_checkpoint(local_path, hdfs_path, del_local_after_load, **kwargs)
+
+        if self.speculator is None or self.checkpoint_manager is None:
+            logger.warning("No speculator, skipping load.")
+            return
+
+        self.checkpoint_manager.load_speculator_checkpoint(local_path, logger)

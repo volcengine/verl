@@ -15,6 +15,7 @@
 import logging
 import os
 from functools import partial
+from types import SimpleNamespace
 from typing import Any, Callable, ContextManager, Iterator, Optional
 
 import torch
@@ -44,6 +45,7 @@ from verl.utils.megatron_utils import (
 )
 from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+from verl.trainer.speculators.interface import SpeculatorManager
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
 from ..utils import postprocess_batch_func, prepare_micro_batches
@@ -694,6 +696,157 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         # return loss and stats
         return scaled_loss, output
+
+
+@EngineRegistry.register(model_type="language_model_with_speculator", backend="megatron")
+class MegatronEngineWithLMHeadAndSpeculator(MegatronEngineWithLMHead):
+    def __init__(
+        self,
+        model_config: HFModelConfig,
+        engine_config: McoreEngineConfig,
+        optimizer_config: McoreOptimizerConfig,
+        checkpoint_config: CheckpointConfig,
+    ):
+        super().__init__(model_config, engine_config, optimizer_config, checkpoint_config)
+        self.speculator_mgr: Optional[SpeculatorManager] = None
+        self.speculator = None
+        self.has_speculator = getattr(self.model_config, "speculator", None) is not None
+
+    def initialize(self):
+        super().initialize()
+        if self.checkpoint_mananager is None:
+            return
+        if not self.has_speculator:
+            return
+        speculator_module = getattr(self.module[-1], "speculator", None) if self.module else None
+        speculator_config_obj = getattr(speculator_module, "config", None) if speculator_module is not None else None
+        self.checkpoint_mananager.set_speculator(
+            speculator_module=speculator_module,
+            speculator_config_obj=speculator_config_obj,
+            speculator_host_model=self.module[-1] if self.module else None,
+            speculator_builder=self._ensure_speculator_for_checkpoint,
+        )
+
+    def _init_speculator_manager(self) -> None:
+        if self.speculator_mgr is not None:
+            return
+        device_mesh = SimpleNamespace(get_rank=lambda: torch.distributed.get_rank())
+        self.speculator_mgr = SpeculatorManager(
+            config=None,
+            model_config=self.model_config,
+            device_name=get_device_name(),
+            device_mesh=device_mesh,
+            torch_dtype=self.param_dtype,
+        )
+
+    def _attach_speculator(self) -> None:
+        if self.speculator_mgr is None or not self.has_speculator:
+            return
+        if not self.module:
+            return
+        last_stage = self.module[-1]
+        self.speculator = self.speculator_mgr.build_speculator(model=last_stage)
+        for module in self.module:
+            for param in module.parameters():
+                param.requires_grad = False
+        if self.speculator is not None:
+            for param in self.speculator.parameters():
+                param.requires_grad = True
+
+    def _ensure_speculator_for_checkpoint(self):
+        if self.speculator_mgr is None:
+            self._init_speculator_manager()
+        if self.speculator is None:
+            self._attach_speculator()
+        if not self.module:
+            return None
+        return getattr(self.module[-1], "speculator", None)
+
+    def _build_optimizer(self):
+        if self.has_speculator and self.speculator is None:
+            self._init_speculator_manager()
+            self._attach_speculator()
+        return super()._build_optimizer()
+
+    def forward_step(self, batch_iter: Iterator[TensorDict], model, postprocess_micro_batch_func):
+        batch: TensorDict = next(batch_iter)
+        batch = batch.to(get_device_id())
+        use_fused_kernels = tu.get_non_tensor_data(batch, key="use_fused_kernels", default=False)
+        pad_mode = tu.get_non_tensor_data(batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
+        model_inputs = self.prepare_model_inputs(batch)
+        input_ids = model_inputs["input_ids"]
+        multi_modal_inputs = model_inputs["multi_modal_inputs"]
+
+        if use_fused_kernels:
+            raise NotImplementedError("Fused kernels are not supported for megatron engine")
+
+        from verl.models.mcore.model_forward import gptmodel_forward_no_padding_with_hidden
+
+        output = gptmodel_forward_no_padding_with_hidden(
+            model,
+            input_ids,
+            multi_modal_inputs,
+            vision_model=hasattr(self.model_config.hf_config, "vision_config"),
+            pad_token_id=self.model_config.tokenizer.pad_token_id,
+            data_format="thd" if self.engine_config.use_remove_padding else "bshd",
+        )
+
+        if pad_mode == DatasetPadMode.NO_PADDING:
+            raise NotImplementedError("Speculator training requires use_remove_padding=False in megatron")
+
+        return output, partial(postprocess_micro_batch_func, data=batch)
+
+    def postprocess_micro_batch_func(self, output, data: TensorDict, forward_only: bool, loss_function):
+        hidden_states = output["hidden_states"] if isinstance(output, dict) else output
+        spec_loss = self.speculator_mgr.compute_speculator_loss(
+            self.module[-1],
+            input_ids=data["input_ids"],
+            attention_mask=data.get("attention_mask", None),
+            position_ids=data.get("position_ids", None),
+            loss_mask=data["loss_mask"],
+            hidden_states=hidden_states,
+        )
+        scaled_loss = spec_loss * data["num_micro_batch"]
+        metrics = {"train/speculator_loss": spec_loss.detach().item()}
+        output = {
+            "model_output": {},
+            "loss": spec_loss.detach().item(),
+            "metrics": metrics,
+        }
+        return scaled_loss, output
+
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ) -> None:
+        super().save_checkpoint(
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            global_step=global_step,
+            max_ckpt_to_keep=max_ckpt_to_keep,
+            **kwargs,
+        )
+        if not self.has_speculator or self.checkpoint_mananager is None:
+            return
+        self.checkpoint_mananager.save_speculator_checkpoint(local_path)
+
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: bool = True, **kwargs
+    ) -> None:
+        super().load_checkpoint(
+            local_path=local_path,
+            hdfs_path=hdfs_path,
+            del_local_after_load=del_local_after_load,
+            **kwargs,
+        )
+        if not self.has_speculator or self.checkpoint_mananager is None:
+            return
+        self.checkpoint_mananager.load_speculator_checkpoint(local_path, logger)
+
 
 
 @EngineRegistry.register(model_type="value_model", backend="megatron")

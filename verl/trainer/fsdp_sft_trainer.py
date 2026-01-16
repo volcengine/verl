@@ -81,6 +81,8 @@ from verl.utils.ulysses import (
 )
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.trainer.speculators.interface import SpeculatorManager
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -140,6 +142,30 @@ class FSDPSFTTrainer:
             print(self.config)
 
         self.device_name = self.config.trainer.device
+
+    def _init_speculator_manager(self, torch_dtype):
+        self.speculator_mgr = SpeculatorManager(
+            self.config,
+            self.model_config,
+            self.config.trainer.device,
+            self.device_mesh,
+            torch_dtype,
+        )
+        self.has_speculator = self.speculator_mgr.has_speculator
+        self.speculator = None
+
+    def _maybe_attach_speculator(self, fsdp_strategy, fsdp_kwargs=None):
+        if self.speculator_mgr is None:
+            self.speculator = None
+            return
+        if fsdp_strategy == "fsdp":
+            self.speculator = self.speculator_mgr.build_speculator(model=self.model)
+            return
+        if fsdp_strategy == "fsdp2":
+            self.speculator = self.speculator_mgr.build_speculator(fsdp_model=self.fsdp_model)
+            self.speculator = self.speculator_mgr.shard_speculator(self.fsdp_model, fsdp_kwargs)
+            return
+        raise NotImplementedError(f"not implement {fsdp_strategy}")
 
     def _normalize_config_bsz(self):
         dp_size = self.device_mesh.size(0) if not self.ulysses_device_mesh else self.ulysses_device_mesh.size(0)
@@ -231,6 +257,8 @@ class FSDPSFTTrainer:
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
 
+        self._init_speculator_manager(torch_dtype)
+
         # This may be very large
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh
@@ -309,6 +337,8 @@ class FSDPSFTTrainer:
 
         fsdp_strategy = self.config.model.strategy
         if fsdp_strategy == "fsdp":
+            # Build and attach speculator before FSDP wrapping so it is wrapped together.
+            self._maybe_attach_speculator(fsdp_strategy)
             self.fsdp_model = FSDP(
                 self.model,
                 cpu_offload=cpu_offload,
@@ -335,15 +365,20 @@ class FSDPSFTTrainer:
                 "reshard_after_forward": True,
             }
             full_state = self.model.state_dict()
+            if self.speculator is not None:
+                full_state = {k: v for k, v in full_state.items() if not k.startswith("speculator.")}
             apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config)
             fsdp2_load_full_state_dict(self.model, full_state, self.device_mesh, cpu_offload)
             self.fsdp_model = self.model
+            self._maybe_attach_speculator(fsdp_strategy, fsdp_kwargs)
         else:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
 
-        self.optimizer = build_optimizer(self.fsdp_model.parameters(), self.config.optim)
+        optimizer_params = self.speculator_mgr.get_optimizer_params(self.fsdp_model)
+        self.optimizer = build_optimizer(optimizer_params, self.config.optim)
+
 
         log_gpu_memory_usage("After initialize optimizer", logger=logger)
 
@@ -373,16 +408,32 @@ class FSDPSFTTrainer:
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
 
+        if self.has_speculator and use_sp:
+            raise NotImplementedError("Speculator training requires use_remove_padding=False")
+
         # Move inputs to GPU and prepare loss mask
         input_ids = batch["input_ids"].to(self.device_name)
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
-        loss_mask = batch.pop("loss_mask")[:, 1:].reshape(-1).to(self.device_name)
+        loss_mask_full = batch["loss_mask"].to(self.device_name)
+        loss_mask = loss_mask_full[:, 1:].reshape(-1)
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
         with context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+            if self.has_speculator:
+                spec_loss = self.speculator_mgr.compute_speculator_loss(
+                    self.fsdp_model,
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    loss_mask=loss_mask_full,
+                )
+                loss = spec_loss / n_micro_batches
+                if do_backward:
+                    loss.backward()
+                return loss
             if not use_sp:
                 # Standard forward pass without sequence parallel
                 labels = input_ids[:, 1:].contiguous()
@@ -524,6 +575,8 @@ class FSDPSFTTrainer:
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
             step_loss /= self.device_mesh.size(0)
+
+
         return {
             "train/loss": step_loss.detach().item(),
             "train/lr(1e-3)": lr * 1e3,
@@ -558,6 +611,8 @@ class FSDPSFTTrainer:
         self.checkpoint_manager.save_checkpoint(
             local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
         )
+        if self.has_speculator:
+            self.checkpoint_manager.save_speculator_checkpoint(local_global_step_folder)
 
         # Save dataloader state
         if self.device_mesh.get_rank() == 0:
@@ -610,6 +665,13 @@ class FSDPSFTTrainer:
             processing_class=self.tokenizer,
             checkpoint_config=checkpoint_config_dict,
         )
+        if self.has_speculator and hasattr(self.fsdp_model, "speculator"):
+            speculator_module = self.fsdp_model.speculator
+            speculator_config_obj = getattr(speculator_module, "config", None)
+            self.checkpoint_manager.set_speculator(
+                speculator_module=speculator_module,
+                speculator_config_obj=speculator_config_obj,
+            )
 
     def load_checkpoint(self):
         # Determine resume path based on configuration
@@ -639,6 +701,8 @@ class FSDPSFTTrainer:
             rank=self.device_mesh.get_rank(),
             log_only_rank_0=True,
         )
+        if self.has_speculator:
+            self.checkpoint_manager.load_speculator_checkpoint(checkpoint_path, logger)
 
         # Always load dataloader state for StatefulDataLoader
         self._load_dataloader_state(checkpoint_path)
