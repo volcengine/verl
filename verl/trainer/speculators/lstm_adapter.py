@@ -251,71 +251,10 @@ class LSTMSpeculatorAdapter(SpeculatorAdapter):
         if speculator_module is None:
             return None
 
-        # Speculator assumes regular tensors for slicing and indexing.
-        if isinstance(input_ids, torch.Tensor) and input_ids.is_nested:
-            input_ids = torch.nested.to_padded_tensor(input_ids, padding=0)
-        if isinstance(hidden_states, torch.Tensor) and hidden_states.is_nested:
-            hidden_states = torch.nested.to_padded_tensor(hidden_states, padding=0.0)
-
-        try:
-            first_param = speculator_module.forget_emb[0].weight
-        except Exception:
-            try:
-                first_param = next(speculator_module.parameters())
-            except StopIteration:
-                first_param = None
-
-        try:
-            from torch.distributed.tensor import DTensor, Replicate
-        except Exception:
-            DTensor = None
-            Replicate = None
-
-        if DTensor is not None and isinstance(first_param, DTensor):
-            mesh = first_param.device_mesh
-            placements = first_param.placements
-
-            def _to_dtensor(x):
-                if isinstance(x, DTensor):
-                    return x
-                return DTensor.from_local(x, mesh, placements=placements)
-
-            hidden_states = _to_dtensor(hidden_states)
-            input_ids = _to_dtensor(input_ids)
-        else:
-            if hasattr(hidden_states, "to_local"):
-                try:
-                    if DTensor is not None and isinstance(hidden_states, DTensor):
-                        hidden_states = hidden_states.to_local()
-                except Exception:
-                    hidden_states = hidden_states.to_local()
-
-            if hasattr(input_ids, "to_local"):
-                try:
-                    if DTensor is not None and isinstance(input_ids, DTensor):
-                        input_ids = input_ids.to_local()
-                except Exception:
-                    input_ids = input_ids.to_local()
-
-        if not hasattr(self, "_printed_tensor_types"):
-            self._printed_tensor_types = False
-        if not self._printed_tensor_types and self.device_mesh.get_rank() == 0:
-            print(
-                "Speculator tensor types: "
-                f"hidden_states={type(hidden_states)}, "
-                f"input_ids={type(input_ids)}, "
-                f"speculator_param={type(first_param)}"
-            )
-            self._printed_tensor_types = True
-
         n_predict = speculator_module.n_predict
         hidden, seq_ids = self._slice_speculator_inputs(input_ids, hidden_states, n_predict)
         pad_ids = torch.zeros(input_ids.size(0), n_predict, dtype=seq_ids.dtype, device=seq_ids.device)
-        if DTensor is not None and isinstance(seq_ids, DTensor):
-            pad_ids = DTensor.from_local(pad_ids, seq_ids.device_mesh, placements=seq_ids.placements)
         spec_inds = torch.cat([seq_ids, pad_ids], dim=1)
-        if DTensor is not None and isinstance(first_param, DTensor) and not isinstance(spec_inds, DTensor):
-            spec_inds = DTensor.from_local(spec_inds, first_param.device_mesh, placements=first_param.placements)
 
         spec_logits = speculator_module(hidden, spec_inds)
         return spec_logits

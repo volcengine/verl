@@ -308,6 +308,15 @@ class FSDPSFTTrainer:
 
         log_gpu_memory_usage("After model allocation", logger=logger)
 
+        # Build and attach speculator before FSDP wrapping so it is wrapped together.
+        if self.speculator_adapter is not None:
+            self.speculator = self.speculator_adapter.build_and_attach(
+                self.model,
+                attach_to_model=True,
+            )
+        else:
+            self.speculator = None
+
         mixed_precision = MixedPrecision(
             param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.float32
         )
@@ -361,15 +370,6 @@ class FSDPSFTTrainer:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
-
-        # Build and attach speculator after FSDP wrapping to avoid DTensor conversion.
-        if self.speculator_adapter is not None:
-            self.speculator = self.speculator_adapter.build_and_attach(
-                self.fsdp_model,
-                attach_to_model=True,
-            )
-        else:
-            self.speculator = None
 
         optimizer_params = (
             self.speculator_adapter.get_optimizer_params(self.fsdp_model)
