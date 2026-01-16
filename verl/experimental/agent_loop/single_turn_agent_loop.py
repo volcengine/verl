@@ -63,6 +63,8 @@ class SingleTurnAgentLoop(AgentLoopBase):
                 image_data=images,
                 video_data=videos,
             )
+        if output.num_preempted is not None:
+            metrics["num_preempted"] = output.num_preempted
         response_mask = [1] * len(output.token_ids)
 
         output = AgentLoopOutput(
