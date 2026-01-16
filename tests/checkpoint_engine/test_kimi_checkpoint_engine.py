@@ -16,12 +16,12 @@ import os
 import pytest
 import ray
 
-from verl.utils.device import get_device_name
 from tests.checkpoint_engine.test_utils import create_rollout_worker_group, create_trainer_worker_group
 from verl.single_controller.ray.base import (
     RayResourcePool,
     split_resource_pool,
 )
+from verl.utils.device import get_device_name
 
 
 @pytest.mark.parametrize("rebuild_group", [False, True])

@@ -17,29 +17,29 @@ import logging
 import os
 import time
 import types
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import AsyncGenerator, Generator
 
+import checkpoint_engine.distributed as dist
 import ray
 import torch
-from collections import defaultdict
-from checkpoint_engine.ps import ParameterMeta, ParameterServer, _gen_h2d_buckets, _to_named_tensor, H2DBucket
-import checkpoint_engine.distributed as dist
+from checkpoint_engine.ps import H2DBucket, ParameterMeta, ParameterServer, _gen_h2d_buckets, _to_named_tensor
 
 from verl.checkpoint_engine.base import CheckpointEngine, CheckpointEngineRegistry
+from verl.utils.device import get_nccl_backend, get_torch_device
 from verl.utils.net_utils import get_free_port
-from verl.utils.device import get_torch_device, get_nccl_backend
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def ckpt_get_named_tensor_buckets(
-        iterable: Generator[tuple[str, torch.Tensor], None, None],
-        bucket_bytes: int,
-        world_size: int,
-        rank_id: int,
-        rollout_dtype: torch.dtype = torch.bfloat16,
+    iterable: Generator[tuple[str, torch.Tensor], None, None],
+    bucket_bytes: int,
+    world_size: int,
+    rank_id: int,
+    rollout_dtype: torch.dtype = torch.bfloat16,
 ) -> dict[str, torch.Tensor]:
     if bucket_bytes <= 0:
         raise ValueError(f"bucket_bytes must be greater than 0, got {bucket_bytes}")
@@ -63,13 +63,13 @@ def ckpt_get_named_tensor_buckets(
         yield current_bucket
 
 
-async def revice_tensor(
-        self,
-        checkpoint_name: str,
-        ranks_group: int,
-        ranks: list[int] | None = None,
-        bucket_size: int = 2 << 30,
-        disable_h2d_buffer: bool = False,
+async def receive_tensor(
+    self,
+    checkpoint_name: str,
+    ranks_group: int,
+    ranks: list[int] | None = None,
+    bucket_size: int = 2 << 30,
+    disable_h2d_buffer: bool = False,
 ) -> AsyncGenerator[tuple[str, torch.Tensor], None]:
     assert len(self._current_global_parameter_metas) != 0, "parameter metas is empty"
     assert dist.is_initialized(), "process group is not initialized"
@@ -100,9 +100,7 @@ async def revice_tensor(
         if receiver_rank != self._rank:
             continue
         receiver_rank_buckets.append((owner_rank, bucket))
-    buffer = torch.empty(
-        bucket_size * 2, dtype=torch.uint8, device=self.device_manager.device_type
-    )
+    buffer = torch.empty(bucket_size * 2, dtype=torch.uint8, device=self.device_manager.device_type)
     buckets_by_receiver_rank: dict[int, list[H2DBucket]] = defaultdict(list)
 
     max_len = 0
@@ -126,7 +124,7 @@ async def revice_tensor(
                     continue
                 bucket = _buckets[i]
                 start = gidx % 2 * bucket_size
-                buffer_b: torch.Tensor = buffer[start: start + bucket.size]
+                buffer_b: torch.Tensor = buffer[start : start + bucket.size]
                 if receiver_rank == self._rank:
                     if disable_h2d_buffer:
                         self._copy_to_buffer(checkpoint_name, bucket, buffer_b)
@@ -150,7 +148,7 @@ async def revice_tensor(
                     assert isinstance(shape, torch.Size)
                     dtype, offset = item["dtype"], item["offset"]
                     size = dtype.itemsize * shape.numel()
-                    tensor = buffer[offset: offset + size].view(dtype=dtype).view(shape)
+                    tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
                     yield item["name"], tensor
                 metadata = await broadcast_op.wait_for_complete()
                 self.device_manager.device_module.synchronize()
@@ -164,7 +162,7 @@ async def revice_tensor(
             assert isinstance(shape, torch.Size)
             dtype, offset = item["dtype"], item["offset"]
             size = dtype.itemsize * shape.numel()
-            tensor = buffer[offset: offset + size].view(dtype=dtype).view(shape)
+            tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
             yield item["name"], tensor
 
     finally:
@@ -191,11 +189,11 @@ class BroadcastOperation:
     """
 
     def __init__(
-            self,
-            rank: int,
-            ranks_group: int,
-            bucket: torch.Tensor,
-            metadata: list[ParameterMeta],
+        self,
+        rank: int,
+        ranks_group: int,
+        bucket: torch.Tensor,
+        metadata: list[ParameterMeta],
     ) -> None:
         self.rank = rank
         self.ranks_group = ranks_group
@@ -277,7 +275,7 @@ class KIMICheckpointEngine(CheckpointEngine):
         self.rank = rank
         if not self.initialized:
             self.parameter_server = ParameterServer(rank=rank, world_size=world_size, auto_pg=False, custom_dist=True)
-            self.parameter_server.revice_tensor = types.MethodType(revice_tensor, self.parameter_server)
+            self.parameter_server.receive_tensor = types.MethodType(receive_tensor, self.parameter_server)
             dist.init_process_group(
                 host=master_metadata.ip,
                 port=master_metadata.port,
@@ -305,8 +303,9 @@ class KIMICheckpointEngine(CheckpointEngine):
 
         start_time = time.time()
         named_tensors = {}
-        for named_tensors_gpu in ckpt_get_named_tensor_buckets(weights, self.bucket_size, self.train_world_size, self.rank,
-                                                               self.rollout_dtype):
+        for named_tensors_gpu in ckpt_get_named_tensor_buckets(
+            weights, self.bucket_size, self.train_world_size, self.rank, self.rollout_dtype
+        ):
             with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
                 futures = [
                     executor.submit(
@@ -342,15 +341,17 @@ class KIMICheckpointEngine(CheckpointEngine):
         self.parameter_server.gather_metas(self.checkpoint_name)
 
         start_time = time.time()
-        total_bytes = 0
-        async for name, tensor in self.parameter_server.revice_tensor(self.checkpoint_name, self.rollout_group,
-                                                                        self.rollout_ranks, self.bucket_size):
+        total_bytes, total_params = 0, 0
+        async for name, tensor in self.parameter_server.receive_tensor(
+            self.checkpoint_name, self.rollout_group, self.rollout_ranks, self.bucket_size
+        ):
             total_bytes += tensor.element_size() * tensor.nelement()
+            total_params += 1
             yield name, tensor
         dist.barrier()
         time_cost = time.time() - start_time
         bandwidth = total_bytes / time_cost / (1024 * 1024 * 1024)
         logger.info(
-            f"Rank {self.rank} receive weights done,"
+            f"Rank {self.rank} receive weights done, total_params: {total_params}, "
             f"time cost: {time_cost:.2f}s, bandwidth: {bandwidth:.2f} GB/s"
         )
