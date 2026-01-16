@@ -36,7 +36,7 @@ RUN git clone --depth 1 -b v0.12.0 https://github.com/vllm-project/vllm.git && \
     cd vllm && \
     find requirements -name "*.txt" -print0 | xargs -0 sed -i '/torch/d' && \
     pip install -r requirements/build.txt && \
-    TORCH_CUDA_ARCH_LIST="8.0;9.0" pip install -e . --no-build-isolation --no-deps && \
+    pip install -e . --no-build-isolation --no-deps && \
     pip install -r requirements/cuda.txt
 
 RUN pip install pybind11
@@ -85,7 +85,7 @@ ENV GDRCOPY_HOME=/usr/local
 RUN git clone -b v1.2.1 https://github.com/deepseek-ai/DeepEP.git && \
     cd DeepEP && \
     export NVSHMEM_DIR=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem && \
-    TORCH_CUDA_ARCH_LIST="8.0;9.0" python setup.py install
+    python setup.py install
 
 RUN pip3 install --no-deps trl
 
