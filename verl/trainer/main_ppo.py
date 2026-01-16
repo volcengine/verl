@@ -346,6 +346,7 @@ class TaskRunner:
         train_sampler = create_rl_sampler(config.data, train_dataset)
         if config.transfer_queue.enable:
             from verl.trainer.ppo.ray_trainer_tq import RayPPOTrainerTransferQueue
+
             trainer = RayPPOTrainerTransferQueue(
                 config=config,
                 tokenizer=tokenizer,

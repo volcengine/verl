@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import logging
+from typing import Any, Iterable
+
 import numpy as np
 import tensordict
 import torch
 from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
-from typing import Any, Iterable
 
 
 def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
@@ -869,18 +870,6 @@ def maybe_fix_3d_position_ids(data: TensorDict):
     # This is likely a bug in tensordict. As a workaround, we manually set _ragged_index.
     if "position_ids" in data.keys() and data["position_ids"].dim() == 3 and data["position_ids"].is_nested:
         data["position_ids"]._ragged_idx = 2
-
-
-def get_non_tensor_keys(td: TensorDict) -> set:
-    """
-    Return the non tensor keys of a tensordict.
-    Not consider the nested situation.
-    """
-    non_tensor_keys = []
-    for key, val in td.items():
-        if not isinstance(val, torch.Tensor):
-            non_tensor_keys.append(key)
-    return set(non_tensor_keys)
 
 
 def dict_to_tensordict(data: dict[str, torch.Tensor | np.ndarray]) -> TensorDict:

@@ -18,14 +18,16 @@ PPO Trainer with TransferQueue support.
 """
 
 import math
-import numpy as np
-import ray
-import torch
 import uuid
 from collections import defaultdict
 from copy import deepcopy
-from omegaconf import OmegaConf
 from pprint import pprint
+from typing import Any, Optional
+
+import numpy as np
+import ray
+import torch
+from omegaconf import OmegaConf
 from tensordict import TensorDict
 from torch.utils.data import Dataset, Sampler
 from tqdm import tqdm
@@ -36,8 +38,8 @@ from transfer_queue import (
     get_placement_group,
     process_zmq_server_info,
 )
-from typing import Any, Optional
 
+from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
@@ -46,7 +48,6 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
-    process_validation_metrics,
 )
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, apply_kl_penalty, compute_advantage
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -59,6 +60,7 @@ from verl.utils.import_utils import load_class_from_fqn
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
 from verl.utils.rollout_skip import RolloutSkip
+from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, repeat_dict, tqbridge
 from verl.workers.config import FSDPEngineConfig
 
@@ -103,20 +105,20 @@ def compute_val_reward_decorated(reward_fn, data, return_dict):
 
 class RayPPOTrainerTransferQueue(RayPPOTrainer):
     def __init__(
-            self,
-            config,
-            tokenizer,
-            role_worker_mapping: dict[Role, WorkerType],
-            resource_pool_manager: ResourcePoolManager,
-            ray_worker_group_cls: type[RayWorkerGroup] = RayWorkerGroup,
-            processor=None,
-            reward_fn=None,
-            val_reward_fn=None,
-            train_dataset: Optional[Dataset] = None,
-            val_dataset: Optional[Dataset] = None,
-            collate_fn=None,
-            train_sampler: Optional[Sampler] = None,
-            device_name=None,
+        self,
+        config,
+        tokenizer,
+        role_worker_mapping: dict[Role, WorkerType],
+        resource_pool_manager: ResourcePoolManager,
+        ray_worker_group_cls: type[RayWorkerGroup] = RayWorkerGroup,
+        processor=None,
+        reward_fn=None,
+        val_reward_fn=None,
+        train_dataset: Optional[Dataset] = None,
+        val_dataset: Optional[Dataset] = None,
+        collate_fn=None,
+        train_sampler: Optional[Sampler] = None,
+        device_name=None,
     ):
         super().__init__(
             config,
@@ -141,9 +143,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         # 1. initialize TransferQueueStorage
         if self.config.transfer_queue.storage_backend == "AsyncSimpleStorageManager":
             train_data_size = (
-                    self.config.data.train_batch_size
-                    * self.config.transfer_queue.num_global_batch
-                    * self.config.actor_rollout_ref.rollout.n
+                self.config.data.train_batch_size
+                * self.config.transfer_queue.num_global_batch
+                * self.config.actor_rollout_ref.rollout.n
             )
             # val_data_size = self.val_dataset_size * self.config.actor_rollout_ref.rollout.val_kwargs.n
             val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
@@ -186,11 +188,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         self.config = OmegaConf.merge(tq_config, self.config)
 
         # 4. create client
-        create_transferqueue_client(
-            client_id="Trainer",
-            config=self.config.transfer_queue,
-            sync=True
-        )
+        create_transferqueue_client(client_id="Trainer", config=self.config.transfer_queue, sync=True)
         tq_client = get_transferqueue_client()
         return tq_client
 
@@ -389,9 +387,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
             val_reward_meta = batch_meta.select_fields(compute_reward_fields)
 
-            reward_tensor, reward_extra_info = self._compute_or_extract_reward(val_reward_meta,
-                                                                               reward_fn=self.val_reward_fn,
-                                                                               reward_for_val=True)
+            reward_tensor, reward_extra_info = self._compute_or_extract_reward(
+                val_reward_meta, reward_fn=self.val_reward_fn, reward_for_val=True
+            )
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
@@ -557,8 +555,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             # Only require nsight worker options when tool is nsys
             if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
                 assert (
-                        OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                        is not None
+                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+                    is not None
                 ), "worker_nsight_options must be set when using nsys with profile_steps"
                 wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                     OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
@@ -1019,9 +1017,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                         # Only runs in decoupled mode (computes once per batch using stable π_old)
                         # In bypass mode, this is skipped - actor computes metrics from evolving π_θ vs π_rollout
                         if (
-                                rollout_corr_config is not None
-                                and "rollout_log_probs" in batch_meta.field_names
-                                and not bypass_recomputing_logprobs  # Only in decoupled mode
+                            rollout_corr_config is not None
+                            and "rollout_log_probs" in batch_meta.field_names
+                            and not bypass_recomputing_logprobs  # Only in decoupled mode
                         ):
                             from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_add_to_batch
 
@@ -1131,9 +1129,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                 # validate
                 if (
-                        self.val_reward_fn is not None
-                        and self.config.trainer.test_freq > 0
-                        and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
+                    self.val_reward_fn is not None
+                    and self.config.trainer.test_freq > 0
+                    and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
                         val_metrics: dict = self._validate()
@@ -1154,7 +1152,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 # 3. The current step number is a multiple of the save frequency.
                 # 4. The ESI(Elastic Server Instance)/training plan is close to expiration.
                 if self.config.trainer.save_freq > 0 and (
-                        is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
+                    is_last_step or self.global_steps % self.config.trainer.save_freq == 0 or esi_close_to_expiration
                 ):
                     if esi_close_to_expiration:
                         print("Force saving checkpoint: ESI instance expiration approaching.")
@@ -1241,8 +1239,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 self.global_steps += 1
 
                 if (
-                        hasattr(self.config.actor_rollout_ref.actor, "profiler")
-                        and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
+                    hasattr(self.config.actor_rollout_ref.actor, "profiler")
+                    and self.config.actor_rollout_ref.actor.profiler.tool == "torch_memory"
                 ):
                     self.actor_rollout_wg.dump_memory_snapshot(
                         tag=f"post_update_step{self.global_steps}", sub_dir=f"step{self.global_steps}"
@@ -1310,7 +1308,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             global_partition_lst = [[] for _ in range(dp_size)]
             for i in range(minibatch_num):
                 rearrange_minibatch_lst = get_seqlen_balanced_partitions(
-                    workload_lst[i * minibatch_size: (i + 1) * minibatch_size],
+                    workload_lst[i * minibatch_size : (i + 1) * minibatch_size],
                     k_partitions=dp_size,
                     equal_size=True,
                 )
