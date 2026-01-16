@@ -127,7 +127,7 @@ class AgentLoopMetrics(BaseModel):
 
     generate_sequences: float = 0.0
     tool_calls: float = 0.0
-    num_preempted: int = 0
+    num_preempted: int = -1 # -1 means not available
 
 
 class AgentLoopOutput(BaseModel):
