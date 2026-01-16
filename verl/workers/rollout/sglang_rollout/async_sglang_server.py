@@ -60,7 +60,7 @@ logger.setLevel(logging.INFO)
 visible_devices_keyword = get_visible_devices_keyword()
 
 
-class SGLangHttpServerBase:
+class SGLangHttpServer:
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
     python -m sglang.launch_server --node-rank 0 --nnode 1 ...
@@ -357,32 +357,6 @@ class SGLangHttpServerBase:
                 )
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
-
-
-class SGLangHttpServer(SGLangHttpServerBase):
-    def __init__(
-        self,
-        config: RolloutConfig,
-        model_config: HFModelConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        nnodes: int,
-        cuda_visible_devices: str,
-        base_gpu_id: int,
-    ):
-        super().__init__(
-            config=config,
-            model_config=model_config,
-            rollout_mode=rollout_mode,
-            workers=workers,
-            replica_rank=replica_rank,
-            node_rank=node_rank,
-            nnodes=nnodes,
-            cuda_visible_devices=cuda_visible_devices,
-            base_gpu_id=base_gpu_id,
-        )
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

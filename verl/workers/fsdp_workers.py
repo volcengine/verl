@@ -623,7 +623,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         rollout_device_mesh = init_device_mesh(
             device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
         )
-
         rollout_name = self.config.rollout.name
 
         self.rollout_device_mesh = rollout_device_mesh

@@ -22,7 +22,7 @@ from ray.actor import ActorHandle
 from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.sglang_rollout.async_sglang_server import (
-    SGLangHttpServerBase,
+    SGLangHttpServer,
     SGLangReplica,
 )
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
+class SGLangHttpServerForPartial(SGLangHttpServer):
     def __init__(
         self,
         config: RolloutConfig | RewardModelConfig,
@@ -164,33 +164,6 @@ class SGLangHttpServerForPartialBase(SGLangHttpServerBase):
             await self.tokenizer_manager.flush_cache()
 
 
-@ray.remote(num_cpus=1)
-class SGLangHttpServerForPartial(SGLangHttpServerForPartialBase):
-    def __init__(
-        self,
-        config: RolloutConfig | RewardModelConfig,
-        model_config: HFModelConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        nnodes: int,
-        cuda_visible_devices: str,
-        base_gpu_id: int,
-    ):
-        super().__init__(
-            config=config,
-            model_config=model_config,
-            rollout_mode=rollout_mode,
-            workers=workers,
-            replica_rank=replica_rank,
-            node_rank=node_rank,
-            nnodes=nnodes,
-            cuda_visible_devices=cuda_visible_devices,
-            base_gpu_id=base_gpu_id,
-        )
-
-
 class FullyAsyncSGLangReplica(SGLangReplica):
     def __init__(
         self,
@@ -201,7 +174,7 @@ class FullyAsyncSGLangReplica(SGLangReplica):
         is_reward_model: bool = False,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
-        self.server_class = SGLangHttpServerForPartial
+        self.server_class = ray.remote(SGLangHttpServerForPartial)
 
     async def cancel(self):
         """Cancel each rollout server."""
