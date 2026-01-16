@@ -124,12 +124,9 @@ jobs:
       - name: Test the latest vLLM Rollout async with agent loop
         run: |
           ROLLOUT_NAME=vllm pytest -svvv tests/experimental/agent_loop
-      - name: Test the latest vLLM
+      - name: Test vllm server abort functionality
         run: |
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_spmd.py
-      - name: Test the latest vLLM on model with rope scaling
-        run: |
-          torchrun --standalone --nnodes=1 --nproc_per_node=4 $(which pytest) -s tests/workers/rollout/rollout_vllm/test_vllm_model_rope_scaling.py
+          pytest tests/workers/rollout/rollout_vllm/test_vllm_abort.py -v -s
       # Note(haibin.lin): for any new test, please update gpu_unit_tests.yaml to avoid repeated tests
 
   cleanup:

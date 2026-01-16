@@ -35,8 +35,8 @@ def test_agent_loop_reward_manager():
             }
         }
     )
-    with initialize_config_dir(config_dir=os.path.abspath("recipe/fapo/config")):
-        config = compose("rm_config")
+    with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
+        config = compose(config_name="ppo_trainer")
 
     rollout_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-0.5B-Instruct")
     reward_model_path = os.path.expanduser("~/models/Qwen/Qwen2.5-1.5B-Instruct")

@@ -91,7 +91,7 @@ jobs:
   e2e_sft:
     needs: setup
     runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
-    timeout-minutes: 25 # Increase this timeout value as needed
+    timeout-minutes: 40 # Increase this timeout value as needed
     env:
       HTTP_PROXY: ${{ secrets.PROXY_HTTP }}
       HTTPS_PROXY: ${{ secrets.PROXY_HTTPS }}
@@ -146,7 +146,13 @@ jobs:
       - name: Running GSM8K E2E training tests with multiturn and various configs and compare results
         run: |
           bash tests/special_e2e/sft/test_sft_engine_all.sh
-
+      - name: Prepare pokemon-gpt4o-captions dataset
+        run: |
+          ray stop --force
+          python3 examples/data_preprocess/pokemon.py --local_dataset_path ${HOME}/models/hf_data/pokemon-gpt4o-captions
+      - name: Running Pokemon E2E training tests with multiturn and various configs and compare results
+        run: |
+          MODEL_ID=Qwen/Qwen3-VL-2B-Instruct DATASET_DIR=~/data/pokemon-gpt4o-captions VPP_SIZE=null bash tests/special_e2e/sft/test_sft_engine_all.sh
   
   cleanup:
     runs-on: ubuntu-latest

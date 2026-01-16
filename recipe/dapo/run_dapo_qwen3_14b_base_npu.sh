@@ -136,5 +136,4 @@ ray job submit --runtime-env="${RUNTIME_ENV}" \
     actor_rollout_ref.actor.entropy_checkpointing=True \
     actor_rollout_ref.ref.entropy_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.forward_prefetch=True \
-    actor_rollout_ref.ref.fsdp_config.forward_prefetch=True \
-    trainer.device=npu
+    actor_rollout_ref.ref.fsdp_config.forward_prefetch=True

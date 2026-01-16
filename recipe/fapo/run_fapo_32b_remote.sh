@@ -53,15 +53,10 @@ offload=True
 gen_tp=4
 fsdp_size=32
 
-PROJECT_DIR="$(pwd)"
-CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
-
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --address "${RAY_ADDRESS}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m verl.trainer.main_ppo \
-    --config-path $CONFIG_PATH \
-    --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \

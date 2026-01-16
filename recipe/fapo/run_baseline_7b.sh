@@ -54,15 +54,10 @@ offload=True
 gen_tp=1
 fsdp_size=8
 
-PROJECT_DIR="$(pwd)"
-CONFIG_PATH="$PROJECT_DIR/recipe/fapo/config"
-
 ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     --address "${RAY_ADDRESS}" \
     --working-dir "${WORKING_DIR}" \
     -- python3 -m verl.trainer.main_ppo \
-    --config-path $CONFIG_PATH \
-    --config-name rm_config.yaml \
     data.train_files="${TRAIN_FILE}" \
     data.val_files="${TEST_FILE}" \
     data.prompt_key=prompt \
@@ -125,7 +120,7 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     +reward_model.reward_kwargs.overlong_buffer_cfg.penalty_factor=${overlong_penalty_factor} \
     +reward_model.reward_kwargs.overlong_buffer_cfg.log=True \
     +reward_model.reward_kwargs.max_resp_len=${max_response_length} \
-    custom_reward_function.path=recipe/fapo/reward_fn.py \
+    custom_reward_function.path=recipe/fapo/reward_fn_reasoning.py \
     custom_reward_function.name=compute_score_baseline \
     trainer.logger='["console","wandb"]' \
     trainer.project_name="${project_name}" \

@@ -16,7 +16,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from omegaconf import DictConfig
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ from ray.actor import ActorHandle
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
-from verl.workers.config import RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
 
@@ -35,6 +35,10 @@ class TokenOutput(BaseModel):
     """response token ids"""
     log_probs: Optional[list[float]] = None
     """logprobs of response token ids"""
+    routed_experts: Optional[Any] = None
+    """routed experts of response token ids"""
+    stop_reason: Optional[str] = None
+    """stop reason: 'completed', 'aborted', or None for unknown"""
 
 
 class RolloutMode(Enum):
@@ -86,7 +90,7 @@ class RolloutReplica(ABC):
     ) -> None:
         self.replica_rank = replica_rank
         self.config = omega_conf_to_dataclass(config)
-        self.model_config = model_config
+        self.model_config: HFModelConfig = model_config
 
         self.world_size = (
             self.config.tensor_model_parallel_size
@@ -120,8 +124,8 @@ class RolloutReplica(ABC):
         ]
         await self.launch_servers()
 
-    # TODO(@dyy): init with resource_pool?
-    async def init_colocated(self, worker_group: RayWorkerGroup):
+    # TODO(sgm): this should be the default solution, but need to make the RolloutMode more clear.
+    async def init_colocated(self, resource_pool: RayResourcePool):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
         but in separate processes.
 
@@ -129,9 +133,17 @@ class RolloutReplica(ABC):
             resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
         """
         self.rollout_mode = RolloutMode.COLOCATED
-        self.workers = worker_group.workers[
-            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
-        ]
+        self.resource_pool = resource_pool
+
+        worker_group = RayWorkerGroup(
+            resource_pool=self.resource_pool,
+            ray_cls_with_init=self.get_ray_class_with_init_args(),
+            bin_pack=False,
+            name_prefix=f"rollout_colocate_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"rollout_reward_colocate_{self.replica_rank}",
+        )
+        self.workers = worker_group.workers
         await self.launch_servers()
 
     async def init_standalone(self):
@@ -139,7 +151,9 @@ class RolloutReplica(ABC):
         # create resource pool for this rollout
         self.rollout_mode = RolloutMode.STANDALONE
         resource_pool_name = (
-            f"rollout_pool_{self.replica_rank}" if self.is_reward_model else f"rollout_pool_reward_{self.replica_rank}"
+            f"rollout_pool_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
             resource_pool_name: [self.gpus_per_node] * self.nnodes,
@@ -188,6 +202,10 @@ class RolloutReplica(ABC):
     async def sleep(self):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
+
+    async def clear_kv_cache(self):
+        """reset kv cache in each rollout server."""
+        await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
 
 class RolloutReplicaRegistry:

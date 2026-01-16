@@ -21,7 +21,7 @@ from vllm import SamplingParams
 from vllm.inputs import TokensPrompt
 from vllm.outputs import RequestOutput
 
-from verl.workers.config import HFModelConfig, RewardModelConfig, RolloutConfig
+from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import (
     _qwen2_5_vl_dedup_image_tokens,
@@ -37,7 +37,7 @@ logger.setLevel(logging.INFO)
 class vLLMHttpServerForPartial(vLLMHttpServerBase):
     def __init__(
         self,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
@@ -127,16 +127,12 @@ class vLLMHttpServerForPartial(vLLMHttpServerBase):
         async with self.lock:
             self.paused = False
 
-    async def reset_prefix_cache(self):
-        async with self.lock:
-            await self.engine.reset_prefix_cache()
-
 
 class FullyAsyncvLLMReplica(vLLMReplica):
     def __init__(
         self,
         replica_rank: int,
-        config: RolloutConfig | RewardModelConfig,
+        config: RolloutConfig,
         model_config: HFModelConfig,
         gpus_per_node: int = 8,
         is_reward_model: bool = False,
@@ -151,7 +147,3 @@ class FullyAsyncvLLMReplica(vLLMReplica):
     async def resume(self):
         """Resume each rollout server."""
         await asyncio.gather(*[server.resume.remote() for server in self.servers])
-
-    async def reset_prefix_cache(self):
-        """reset kv cache in each rollout server."""
-        await asyncio.gather(*[server.reset_prefix_cache.remote() for server in self.servers])

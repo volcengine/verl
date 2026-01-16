@@ -22,23 +22,25 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
+from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.utils.device import is_cuda_available
+from verl.utils.device import auto_set_ascend_device_name, is_cuda_available
 
 from .dapo_ray_trainer import RayDAPOTrainer
 
 
 @hydra.main(config_path="config", config_name="dapo_trainer", version_base=None)
 def main(config):
+    # Automatically set `config.trainer.device = npu` when running on Ascend NPU.
+    auto_set_ascend_device_name(config)
+
     run_ppo(config)
 
 
 def run_ppo(config) -> None:
     if not ray.is_initialized():
         # this is for local ray cluster
-        default_runtime_env = {
-            "env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN", "VLLM_LOGGING_LEVEL": "WARN"}
-        }
+        default_runtime_env = get_ppo_ray_runtime_env()
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
         runtime_env = OmegaConf.merge(default_runtime_env, runtime_env_kwargs)
@@ -97,13 +99,13 @@ class TaskRunner:
         if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
             assert config.critic.strategy in {"fsdp", "fsdp2"}
 
-            from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.workers.fsdp_workers import AsyncActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
             assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-            from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+            from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
 
             ray_worker_group_cls = RayWorkerGroup
 
@@ -113,7 +115,7 @@ class TaskRunner:
         from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
         role_worker_mapping = {
-            Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
+            Role.ActorRollout: ray.remote(AsyncActorRolloutRefWorker),
             Role.Critic: ray.remote(CriticWorker),
         }
 
@@ -144,7 +146,7 @@ class TaskRunner:
 
         # reference model
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
-            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            role_worker_mapping[Role.RefPolicy] = ray.remote(AsyncActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
 
         reward_fn = load_reward_manager(

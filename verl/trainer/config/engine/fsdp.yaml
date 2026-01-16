@@ -34,6 +34,12 @@ model_dtype: fp32
 # Whether to use original parameters in fsdp. Only avaiable in fsdp1
 use_orig_params: false
 
+# Random seed for reproducibility.
+seed: 42
+
+# Whether to enable full determinism for distributed training, only for debugging.
+full_determinism: false
+
 # ulysses sequence parallel size
 ulysses_sequence_parallel_size: 1
 

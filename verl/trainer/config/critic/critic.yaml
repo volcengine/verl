@@ -73,6 +73,9 @@ ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
 # Shuffle training data across PPO epochs
 shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
 
+# The seed used to construct mini-batch
+data_loader_seed: 42
+
 # PPO value function clipping range
 cliprange_value: 0.5
 

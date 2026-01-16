@@ -1,6 +1,12 @@
 # Recipe
-The examples under `recipes/` are representative extensions to verl for specific end-to-end RL training recipes.
-The help the community reproduce experiments, verl team provides a snapshot of the codebase when each recipe is initially PR'ed to verl main. You can find them via [github branches](https://github.com/volcengine/verl/branches/all?query=recipe)
+> Update 2025/11/25: recipes have been moved to a new repository: [verl-recipe](https://github.com/verl-project/verl-recipe). 
+
+verl is designed to be a modular, extensible framework for post-training: SFT and RL. Recipe is expected to import verl as a library, with necessary extensions to build specific RL training pipeline. If you find verl can't meet recipe's requirements, please open an issue or PR to verl.
+
+There's still some incubation recipes kept here, which is expected to be offically supported in verl in the future.
+- fully_async_policy: fully asynchronous off-policy training with decoupled trainer and rollout.
+- transfer_queue: high performance asynchronous streaming data management system.
+- vla: VLA model RL training.
 
 # Awesome work using verl
 

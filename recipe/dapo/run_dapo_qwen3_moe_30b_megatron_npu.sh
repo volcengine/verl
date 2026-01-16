@@ -58,6 +58,9 @@ offload=True
 
 max_num_batched_tokens=$((max_prompt_length + max_response_length))
 
+# vllm
+gen_tp=4
+
 # Megatron backen
 train_tp=4
 train_ep=2
@@ -157,7 +160,6 @@ ray job submit --no-wait --runtime-env="${RUNTIME_ENV}" \
     trainer.save_freq=-1 \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${CKPTS_DIR}" \
-    trainer.device="npu" \
     actor_rollout_ref.nccl_timeout=14400 \
     actor_rollout_ref.actor.use_torch_compile=False \
     actor_rollout_ref.ref.use_torch_compile=False \

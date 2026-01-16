@@ -21,14 +21,21 @@ This document provides a comprehensive overview of the Rollout Correction implem
 ### BibTeX Citation
 
 ```bibtex
-@misc{liu-li-2025,
-  title = {When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch},
-  url = {https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda},
-  author = {Jiacai Liu and Yingru Li and Yuqian Fu and Jiawei Wang and Qian Liu and Yu Shen},
+@online{liu-li-2025-rl-collapse,
+  title = {When Speed Kills Stability: Demystifying {RL} Collapse from the Training-Inference Mismatch},
+  author = {Liu, Jiacai and Li, Yingru and Fu, Yuqian and Wang, Jiawei and Liu, Qian and Shen, Yu},
   year = {2025},
   month = sep,
+  url = {https://richardli.xyz/rl-collapse}
 }
 ```
+
+### Blog Series
+
+- Main blog post: https://richardli.xyz/rl-collapse
+- [Part 1: Why Mismatch Breaks LLM-RL](https://richardli.xyz/rl-collapse-1) (analytical framework using TV distance for bias and χ²-divergence for variance)
+- [Part 2: The Gradient Estimator Trials](https://richardli.xyz/rl-collapse-2) (token-level vs sequence-level correction bias-variance tradeoff)
+- [Part 3: When Math Meets Reality—Toxic Tails and Length Traps](https://richardli.xyz/rl-collapse-3) (why rejection over clipping, and geometric-level RS)
 
 ## Overview
 
@@ -69,7 +76,7 @@ Many LLM-RL implementations incorrectly apply PPO by **ignoring the actual rollo
 
 **This is not PPO's fault** - PPO itself is mathematically correct. The issue is the incorrect assumption that π_old = π_rollout in naive implementations.
 
-This critical implementation mistake that leads to RL training collapse was identified in the blog post ["When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda) and motivated the development of this rollout correction framework.
+This critical implementation mistake that leads to RL training collapse was identified in the blog post ["When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch"](https://richardli.xyz/rl-collapse) and motivated the development of this rollout correction framework.
 
 **Mathematically correct approaches:**
 - **Decoupled mode**: Three policies (π_rollout, π_old, π_θ) with IS correction from π_rollout to π_old
@@ -114,29 +121,27 @@ This separation ensures:
 ```python
 from verl.trainer.config.algorithm import RolloutCorrectionConfig
 
-# Decoupled mode with token-level IS
-config = RolloutCorrectionConfig.decoupled_token_is()
+# === Decoupled PPO mode (3 policies: π_rollout, π_old, π_θ) ===
+# IS weights correct for gap between π_old and π_rollout
+config = RolloutCorrectionConfig.decoupled_token_is()   # Token-TIS
+config = RolloutCorrectionConfig.decoupled_seq_is()     # Seq-TIS
+config = RolloutCorrectionConfig.decoupled_seq_is_rs()  # Seq-MIS
+config = RolloutCorrectionConfig.decoupled_geo_rs()     # Geo-RS
+config = RolloutCorrectionConfig.geo_rs_seq_tis()       # Geo-RS-Seq-TIS
 
-# Decoupled mode with sequence-level IS
-config = RolloutCorrectionConfig.decoupled_seq_is()
+# === Bypass PPO mode (2 policies: π_rollout = π_old, π_θ) - fast ===
+# PPO ratio handles IS, so no explicit IS weights needed
+config = RolloutCorrectionConfig.bypass_ppo_clip()          # PPO-clip only
+config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs()   # PPO-clip + Geo-RS
 
-# Decoupled mode with sequence IS + rejection sampling
-config = RolloutCorrectionConfig.decoupled_seq_is_rs()
+# === Bypass PG mode (2 policies, no PPO clipping) - fast ===
+# IS weights computed on-the-fly as π_θ / π_rollout
+config = RolloutCorrectionConfig.bypass_pg_is()                # Seq-TIS + PG
+config = RolloutCorrectionConfig.bypass_pg_rs()                # Geo-RS + PG
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis()    # Geo-RS-Seq-TIS + PG
 
-# Decoupled mode with geometric RS + veto (maximum outlier sensitivity)
-config = RolloutCorrectionConfig.decoupled_geo_rs()
-
-# Performance mode: PPO with bypass
-config = RolloutCorrectionConfig.ppo_is_bypass()
-
-# Advanced: Pure policy gradient with IS
-config = RolloutCorrectionConfig.pg_is()
-
-# Advanced: Pure policy gradient with rejection sampling (bypass + pure + geometric RS)
-config = RolloutCorrectionConfig.pg_rs()
-
-# Metrics only (no correction)
-config = RolloutCorrectionConfig.disabled()
+# === Other ===
+config = RolloutCorrectionConfig.disabled()             # Metrics only (no correction)
 ```
 
 ### YAML Configuration (Advanced)
@@ -153,8 +158,8 @@ algorithm:
     rollout_rs_threshold: null             # RS upper threshold (required if rollout_rs is enabled)
     rollout_rs_threshold_lower: null       # RS lower threshold (auto-reciprocal if null)
     rollout_token_veto_threshold: null     # Per-token veto threshold (null = disabled)
-    bypass_mode: false  # Skip old_log_prob computation
-    use_policy_gradient: false     # Use policy gradient loss (vs PPO loss)
+    bypass_mode: false  # Skip old_log_prob computation (sets π_old = π_rollout)
+    loss_type: ppo_clip            # Loss type in bypass mode: "ppo_clip" (default) or "reinforce"
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -167,7 +172,7 @@ actor_rollout_ref:
 ### **Core Implementation**
 
 - `verl/trainer/ppo/rollout_corr_helper.py` - Contains `compute_rollout_correction_and_rejection_mask()` and `compute_offpolicy_metrics()`
-- `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO and pure IS mode (`compute_policy_loss_with_rollout_correction()`)
+- `verl/trainer/ppo/core_algos.py` - Rollout Correction integration with PPO and REINFORCE modes (`compute_policy_loss_bypass_mode()`, `compute_policy_loss_reinforce()`)
 - `verl/trainer/ppo/ray_trainer.py` - Bypass mode implementation (skips `old_log_prob` computation)
 - `verl/workers/actor/dp_actor.py` - Mode selection logic and metrics collection
 
@@ -262,9 +267,9 @@ The rollout correction framework is built from **orthogonal components** that ca
    - **Decoupled**: Three policies (π_rollout, π_old, π_θ) with separate π_old computation
    - **Bypass**: Two policies (π_rollout = π_old, π_θ), skips π_old computation
 
-2. **Loss Function**
-   - **PPO**: With clipping (standard RL training)
-   - **Pure IS**: Policy gradient only (no clipping)
+2. **Loss Function** (in bypass mode, controlled by `loss_type`)
+   - **PPO-clip** (`loss_type="ppo_clip"`, default): PPO clipped objective (IS handled by ratio)
+   - **REINFORCE** (`loss_type="reinforce"`): Policy gradient with explicit IS weights (no clipping)
 
 3. **IS/RS Aggregation Level**
    - **Token**: Per-token IS weights/rejection
@@ -286,18 +291,30 @@ This section provides detailed guidance on choosing and using the verified prese
 
 #### Available Preset Methods
 
-| Preset Method | Mode | IS Level | RS Level | Properties |
-|---------------|------|----------|----------|------------|
-| `decoupled_token_is()` | Decoupled | token | - | Per-token IS weights |
-| `decoupled_seq_is()` | Decoupled | sequence | - | Sequence-level IS weights |
-| `decoupled_seq_is_rs()` | Decoupled | sequence | sequence | Sequence IS + sequence RS |
-| `decoupled_geo_rs()` | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
-| `ppo_is_bypass()` | Bypass | - | - | Bypass mode, skips old_log_prob |
-| `pg_rs()` | Bypass | - | geometric + veto | Policy gradient with RS (no IS weights) |
-| `pg_is()` | Bypass | sequence | - | Policy gradient with IS |
-| `disabled()` | - | - | - | Metrics only, no correction |
+| Preset Method | Estimator | Mode | IS Level | RS Level | Properties |
+|---------------|-----------|------|----------|----------|------------|
+| **Decoupled PPO Mode** (3 policies: π_rollout, π_old, π_θ) |
+| `decoupled_token_is()` | Token-TIS | Decoupled | token | - | Per-token IS weights |
+| `decoupled_seq_is()` | Seq-TIS | Decoupled | sequence | - | Sequence-level IS weights |
+| `decoupled_seq_is_rs()` | Seq-MIS | Decoupled | sequence | sequence | Sequence IS + sequence RS |
+| `decoupled_geo_rs()` | Geo-RS | Decoupled | - | geometric + veto | Geometric RS + veto, no IS weights |
+| `geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Decoupled | sequence | geometric + veto | Geometric filter + clipped weight |
+| **Bypass Mode (PPO-clip)** (2 policies; ratio handles IS, RS masks outliers) |
+| `bypass_ppo_clip()` | - | Bypass (PPO-clip) | - | - | PPO-clip only |
+| `bypass_ppo_clip_geo_rs()` | Geo-RS | Bypass (PPO-clip) | - | geometric + veto | PPO-clip + Geo-RS |
+| **Bypass Mode (REINFORCE)** (2 policies; explicit IS weights, no PPO clipping) |
+| `bypass_pg_is()` | Seq-TIS | Bypass (REINFORCE) | sequence | - | REINFORCE with explicit IS |
+| `bypass_pg_rs()` | Geo-RS | Bypass (REINFORCE) | - | geometric + veto | REINFORCE with Geo-RS |
+| `bypass_pg_geo_rs_seq_tis()` | Geo-RS-Seq-TIS | Bypass (REINFORCE) | sequence | geometric + veto | REINFORCE + Geo filter + seq IS |
+| **Other** |
+| `disabled()` | - | - | - | - | Metrics only, no correction |
 
-**Note:** All presets use PPO loss except `pg_is()` and `pg_rs()` which use policy gradient (both require `use_policy_gradient=True`).
+**Note:**
+- **Bypass mode** sets π_old = π_rollout and uses `loss_type` to select the loss function:
+  - `"ppo_clip"` (default): PPO clipped objective where ratio = π_θ/π_rollout already handles IS
+  - `"reinforce"`: REINFORCE with explicit IS weights as π_θ / π_rollout
+- Both loss types benefit from rejection sampling (RS) which masks out-of-distribution samples.
+- Estimators (Token-TIS, Seq-TIS, Seq-MIS, Geo-RS, Geo-RS-Seq-TIS) are compatible with Decoupled and Bypass modes.
 
 #### Other Supported Combinations (Manual Configuration Required)
 
@@ -312,7 +329,7 @@ See [detailed configuration examples below](#additional-useful-configurations-no
 - Any aggregation level (token/sequence/geometric) works in either decoupled or bypass mode
 - All combinations are fully supported by the implementation
 - Rejection sampling is independent of IS weighting
-- Pure RS (`pg_rs`) uses bypass + geometric RS with `use_policy_gradient=True` (no IS weights)
+- Pure RS (`bypass_pg_rs`) uses bypass + geometric RS with `loss_type="reinforce"` (no IS weights)
 
 ---
 
@@ -325,7 +342,7 @@ config = RolloutCorrectionConfig.decoupled_token_is(threshold=2.0)
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: Token-level
 - **RS**: None (can be added separately)
 
@@ -350,6 +367,8 @@ algorithm:
 
 ### 2. Decoupled Mode with Sequence-level Importance Sampling (`decoupled_seq_is`)
 
+**Also known as: Seq-TIS (Sequence-Level Truncated IS)**
+
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.decoupled_seq_is(threshold=2.0)
@@ -357,8 +376,8 @@ config = RolloutCorrectionConfig.decoupled_seq_is(threshold=2.0)
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
-- **IS Aggregation**: Sequence-level
+- **Loss**: PPO with clipping (only for the second drift correction)
+- **IS Aggregation**: Sequence-level (Seq-TIS)
 - **RS**: None (can be added separately)
 
 **Equivalent YAML:**
@@ -382,6 +401,8 @@ algorithm:
 
 ### 3. Decoupled Mode with Sequence-level IS + Rejection Sampling (`decoupled_seq_is_rs`)
 
+**Also known as: Seq-MIS (Sequence-Level Masked IS)**
+
 **Configuration:**
 ```python
 config = RolloutCorrectionConfig.decoupled_seq_is_rs(is_threshold=2.0, rs_threshold=2.0)
@@ -389,9 +410,9 @@ config = RolloutCorrectionConfig.decoupled_seq_is_rs(is_threshold=2.0, rs_thresh
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
-- **IS Aggregation**: Sequence-level
-- **RS**: Sequence-level rejection
+- **Loss**: PPO with clipping (only for the second drift correction)
+- **IS Aggregation**: Sequence-level (Seq-TIS)
+- **RS**: Sequence-level rejection (Seq-MIS)
 
 **Equivalent YAML:**
 ```yaml
@@ -401,14 +422,18 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: sequence
     rollout_rs_threshold: 2.0
-    rollout_rs_threshold_lower: 0.5  # Reciprocal of threshold
+    rollout_rs_threshold_lower: 0
     bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- Double mechanism: IS reweighting + rejection filtering
+- Double mechanism: IS reweighting (Seq-TIS) + rejection filtering (Seq-MIS)
 - Lower effective sample size (rejects outliers)
-- For severe off-policy gaps
+- For severe off-policy gaps or when the distribution tail is "toxic" (garbage/adversarial samples)
+
+**When to use Seq-MIS over Seq-TIS:**
+- **Seq-TIS (clipping only)**: Maximizes information efficiency; extracts signal from all samples. Use when data is clean and mismatch is moderate.
+- **Seq-MIS (rejection)**: Maximizes safety; acts as a hard trust region filter. Use when mismatch is severe or when high-weight samples are likely garbage rather than signal.
 
 **Theory:** See [rollout_corr_math.md §3.4](rollout_corr_math.md#34-rejection-sampling-rs)
 
@@ -423,9 +448,9 @@ config = RolloutCorrectionConfig.decoupled_geo_rs(rs_threshold=1.001, veto_thres
 
 **Components:**
 - **Operating Mode**: Decoupled (3 policies)
-- **Loss**: PPO with clipping
+- **Loss**: PPO with clipping (only for the second drift correction)
 - **IS Aggregation**: None (pure rejection)
-- **RS**: Geometric-level rejection
+- **RS**: Geometric-level rejection (Geo-RS)
 - **Veto**: Enabled
 
 **Equivalent YAML:**
@@ -446,45 +471,89 @@ algorithm:
 - Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
 - Rejects sequences based on average per-token ratio deviation
 
+**Why Geo-RS?** Standard IS estimators have a **Length Trap**: they penalize long sequences because the importance ratio grows exponentially with length. For reasoning models (CoT) and agents, this causes "Context Collapse" - the model learns from short answers while rejecting long chains of thought. Geo-RS normalizes by sequence length, making rejection length-invariant.
+
 **Why tight thresholds?** Geometric mean is very sensitive. For 100 tokens with ratio 1.01 each:
 - Product: 1.01^100 ≈ 2.7
 - Geometric mean: 1.01
 
 A threshold of 1.001 rejects sequences with average per-token deviation > 0.1%.
 
-**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation)
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
 
 ---
 
-### 5. PPO with Bypass Mode (`ppo_is_bypass`)
+### 5. Geo-RS with Sequence IS (`geo_rs_seq_tis`)
+
+**Also known as: Geo-RS-Seq-TIS**
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.ppo_is_bypass(threshold=2.0)
+config = RolloutCorrectionConfig.geo_rs_seq_tis(
+    is_threshold=2.0,
+    rs_threshold=1.001,
+    veto_threshold=1e-4
+)
 ```
 
 **Components:**
-- **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
-- **Loss**: PPO with clipping
-- **IS Aggregation**: None (not needed, π_old = π_rollout)
-- **RS**: None
+- **Operating Mode**: Decoupled (3 policies)
+- **Loss**: PPO with clipping (only for the second drift correction)
+- **IS Aggregation**: Sequence-level (Seq-TIS) for debiasing
+- **RS**: Geometric-level rejection (Geo-RS) for length-invariant filtering
+- **Veto**: Enabled
 
 **Equivalent YAML:**
 ```yaml
 algorithm:
   rollout_correction:
-    rollout_is: token  # Placeholder for metrics
+    rollout_is: sequence
     rollout_is_threshold: 2.0
-    rollout_rs: null
-    bypass_mode: true  # Bypass mode
-    use_policy_gradient: false
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.001
+    rollout_rs_threshold_lower: 0.999
+    rollout_token_veto_threshold: 1e-4
+    bypass_mode: false  # Decoupled mode
 ```
 
 **Properties:**
-- Skips `actor.compute_log_prob()` forward pass
-- PPO clips against π_rollout (behavior policy)
-- Sets π_old = π_rollout (two-policy setup)
-- Does not separate proximal from behavior policy
+- Combines **Geometric Filter** (length-invariant validity) with **Clipped Sequence Weight** (correct debiasing)
+- Suitable for reasoning models (CoT, o1-style) and agents with long action sequences
+- Solves the Length Trap while maintaining IS correction for bias reduction
+
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+
+---
+
+### 6. Bypass Mode with PPO-clip (`bypass_ppo_clip`)
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.bypass_ppo_clip()
+```
+
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
+- **Loss**: PPO-clip (IS handled by ratio, no explicit IS weights)
+- **IS Aggregation**: None (PPO ratio handles it)
+- **RS**: None
+- **Veto**: None
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_rs: null
+    bypass_mode: true
+    loss_type: ppo_clip
+```
+
+**Properties:**
+- PPO clipped objective in bypass mode
+- The PPO ratio = π_θ/π_rollout already handles IS (no explicit IS weights needed)
+- Skips `actor.compute_log_prob()` forward pass (2 policies instead of 3)
+- No rejection sampling - use `bypass_ppo_clip_geo_rs()` for RS
 
 **Configuration requirement:**
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true`
@@ -493,16 +562,61 @@ algorithm:
 
 ---
 
-### 6. Policy Gradient with IS (`pg_is`)
+### 6b. Bypass Mode with PPO-clip + Geo-RS (`bypass_ppo_clip_geo_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.pg_is(threshold=2.0)
+config = RolloutCorrectionConfig.bypass_ppo_clip_geo_rs(
+    rs_threshold=1.001,
+    veto_threshold=1e-4
+)
+```
+
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout = π_old, π_θ)
+- **Loss**: PPO-clip (IS handled by ratio, no explicit IS weights)
+- **IS Aggregation**: None (PPO ratio handles it)
+- **RS**: Geometric-level rejection
+- **Veto**: Enabled
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: null
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.001
+    rollout_rs_threshold_lower: 0.999
+    rollout_token_veto_threshold: 1e-4
+    bypass_mode: true
+    loss_type: ppo_clip
+```
+
+**Properties:**
+- PPO clipped objective in bypass mode with geometric RS
+- The PPO ratio = π_θ/π_rollout already handles IS (no explicit IS weights needed)
+- Skips `actor.compute_log_prob()` forward pass (2 policies instead of 3)
+- Geometric RS masks outliers
+- Veto mechanism enabled
+- Solves Length Trap problem for CoT/agent workloads
+
+**Configuration requirement:**
+- Set `actor_rollout_ref.rollout.calculate_log_probs: true`
+
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+
+---
+
+### 7. REINFORCE with IS (`bypass_pg_is`)
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.bypass_pg_is(threshold=2.0)
 ```
 
 **Components:**
 - **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
-- **Loss**: Pure IS (policy gradient only, no PPO clipping)
+- **Loss**: REINFORCE (policy gradient with explicit IS weights, no PPO clipping)
 - **IS Aggregation**: Sequence-level
 - **RS**: None
 
@@ -513,24 +627,24 @@ algorithm:
     rollout_is: sequence
     rollout_is_threshold: 2.0
     rollout_rs: null
-    bypass_mode: true  # Required
-    use_policy_gradient: true  # Use policy gradient loss (no PPO clipping)
+    bypass_mode: true
+    loss_type: reinforce  # REINFORCE with explicit IS weights
 ```
 
 **Properties:**
-- Policy gradient loss (no PPO clipping)
+- REINFORCE loss with explicit IS weights (no PPO clipping)
 - Single forward pass (skips old_log_prob computation)
 - IS weights computed on-the-fly in loss function
 
-**Theory:** See [rollout_corr_math.md §3.2.2](rollout_corr_math.md#322-pure-is-loss-policy-gradient)
+**Theory:** See [rollout_corr_math.md §3.2.2](rollout_corr_math.md#322-policy-gradient-loss-with-isrs-correction)
 
 ---
 
-### 7. Policy Gradient with Rejection Sampling (`pg_rs`)
+### 8. REINFORCE with Rejection Sampling (`bypass_pg_rs`)
 
 **Configuration:**
 ```python
-config = RolloutCorrectionConfig.pg_rs(
+config = RolloutCorrectionConfig.bypass_pg_rs(
     rs_threshold=1.001,
     veto_threshold=1e-4
 )
@@ -538,7 +652,7 @@ config = RolloutCorrectionConfig.pg_rs(
 
 **Components:**
 - **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
-- **Loss**: Pure policy gradient (no PPO clipping, via `use_policy_gradient=True`)
+- **Loss**: REINFORCE (no PPO clipping)
 - **IS Aggregation**: None
 - **RS**: Geometric-level rejection
 - **Veto**: Enabled
@@ -553,7 +667,7 @@ algorithm:
     rollout_rs_threshold_lower: 0.999
     rollout_token_veto_threshold: 1e-4
     bypass_mode: true
-    use_policy_gradient: true
+    loss_type: reinforce
 ```
 
 **Properties:**
@@ -562,7 +676,51 @@ algorithm:
 - Veto mechanism enabled
 - Typical threshold: 1.0001 - 1.001 (tighter than sequence/token level)
 
-**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation)
+**Theory:** [§3.1.2 (Bypass)](rollout_corr_math.md#312-bypass-mode-two-policies) + [§3.3.3 (Geometric)](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
+
+---
+
+### 9. REINFORCE with Geo-RS-Seq-TIS (`bypass_pg_geo_rs_seq_tis`)
+
+**Also known as: Geo-RS-Seq-TIS in bypass mode**
+
+**Configuration:**
+```python
+config = RolloutCorrectionConfig.bypass_pg_geo_rs_seq_tis(
+    is_threshold=2.0,
+    rs_threshold=1.001,
+    veto_threshold=1e-4
+)
+```
+
+**Components:**
+- **Operating Mode**: Bypass (2 policies: π_rollout, π_θ)
+- **Loss**: REINFORCE (no PPO clipping)
+- **IS Aggregation**: Sequence-level (Seq-TIS)
+- **RS**: Geometric-level rejection (Geo-RS)
+- **Veto**: Enabled
+
+**Equivalent YAML:**
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: sequence
+    rollout_is_threshold: 2.0
+    rollout_rs: geometric
+    rollout_rs_threshold: 1.001
+    rollout_rs_threshold_lower: 0.999
+    rollout_token_veto_threshold: 1e-4
+    bypass_mode: true
+    loss_type: reinforce
+```
+
+**Properties:**
+- Combines geometric filter + clipped sequence weight with REINFORCE loss
+- Skips `actor.compute_log_prob()` forward pass (bypass mode)
+- Suitable for reasoning models (CoT, o1-style) when you want bypass mode efficiency
+- No PPO clipping - relies on IS/RS for stability
+
+**Theory:** See [rollout_corr_math.md §3.3.3](rollout_corr_math.md#333-geometric-aggregation-geo-rs)
 
 ---
 
@@ -651,11 +809,11 @@ The framework provides **two operating modes** for computing π_old, which can b
 
 ### Operating Modes and Configuration
 
-| Configuration | `bypass_mode` | `use_policy_gradient` | Operating Mode | Loss Function | Description |
-|---------------|----------------------------------|------------------------------|----------------|---------------|-------------|
-| **Decoupled** | `false` | `false` | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
-| **Bypass** | `true` | `false` | Bypass | PPO | Sets `old_log_prob = rollout_log_prob`, PPO clips against rollout policy |
-| **Bypass + PG** | `true` | `true` | Bypass | Policy Gradient | Bypass mode with policy gradient loss (no PPO clipping) |
+| Configuration | `bypass_mode` | `loss_type` | Operating Mode | Loss Function | Description |
+|---------------|---------------|-------------|----------------|---------------|-------------|
+| **Decoupled** | `false` | N/A | Decoupled | PPO | Computes `old_log_prob` separately via `actor.compute_log_prob()` |
+| **Bypass + PPO-clip** | `true` | `"ppo_clip"` (default) | Bypass | PPO-clip | PPO clipped objective (IS handled by ratio) |
+| **Bypass + REINFORCE** | `true` | `"reinforce"` | Bypass | REINFORCE | Policy gradient with explicit IS weights (no PPO clipping) |
 
 ### Operating Mode Details
 
@@ -720,9 +878,9 @@ The aggregation level can be chosen **independently** of the operating mode. Any
 
 ### Example Workflow
 
-**Recommended: Bypass + Policy Gradient Mode**
+**Recommended: Bypass Mode**
 
-This workflow uses bypass mode with pure policy gradient loss for efficiency.
+This workflow uses bypass mode for efficiency.
 
 1. **Start with metrics only** to understand the off-policy gap:
    ```yaml
@@ -731,7 +889,7 @@ This workflow uses bypass mode with pure policy gradient loss for efficiency.
        rollout_is: null
        rollout_rs: null
        bypass_mode: true  # Bypass mode (recommended)
-       use_policy_gradient: true  # Pure policy gradient (recommended)
+       loss_type: ppo_clip  # Default: PPO clipped objective
    ```
    Monitor `rollout_corr/kl`, `rollout_corr/log_ppl_abs_diff`, `rollout_corr/chi2_token` to assess off-policy gap.
 
@@ -743,11 +901,11 @@ This workflow uses bypass mode with pure policy gradient loss for efficiency.
        rollout_rs: sequence  # or "geometric" for higher sensitivity
        rollout_rs_threshold: 2.0
        bypass_mode: true  # Bypass mode
-       use_policy_gradient: true  # Pure policy gradient
+       loss_type: ppo_clip  # or "reinforce" for explicit IS weights
    ```
    This excludes outliers from training without modifying gradients.
 
-3. **Enable full IS correction** once comfortable with metrics:
+3. **Enable full IS correction** (with REINFORCE loss) once comfortable with metrics:
    ```yaml
    algorithm:
      rollout_correction:
@@ -756,14 +914,15 @@ This workflow uses bypass mode with pure policy gradient loss for efficiency.
        rollout_rs: sequence  # or "geometric" for more aggressive filtering
        rollout_rs_threshold: 2.0
        bypass_mode: true  # Bypass mode
-       use_policy_gradient: true  # Pure policy gradient
+       loss_type: reinforce  # REINFORCE with explicit IS weights
    ```
 
-**Benefits of bypass + policy gradient mode:**
+**Benefits of bypass mode:**
 - ✅ Skips expensive `actor.compute_log_prob()` forward pass (faster)
-- ✅ IS weights computed on-the-fly in loss function (π_θ / π_rollout)
-- ✅ Simpler than PPO (no clipping, pure policy gradient with IS/RS)
-- ✅ Works for all IS/RS combinations
+- ✅ `loss_type` controls the loss function: "ppo_clip" (default) or "reinforce"
+- ✅ PPO-clip: IS handled by ratio (no explicit weights), RS mask applied
+- ✅ REINFORCE: Explicit IS weights computed on-the-fly (π_θ / π_rollout)
+- ✅ Both loss types work with all IS/RS combinations
 
 ## Usage
 
@@ -1140,7 +1299,7 @@ algorithm:
     rollout_token_veto_threshold: 1e-4  # Veto catastrophic tokens
 ```
 
-### Example 5: Bypass Mode
+### Example 5: Bypass Mode with PPO-clip (Default)
 ```yaml
 algorithm:
   rollout_correction:
@@ -1149,21 +1308,34 @@ algorithm:
     rollout_rs: token
     rollout_rs_threshold: 2.0
     bypass_mode: true   # Skip old_log_prob computation
-    use_policy_gradient: false     # Use bypass mode: PPO with rollout_log_prob as old_log_prob
+    loss_type: ppo_clip # PPO clipped objective (default)
 ```
-**Skips expensive `actor.compute_log_prob()` forward pass**
+**Skips expensive `actor.compute_log_prob()` forward pass. PPO ratio = π_θ/π_rollout handles IS.**
 
-### Example 6: Pure Policy Gradient Mode
+### Example 6: Bypass Mode with REINFORCE
 ```yaml
 algorithm:
   rollout_correction:
-    rollout_is: token                      # Explicit IS correction in loss
+    rollout_is: sequence                   # Explicit IS correction in loss
     rollout_is_threshold: 2.0
     rollout_rs: null                       # Optional: can add rejection sampling
-    bypass_mode: true   # Required for policy gradient mode
-    use_policy_gradient: true      # Use policy gradient loss (no PPO clipping)
+    bypass_mode: true
+    loss_type: reinforce           # REINFORCE with explicit IS weights
 ```
 **No PPO clipping, pure policy gradient with IS correction**
+
+### Example 7: Bypass Mode with PPO-clip + Rejection Sampling
+```yaml
+algorithm:
+  rollout_correction:
+    rollout_is: sequence                   # Computed for metrics
+    rollout_is_threshold: 2.0
+    rollout_rs: geometric                  # Rejection sampling enabled
+    rollout_rs_threshold: 1.001
+    bypass_mode: true
+    loss_type: ppo_clip            # PPO clipped objective (IS handled by ratio)
+```
+**PPO clipping with rejection sampling. IS handled by PPO ratio (no explicit IS weights).**
 
 ## Troubleshooting
 
@@ -1332,5 +1504,5 @@ Rollout Correction provides a unified framework for handling general off-policy 
 ## References
 
 - **[Mathematical Formulations](rollout_corr_math.md)** - Detailed mathematical theory and derivations for all rollout correction methods
-- [When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch](https://yingru.notion.site/When-Speed-Kills-Stability-Demystifying-RL-Collapse-from-the-Training-Inference-Mismatch-271211a558b7808d8b12d403fd15edda)
+- [When Speed Kills Stability: Demystifying RL Collapse from the Training-Inference Mismatch](https://richardli.xyz/rl-collapse) (see Blog Series above for parts 1-3)
 - [Your Efficient RL Framework Secretly Brings You Off-Policy RL Training](https://fengyao.notion.site/off-policy-rl)

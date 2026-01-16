@@ -81,4 +81,4 @@ async def compute_score_gsm8k(
         score = int(grm_response.split("\n\n")[-1].strip())
     except Exception:
         score = 0
-    return {"score": score, "acc": score == 10}
+    return {"score": score, "acc": score == 10, "genrm_response": grm_response}
