@@ -15,6 +15,7 @@
 import inspect
 import itertools
 
+import verl.utils.distributed_backend
 import ray
 
 from verl import DataProto

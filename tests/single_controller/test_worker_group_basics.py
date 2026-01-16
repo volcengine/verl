@@ -15,6 +15,7 @@
 e2e test verl.single_controller.ray
 """
 
+import verl.utils.distributed_backend
 import ray
 import torch
 

@@ -28,6 +28,7 @@ from pprint import pprint
 from typing import Any, Optional
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
 import torch
 from omegaconf import OmegaConf, open_dict

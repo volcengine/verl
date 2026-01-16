@@ -17,6 +17,7 @@ import ctypes
 import os
 from datetime import timedelta
 
+import verl.utils.distributed_backend
 import ray
 import torch.distributed
 

@@ -17,6 +17,7 @@ e2e test verl.single_controller.ray
 
 import os
 
+import verl.utils.distributed_backend
 import ray
 
 from verl.single_controller.base.worker import Worker

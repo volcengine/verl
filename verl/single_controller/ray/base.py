@@ -19,8 +19,8 @@ from copy import deepcopy
 from typing import Any, Optional
 
 import numpy as np
+import verl.utils.distributed_backend
 import ray
-from ray.experimental.state.api import get_actor
 from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, PlacementGroupSchedulingStrategy
 
@@ -419,7 +419,7 @@ class RayWorkerGroup(WorkerGroup):
         Returns:
             bool: True if the worker is alive, False otherwise
         """
-        worker_state_dict = get_actor(worker._actor_id.hex())
+        worker_state_dict = ray.get_actor(worker._actor_id.hex())
         return worker_state_dict.get("state", "undefined") == "ALIVE" if worker_state_dict is not None else False
 
     def _init_with_detached_workers(self, worker_names, worker_handles):

@@ -15,6 +15,7 @@
 import json
 import os
 
+import verl.utils.distributed_backend
 from ray._private.runtime_env.constants import RAY_JOB_CONFIG_JSON_ENV_VAR
 
 PPO_RAY_RUNTIME_ENV = {

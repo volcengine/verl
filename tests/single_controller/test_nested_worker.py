@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import verl.utils.distributed_backend
 import ray
 
 from verl.single_controller.base.decorator import Dispatch, register

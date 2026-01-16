@@ -15,6 +15,7 @@
 In this test, we instantiate a data parallel worker with 8 GPUs
 """
 
+import verl.utils.distributed_backend
 import ray
 import tensordict
 import torch
