@@ -21,18 +21,8 @@ from verl.utils.device import get_device_id, get_torch_device
 def offload_veomni_model_to_cpu(model, empty_cache: bool = True):
     from veomni.distributed.parallel_state import get_parallel_state
 
-    ps = get_parallel_state()
-    assert ps.dp_mode == "fsdp2", "Only support fsdp2 offloading for VeOmni model"
+    assert get_parallel_state().dp_mode == "fsdp2", "Only support fsdp2 offloading for VeOmni model"
 
-    if ps.ep_enabled:
-        parallel_plan = model.get_parallel_plan()
-        if parallel_plan is not None:
-            experts_map = parallel_plan.get_fsdp_no_shard_info(model)
-
-            if experts_map:
-                for module in experts_map.values():
-                    module.to("cpu")
-    # Offload FSDP parameters (non-expert parameters)
     model.cpu()
     if empty_cache:
         get_torch_device().empty_cache()
@@ -42,19 +32,9 @@ def offload_veomni_model_to_cpu(model, empty_cache: bool = True):
 def load_veomni_model_to_gpu(model):
     from veomni.distributed.parallel_state import get_parallel_state
 
-    ps = get_parallel_state()
-    assert ps.dp_mode == "fsdp2", "Only support fsdp2 offloading for VeOmni model"
+    assert get_parallel_state().dp_mode == "fsdp2", "Only support fsdp2 offloading for VeOmni model"
 
     device = get_device_id()
-    if ps.ep_enabled:
-        parallel_plan = model.get_parallel_plan()
-        if parallel_plan is not None:
-            experts_map = parallel_plan.get_fsdp_no_shard_info(model)
-
-            if experts_map:
-                for module in experts_map.values():
-                    module.to(device)
-
     model.to(device)
 
 
