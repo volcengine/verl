@@ -47,7 +47,7 @@ from verl.utils.device import (
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.sglang_rollout.utils import get_max_lora_rank, SGLANG_LORA_NAME
+from verl.workers.rollout.sglang_rollout.utils import SGLANG_LORA_NAME, get_max_lora_rank
 from verl.workers.rollout.utils import (
     get_free_port,
     get_max_position_embeddings,
@@ -78,16 +78,16 @@ class SGLangHttpServer:
     """
 
     def __init__(
-            self,
-            config: RolloutConfig,
-            model_config: HFModelConfig,
-            rollout_mode: RolloutMode,
-            workers: list[ActorHandle],
-            replica_rank: int,
-            node_rank: int,
-            nnodes: int,
-            cuda_visible_devices: str,
-            base_gpu_id: int,
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        rollout_mode: RolloutMode,
+        workers: list[ActorHandle],
+        replica_rank: int,
+        node_rank: int,
+        nnodes: int,
+        cuda_visible_devices: str,
+        base_gpu_id: int,
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
         os.environ[visible_devices_keyword] = cuda_visible_devices
@@ -214,7 +214,9 @@ class SGLangHttpServer:
 
         # enable_weights_cpu_backup is supported in sglang>=0.5.3
         if "enable_weights_cpu_backup" in [f.name for f in dataclasses.fields(ServerArgs)]:
-            enable_weights_cpu_backup = True if self.rollout_mode == RolloutMode.COLOCATED or self.model_config.lora_rank > 0 else False
+            enable_weights_cpu_backup = (
+                True if self.rollout_mode == RolloutMode.COLOCATED or self.model_config.lora_rank > 0 else False
+            )
             args["enable_weights_cpu_backup"] = enable_weights_cpu_backup
 
         if self.config.enable_rollout_routing_replay:
@@ -291,12 +293,12 @@ class SGLangHttpServer:
         await self.tokenizer_manager.release_memory_occupation(obj, None)
 
     async def generate(
-            self,
-            prompt_ids: torch.Tensor,
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
-            video_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: torch.Tensor,
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
@@ -415,11 +417,11 @@ class SGLangReplica(RolloutReplica):
         # create server actor in each node with node affinity and cuda visible devices
         for node_rank in range(self.nnodes):
             workers = self.workers[
-                      node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
-                      ]
+                node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
+            ]
             node_cuda_visible_devices_set = worker_cuda_visible_devices[
-                                            node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
-                                            ]
+                node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
+            ]
             node_cuda_visible_devices = ",".join(
                 map(
                     str,

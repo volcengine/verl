@@ -18,33 +18,32 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
-from typing import Generator, Dict
 from dataclasses import asdict
-from peft import LoraConfig
+from typing import Generator
 
 import ray
 import sglang.srt.entrypoints.engine
 import torch
+from peft import LoraConfig
+from sglang.srt.managers.io_struct import LoadLoRAAdapterFromTensorsReqInput
 from sglang.srt.server_args import ServerArgs
 from sglang.srt.utils import (
+    MultiprocessingSerializer,
     assert_pkg_version,
     is_cuda,
     set_prometheus_multiproc_dir,
     set_ulimit,
-    MultiprocessingSerializer,
 )
-from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights, \
-    _preprocess_tensor_for_update_weights
-from sglang.srt.managers.io_struct import LoadLoRAAdapterFromTensorsReqInput
-
+from sglang.srt.weight_sync.utils import _preprocess_tensor_for_update_weights
+from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
 
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import (
-    get_named_tensor_buckets,
     SGLANG_LORA_NAME,
+    get_named_tensor_buckets,
 )
 from verl.workers.rollout.utils import is_valid_ipv6_address
 
@@ -101,10 +100,10 @@ class ServerAdapter(BaseRollout):
     """
 
     def __init__(
-            self,
-            config: RolloutConfig,
-            model_config: HFModelConfig,
-            device_mesh: DeviceMesh,
+        self,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        device_mesh: DeviceMesh,
     ):
         if config.get("quantization", None) == "fp8":
             import sglang
@@ -185,7 +184,7 @@ class ServerAdapter(BaseRollout):
             if self.device_mesh["infer_tp"].get_local_rank() == 0:
                 # unload lora
                 models_result = await self._engine.available_models()
-                exists = any(item['id'] == SGLANG_LORA_NAME for item in models_result['data'])
+                exists = any(item["id"] == SGLANG_LORA_NAME for item in models_result["data"])
                 if exists:
                     await self._engine.unload_lora_adapter(SGLANG_LORA_NAME)
 
@@ -203,6 +202,7 @@ class ServerAdapter(BaseRollout):
             update_weights_bucket_bytes = int(self.config.update_weights_bucket_megabytes) << 20
             if self.config.get("quantization", None) == "fp8":
                 from verl.utils.sglang.sglang_fp8_utils import quant_weights_by_name
+
                 logger.info("Convert bf16 weights to fp8 format before loading")
                 weights = quant_weights_by_name(
                     weights,
@@ -231,17 +231,14 @@ class ServerAdapter(BaseRollout):
         peft_config_json["target_modules"] = list(peft_config_json["target_modules"])
 
         # lora weights
-        processed_weights: Dict[str, torch.Tensor] = {
-            name: _preprocess_tensor_for_update_weights(tensor.detach())
-            for name, tensor in weights
+        processed_weights: dict[str, torch.Tensor] = {
+            name: _preprocess_tensor_for_update_weights(tensor.detach()) for name, tensor in weights
         }
 
         infer_tp_size = self.device_mesh["infer_tp"].mesh.size()[0]
         serialized_named_tensors = []
         for i in range(infer_tp_size):
-            serialized_tensors = MultiprocessingSerializer.serialize(
-                processed_weights, output_str=True
-            )
+            serialized_tensors = MultiprocessingSerializer.serialize(processed_weights, output_str=True)
             serialized_named_tensors.append(serialized_tensors)
 
         return peft_config_json, serialized_named_tensors

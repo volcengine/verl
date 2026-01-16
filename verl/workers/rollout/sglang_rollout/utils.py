@@ -38,12 +38,13 @@ def get_max_lora_rank(lora_rank: int):
             return rank
     raise ValueError(f"lora_rank must be less than or equal to {max_lora_ranks[-1]}, but got {lora_rank}")
 
+
 def broadcast_pyobj(
-        data: list[Any],
-        rank: int,
-        dist_group: Optional[torch.distributed.ProcessGroup] = None,
-        src: int = 0,
-        force_cpu_device: bool = False,
+    data: list[Any],
+    rank: int,
+    dist_group: Optional[torch.distributed.ProcessGroup] = None,
+    src: int = 0,
+    force_cpu_device: bool = False,
 ):
     """from https://github.com/sgl-project/sglang/blob/844e2f227ab0cce6ef818a719170ce37b9eb1e1b/python/sglang/srt/utils.py#L905
 
@@ -84,7 +85,7 @@ def broadcast_pyobj(
 
 
 def get_named_tensor_buckets(
-        iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
+    iterable: Iterator[tuple[str, torch.Tensor]], bucket_bytes: int
 ) -> Iterator[list[tuple[str, torch.Tensor]]]:
     """
     Group tensors into buckets based on a specified size in megabytes.
