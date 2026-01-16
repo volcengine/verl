@@ -363,6 +363,8 @@ class FSDPSFTTrainer:
                 "reshard_after_forward": True,
             }
             full_state = self.model.state_dict()
+            if self.speculator is not None:
+                full_state = {k: v for k, v in full_state.items() if not k.startswith("speculator.")}
             apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config)
             fsdp2_load_full_state_dict(self.model, full_state, self.device_mesh, cpu_offload)
             self.fsdp_model = self.model
