@@ -185,37 +185,26 @@ def _batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
 
 async def _async_update_batchmeta_with_output(output: DataProto | TensorDict, batchmeta: "BatchMeta",
                                               func_name=None) -> "BatchMeta":
-    pid = os.getpid()
-
-    # TODO(TQ): process the new extra_info/meta_info data
-    # in case that new meta_info has been added to the output, extract all NonTensorData as new extra_info
     if isinstance(output, TensorDict):
-        # assert convert_type == "TensorDict"
         is_empty = (output.batch_size[0] == 0)
         meta_data = {}
         for key, val in dict(output.get_non_tensor_items()).items():
             if isinstance(val, NonTensorData):
                 meta_data[key] = val.data
         tensordict = output
-    else:
-        # assert convert_type == "DataProto"
+    elif isinstance(output, DataProto):
         is_empty = (len(output) == 0)
         meta_data = output.meta_info
         tensordict = output.to_tensordict()
+    else:
+        raise TypeError(f"Only support DataProto|TensorDict format of output, but got {type(output)}")
 
-    for k, v in meta_data.items():
-        batchmeta.set_extra_info(k, v)
+    batchmeta.update_extra_info(meta_data)
 
-    # process tensordict containing data to be put into TQ, meta_info should not be saved
+    # process tensordict containing data to be put into TQ. meta_info should not be saved
     if not is_empty:
         for key in meta_data.keys():
             tensordict.pop(key)
-        logger.info(
-            f"Task {func_name} (pid={pid}) putting output data to TransferQueue with "
-            f"batch_size={tensordict.batch_size},\n"
-            f"tensordict keys={list(tensordict.keys())}"
-        )
-
         updated_batch_meta = await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
         return updated_batch_meta
     else:
@@ -312,8 +301,7 @@ def _postprocess_common(output, put_data, need_collect):
         return BatchMeta.empty()
     elif not put_data and not need_collect and isinstance(output, DataProto):
         return DataProto()
-    # TODO(TQ)
-    elif not put_data and not need_collect and isinstance(output, TensorDict):  # convert_type?
+    elif not put_data and not need_collect and isinstance(output, TensorDict):
         return TensorDict({}, batch_size=(0,))
     else:
         return output
