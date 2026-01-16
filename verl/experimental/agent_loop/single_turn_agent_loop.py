@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import inspect
 import logging
 import os
 from typing import Any
@@ -39,6 +40,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
         messages = list(kwargs["raw_prompt"])
+        priority = kwargs.get("priority", 0)
 
         # 1. extract images and videos from messages
         multi_modal_data = await self.process_vision_info(messages)
@@ -56,13 +58,19 @@ class SingleTurnAgentLoop(AgentLoopBase):
         # 3. generate sequences
         metrics = {}
         with simple_timer("generate_sequences", metrics):
-            output = await self.server_manager.generate(
+            generate_kwargs = dict(
                 request_id=uuid4().hex,
                 prompt_ids=prompt_ids,
                 sampling_params=sampling_params,
                 image_data=images,
                 video_data=videos,
             )
+            sig = inspect.signature(self.server_manager.generate)
+            if "priority" in sig.parameters:
+                generate_kwargs["priority"] = priority
+
+            output = await self.server_manager.generate(**generate_kwargs)
+
         response_mask = [1] * len(output.token_ids)
 
         output = AgentLoopOutput(

@@ -120,7 +120,9 @@ multi_stage_wake_up: false
 engine_kwargs:
 
   # vllm engine config
-  vllm: {}
+  vllm: {
+    scheduling_policy: fcfs
+  }
 
   # sglang engine config
   sglang: {}

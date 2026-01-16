@@ -234,7 +234,8 @@ actor_rollout_ref:
     over_sample_rate: 0
     multi_stage_wake_up: false
     engine_kwargs:
-      vllm: {}
+      vllm:
+        scheduling_policy: fcfs
       sglang: {}
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
