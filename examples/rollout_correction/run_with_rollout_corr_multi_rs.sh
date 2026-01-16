@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Example: RLOO (REINFORCE Leave-One-Out) with Rollout Correction
-# This demonstrates self-normalized sequence-level IS with pure policy gradient
+# Example: PPO-clip with Rollout Correction using multiple RS criteria
+# Demonstrates chaining token-level and sequence-level rejection sampling
+# (token_k1 + seq_max_k2) alongside optional IS metrics.
 #
 # References:
 #   - Rollout Correction Docs: https://github.com/volcengine/verl/blob/main/docs/algo/rollout_corr.md
@@ -9,21 +10,23 @@
 set -xeuo pipefail
 
 # ==============================================================================
-# Rollout Correction Configuration (RLOO)
+# Rollout Correction Configuration (PPO-clip + multi RS)
 # ==============================================================================
 
 # Importance Sampling (IS) weights configuration
-rollout_is="sequence"                     # Self-normalized sequence-level IS
-rollout_is_threshold=2.0                  # Upper threshold for IS weights
-rollout_is_batch_normalize="true"        # Self-normalization (mean=1.0)
+rollout_is="token"                       # Token-level IS for metrics/analysis
+rollout_is_threshold=2.0                 # Upper threshold for IS weights
+rollout_is_batch_normalize="false"       # Keep raw truncated weights
 
-# Rejection Sampling (RS) configuration
-rollout_rs="null"                         # No rejection sampling for basic RLOO
-rollout_rs_threshold="null"               # RS threshold spec (string or float)
+# Rejection Sampling (RS) configuration (multi-criteria)
+# - token_k1 keeps per-token ratios inside [lower, upper]
+# - seq_max_k2 rejects sequences with extreme chi-square spikes
+rollout_rs="token_k1,seq_max_k2"
+rollout_rs_threshold="0.6_1.6,2.5"
 
-# Bypass mode with REINFORCE loss (no PPO clipping)
-bypass_mode="true"     # Skip old_log_prob computation
-loss_type="reinforce"  # REINFORCE with explicit IS weights (alternative: "ppo_clip")
+# Bypass PPO mode (reuse rollout_log_prob)
+bypass_mode="true"
+loss_type="ppo_clip"
 
 # ==============================================================================
 # Model and Data Configuration
@@ -43,13 +46,13 @@ max_response_length=4096
 train_batch_size=128
 ppo_mini_batch_size=32
 ppo_epochs=1
-learning_rate=5e-7
+learning_rate=3e-6
 
 # ==============================================================================
-# Algorithm Configuration (RLOO)
+# Algorithm Configuration
 # ==============================================================================
 
-adv_estimator=rloo                        # RLOO advantage estimator
+adv_estimator=grpo
 gamma=1.0
 
 # ==============================================================================
@@ -68,8 +71,8 @@ python3 -m verl.trainer.main_ppo \
     algorithm.rollout_correction.rollout_is=${rollout_is} \
     algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_correction.rollout_is_batch_normalize=${rollout_is_batch_normalize} \
-    algorithm.rollout_correction.rollout_rs=${rollout_rs} \
-    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
+    algorithm.rollout_correction.rollout_rs=\'${rollout_rs}\' \
+    algorithm.rollout_correction.rollout_rs_threshold=\'${rollout_rs_threshold}\' \
     algorithm.rollout_correction.bypass_mode=${bypass_mode} \
     algorithm.rollout_correction.loss_type=${loss_type} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
@@ -81,20 +84,19 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.name=vllm \
     trainer.logger='["console","wandb"]' \
-    trainer.project_name="rollout_corr_rloo_example" \
-    trainer.experiment_name="rloo_seq_is_pure" \
-    trainer.total_epochs=10
+    trainer.project_name="rollout_corr_multi_rs_example" \
+    trainer.experiment_name="ppo_clip_multi_rs" \
+    trainer.total_epochs=5
 
 echo "Training completed!"
 echo ""
-echo "RLOO Configuration:"
-echo "  - Algorithm: RLOO (REINFORCE Leave-One-Out)"
-echo "  - Advantage estimator: ${adv_estimator}"
-echo "  - IS mode: ${rollout_is} (self-normalized: ${rollout_is_batch_normalize})"
-echo "  - IS threshold: ${rollout_is_threshold}"
-echo "  - Bypass mode: ${bypass_mode}, loss_type: ${loss_type}"
+echo "Multi-RS Configuration:"
+echo "  - rollout_is: ${rollout_is} (threshold=${rollout_is_threshold}, batch_norm=${rollout_is_batch_normalize})"
+echo "  - rollout_rs: ${rollout_rs}"
+echo "  - rollout_rs_threshold: ${rollout_rs_threshold}"
+echo "  - bypass_mode: ${bypass_mode}, loss_type: ${loss_type}"
 echo ""
-echo "Monitor these key metrics in wandb:"
-echo "  - rollout_corr/rollout_is_mean (should be ~1.0 before batch norm)"
-echo "  - rollout_corr/rollout_is_batch_norm_factor (normalization factor applied)"
-echo "  - rollout_corr/rollout_is_eff_sample_size (should be >0.5)"
+echo "Track these metrics in wandb:"
+echo "  - rollout_corr/rollout_rs_token_k1_mean"
+echo "  - rollout_corr/rollout_rs_seq_max_k2_mean"
+echo "  - rollout_corr/rollout_rs_masked_fraction"
