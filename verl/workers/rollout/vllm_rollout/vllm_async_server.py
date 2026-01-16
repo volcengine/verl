@@ -64,6 +64,9 @@ from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
 
+logger = logging.getLogger(__file__)
+logger.setLevel(logging.INFO)
+
 _VLLM_VERSION = version.parse(vllm.__version__)
 
 if _VLLM_VERSION > version.parse("0.11.0"):
@@ -73,19 +76,32 @@ if _VLLM_VERSION > version.parse("0.11.0"):
     if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
 
-        get_encoding()
+        try:
+            get_encoding()
+        except Exception as e:
+            logger.warning(
+                f"Failed to call get_encoding() for vLLM {_VLLM_VERSION}: {e}. "
+                "This operation requires network access. Please ensure you have internet connection "
+                "or configure proxy settings if needed."
+            )
+            raise
     elif _VLLM_VERSION >= version.parse("0.13.0"):
         from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
 
-        get_encoding()
+        try:
+            get_encoding()
+        except Exception as e:
+            logger.warning(
+                f"Failed to call get_encoding() for vLLM {_VLLM_VERSION}: {e}. "
+                "This operation requires network access. Please ensure you have internet connection "
+                "or configure proxy settings if needed."
+            )
+            raise
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
 if _VLLM_VERSION >= version.parse("0.12.0"):
     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
     from vllm.v1.outputs import ModelRunnerOutput
-
-logger = logging.getLogger(__file__)
-logger.setLevel(logging.INFO)
 
 
 class ExternalZeroMQDistributedExecutor(Executor):
