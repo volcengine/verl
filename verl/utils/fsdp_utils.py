@@ -526,18 +526,18 @@ def apply_fsdp2(model, fsdp_kwargs, config):
     fsdp_transformer_layer_cls_to_wrap = config.get("wrap_policy", {}).get(
         "transformer_layer_cls_to_wrap", default_transformer_cls_names_to_wrap
     )
-    speculator_cls_names = {"ArcticLSTMSpeculator", "MLPSpeculator"}
-
     if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
         fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
-    for cls_name in speculator_cls_names:
-        if cls_name not in fsdp_transformer_layer_cls_to_wrap:
-            fsdp_transformer_layer_cls_to_wrap.append(cls_name)
 
     assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
 
+    speculator_module = getattr(model, "speculator", None)
+    speculator_modules = set(speculator_module.modules()) if speculator_module is not None else set()
+
     modules = []
     for name, module in model.named_modules():
+        if module in speculator_modules:
+            continue
         if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
             isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
         ):
