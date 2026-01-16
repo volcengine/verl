@@ -16,18 +16,20 @@ import asyncio
 import functools
 import inspect
 import logging
-import numpy as np
 import os
 import threading
-import torch
 from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable
+
+import numpy as np
+import torch
 from tensordict.tensorclass import NonTensorData
-from typing import TYPE_CHECKING, Any, Callable, Union
 
 if TYPE_CHECKING:
     from verl.single_controller.base.decorator import Dispatch
 
 from tensordict import TensorDict
+
 from verl.utils import tensordict_utils as tu
 
 try:
@@ -38,10 +40,10 @@ try:
     )
 
 except ImportError:
-    # TODO: Use a hacky workaround for ImportError since
-    # transfer_queue isn't a default verl dependency.
+    # TODO (TQ): this fix is temporary. Remove once TransferQueue is default dependency.
     class BatchMeta:
         pass
+
 
 from verl.protocol import DataProto
 
@@ -54,9 +56,9 @@ is_transferqueue_enabled = os.environ.get("TRANSFER_QUEUE_ENABLE", False)
 
 
 def create_transferqueue_client(
-        client_id: str,
-        config,
-        sync: bool = False,
+    client_id: str,
+    config,
+    sync: bool = False,
 ) -> "AsyncTransferQueueClient | TransferQueueClient":
     global _TRANSFER_QUEUE_CLIENT
     if _TRANSFER_QUEUE_CLIENT is None:
@@ -73,8 +75,9 @@ def get_transferqueue_client() -> "AsyncTransferQueueClient | TransferQueueClien
     return _TRANSFER_QUEUE_CLIENT
 
 
-def repeat_dict(batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
-                ) -> dict[str, torch.Tensor | np.ndarray]:
+def repeat_dict(
+    batch_dict: dict[str, torch.Tensor | np.ndarray], repeat_times=2, interleave=True
+) -> dict[str, torch.Tensor | np.ndarray]:
     """
     Repeat the batch dict a specified number of times.
 
@@ -151,9 +154,10 @@ def _find_batchmeta(*args, **kwargs):
     return None
 
 
-# TODO(TQ): the batchmeta conversion should align to that for engine workers
-async def _async_batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str = "DataProto",
-                                       ) -> DataProto | TensorDict:
+async def _async_batchmeta_to_realdata(
+    batchmeta: "BatchMeta",
+    convert_type: str = "DataProto",
+) -> DataProto | TensorDict:
     meta_info = batchmeta.get_all_extra_info()
     if batchmeta.samples == [] or batchmeta.samples is None:
         if convert_type == "DataProto":
@@ -163,7 +167,6 @@ async def _async_batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
                 meta_info=meta_info,
             )
         else:
-            # TODO(TQ): add meta_info and add extra_meta only when decorating compute_xx funcs
             empty_td = TensorDict({}, batch_size=(0,))
             tu.assign_non_tensor(empty_td, **meta_info)
             return empty_td
@@ -173,27 +176,26 @@ async def _async_batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
     if convert_type == "DataProto":
         return DataProto.from_tensordict(tensordict, meta_info=meta_info)
     else:
-        # TODO(TQ): add meta_info and extra_meta
         tu.assign_non_tensor(tensordict, **meta_info)
         return tensordict
 
 
-def _batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str
-                           ) -> DataProto | TensorDict:
+def _batchmeta_to_realdata(batchmeta: "BatchMeta", convert_type: str) -> DataProto | TensorDict:
     return _run_async_in_temp_loop(_async_batchmeta_to_realdata, batchmeta, convert_type)
 
 
-async def _async_update_batchmeta_with_output(output: DataProto | TensorDict, batchmeta: "BatchMeta",
-                                              func_name=None) -> "BatchMeta":
+async def _async_update_batchmeta_with_output(
+    output: DataProto | TensorDict, batchmeta: "BatchMeta", func_name=None
+) -> "BatchMeta":
     if isinstance(output, TensorDict):
-        is_empty = (output.batch_size[0] == 0)
+        is_empty = output.batch_size[0] == 0
         meta_data = {}
         for key, val in dict(output.get_non_tensor_items()).items():
             if isinstance(val, NonTensorData):
                 meta_data[key] = val.data
         tensordict = output
     elif isinstance(output, DataProto):
-        is_empty = (len(output) == 0)
+        is_empty = len(output) == 0
         meta_data = output.meta_info
         tensordict = output.to_tensordict()
     else:
@@ -211,8 +213,9 @@ async def _async_update_batchmeta_with_output(output: DataProto | TensorDict, ba
         return batchmeta
 
 
-def _update_batchmeta_with_output(output: Union[TensorDict, DataProto], batchmeta: "BatchMeta",
-                                  func_name=None) -> "BatchMeta":
+def _update_batchmeta_with_output(
+    output: TensorDict | DataProto, batchmeta: "BatchMeta", func_name=None
+) -> "BatchMeta":
     updated_batch_meta = _run_async_in_temp_loop(_async_update_batchmeta_with_output, output, batchmeta, func_name)
     return updated_batch_meta
 
@@ -345,10 +348,13 @@ def tqbridge(dispatch_mode: "dict | Dispatch" = None, put_data: bool = True, con
                     f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
-                args = [_batchmeta_to_realdata(arg, convert_type) if isinstance(arg, BatchMeta) else arg
-                        for arg in args]
-                kwargs = {k: _batchmeta_to_realdata(v, convert_type) if isinstance(v, BatchMeta) else v for
-                          k, v in kwargs.items()}
+                args = [
+                    _batchmeta_to_realdata(arg, convert_type) if isinstance(arg, BatchMeta) else arg for arg in args
+                ]
+                kwargs = {
+                    k: _batchmeta_to_realdata(v, convert_type) if isinstance(v, BatchMeta) else v
+                    for k, v in kwargs.items()
+                }
                 output = func(*args, **kwargs)
                 need_collect = _compute_need_collect(dispatch_mode, args)
                 if put_data and need_collect:
@@ -366,11 +372,12 @@ def tqbridge(dispatch_mode: "dict | Dispatch" = None, put_data: bool = True, con
                     f"Task {func.__name__} (pid={pid}) is getting len_samples={batchmeta.size}, "
                     f"global_idx={batchmeta.global_indexes}"
                 )
-                args = [await _async_batchmeta_to_realdata(arg, convert_type
-                                                           ) if isinstance(arg, BatchMeta) else arg for arg in args]
+                args = [
+                    await _async_batchmeta_to_realdata(arg, convert_type) if isinstance(arg, BatchMeta) else arg
+                    for arg in args
+                ]
                 kwargs = {
-                    k: await _async_batchmeta_to_realdata(v, convert_type
-                                                          ) if isinstance(v, BatchMeta) else v
+                    k: await _async_batchmeta_to_realdata(v, convert_type) if isinstance(v, BatchMeta) else v
                     for k, v in kwargs.items()
                 }
                 output = await func(*args, **kwargs)

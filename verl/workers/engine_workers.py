@@ -13,15 +13,16 @@
 # limitations under the License.
 import logging
 import os
-import torch
-from codetiming import Timer
 from contextlib import nullcontext
 from functools import partial
 from itertools import chain
+from typing import Any, Optional
+
+import torch
+from codetiming import Timer
 from omegaconf import DictConfig, open_dict
 from tensordict import NonTensorData, TensorDict
 from torch.distributed.device_mesh import init_device_mesh
-from typing import Any, Optional
 
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
@@ -616,11 +617,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
     async def generate(
-            self,
-            prompt_ids: list[int],
-            sampling_params: dict[str, Any],
-            request_id: str,
-            image_data: Optional[list[Any]] = None,
+        self,
+        prompt_ids: list[int],
+        sampling_params: dict[str, Any],
+        request_id: str,
+        image_data: Optional[list[Any]] = None,
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret

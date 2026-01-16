@@ -20,19 +20,20 @@ import contextlib
 import copy
 import logging
 import math
-import numpy as np
 import os
 import pickle
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+import numpy as np
 import ray
 import tensordict
 import torch
 import torch.distributed
-from dataclasses import dataclass, field
 from packaging import version
 from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from torch.utils.data import DataLoader
-from typing import Any, Callable, Optional
 
 from verl.utils.device import get_device_id, get_torch_device
 from verl.utils.py_functional import union_two_dict
@@ -452,8 +453,8 @@ class DataProto:
         for _, numpy_array in self.non_tensor_batch.items():
             size_of_numpy_array += numpy_array.nbytes
 
-        size_of_numpy_array /= 1024 ** 3
-        size_of_tensordict /= 1024 ** 3
+        size_of_numpy_array /= 1024**3
+        size_of_tensordict /= 1024**3
 
         message = f"Size of tensordict: {size_of_tensordict} GB, size of non_tensor_batch: {size_of_numpy_array} GB"
 
@@ -504,12 +505,12 @@ class DataProto:
 
     @classmethod
     def from_dict(
-            cls,
-            tensors: Optional[dict[str, torch.Tensor]] = None,
-            non_tensors=None,
-            meta_info=None,
-            num_batch_dims=1,
-            auto_padding=False,
+        cls,
+        tensors: Optional[dict[str, torch.Tensor]] = None,
+        non_tensors=None,
+        meta_info=None,
+        num_batch_dims=1,
+        auto_padding=False,
     ):
         """Create a DataProto from a dict of tensors. This assumes that
         1. All the tensor in tensors have the same dim0
@@ -554,10 +555,10 @@ class DataProto:
 
     @classmethod
     def from_tensordict(
-            cls,
-            tensor_dict: TensorDict = None,
-            meta_info=None,
-            num_batch_dims=1,
+        cls,
+        tensor_dict: TensorDict = None,
+        meta_info=None,
+        num_batch_dims=1,
     ):
         """Create a DataProto from a TensorDict. This assumes that
         1. All the tensor in tensor_dict have the same dim0
@@ -922,7 +923,7 @@ class DataProto:
         Returns:
             List[DataProto]: a list of DataProto after splitting
         """
-        return [self[i: i + split_size] for i in range(0, len(self), split_size)]
+        return [self[i : i + split_size] for i in range(0, len(self), split_size)]
 
     @staticmethod
     def concat(data: list["DataProto"]) -> "DataProto":
