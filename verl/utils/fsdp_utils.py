@@ -531,13 +531,8 @@ def apply_fsdp2(model, fsdp_kwargs, config):
 
     assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
 
-    speculator_module = getattr(model, "speculator", None)
-    speculator_modules = set(speculator_module.modules()) if speculator_module is not None else set()
-
     modules = []
     for name, module in model.named_modules():
-        if module in speculator_modules:
-            continue
         if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (
             isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings
         ):

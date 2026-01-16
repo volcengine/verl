@@ -380,7 +380,8 @@ class FSDPSFTTrainer:
                     attach_to_model=True,
                 )
                 with maybe_patch_fsdp_module(self.speculator):
-                    fully_shard(self.speculator, **fsdp_kwargs)
+                    self.speculator = fully_shard(self.speculator, **fsdp_kwargs)
+                self.fsdp_model.speculator = self.speculator
             else:
                 self.speculator = None
         else:
@@ -393,6 +394,27 @@ class FSDPSFTTrainer:
             if self.speculator_adapter is not None
             else self.fsdp_model.parameters()
         )
+        optimizer_params = list(optimizer_params)
+        if fsdp_strategy == "fsdp2":
+            try:
+                from torch.distributed.tensor import DTensor
+            except Exception:
+                DTensor = None
+            if DTensor is not None:
+                name_map = {id(p): n for n, p in self.fsdp_model.named_parameters()}
+                non_dtensor = []
+                for param in optimizer_params:
+                    if not isinstance(param, DTensor):
+                        non_dtensor.append(name_map.get(id(param), "<unnamed>"))
+                        if len(non_dtensor) >= 20:
+                            break
+                if non_dtensor:
+                    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    if rank == 0:
+                        print(
+                            "Found non-DTensor params in optimizer (showing up to 20): "
+                            + ", ".join(non_dtensor)
+                        )
         self.optimizer = build_optimizer(optimizer_params, self.config.optim)
 
 
