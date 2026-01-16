@@ -13,14 +13,13 @@
 # limitations under the License.
 
 import logging
-from typing import Any, Iterable
-
 import numpy as np
 import tensordict
 import torch
 from packaging.version import parse as parse_version
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData, NonTensorStack
+from typing import Any, Iterable
 
 
 def assign_non_tensor_data(tensor_dict: TensorDict, key, val):
@@ -141,6 +140,7 @@ def get_non_tensor_keys(td: TensorDict) -> set:
     for key, val in td.items():
         if not isinstance(val, torch.Tensor):
             non_tensor_keys.append(key)
+    return set(non_tensor_keys)
 
 
 def get_non_tensor_data(data: TensorDict, key: str, default):
