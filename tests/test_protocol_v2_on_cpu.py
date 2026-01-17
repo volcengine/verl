@@ -988,3 +988,34 @@ def test_get_tensordict_agent_loop_scenario():
 
     # Verify metadata
     assert td["global_steps"] == 42
+
+
+def test_contiguous():
+    # create a tensordict that contains normal tensor, nested tensor,
+    # nontensorstack with numpy, nontensorstack with tensor, NonTensorData with numpy and NonTensorData with tensor
+
+    a = torch.randn(3, 4)  # contiguous tensor
+    b = torch.randn(3, 4)[:, :-1]  # non contiguous tensor
+    c = torch.nested.as_nested_tensor([torch.randn(3), torch.randn(4), torch.randn(5)], layout=torch.jagged)
+
+    d = torch.randn(10, 12)
+    e = torch.randn(11, 12)
+    f = torch.randn(13, 12)
+
+    data = tu.get_tensordict(
+        tensor_dict={"a": a, "b": b, "c": c, "nt": [{"pixel": d}, {"pixel": e}, {"pixel": f}]},
+        non_tensor_dict={"ntd": a.clone()},
+    )
+
+    with pytest.raises(RuntimeError):
+        # b is not contiguous
+        data.consolidate()
+
+    data1 = copy.deepcopy(data)
+    data_cont = tu.contiguous(data1)
+
+    tu.assert_tensordict_eq(data_cont, data)
+
+    data_cont.consolidate()
+
+    tu.assert_tensordict_eq(data_cont, data)

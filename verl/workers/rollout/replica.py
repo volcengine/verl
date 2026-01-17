@@ -97,11 +97,12 @@ class RolloutReplica(ABC):
             * self.config.data_parallel_size
             * self.config.pipeline_model_parallel_size
         )
-        self.gpus_per_node = min(gpus_per_node, self.world_size)
-        assert self.world_size % self.gpus_per_node == 0, (
-            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_node}"
+        self.gpus_per_node = gpus_per_node
+        self.gpus_per_replica_node = min(gpus_per_node, self.world_size)
+        assert self.world_size % self.gpus_per_replica_node == 0, (
+            f"world_size {self.world_size} must be divisible by gpus_per_node {self.gpus_per_replica_node}"
         )
-        self.nnodes = self.world_size // self.gpus_per_node
+        self.nnodes = self.world_size // self.gpus_per_replica_node
         self.is_reward_model = is_reward_model
 
         self.rollout_mode: RolloutMode = None
@@ -156,7 +157,7 @@ class RolloutReplica(ABC):
             else f"rollout_pool_reward_{self.replica_rank}"
         )
         resource_pool_spec = {
-            resource_pool_name: [self.gpus_per_node] * self.nnodes,
+            resource_pool_name: [self.gpus_per_replica_node] * self.nnodes,
         }
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=None)
         resource_pool_manager.create_resource_pool()
@@ -240,13 +241,36 @@ def _load_sglang():
         import vllm  # noqa: F401
     except ImportError:
         import sys
+        import types
         from unittest.mock import Mock
 
-        mock_vllm = Mock()
-        mock_vllm._custom_ops = Mock()
-        mock_vllm._custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm = types.ModuleType("vllm")
+
+        mock_custom_ops = types.ModuleType("vllm._custom_ops")
+        mock_custom_ops.scaled_fp8_quant = Mock()
+        mock_vllm._custom_ops = mock_custom_ops
+
+        mock_model_executor = types.ModuleType("vllm.model_executor")
+        mock_layers = types.ModuleType("vllm.model_executor.layers")
+        mock_activation = types.ModuleType("vllm.model_executor.layers.activation")
+
+        class GeluAndMul:  # noqa: N801
+            pass
+
+        class SiluAndMul:  # noqa: N801
+            pass
+
+        mock_activation.GeluAndMul = GeluAndMul
+        mock_activation.SiluAndMul = SiluAndMul
+        mock_layers.activation = mock_activation
+        mock_model_executor.layers = mock_layers
+        mock_vllm.model_executor = mock_model_executor
+
         sys.modules["vllm"] = mock_vllm
-        sys.modules["vllm._custom_ops"] = mock_vllm._custom_ops
+        sys.modules["vllm._custom_ops"] = mock_custom_ops
+        sys.modules["vllm.model_executor"] = mock_model_executor
+        sys.modules["vllm.model_executor.layers"] = mock_layers
+        sys.modules["vllm.model_executor.layers.activation"] = mock_activation
 
     from verl.workers.rollout.sglang_rollout.async_sglang_server import SGLangReplica
 
