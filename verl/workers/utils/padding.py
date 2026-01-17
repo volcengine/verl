@@ -111,8 +111,8 @@ def _slice_response_from_unpad_output(tensor: torch.Tensor, data: TensorDict) ->
     """Slice response from unpad model output.
 
     Args:
-        tensor: model output tensor of shape [bsz, *]
-        data: TensorDict with "prompt_ids", "response_ids", "attention_mask"
+        tensor: model output tensor of shape [total_tokens, *] or NestedTensor of shape [bsz, prompt_len + response_len, *]
+        data: TensorDict with "prompts", "responses", "attention_mask"
 
     Returns:
         tensor: sliced response tensor of shape [bsz, max_response_len, *]
