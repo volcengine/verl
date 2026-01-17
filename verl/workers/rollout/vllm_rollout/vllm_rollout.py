@@ -200,6 +200,7 @@ class ServerAdapter(BaseRollout):
         s.close()
         del buffer
         gc.collect()
+        get_torch_device().ipc_collect()
         get_torch_device().empty_cache()
         if future is not None:
             await future

@@ -182,7 +182,8 @@ class vLLMColocateWorkerExtension:
             for name, meta in metadata["bucket_meta"].items():
                 shape, dtype, offset = meta["shape"], meta["dtype"], meta["offset"]
                 size = dtype.itemsize * shape.numel()
-                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape)
+                # NOTE: we need to clone the tensor to release CUDA IPC memory
+                tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape).clone()
                 weights.append((name, tensor))
             self._update_weights(weights, peft_config=peft_config, base_sync_done=base_sync_done)
             del weights
@@ -195,6 +196,7 @@ class vLLMColocateWorkerExtension:
         socket.close()
         del buffer
         gc.collect()
+        get_torch_device().ipc_collect()
         get_torch_device().empty_cache()
 
     def _update_weights(self, weights: list[tuple[str, torch.Tensor]], peft_config: dict, base_sync_done: bool):
