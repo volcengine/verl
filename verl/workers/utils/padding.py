@@ -125,7 +125,7 @@ def _slice_response_from_unpad_output(tensor: torch.Tensor, data: TensorDict) ->
     if prompt_ids.is_nested:
         prompt_lens = prompt_ids.offsets().diff()
         response_lens = response_ids.offsets().diff()
-        max_response_len = response_ids.offsets().max().item()
+        max_response_len = response_lens.max().item()
     else:
         assert not attention_mask.is_nested
         prompt_lens = attention_mask[:, : prompt_ids.shape[1]].sum(dim=1)
