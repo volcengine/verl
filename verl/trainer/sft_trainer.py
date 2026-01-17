@@ -335,7 +335,7 @@ class SFTTrainer:
                     metrics["train/lr"] = metrics.pop("lr")
                     metrics["train/mfu"] = metrics.pop("mfu")
                     metrics["train/global_tokens"] = torch.sum(
-                        torch.tensor(batch_seqlens, device=self.device_name)
+                        torch.tensor(batch_seqlens.data, device=self.device_name)
                     ).item()
                     total_tokens += metrics["train/global_tokens"]
                     metrics["train/total_tokens(B)"] = total_tokens / 1e9
