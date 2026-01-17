@@ -84,7 +84,9 @@ ENV GDRCOPY_HOME=/usr/local
 
 RUN git clone -b v1.2.1 https://github.com/deepseek-ai/DeepEP.git && \
     export NVSHMEM_DIR=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem && \
-    cd $NVSHMEM_LIB_DIR && \
+    export LD_LIBRARY_PATH="${NVSHMEM_DIR}/lib:$LD_LIBRARY_PATH" && \
+    export PATH="${NVSHMEM_DIR}/bin:$PATH" && \
+    cd ${NVSHMEM_DIR}/lib && \
     ln -s libnvshmem_host.so.3 libnvshmem_host.so && \
     cd /home/dpsk_a2a/DeepEP && \
     python setup.py install
