@@ -22,6 +22,7 @@ from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.metric import AggregationType, Metric
 from verl.utils.torch_functional import masked_mean, masked_sum
 from verl.workers.config import ActorConfig, CriticConfig
+from verl.workers.utils.padding import _slice_response_from_unpad_output
 
 
 def sft_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None):
