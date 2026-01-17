@@ -52,6 +52,7 @@ async def test_standalone_rollout(init_config, tp_size):
                 "NCCL_DEBUG": "WARN",
                 "VLLM_LOGGING_LEVEL": "INFO",
                 "VLLM_USE_V1": "1",
+                "NCCL_P2P_DISABLE": "1",  # disable p2p in L20
             }
         }
     )

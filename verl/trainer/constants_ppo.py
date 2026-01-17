@@ -31,6 +31,10 @@ PPO_RAY_RUNTIME_ENV = {
         # https://docs.vllm.ai/en/latest/usage/troubleshooting.html?h=nccl_cumem_enable#known-issues
         # https://github.com/vllm-project/vllm/blob/c6b0a7d3ba03ca414be1174e9bd86a97191b7090/vllm/worker/worker_base.py#L445
         "NCCL_CUMEM_ENABLE": "0",
+        # Needed for multi-processes colocated on same NPU device
+        # https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/maintenref/envvar/envref_07_0143.html
+        "HCCL_HOST_SOCKET_PORT_RANGE": "auto",
+        "HCCL_NPU_SOCKET_PORT_RANGE": "auto",
     },
 }
 
