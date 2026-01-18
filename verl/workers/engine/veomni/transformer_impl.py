@@ -15,7 +15,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import torch
 import torch.distributed as dist
@@ -33,6 +33,7 @@ from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import fsdp_version
+from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.veomni_utils import (
     load_veomni_model_to_gpu,
@@ -223,34 +224,6 @@ class VeOmniEngine(FSDPEngine):
             self.engine_config.activation_gpu_limit,
         )
 
-    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
-        """
-        Move model parameters, optimizer states, or both to the specified device.
-        Note that this function executes irrespective of offload config. It serves as manual control.
-
-        Args:
-            device: Target device identifier.
-            model: If True, move the model.
-            optimizer: If True, move the optimizer states.
-        """
-        super(FSDPEngine, self).to(device=device, model=model, optimizer=optimizer, grad=grad)
-
-        device_name = get_device_name()
-
-        assert device in (device_name, "cpu")
-        if device == device_name:
-            if model:
-                load_veomni_model_to_gpu(self.module)
-            if optimizer and self.optimizer is not None:
-                load_veomni_optimizer(self.optimizer, device)
-        elif device == "cpu":
-            if model:
-                offload_veomni_model_to_cpu(self.module)
-            if optimizer and self.optimizer is not None:
-                offload_veomni_optimizer(self.optimizer)
-        else:
-            raise ValueError(f"Invalid device type: {device}")
-
     def optimizer_step(self):
         """
         Perform an optimization step using the optimizer.
@@ -347,6 +320,94 @@ class VeOmniEngine(FSDPEngine):
         Includes activation offload entry/exit.
         """
         return EngineEvalModeCtx(self, **kwargs)
+    
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
+        """
+        Move model parameters, optimizer states, or both to the specified device.
+        Note that this function executes irrespective of offload config. It serves as manual control.
+
+        Args:
+            device: Target device identifier.
+            model: If True, move the model.
+            optimizer: If True, move the optimizer states.
+        """
+        super(FSDPEngine, self).to(device=device, model=model, optimizer=optimizer, grad=grad)
+
+        device_name = get_device_name()
+
+        assert device in (device_name, "cpu")
+        if device == device_name:
+            if model:
+                load_veomni_model_to_gpu(self.module)
+            if optimizer and self.optimizer is not None:
+                load_veomni_optimizer(self.optimizer, device)
+        elif device == "cpu":
+            if model:
+                offload_veomni_model_to_cpu(self.module)
+            if optimizer and self.optimizer is not None:
+                offload_veomni_optimizer(self.optimizer)
+        else:
+            raise ValueError(f"Invalid device type: {device}")
+
+    def save_checkpoint(
+        self,
+        local_path: str,
+        hdfs_path: Optional[str] = None,
+        global_step: int = 0,
+        max_ckpt_to_keep: Optional[int] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Save VeOmni checkpoint, handling parameter offload as needed.
+        """
+        origin_module_device = next(self.module.parameters()).device.type
+        if self._is_offload_param or origin_module_device == "cpu":
+            load_veomni_model_to_gpu(self.module)
+
+        self.checkpoint_manager.save_checkpoint(
+            local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
+        )
+
+        torch.distributed.barrier()
+        if self._is_offload_param:
+            offload_veomni_model_to_cpu(self.module)
+
+    def load_checkpoint(
+        self, local_path: str, hdfs_path: Optional[str] = None, del_local_after_load: int = True, **kwargs
+    ) -> None:
+        """
+        Load VeOmni checkpoint, restoring parameters and optimizer state.
+        """
+        if self._is_offload_param:
+            load_veomni_model_to_gpu(self.module)
+
+        self.checkpoint_manager.load_checkpoint(
+            local_path=local_path, hdfs_path=hdfs_path, del_local_after_load=del_local_after_load
+        )
+
+        torch.distributed.barrier()
+        if self._is_offload_param:
+            offload_veomni_model_to_cpu(self.module)
+
+        if self._is_offload_optimizer:
+            offload_veomni_optimizer(self.optimizer)
+
+    def get_per_tensor_param(self, **kwargs):
+        load_veomni_model_to_gpu(self.module)
+
+        params = self.module.state_dict()
+        params = convert_weight_keys(params, getattr(self.module, "_fsdp_wrapped_module", self.module))
+
+        if self._is_offload_param:
+            offload_veomni_model_to_cpu(self.module)
+
+        device = get_device_id()
+        per_tensor_param = (
+            (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+            for name, param in params.items()
+        )
+        # TODO: support veomni LoRA
+        return per_tensor_param, None
 
 
 class EngineEvalModeCtx(BaseEngineCtx):
