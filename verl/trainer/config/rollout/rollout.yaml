@@ -336,3 +336,6 @@ quantization: null
 
 # extra quantization information serialized in a config file, e.g. torchao_config.json
 quantization_config_file: null
+
+# MTP configuration, reuse model configuration
+mtp: ${oc.select:actor_rollout_ref.model.mtp, null}
