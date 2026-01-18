@@ -117,6 +117,23 @@ def get_nccl_backend() -> str:
         return "nccl"
 
 
+def get_ray_device_key() -> str:
+    """Get the Ray accelerator key for the current device type.
+
+    Returns the appropriate key for accessing accelerator IDs in Ray's
+    runtime context based on the detected accelerator type.
+
+    Returns:
+        str: 'NPU' for Ascend NPU, 'GPU' for CUDA, empty string otherwise.
+    """
+    if is_npu_available:
+        return "NPU"
+    elif is_cuda_available:
+        return "GPU"
+    else:
+        return "CPU"
+
+
 def set_expandable_segments(enable: bool) -> None:
     """Configure CUDA memory allocator expandable segments setting.
 

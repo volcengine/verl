@@ -70,6 +70,18 @@ def is_valid_ipv6_address(address: str) -> bool:
         return False
 
 
+def get_ip() -> str:
+    try:
+        # try to get ip from network interface
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception as e:  # noqa: BLE001
+        # fallback to get ip from hostname
+        print(f"fail to get ip from network interface, fallback to get ip from hostname: {e}")
+        return socket.gethostbyname(socket.gethostname())
+
+
 def get_free_port(address: str) -> tuple[int, socket.socket]:
     family = socket.AF_INET
     if is_valid_ipv6_address(address):

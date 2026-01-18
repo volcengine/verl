@@ -1217,7 +1217,6 @@ class CriticWorker(Worker, DistProfilerExtension):
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
-        self.config: FSDPCriticConfig = config
 
         # build device mesh for Ulysses Sequence Parallel
         world_size = torch.distributed.get_world_size()
