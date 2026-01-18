@@ -140,10 +140,19 @@ class MegatronPPOActor(BasePPOActor):
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         if self.use_fused_kernels and not getattr(self.config, "overlap_moe_expert_parallel_comm", False):
             # do not patch if overlap_moe_expert_parallel_comm is enabled
+            logger.warning_once(
+                "Recommend to disable use_fused_kernels since the fused kernel's performance is broken for triton>=3.3"
+                "Unless you are using a very old version of triton < 3.3"
+            )
             from verl.models.mcore.model_forward_fused import patch_fused_forward
 
             for model in self.actor_module:
                 patch_fused_forward(model)
+        else:
+            from verl.models.mcore.mtp_patch import patch_postprocess
+
+            for model in self.actor_module:
+                patch_postprocess(model)
 
         self.optimizer_step_args = OmegaConf.create(
             {
