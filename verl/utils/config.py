@@ -212,4 +212,16 @@ def validate_config(
     if config.actor_rollout_ref.model.get("lora_rank", 0) > 0 and config.actor_rollout_ref.rollout.name == "vllm":
         assert config.actor_rollout_ref.model.lora_rank <= 512, "LoRA rank in vLLM must be less than or equal to 512"
 
+    # check that both distillation policy and reference policy are not enabled at the same time
+    if use_distillation_policy and use_reference_policy:
+        raise ValueError(
+            "Both distillation policy and reference policy are enabled. Please choose one or the other, or disable both."
+        )
+    
+    # check that distillation is not enabled with legacy worker implementation
+    if use_distillation_policy and config.trainer.use_legacy_worker_impl != "disable":
+        raise ValueError(
+            "Distillation is not supported with legacy worker implementation. Please set trainer.use_legacy_worker_impl to 'disable' to use distillation."
+        )
+
     print("[validate_config] All configuration checks passed successfully!")
