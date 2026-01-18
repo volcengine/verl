@@ -35,7 +35,7 @@ from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import fsdp_version
 from verl.utils.model import convert_weight_keys
 from verl.utils.profiler import log_gpu_memory_usage
-from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
+from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig, DistillationConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngineCtx, EngineRegistry
@@ -60,6 +60,7 @@ class VeOmniEngine(FSDPEngine):
         engine_config: VeOmniEngineConfig,
         optimizer_config: VeOmniOptimizerConfig,
         checkpoint_config: CheckpointConfig,
+        distillation_config: Optional[DistillationConfig],
         **kwargs,
     ):
         """
@@ -76,6 +77,11 @@ class VeOmniEngine(FSDPEngine):
         self.optimizer_config = optimizer_config
         self.checkpoint_config = checkpoint_config
         assert self.engine_config.data_parallel_mode == "fsdp2", "VeOmniEngine only supports fsdp2."
+        self.distillation_config = distillation_config
+        if distillation_config.enabled:
+            raise NotImplementedError("Distillation is not supported yet in VeOmniEngine") # TODO: JacobHelwig
+
+        self.mode = None
 
         self.rank = dist.get_rank()
 
