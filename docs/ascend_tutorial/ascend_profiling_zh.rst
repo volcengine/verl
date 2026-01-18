@@ -102,13 +102,41 @@ Last updated: 12/20/2025.
       actor_rollout_ref:
          actor:
             profiler:
-               enable: True
-               all_ranks: True
+               enable: True  # 设置为 True 以采集训练阶段
+               all_ranks: False
+               ranks: [0]  # 全局 Rank 0
                tool_config:
                   npu:
                      discrete: True
-                     contents: [npu, cpu]  # 控制采集列表，默认cpu、npu，可配置memory、shapes、module等
-        # rollout & ref follow actor settings
+                     contents: [npu, cpu]
+         rollout:
+            profiler:
+               enable: True  # 设置为 True 以采集推理阶段
+               all_ranks: False
+               ranks: [0]  # 在 Agent Loop 模式下，此处指推理实例的 Replica Rank (例如第 0 个实例)
+               tool_config:
+                  npu:
+                     discrete: True  # Agent Loop 模式下必须开启离散模式
+         # ref follow actor settings
+
+**Agent Loop 场景说明**：
+
+当 Rollout 运行在 `Agent Loop <../advance/agent_loop.rst>`_ 模式时，Rollout 阶段的性能数据 **必须使用离散模式** 采集。此时 Profiler 由推理引擎后端触发，配置要求如下：
+
+1. **Rank 含义**：Rollout 配置中的 ``ranks`` 指代 **Replica Rank**（实例索引），而非全局 Rank。
+2. **推理引擎配置**：
+
+   - **vLLM 引擎**
+      - **必须通过环境变量配置**：
+         - ``VLLM_TORCH_PROFILER_DIR``: 设置数据保存路径（**必选**）。
+         - ``VLLM_TORCH_PROFILER_WITH_STACK``: 是否记录调用栈 (1开启, 0关闭，默认开启)。
+         - ``VLLM_TORCH_PROFILER_RECORD_SHAPES``: 设置为 1 以记录形状。
+         - ``VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY``: 设置为 1 以记录内存。
+         - ``VLLM_TORCH_PROFILER_WITH_FLOPS``: 设置为 1 以估算 FLOPS。
+      - *注意：vLLM 会忽略 yaml 中的 save_path 和 contents。*
+
+   - **SGLang 引擎**
+      - **零配置**。自动读取 ``ppo_trainer.yaml`` 中的配置。
 
 
 可视化
