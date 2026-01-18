@@ -20,7 +20,6 @@ from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
 
 from ...utils.profiler import ProfilerConfig
-from .distillation import DistillationConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
@@ -289,4 +288,4 @@ class TrainingWorkerConfig(BaseConfig):
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
     profiler_config: ProfilerConfig = None
-    distillation_config: DistillationConfig = None
+    distillation_config: BaseConfig = None

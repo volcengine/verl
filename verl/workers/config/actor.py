@@ -21,12 +21,11 @@ from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
 from verl.utils.profiler.config import ProfilerConfig
 
-from .distillation import DistillationConfig
 from .engine import FSDPEngineConfig, McoreEngineConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig"]
+__all__ = ["PolicyLossConfig", "RouterReplayConfig", "ActorConfig", "FSDPActorConfig", "McoreActorConfig", "DistillationConfig", "FSDPDistillationConfig"]
 
 
 @dataclass
@@ -163,7 +162,6 @@ class ActorConfig(BaseConfig):
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
-    distillation_config: DistillationConfig = field(default_factory=DistillationConfig)
     rollout_n: int = MISSING  # must be override by sampling config
     model_config: HFModelConfig = field(default_factory=BaseConfig)
     router_replay: RouterReplayConfig = field(default_factory=RouterReplayConfig)
@@ -309,3 +307,26 @@ class FSDPActorConfig(ActorConfig):
                 raise ValueError(
                     "When using sequence parallelism for actor/ref policy, you must enable `use_remove_padding`."
                 )
+
+@dataclass
+class DistillationConfig(ActorConfig):
+    """Configuration for distillation training.
+    TODO
+    """
+
+    enabled: bool = False
+    loss_mode: str = "k3"
+    topk: Optional[int] = 128
+    use_policy_loss: bool = False
+    distillation_loss_coef: float = 1.0
+    jsd_beta: float = 0.5
+    teacher_model: HFModelConfig = field(default_factory=BaseConfig)
+    loss_clamp: Optional[float] = None
+
+@dataclass
+class FSDPDistillationConfig(FSDPActorConfig, DistillationConfig):
+    """Configuration for distillation training with FSDP.
+    TODO
+    """
+    def __post_init__(self):
+        FSDPActorConfig.__post_init__(self)
