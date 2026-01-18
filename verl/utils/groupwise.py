@@ -81,7 +81,7 @@ def _resolve_device(explicit: Optional[torch.device | str]) -> torch.device:
     if device_name in ("cuda", "npu"):
         try:
             return torch.device(f"{device_name}:{get_device_id()}")
-        except Exception:
+        except RuntimeError:
             # Fallback: rely on default device for that accelerator.
             return torch.device(device_name)
 
