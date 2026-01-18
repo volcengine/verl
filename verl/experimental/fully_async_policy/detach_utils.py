@@ -71,10 +71,14 @@ def prepare_single_generation_data(batch_dict, config) -> DataProto:
     batch_keys_to_pop = []
     non_tensor_batch_keys_to_pop = []
 
-    full_batch.pop(
-        batch_keys=batch_keys_to_pop,
-        non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
-    )
+    existing_batch_keys = [k for k in batch_keys_to_pop if k in full_batch.batch.keys()]
+    existing_non_tensor_keys = [k for k in non_tensor_batch_keys_to_pop if k in full_batch.non_tensor_batch.keys()]
+
+    if existing_batch_keys or existing_non_tensor_keys:
+        full_batch.pop(
+            batch_keys=existing_batch_keys,
+            non_tensor_batch_keys=existing_non_tensor_keys,
+        )
 
     # Setting selected agent, that supports partial
     if config.actor_rollout_ref.rollout.multi_turn.enable:
