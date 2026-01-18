@@ -35,3 +35,11 @@ try:
     __all__.append("RateLimitedRewardManager")
 except ImportError:
     pass  # Optional dependency, may not be available
+
+# Import RARO reward manager to ensure it is registered
+try:
+    from .raro import RARORewardManager  # noqa: F401
+
+    __all__.append("RARORewardManager")
+except ImportError:
+    pass  # Optional dependency, may not be available
