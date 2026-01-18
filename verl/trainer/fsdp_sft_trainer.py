@@ -64,9 +64,11 @@ from verl.utils.fsdp_utils import (
     apply_fsdp2,
     fsdp2_clip_grad_norm_,
     fsdp2_load_full_state_dict,
+    fully_shard,
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     init_fn,
+    maybe_patch_fsdp_module,
 )
 from verl.utils.logger import log_with_rank
 from verl.utils.profiler import log_gpu_memory_usage
@@ -81,6 +83,8 @@ from verl.utils.ulysses import (
 )
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from verl.trainer.speculators.interface import build_speculator_adapter
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -231,6 +235,27 @@ class FSDPSFTTrainer:
         if self.config.ulysses_sequence_parallel_size > 1:
             assert self.use_remove_padding, "Sequence parallel is only supported when remove_padding is enabled"
 
+        speculator_config = getattr(self.config.model, "speculator", None)
+        speculator_adapter_config = getattr(self.config.model, "speculator_adapter", None)
+        if speculator_config is not None or speculator_adapter_config is not None:
+            self.speculator_adapter = build_speculator_adapter(
+                self.config,
+                self.model_config,
+                self.config.trainer.device,
+                self.device_mesh,
+                torch_dtype,
+            )
+        else:
+            self.speculator_adapter = None
+        self.has_speculator = self.speculator_adapter.has_speculator if self.speculator_adapter is not None else False
+        self.freeze_base_model = (
+            self.speculator_adapter.freeze_base_model if self.speculator_adapter is not None else False
+        )
+        if self.has_speculator:
+            self.freeze_base_model = True
+            self.speculator_adapter.freeze_base_model = True
+        self.speculator = None
+
         # This may be very large
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not config.tie_word_embeddings, mesh=self.device_mesh
@@ -309,6 +334,15 @@ class FSDPSFTTrainer:
 
         fsdp_strategy = self.config.model.strategy
         if fsdp_strategy == "fsdp":
+            # Build and attach speculator before FSDP wrapping so it is wrapped together.
+            if self.speculator_adapter is not None:
+                self.speculator = self.speculator_adapter.build_and_attach(
+                    self.model,
+                    attach_to_model=True,
+                )
+            else:
+                self.speculator = None
+        if fsdp_strategy == "fsdp":
             self.fsdp_model = FSDP(
                 self.model,
                 cpu_offload=cpu_offload,
@@ -335,15 +369,54 @@ class FSDPSFTTrainer:
                 "reshard_after_forward": True,
             }
             full_state = self.model.state_dict()
+            if self.speculator is not None:
+                full_state = {k: v for k, v in full_state.items() if not k.startswith("speculator.")}
             apply_fsdp2(self.model, fsdp_kwargs, self.config.model.fsdp_config)
             fsdp2_load_full_state_dict(self.model, full_state, self.device_mesh, cpu_offload)
             self.fsdp_model = self.model
+            if self.speculator_adapter is not None:
+                self.speculator = self.speculator_adapter.build_and_attach(
+                    self.fsdp_model,
+                    attach_to_model=True,
+                )
+                with maybe_patch_fsdp_module(self.speculator):
+                    self.speculator = fully_shard(self.speculator, **fsdp_kwargs)
+                self.fsdp_model.speculator = self.speculator
+            else:
+                self.speculator = None
         else:
             raise NotImplementedError(f"not implement {fsdp_strategy}")
 
         log_gpu_memory_usage("After FSDP wrapping", logger=logger)
 
-        self.optimizer = build_optimizer(self.fsdp_model.parameters(), self.config.optim)
+        optimizer_params = (
+            self.speculator_adapter.get_optimizer_params(self.fsdp_model)
+            if self.speculator_adapter is not None
+            else self.fsdp_model.parameters()
+        )
+        optimizer_params = list(optimizer_params)
+        if fsdp_strategy == "fsdp2":
+            try:
+                from torch.distributed.tensor import DTensor
+            except Exception:
+                DTensor = None
+            if DTensor is not None:
+                name_map = {id(p): n for n, p in self.fsdp_model.named_parameters()}
+                non_dtensor = []
+                for param in optimizer_params:
+                    if not isinstance(param, DTensor):
+                        non_dtensor.append(name_map.get(id(param), "<unnamed>"))
+                        if len(non_dtensor) >= 20:
+                            break
+                if non_dtensor:
+                    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    if rank == 0:
+                        print(
+                            "Found non-DTensor params in optimizer (showing up to 20): "
+                            + ", ".join(non_dtensor)
+                        )
+        self.optimizer = build_optimizer(optimizer_params, self.config.optim)
+
 
         log_gpu_memory_usage("After initialize optimizer", logger=logger)
 
@@ -370,105 +443,59 @@ class FSDPSFTTrainer:
             raise ValueError(f"Unknown lr scheduler: {self.config.optim.lr_scheduler}")
 
     def _compute_loss_and_backward(self, batch, do_backward=True, n_micro_batches=1):
-        """Compute loss with optional sequence parallelism and remove padding features"""
-        use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
+        """
+        Compute base loss + speculator loss if applicable.
+        This version cleanly separates loss components.
+        """
 
-        # Move inputs to GPU and prepare loss mask
+        # clean device move
         input_ids = batch["input_ids"].to(self.device_name)
         attention_mask = batch["attention_mask"].to(self.device_name)
         position_ids = batch["position_ids"].to(self.device_name)
-        loss_mask = batch.pop("loss_mask")[:, 1:].reshape(-1).to(self.device_name)
+        loss_mask = batch["loss_mask"][:, 1:].reshape(-1).to(self.device_name)
+
         loss_fct = nn.CrossEntropyLoss(reduction="none")
 
-        # Context manager for sequence parallel if needed
-        context = self.sharding_manager if use_sp else nullcontext()
-        with context, torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
-            if not use_sp:
-                # Standard forward pass without sequence parallel
+        with torch.autocast(device_type=self.device_name, dtype=torch.bfloat16):
+            # ========== BASE LM LOSS ==========
+            base_loss = torch.tensor(0.0, device=self.device_name)
+            if not self.has_speculator or not self.freeze_base_model:
+                # compute base forward
+                base_out = self.fsdp_model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    use_cache=False
+                )
+                logits = base_out.logits[..., :-1, :]
                 labels = input_ids[:, 1:].contiguous()
-                output = self.fsdp_model(
-                    input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False
-                )
-                logits = output.logits
 
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = labels.contiguous()
-                # Flatten the tokens
-                shift_logits = shift_logits.view(-1, self.model.config.vocab_size)
-                shift_labels = shift_labels.view(-1)
-                # Enable model parallelism
-                shift_labels = shift_labels.to(shift_logits.device)
-                loss = loss_fct(shift_logits, shift_labels)
-                loss = loss * loss_mask.to(loss.device)
-            else:
-                # IMPORTANT: We have a big assumption here, so we can shard the SAME sequence across SP ranks
-                # i.e., each GPU has <1 sequence, and each SP group has 1 sequence
-                # 1. All SP ranks will receive the *SAME* batch
-                # 2. Different SP groups will receive *DIFFERENT* batches
-                # This is implemented by the DistributedSampler
+                flat_logits = logits.reshape(-1, logits.size(-1))
+                flat_labels = labels.reshape(-1)
 
-                batch_size, seqlen = input_ids.shape
-                # Remove padding
-                input_ids_rmpad, indices, *_ = unpad_input(
-                    input_ids.unsqueeze(-1), attention_mask
-                )  # input_ids_rmpad (total_nnz, ...)
-                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+                ce = loss_fct(flat_logits, flat_labels)
+                ce = ce * loss_mask  # mask paddings
+                base_loss = ce.sum() / loss_mask.sum().clamp(min=1)
 
-                # Unpad position_ids to align rotary
-                position_ids_rmpad = index_first_axis(
-                    rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."), indices
-                ).transpose(0, 1)
-
-                # Pad and slice inputs for sequence parallelism
-                input_ids_rmpad_sliced, position_ids_rmpad_padded, pad_size = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad, position_ids_rmpad, sp_size=get_ulysses_sequence_parallel_world_size()
-                )
-                # For computing loss
-                input_ids_rmpad_rolled = torch.roll(input_ids_rmpad, shifts=-1, dims=1)  # (1, total_nnz)
-                input_ids_rmpad_rolled, _, _ = ulysses_pad_and_slice_inputs(
-                    input_ids_rmpad_rolled, None, get_ulysses_sequence_parallel_world_size()
-                )
-                input_ids_rmpad_rolled = input_ids_rmpad_rolled.squeeze(0)  # ((total_nnz / sp) + pad)
-
-                # Forward pass
-                output = self.fsdp_model(
-                    input_ids=input_ids_rmpad_sliced,
-                    attention_mask=None,  # Not needed with flash attention varlen
-                    position_ids=position_ids_rmpad_padded,
-                    use_cache=False,
+            # ========== SPECULATOR LOSS ==========
+            spec_loss = torch.tensor(0.0, device=self.device_name)
+            if self.has_speculator:
+                spec_loss = self.speculator_adapter.compute_speculator_loss(
+                    self.fsdp_model,
+                    input_ids,
+                    attention_mask,
+                    position_ids,
+                    loss_mask,
                 )
 
-                # Compute loss locally then aggregate
-                logits_rmpad = output.logits.squeeze(0)
-                input_ids_rmpad_rolled = input_ids_rmpad_rolled.to(logits_rmpad.device)
-                loss = loss_fct(logits_rmpad, input_ids_rmpad_rolled)
-                # Gather and unpad for sequence parallelism
-                loss = gather_outputs_and_unpad(loss, gather_dim=0, unpad_dim=0, padding_size=pad_size)
+            # ========== TOTAL ==========
+            total_loss = base_loss + spec_loss
 
-                # This is the loss collected from all ulysses ranks
-                full_loss = pad_input(
-                    hidden_states=loss.unsqueeze(-1), indices=indices, batch=batch_size, seqlen=seqlen
-                )
-                full_loss = full_loss.squeeze(-1)[:, :-1]  # Remove last token's loss
-                full_loss = full_loss.reshape(-1)
-                loss_mask = loss_mask.to(full_loss.device)
-                loss = full_loss * loss_mask
+        # backward
+        if do_backward:
+            total_loss.backward()
 
-            valid_token_this_rank = torch.sum(loss_mask)
-
-            if self.config.data.balance_dp_token:
-                torch.distributed.all_reduce(valid_token_this_rank)
-                dp_size = self.ulysses_device_mesh.size("dp") if use_sp else torch.distributed.get_world_size()
-            else:
-                dp_size = 1
-
-            loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
-
-            loss = loss / n_micro_batches  # normalize loss
-
-            if do_backward:
-                loss.backward()
-            return loss
+        return total_loss
 
     def training_step(self, batch: TensorDict):
         start_time = time.time()
@@ -524,6 +551,8 @@ class FSDPSFTTrainer:
         elif is_npu_available:
             torch.distributed.all_reduce(step_loss)
             step_loss /= self.device_mesh.size(0)
+
+
         return {
             "train/loss": step_loss.detach().item(),
             "train/lr(1e-3)": lr * 1e3,
@@ -558,6 +587,9 @@ class FSDPSFTTrainer:
         self.checkpoint_manager.save_checkpoint(
             local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
         )
+
+        if self.speculator_adapter is not None and self.has_speculator:
+            self.speculator_adapter.save_checkpoint(self.fsdp_model, local_global_step_folder)
 
         # Save dataloader state
         if self.device_mesh.get_rank() == 0:
@@ -639,6 +671,9 @@ class FSDPSFTTrainer:
             rank=self.device_mesh.get_rank(),
             log_only_rank_0=True,
         )
+
+        if self.speculator_adapter is not None and self.has_speculator:
+            self.speculator_adapter.load_checkpoint(self.fsdp_model, checkpoint_path, logger)
 
         # Always load dataloader state for StatefulDataLoader
         self._load_dataloader_state(checkpoint_path)
