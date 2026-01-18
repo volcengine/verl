@@ -46,7 +46,7 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_id, get_device_name
 
 __all__ = ["as_torch_index", "group_mean_std"]
 
@@ -71,7 +71,21 @@ def _resolve_device(explicit: Optional[torch.device | str]) -> torch.device:
     if "PYTEST_CURRENT_TEST" in os.environ:
         return torch.device("cpu")
 
-    return get_torch_device()
+    # Default policy outside pytest: use the current accelerator if available.
+    #
+    # IMPORTANT: verl.utils.device.get_torch_device() returns a device *module*
+    # (e.g., torch.cuda / torch.npu), while torch.Tensor.to(device=...) expects a
+    # torch.device (or str / tensor). Returning the module here can crash GRPO
+    # advantage computation when group_mean_std moves tensors to `target`.
+    device_name = get_device_name()
+    if device_name in ("cuda", "npu"):
+        try:
+            return torch.device(f"{device_name}:{get_device_id()}")
+        except Exception:
+            # Fallback: rely on default device for that accelerator.
+            return torch.device(device_name)
+
+    return torch.device("cpu")
 
 
 def _to_1d_numpy_object_array(x: Any) -> np.ndarray:
