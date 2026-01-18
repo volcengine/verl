@@ -19,26 +19,23 @@ This keeps trainers decoupled from concrete speculator implementations.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-import os
 from typing import Any, Optional
 
 from verl.utils.import_utils import load_class_from_fqn, load_extern_object
-from verl.utils.checkpoint.fsdp_checkpoint_manager import load_speculator_checkpoint, save_speculator_checkpoint
 from verl.utils.fsdp_utils import fully_shard, maybe_patch_fsdp_module
 import torch
 
 
 class SpeculatorAdapter(ABC):
-    has_speculator: bool
     device_mesh: Any
     speculator: Any
 
     @abstractmethod
-    def build_and_attach(self, model, attach_to_model: bool = True):
+    def build_speculator_module(self, model):
         """Build and optionally attach a speculator module to the model."""
 
     @abstractmethod
-    def get_optimizer_params(self, fsdp_model):
+    def get_optimizer_params(self):
         """Return the parameters to optimize."""
 
     @abstractmethod
@@ -51,34 +48,22 @@ class SpeculatorAdapter(ABC):
         loss_mask=None,
         hidden_states=None,
         spec_logits=None,
+        packed_seq_params=None,
     ):
         """Compute speculator loss."""
 
-    def _maybe_shard_speculator(self, fsdp_model, speculator_module, fsdp_kwargs: Optional[dict]):
-        if speculator_module is None:
-            return speculator_module
-        if fully_shard is None:
-            return speculator_module
-        if not fsdp_kwargs:
-            raise ValueError("fsdp_kwargs must be provided when sharding speculator module")
+    def apply_fsdp2_speculator(self, fsdp_model, fsdp_kwargs: Optional[dict]):
+        assert self.speculator is not None, "Speculator module is not built yet."
+        speculator_module = self.speculator
         with maybe_patch_fsdp_module(speculator_module):
             speculator_module = fully_shard(speculator_module, **fsdp_kwargs)
-        fsdp_model.speculator = speculator_module
-        self.speculator = speculator_module
+        # fsdp_model.speculator =speculator_module
         return speculator_module
 
-    def shard_speculator(self, fsdp_model, fsdp_kwargs: Optional[dict]):
-        speculator_module = self._get_speculator_module(fsdp_model)
-        return self._maybe_shard_speculator(fsdp_model, speculator_module, fsdp_kwargs)
+    def _get_speculator_module(self):
+        return getattr(self, "speculator", None)
 
-    def _get_speculator_module(self, fsdp_model):
-        if fsdp_model is not None and hasattr(fsdp_model, "speculator"):
-            return fsdp_model.speculator
-        if hasattr(self, "speculator"):
-            return self.speculator
-        return None
-
-    def _get_speculator_config_obj(self, fsdp_model, speculator_module):
+    def _get_speculator_config_obj(self, speculator_module):
         if speculator_module is None:
             return None
         return getattr(speculator_module, "config", None)
@@ -88,6 +73,61 @@ class SpeculatorAdapter(ABC):
             return torch.nested.to_padded_tensor(tensor, padding=padding)
         return tensor
 
+    def _maybe_normalize_hidden_layout(self, hidden_states, attention_mask, input_ids):
+        if hidden_states is None or not isinstance(hidden_states, torch.Tensor) or hidden_states.dim() != 3:
+            return hidden_states
+        batch_size = None
+        seq_len = None
+        if attention_mask is not None and attention_mask.dim() >= 2:
+            batch_size, seq_len = attention_mask.shape[:2]
+        elif input_ids is not None and isinstance(input_ids, torch.Tensor) and input_ids.dim() >= 2:
+            batch_size, seq_len = input_ids.shape[:2]
+        if batch_size is None or seq_len is None:
+            return hidden_states
+        if hidden_states.size(1) == batch_size and hidden_states.size(0) != batch_size:
+            return hidden_states.transpose(0, 1).contiguous()
+        return hidden_states
+
+    def _maybe_unpack_packed_hidden(self, input_ids, attention_mask, hidden_states, packed_seq_params):
+        if packed_seq_params is None or hidden_states is None:
+            return hidden_states
+        if isinstance(hidden_states, torch.Tensor) and hidden_states.is_nested:
+            return hidden_states
+        if attention_mask is None:
+            if isinstance(input_ids, torch.Tensor) and input_ids.is_nested:
+                offsets = input_ids.offsets().diff().tolist()
+                seq_len = max(offsets) if offsets else 0
+                attention_mask = torch.zeros(
+                    (len(offsets), seq_len), dtype=torch.bool, device=input_ids.device
+                )
+                for i, seqlen in enumerate(offsets):
+                    attention_mask[i, :seqlen] = True
+            elif isinstance(input_ids, torch.Tensor) and input_ids.dim() >= 2:
+                attention_mask = torch.ones(
+                    input_ids.shape[:2], dtype=torch.bool, device=input_ids.device
+                )
+            else:
+                return hidden_states
+        attention_mask = self._maybe_pad_nested(attention_mask, padding=0)
+        if attention_mask is None:
+            return hidden_states
+        if hidden_states.dim() >= 2 and hidden_states.size(0) == attention_mask.size(0) and (
+            hidden_states.size(1) == attention_mask.size(1)
+        ):
+            return hidden_states
+        packed_states = hidden_states
+        if hidden_states.dim() == 2:
+            packed_states = hidden_states.unsqueeze(0)
+        elif hidden_states.dim() == 3 and hidden_states.size(1) == 1:
+            packed_states = hidden_states.transpose(0, 1)
+        if packed_states.dim() >= 2 and packed_states.size(0) == 1:
+            from verl.models.mcore.util import postprocess_packed_seqs
+
+            batch_size, seq_len = attention_mask.shape[:2]
+            unpacked = postprocess_packed_seqs(packed_states, packed_seq_params, attention_mask, batch_size, seq_len)
+            return unpacked
+        return hidden_states
+
     def _slice_speculator_inputs(self, input_ids, hidden_states, n_predict):
         # Alignment rule: hidden_states[t] should predict tokens starting at input_ids[t+1],
         # and we need n_predict extra tokens to the right, so drop the last n_predict+1 states.
@@ -95,34 +135,11 @@ class SpeculatorAdapter(ABC):
         seq_ids = input_ids[:, 1:]
         return hidden, seq_ids
 
-    def save_checkpoint(self, fsdp_model, local_global_step_folder: str):
-        if not getattr(self, "has_speculator", False):
-            return
-        speculator_module = self._get_speculator_module(fsdp_model)
-        if speculator_module is None:
-            return
-        speculator_dir = os.path.join(local_global_step_folder, "speculator")
-        config_obj = self._get_speculator_config_obj(fsdp_model, speculator_module)
-        save_speculator_checkpoint(
-            fsdp_model,
-            speculator_module,
-            speculator_dir,
-            config_obj=config_obj,
-        )
-
-    def load_checkpoint(self, fsdp_model, checkpoint_path: str, logger):
-        if not getattr(self, "has_speculator", False):
-            return
-        speculator_module = self._get_speculator_module(fsdp_model)
-        if speculator_module is None:
-            return
-        load_speculator_checkpoint(
-            fsdp_model,
-            speculator_module,
-            checkpoint_path,
-            logger=logger,
-            device_mesh=getattr(self, "device_mesh", None),
-        )
+    def get_optimizer_params(self):
+        speculator_module = self._get_speculator_module()
+        if speculator_module is not None:
+            return speculator_module.parameters()
+        return None
 
 
 def _load_custom_adapter(speculator_adapter_config: Any):
@@ -168,107 +185,3 @@ def build_speculator_adapter(
         device_mesh=device_mesh,
         torch_dtype=torch_dtype,
     )
-
-
-class SpeculatorManager:
-    def __init__(
-        self,
-        config,
-        model_config,
-        device_name,
-        device_mesh,
-        torch_dtype,
-    ):
-        self.config = config
-        self.model_config = model_config
-        self.device_name = device_name
-        self.device_mesh = device_mesh
-        self.torch_dtype = torch_dtype
-        self.adapter: Optional[SpeculatorAdapter] = None
-        self.speculator = None
-        self.has_speculator = False
-        self._build_adapter()
-
-    def _build_adapter(self) -> None:
-        speculator_config = None
-        if self.config is not None and hasattr(self.config, "model"):
-            speculator_config = getattr(self.config.model, "speculator", None)
-            speculator_adapter_config = getattr(self.config.model, "speculator_adapter", None)
-        else:
-            speculator_adapter_config = getattr(self.model_config, "speculator_adapter", None)
-
-        if speculator_config is None and speculator_adapter_config is None:
-            return
-
-        self.adapter = build_speculator_adapter(
-            self.config,
-            self.model_config,
-            self.device_name,
-            self.device_mesh,
-            self.torch_dtype,
-        )
-        self.has_speculator = self.adapter.has_speculator
-
-    def attach(self, fsdp_strategy, model=None, fsdp_model=None, fsdp_kwargs=None):
-        if self.adapter is None:
-            return None
-        if fsdp_strategy == "fsdp":
-            self.speculator = self.adapter.build_and_attach(model, attach_to_model=True)
-            return self.speculator
-        if fsdp_strategy == "fsdp2":
-            self.speculator = self.adapter.build_and_attach(fsdp_model, attach_to_model=True)
-            self.speculator = self.adapter.shard_speculator(fsdp_model, fsdp_kwargs)
-            return self.speculator
-        raise NotImplementedError(f"not implement {fsdp_strategy}")
-
-    def build_speculator(self, model=None, fsdp_model=None):
-        if self.adapter is None:
-            return None
-        target_model = fsdp_model if fsdp_model is not None else model
-        if target_model is None:
-            return None
-        self.speculator = self.adapter.build_and_attach(target_model, attach_to_model=True)
-        return self.speculator
-
-    def shard_speculator(self, fsdp_model, fsdp_kwargs=None):
-        if self.adapter is None:
-            return None
-        self.speculator = self.adapter.shard_speculator(fsdp_model, fsdp_kwargs)
-        return self.speculator
-
-    def get_optimizer_params(self, fsdp_model):
-        if self.adapter is None:
-            return fsdp_model.parameters()
-        return self.adapter.get_optimizer_params(fsdp_model)
-
-    def compute_speculator_loss(
-        self,
-        fsdp_model: Any,
-        input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        loss_mask: Optional[torch.Tensor] = None,
-        hidden_states: Optional[torch.Tensor] = None,
-        spec_logits: Optional[torch.Tensor] = None,
-    ) -> Optional[torch.Tensor]:
-        if self.adapter is None:
-            return None
-        return self.adapter.compute_speculator_loss(
-            fsdp_model,
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            loss_mask=loss_mask,
-            hidden_states=hidden_states,
-            spec_logits=spec_logits,
-        )
-
-    def save_checkpoint(self, fsdp_model, local_global_step_folder: str) -> None:
-        if self.adapter is None:
-            return
-        self.adapter.save_checkpoint(fsdp_model, local_global_step_folder)
-
-    def load_checkpoint(self, fsdp_model, checkpoint_path: str, logger) -> None:
-        if self.adapter is None:
-            return
-        self.adapter.load_checkpoint(fsdp_model, checkpoint_path, logger)

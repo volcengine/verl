@@ -313,7 +313,17 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 key = "model"
             if hasattr(model, "module"):
                 model = model.module
-            state_dict[key] = model.sharded_state_dict()
+            try:
+                state_dict[key] = model.sharded_state_dict(keep_vars=True)
+            except TypeError:
+                state_dict[key] = model.sharded_state_dict()
+            if self.speculator_module is not None and vpp_rank == len(self.model) - 1:
+                if "speculator" not in state_dict[key]:
+                    try:
+                        spec_state = self.speculator_module.state_dict(keep_vars=True)
+                    except TypeError:
+                        spec_state = self.speculator_module.state_dict()
+                    state_dict[key]["speculator"] = spec_state
 
         # Optimizer State Dict
         if generate_optimizer:

@@ -17,7 +17,6 @@ model:
   # whether to use remove padding. Speculator training requires False
   use_remove_padding: False
 
-  # whether to freeze base model when training speculator
 
   # speculator adapter class
   speculator_adapter:

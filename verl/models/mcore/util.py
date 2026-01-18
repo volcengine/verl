@@ -33,6 +33,7 @@ def preprocess_packed_seqs(
     """
     batch_size = input_ids.shape[0]
 
+    attention_mask = attention_mask.to(torch.bool)
     seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
     tp_size = mpu.get_tensor_model_parallel_world_size()
     cp_size = mpu.get_context_parallel_world_size()
@@ -128,6 +129,7 @@ def postprocess_packed_seqs(
     """
     if not post_process:
         return output
+    attention_mask = attention_mask.to(torch.bool)
 
     # -------------------------------------------------------------------------
     # Move the lengths and offsets needed for subsequent Python-level indexing to the CPU in advance,
@@ -192,6 +194,7 @@ def preprocess_bshd(
     assert cp_size == 1, "Context parallel size without seq_pack is not supported"
     batch_size = input_ids.shape[0]
     shape = list(input_ids.shape)  # batch_size, seq_len,...
+    attention_mask = attention_mask.to(torch.bool)
     seq_lens = attention_mask.sum(dim=1)
     seq_len = seq_lens.max().item()
     if sequence_parallel:
@@ -229,6 +232,10 @@ def postprocess_bshd(
     """
     if not post_process:
         return result
+    attention_mask = attention_mask.to(torch.bool)
+    original_attention_mask = original_attention_mask.to(torch.bool)
+    if result.shape[0] != original_attention_mask.shape[0] and result.shape[1] == original_attention_mask.shape[0]:
+        result = result.transpose(0, 1)
     shape = list(result.shape)
     batch_size = shape[0]
     shape[1] = origin_seqlen
@@ -388,6 +395,7 @@ def postprocess_thd_no_padding(
     """
     if not post_process:
         return output
+    # labels_mask is not used for thd postprocess; keep for backward compatibility if added later.
 
     # -------------------------------------------------------------------------
     # Move the lengths and offsets needed for subsequent Python-level indexing to the CPU in advance,

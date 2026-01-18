@@ -1079,27 +1079,28 @@ class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
 
         # Load speculator config if any
         self.speculator_config = getattr(model_config, "speculator", None)
+        self.speculator_adapter_config = getattr(model_config, "speculator_adapter", None)
         self.speculator = None
         self.speculator_adapter = None
-        self.has_speculator = self.speculator_config is not None
+        self.has_speculator = self.speculator_config is not None and self.speculator_adapter_config is not None
 
     def initialize(self):
         super().initialize()
         if not self.has_speculator or self.checkpoint_manager is None:
             return
-        speculator_module = getattr(self.module, "speculator", None)
-        speculator_config_obj = getattr(speculator_module, "config", None) if speculator_module is not None else None
-        self.checkpoint_manager.set_speculator(
-            speculator_module=speculator_module,
-            speculator_config_obj=speculator_config_obj,
-        )
+        if self.speculator is not None and self.speculator_adapter is not None:
+            speculator_config_obj = self.speculator_adapter._get_speculator_config_obj(self.speculator)
+            self.checkpoint_manager.set_speculator(
+                speculator_module=self.speculator,
+                speculator_config_obj=speculator_config_obj,
+            )
 
     def _build_module(self):
         # Build base module
         module = super()._build_module()
 
         # If there's a speculator block defined
-        if self.speculator_config is not None:
+        if self.has_speculator:
             from verl.trainer.speculators.interface import build_speculator_adapter
 
             module_dtype = next(module.parameters()).dtype
@@ -1120,6 +1121,10 @@ class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
         module = self._build_module()
         if self._is_lora:
             module = self._build_lora_module(module)
+        speculator_module = None
+        if self.speculator_adapter is not None:
+            # Build speculator early to freeze base params, but keep it out of base FSDP.
+            speculator_module = self.speculator_adapter.build_speculator_module(module)
 
         torch.distributed.barrier()
         if self.rank == 0:
@@ -1130,9 +1135,66 @@ class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
         module = self._build_fsdp_module(module)
         log_gpu_memory_usage("After FSDP", logger=None)
 
-        # Attach speculator after FSDP wrapping to avoid DTensor conversion.
-        if self.speculator_adapter is not None:
-            self.speculator = self.speculator_adapter.build_and_attach(module)
+        # Wrap speculator separately to avoid mixing frozen base params with trainable spec params.
+        if speculator_module is not None:
+            if self.engine_config.strategy == "fsdp":
+                from torch.distributed.fsdp import CPUOffload, MixedPrecision
+
+                from verl.utils.torch_dtypes import PrecisionType
+
+                mixed_precision_config = self.engine_config.mixed_precision
+                if mixed_precision_config is not None:
+                    param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
+                    reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
+                    buffer_dtype = PrecisionType.to_dtype(mixed_precision_config.get("buffer_dtype", "fp32"))
+                else:
+                    param_dtype = torch.bfloat16
+                    reduce_dtype = torch.float32
+                    buffer_dtype = torch.float32
+
+                mixed_precision = MixedPrecision(
+                    param_dtype=param_dtype, reduce_dtype=reduce_dtype, buffer_dtype=buffer_dtype
+                )
+                cpu_offload = None
+                if self.engine_config.forward_only:
+                    cpu_offload = CPUOffload(offload_params=True)
+                self.speculator = FSDP(
+                    speculator_module,
+                    param_init_fn=init_fn,
+                    auto_wrap_policy=None,
+                    device_id=get_device_id(),
+                    sharding_strategy=get_sharding_strategy(self.device_mesh),
+                    mixed_precision=mixed_precision,
+                    sync_module_states=True,
+                    device_mesh=self.device_mesh,
+                    forward_prefetch=self.engine_config.forward_prefetch,
+                    use_orig_params=True,
+                    cpu_offload=cpu_offload,
+                )
+            else:
+                from verl.utils.torch_dtypes import PrecisionType
+
+                mixed_precision_config = self.engine_config.mixed_precision
+                if mixed_precision_config is not None:
+                    param_dtype = PrecisionType.to_dtype(mixed_precision_config.get("param_dtype", "bf16"))
+                    reduce_dtype = PrecisionType.to_dtype(mixed_precision_config.get("reduce_dtype", "fp32"))
+                else:
+                    param_dtype = torch.bfloat16
+                    reduce_dtype = torch.float32
+                mp_policy = MixedPrecisionPolicy(
+                    param_dtype=param_dtype, reduce_dtype=reduce_dtype, cast_forward_inputs=True
+                )
+                offload_policy = None
+                if self.engine_config.offload_policy or self.engine_config.forward_only:
+                    offload_policy = CPUOffloadPolicy(pin_memory=True)
+                fsdp_kwargs = {
+                    "mesh": self.device_mesh,
+                    "mp_policy": mp_policy,
+                    "offload_policy": offload_policy,
+                    "reshard_after_forward": self.engine_config.reshard_after_forward,
+                }
+                self.speculator = self.speculator_adapter.apply_fsdp2_speculator(speculator_module, fsdp_kwargs)
+            self.speculator_adapter.speculator = self.speculator
         else:
             self.speculator = None
 
@@ -1150,8 +1212,8 @@ class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
     def _build_optimizer(self, module):
         from verl.workers.config.optimizer import build_optimizer
 
-        if self.speculator_adapter is not None and self.speculator_adapter.has_speculator:
-            params = self.speculator_adapter.get_optimizer_params(module)
+        if self.speculator is not None:
+            params = self.speculator_adapter.get_optimizer_params()
         else:
             params = module.parameters()
 
@@ -1161,7 +1223,7 @@ class FSDPEngineWithLMHeadAndSpeculator(FSDPEngineWithLMHead):
     def prepare_model_inputs(self, micro_batch):
         model_inputs, output_args = super().prepare_model_inputs(micro_batch)
         # Always ask for hidden states so we can feed to speculator
-        if self.has_speculator:
+        if self.speculator is not None:
             model_inputs["output_hidden_states"] = True
         return model_inputs, output_args
 

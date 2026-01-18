@@ -14,6 +14,7 @@
 
 
 from enum import Enum
+import os
 
 import torch
 from tensordict.tensorclass import NonTensorData
@@ -66,6 +67,9 @@ class SFTTensorCollator:
         # Handle tensor values by creating a NestedTensor.
         for key in tensor_keys:
             if isinstance(batch[0][key], torch.Tensor):
+                if os.getenv("VERL_DEBUG_SPECULATOR") == "1" and key in {"input_ids", "loss_mask"}:
+                    lens = [int(item[key].numel()) for item in batch]
+                    print(f"[debug][collate] {key} lens head={lens[:8]}")
                 tensors = [item[key] for item in batch]
                 final_batch[key] = torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
             else:

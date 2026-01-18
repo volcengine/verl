@@ -1,6 +1,6 @@
 {
     "[python]": {
-        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.defaultFormatter": "ms-python.black-formatter",
         "editor.codeActionsOnSave": {
             "source.organizeImports": "always",
         }

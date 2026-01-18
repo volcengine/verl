@@ -20,7 +20,6 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     ++data.enable_thinking_key=null \
     model.path=/model/ljl/Qwen3MoeCustom3 \
     model.use_remove_padding=false \
-    model.freeze_base_model=true \
     ++model.speculator_adapter.fqn=verl.trainer.speculators.lstm_adapter.LSTMSpeculatorAdapter \
     ++model.speculator.n_predict=3 \
     ++model.speculator.method=sum_lstm \

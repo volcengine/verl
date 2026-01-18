@@ -77,7 +77,7 @@ def save_speculator_checkpoint(
             FSDP.set_state_dict_type(
                 speculator_module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=FullStateDictConfig(),
+                state_dict_config=ShardedStateDictConfig(offload_to_cpu=False),
             )
         else:
             with FSDP.summon_full_params(speculator_module, writeback=False):
@@ -138,7 +138,7 @@ def load_speculator_checkpoint(
             FSDP.set_state_dict_type(
                 speculator_module,
                 state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=FullStateDictConfig(),
+                state_dict_config=ShardedStateDictConfig(offload_to_cpu=False),
             )
         else:
             with FSDP.summon_full_params(speculator_module, writeback=True):
