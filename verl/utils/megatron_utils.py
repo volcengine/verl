@@ -30,6 +30,7 @@ from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer
+from megatron.core.parallel_state import get_global_memory_buffer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -584,6 +585,9 @@ def offload_megatron_optimizer(optimizers):
             _dummy_wgrads.clear()
         except ImportError:
             pass
+
+        # Free Megatron-LM's global memory buffer
+        get_global_memory_buffer().buffer.clear()
 
         gc.collect()
         get_torch_device().empty_cache()
