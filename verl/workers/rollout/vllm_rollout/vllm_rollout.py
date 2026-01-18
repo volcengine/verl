@@ -25,7 +25,7 @@ When working with Megatron:
 - Do inference in tp. pp is treated as additional dp
 - After inference, all the parameters that doesn't belong to this pp rank is freed.
 """
-
+import asyncio
 import getpass
 import logging
 import os
@@ -160,7 +160,11 @@ class vLLMAsyncRollout(BaseRollout):
                     address = f"tcp://{ip}:{port}"
             self.socket.bind(address)
 
-        loop = get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         self.zmq_loop_task = loop.create_task(self._loop_forever())
 
         return address
