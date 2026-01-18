@@ -25,6 +25,7 @@ from torch.distributed.device_mesh import init_device_mesh
 
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
+from verl.trainer.distillation import get_distillation_loss_settings
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments
@@ -39,7 +40,6 @@ from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, DistillationConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
-from verl.trainer.distillation import get_distillation_loss_settings
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -417,7 +417,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                     "log_prob_micro_batch_size_per_gpu", None
                 )
                 distillation_config.use_dynamic_bsz = distillation_config.pop("log_prob_use_dynamic_bsz", False)
-                distillation_config.ppo_max_token_len_per_gpu = distillation_config.pop("log_prob_max_token_len_per_gpu", None)
+                distillation_config.ppo_max_token_len_per_gpu = distillation_config.pop(
+                    "log_prob_max_token_len_per_gpu", None
+                )
                 distillation_config.model_config = distillation_config.pop("teacher_model", None)
             loss_mode = distillation_config.loss_mode
             distillation_config: DistillationConfig = omega_conf_to_dataclass(distillation_config)
@@ -425,7 +427,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 1. build reference/distillation teacher model
         if "ref" in self.role:
-
             # TODO: align ref config with actor config
             if distillation_enabled:
                 ref_config = distillation_config
@@ -437,7 +438,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                         "log_prob_micro_batch_size_per_gpu", None
                     )
                     self.config.ref.use_dynamic_bsz = self.config.ref.pop("log_prob_use_dynamic_bsz", False)
-                    self.config.ref.ppo_max_token_len_per_gpu = self.config.ref.pop("log_prob_max_token_len_per_gpu", None)
+                    self.config.ref.ppo_max_token_len_per_gpu = self.config.ref.pop(
+                        "log_prob_max_token_len_per_gpu", None
+                    )
                 ref_config: ActorConfig = omega_conf_to_dataclass(self.config.ref)
                 ref_config.model_config = model_config
 
@@ -454,9 +457,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # assign engine configs
             ref_training_config.engine_config.use_dynamic_bsz = ref_config.use_dynamic_bsz
             ref_training_config.engine_config.infer_max_token_len_per_gpu = ref_config.ppo_max_token_len_per_gpu
-            ref_training_config.engine_config.infer_micro_batch_size_per_gpu = (
-                ref_config.ppo_micro_batch_size_per_gpu
-            )
+            ref_training_config.engine_config.infer_micro_batch_size_per_gpu = ref_config.ppo_micro_batch_size_per_gpu
             ref_training_config.engine_config.use_remove_padding = model_config.use_remove_padding
 
             self.ref = TrainingWorker(config=ref_training_config)
