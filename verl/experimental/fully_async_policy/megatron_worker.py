@@ -85,9 +85,9 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
         if self._is_actor and self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         params_generator = self._get_actor_params_generator() if self._is_actor else None
-        if self._is_rollout:
+        if self._is_rollout and (not self._is_actor):
             inference_model = get_inference_model(self.rollout)
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
@@ -105,7 +105,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
             from ray.util.collective import collective
 
             collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
-            if self._is_rollout:
+            if self._is_rollout and (not self._is_actor):
                 inference_model.load_weights([(key, tensor)])
         if self._is_actor and self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
@@ -146,7 +146,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         # Load model to GPU
         load_start_time = time.time()
         if self._is_actor and self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         load_duration = time.time() - load_start_time
 
         from ray.util.collective import collective
@@ -167,7 +167,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         update_start_time = time.time()
 
         inference_model = None
-        if self._is_rollout:
+        if self._is_rollout and (not self._is_actor):
             inference_model = get_inference_model(self.rollout)
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
@@ -224,7 +224,7 @@ class DetachActorWorker(DetachNcclSync):
         if hasattr(self, "_weights_info"):
             return self._weights_info
         if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         params_generator = self._get_actor_params_generator()
         ret = []
         for key, tensor in params_generator:
