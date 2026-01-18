@@ -36,7 +36,7 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerCon
 from verl.utils.py_functional import append_to_dict
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
-from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig, DistillationConfig
+from verl.workers.config import ActorConfig, DistillationConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
 
@@ -431,7 +431,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=ref_config.engine,
                 optimizer_config=ref_config.optim,
                 checkpoint_config=ref_config.checkpoint,
-                distillation_config=distillation_config
+                distillation_config=distillation_config,
             )
 
             # assign engine configs
@@ -458,7 +458,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=actor_config.engine,
                 optimizer_config=actor_config.optim,
                 checkpoint_config=actor_config.checkpoint,
-                distillation_config=distillation_config
+                distillation_config=distillation_config,
             )
 
             assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz
