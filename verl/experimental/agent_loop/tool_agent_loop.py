@@ -233,6 +233,8 @@ class ToolAgentLoop(AgentLoopBase):
                 image_data=agent_data.image_data,
                 video_data=agent_data.video_data,
             )
+        if output.num_preempted is not None:
+            agent_data.metrics["num_preempted"] = output.num_preempted
 
         agent_data.assistant_turns += 1
         agent_data.response_ids = output.token_ids
