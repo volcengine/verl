@@ -149,7 +149,7 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
     actor_offload=False
 
     # Detect device
-    device_name = $(python3 - <<'EOF'
+    device_name=$(python3 - <<'EOF'
 from verl.utils.device import get_device_name
 print(get_device_name())
 EOF
