@@ -43,12 +43,6 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
     # Create a temporary parquet file with test data
     test_data = {
         "messages": [
-            # [
-            #    {"role": "user", "content": "What is 2+2?"},
-            #    {"role": "assistant", "content": "2+2 equals 4."},
-            #    {"role": "user", "content": "And what is 4+4?"},
-            #    {"role": "assistant", "content": "4+4 equals 8."},
-            # ],
             [
                 {"role": "system", "content": "SYSTEMPROMPT\n"},
                 {"role": "user", "content": "USERPROMPT\n"},
