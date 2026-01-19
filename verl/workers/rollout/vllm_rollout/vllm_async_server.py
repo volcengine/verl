@@ -553,7 +553,7 @@ class vLLMHttpServer:
         num_preempted = None
 
         if hasattr(final_res.outputs[0], "num_preempted"):
-            num_preempted = final_res.output[0].num_preempted
+            num_preempted = final_res.outputs[0].num_preempted
 
         return TokenOutput(
             token_ids=token_ids,
