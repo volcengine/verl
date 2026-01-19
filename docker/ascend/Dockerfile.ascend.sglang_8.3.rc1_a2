@@ -6,10 +6,6 @@ ARG PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
 ARG PTA_BASE_VERSION="torch_npu-2.7.1.post2-cp311-cp311-manylinux_2_28"
 ARG PTA_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.3.0-pytorch2.7.1"
 
-# Adding the RAY Ascend NPU environment variable (globally effective)
-ENV RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
-ENV ASCEND_RT_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-
 # Prepare required system dependencies
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends gcc g++ cmake libnuma-dev wget git curl jq vim build-essential net-tools iputils-ping && \
