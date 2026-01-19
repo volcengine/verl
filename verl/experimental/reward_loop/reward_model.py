@@ -16,7 +16,7 @@ import asyncio
 import logging
 import os
 
-from verl.single_controller.ray.base import RayResourcePool, split_resource_pool
+from verl.single_controller.ray.base import RayResourcePool, RayWorkerGroup
 from verl.workers.config import HFModelConfig, RewardModelConfig
 from verl.workers.rollout.replica import get_rollout_replica_class
 
@@ -75,14 +75,14 @@ class RewardModelManager:
             for replica_rank in range(num_replicas)
         ]
         if self.resource_pool:
-            split_resource_pools = split_resource_pool(self.resource_pool, split_size=rollout_world_size)
-            assert len(split_resource_pools) == len(self.rollout_replicas)
-            self._run_all(
-                [
-                    server.init_colocated(resource_pool)
-                    for server, resource_pool in zip(self.rollout_replicas, split_resource_pools, strict=True)
-                ]
+            ray_cls_with_init = self.rollout_replicas[0].get_ray_class_with_init_args()
+            worker_group = RayWorkerGroup(
+                resource_pool=self.resource_pool,
+                ray_cls_with_init=ray_cls_with_init,
+                bin_pack=False,
+                name_prefix="rollout_reward_colocate",
             )
+            self._run_all([server.init_colocated(worker_group) for server in self.rollout_replicas])
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
         self.server_handles = [server._server_handle for server in self.rollout_replicas]

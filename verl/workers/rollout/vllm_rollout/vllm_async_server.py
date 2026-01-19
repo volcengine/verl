@@ -46,6 +46,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import get_visible_devices_keyword
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -191,6 +192,7 @@ class vLLMHttpServer:
         node_rank: int,
         gpus_per_node: int,
         nnodes: int,
+        cuda_visible_devices: str,
     ):
         """
         Args:
@@ -201,8 +203,10 @@ class vLLMHttpServer:
             node_rank (int): node rank.
             gpus_per_node (int): number of gpus per node.
             nnodes (int): number of nodes.
+            cuda_visible_devices (str): cuda visible devices.
         """
         super().__init__()
+        os.environ[get_visible_devices_keyword()] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -715,13 +719,17 @@ class vLLMReplica(RolloutReplica):
             f"worker number {len(self.workers)} not equal to world size {self.world_size}"
         )
 
-        # get node_id of all workers
-        worker_node_ids = await asyncio.gather(
+        # get (node_id, CUDA_VISIBLE_DEVICES) of all workers
+        worker_infos = await asyncio.gather(
             *[
-                worker.__ray_call__.remote(lambda self: ray.get_runtime_context().get_node_id())
+                worker.__ray_call__.remote(
+                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ[get_visible_devices_keyword()])
+                )
                 for worker in self.workers
             ]
         )
+        worker_cuda_visible_devices = [worker_info[1] for worker_info in worker_infos]
+        worker_node_ids = [worker_info[0] for worker_info in worker_infos]
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
         nnodes, gpus_per_node = self.nnodes, self.gpus_per_node
@@ -732,6 +740,9 @@ class vLLMReplica(RolloutReplica):
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
             workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
+            node_cuda_visible_devices = ",".join(
+                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+            )
             node_id = worker_node_ids[node_rank * gpus_per_node]
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
@@ -754,6 +765,7 @@ class vLLMReplica(RolloutReplica):
                 node_rank=node_rank,
                 gpus_per_node=gpus_per_node,
                 nnodes=nnodes,
+                cuda_visible_devices=node_cuda_visible_devices,
             )
             self.servers.append(server)
 

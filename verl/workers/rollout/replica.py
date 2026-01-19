@@ -128,7 +128,7 @@ class RolloutReplica(ABC):
         await self.launch_servers()
 
     # TODO(sgm): this should be the default solution, but need to make the RolloutMode more clear.
-    async def init_colocated(self, resource_pool: RayResourcePool):
+    async def init_colocated(self, worker_group: RayWorkerGroup):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
         but in separate processes.
 
@@ -136,17 +136,9 @@ class RolloutReplica(ABC):
             resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
         """
         self.rollout_mode = RolloutMode.COLOCATED
-        self.resource_pool = resource_pool
-
-        worker_group = RayWorkerGroup(
-            resource_pool=self.resource_pool,
-            ray_cls_with_init=self.get_ray_class_with_init_args(),
-            bin_pack=False,
-            name_prefix=f"rollout_colocate_{self.replica_rank}"
-            if not self.is_reward_model
-            else f"rollout_reward_colocate_{self.replica_rank}",
-        )
-        self.workers = worker_group.workers
+        self.workers = worker_group.workers[
+            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+        ]
         await self.launch_servers()
 
     async def init_standalone(self):

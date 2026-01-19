@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .worker import Worker
+from .worker import TwoPhaseInitWorker, Worker, WorkerMeta
 from .worker_group import ClassWithInitArgs, ResourcePool, WorkerGroup
 
-__all__ = ["Worker", "WorkerGroup", "ClassWithInitArgs", "ResourcePool"]
+__all__ = ["Worker", "TwoPhaseInitWorker", "WorkerMeta", "WorkerGroup", "ClassWithInitArgs", "ResourcePool"]
