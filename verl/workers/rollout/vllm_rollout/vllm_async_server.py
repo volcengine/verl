@@ -558,8 +558,17 @@ class vLLMHttpServer:
         else:
             stop_reason = finish_reason  # for more stop reason in the future
 
+        num_preempted = None
+
+        if hasattr(final_res.outputs[0], "num_preempted"):
+            num_preempted = final_res.output[0].num_preempted
+
         return TokenOutput(
-            token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts, stop_reason=stop_reason
+            token_ids=token_ids,
+            log_probs=log_probs,
+            routed_experts=routed_experts,
+            stop_reason=stop_reason,
+            num_preempted=num_preempted,
         )
 
     async def wake_up(self):
