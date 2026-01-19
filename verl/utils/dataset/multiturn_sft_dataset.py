@@ -448,8 +448,4 @@ class MultiTurnSFTDataset(Dataset):
             if self.ignore_input_ids_mismatch:
                 logger.warning_once(error_message)
             else:
-                print(input_ids)
-                print()
-                print()
-                print(inputs["input_ids"].squeeze(0))
                 raise AssertionError(error_message)

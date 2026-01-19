@@ -132,9 +132,7 @@ class SFTTrainer:
             device_name=self.config.trainer.device,
         )
         self.training_client.set_loss_fn(loss_fn=self.loss_fn)
-        self.training_client.check_engine_config()
         self.training_client.reset()
-        self.training_client.patch_engine_mtp()
 
     def _build_dataset(self):
         config = self.config

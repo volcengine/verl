@@ -155,9 +155,7 @@ class SFTTrainer:
         if self.test_freq == "after_each_epoch":
             self.test_freq = self.steps_per_epoch
 
-        self.training_client.check_engine_config()
         self.training_client.reset()
-        self.training_client.patch_engine_mtp()
 
     def _build_dataset(self):
         config = self.config

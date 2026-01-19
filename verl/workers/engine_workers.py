@@ -360,42 +360,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
     def load_checkpoint(self, local_path, hdfs_path=None, del_local_after_load=False):
         return self.engine.load_checkpoint(local_path, hdfs_path, del_local_after_load)
 
-    def check_engine_config(self):
-        has_mtp = (
-            self.model_config.hf_config.num_nextn_predict_layers > 0
-            if hasattr(self.model_config.hf_config, "num_nextn_predict_layers")
-            else False
-        )
-        enable_mtp = self.model_config.mtp.enable
-        enable_mtp_train = self.model_config.mtp.enable_train
-
-        if enable_mtp:
-            assert enable_mtp_train, "current not support enable_mtp while not training"
-
-        # Modify the hf_config before initialization, and apply patch after innitialization
-        if enable_mtp and not has_mtp:
-            logger.error("enable mtp while model has no mtp layer, ignore model.mtp.enable")
-            self.model_config.mtp.enable = False
-            self.model_config.mtp.enable_train = False
-        elif has_mtp and not enable_mtp:
-            self.model_config.hf_config.num_nextn_predict_layers = 0
-
-    def patch_engine_mtp(self):
-        if self.model_config.mtp.enable:
-            logger.warning("Applying mtp patch...")
-            from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings, patch_postprocess
-
-            print(self.engine.module)
-            if isinstance(self.engine.module, list):
-                for m in self.engine.module:
-                    patch_postprocess(m)
-                    if self.model_config.mtp.detach_encoder:
-                        patch_mtp_layer_get_embeddings(m)
-            else:
-                patch_postprocess(self.engine.module)
-                if self.model_config.mtp.detach_encoder:
-                    patch_mtp_layer_get_embeddings(self.engine.module)
-
 
 class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     """Hybrid worker that includes actor model, rollout and optional ref model.
