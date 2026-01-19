@@ -1,0 +1,87 @@
+defaults:
+  - ppo_trainer
+  - _self_
+
+trainer:
+  atropos:
+    api_url: http://localhost:9001
+    timeout: 30
+    retry_attempts: 10
+    retry_delay: 0.5
+    max_wait_time: 30.0
+    use_advantages: true
+    fallback_to_grpo: true
+  total_epochs: 1
+  save_freq: -1
+  test_freq: 1
+  n_gpus_per_node: 1
+  nnodes: 1
+  project_name: verl_grpo_example_gsm8k
+  experiment_name: qwen2.5_3b_grpo_lora_atropos_small
+  logger: ["console", "wandb"]
+  val_before_train: false
+
+algorithm:
+  adv_estimator: grpo
+  use_critic: false
+  norm_adv_by_std_in_grpo: true
+  use_kl_in_reward: false
+
+data:
+  train_files: /root/data/gsm8k/train_chat.parquet
+  val_files: /root/data/gsm8k/test_chat.parquet
+  train_batch_size: 2
+  max_prompt_length: 256
+  max_response_length: 256
+  filter_overlong_prompts: true
+  truncation: error
+  shuffle: false
+  dataloader_num_workers: 2
+
+actor_rollout_ref:
+  model:
+    path: Qwen/Qwen2.5-3B-Instruct
+    lora_rank: 64
+    lora_alpha: 32
+    enable_gradient_checkpointing: true
+    use_remove_padding: false
+    override_config:
+      attn_implementation: sdpa
+  actor:
+    optim:
+      lr: 3e-6
+    ppo_mini_batch_size: 2
+    ppo_micro_batch_size_per_gpu: 2
+    use_kl_loss: true
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+    entropy_coeff: 0
+    fsdp_config:
+      param_offload: false
+      optimizer_offload: false
+  rollout:
+    name: vllm
+    n: 2
+    log_prob_micro_batch_size_per_gpu: 2
+    tensor_model_parallel_size: 1
+    gpu_memory_utilization: 0.4
+    load_format: safetensors
+    layered_summon: true
+    agent:
+      num_workers: 4
+  ref:
+    log_prob_micro_batch_size_per_gpu: 2
+    fsdp_config:
+      param_offload: true
+
+# Top-level keys for the service launcher
+model:
+  path: Qwen/Qwen2.5-3B-Instruct
+
+rollout:
+  name: vllm
+
+inference:
+  type: vllm
+  port: 8000
+  tensor_parallel_size: 1
