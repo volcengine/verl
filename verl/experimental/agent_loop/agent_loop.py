@@ -983,6 +983,7 @@ class AgentLoopManager:
         timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
         timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
         timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        timing["agent_loop/slowest/num_preempted"] = num_preempted[slowest]
 
         return timing
 
