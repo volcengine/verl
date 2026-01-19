@@ -169,6 +169,7 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
+    model.reshard()
     model.cpu()
     if empty_cache:
         get_torch_device().empty_cache()

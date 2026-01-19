@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import torch
+from torch.distributed.fsdp._fully_shard._fsdp_common import TrainingState
+from torch.distributed.fsdp._fully_shard._fsdp_state import _get_module_fsdp_state
 
 from verl.utils.device import get_device_id, get_torch_device
 
@@ -23,6 +25,15 @@ def offload_veomni_model_to_cpu(model, empty_cache: bool = True):
 
     assert get_parallel_state().dp_mode == "fsdp2", "Only support fsdp2 offloading for VeOmni model"
 
+    for module in model.modules():
+        state = _get_module_fsdp_state(module)
+        if state is None:
+            continue
+        fsdp_param_group = state._fsdp_param_group
+        if fsdp_param_group is None:
+            continue
+        fsdp_param_group._training_state = TrainingState.IDLE
+    model.reshard()
     model.cpu()
     if empty_cache:
         get_torch_device().empty_cache()
