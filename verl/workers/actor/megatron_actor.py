@@ -56,8 +56,10 @@ from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import get_reverse_idx, rearrange_micro_batches
 from verl.utils.torch_functional import broadcast_dict_tensor
 from verl.workers.actor import BasePPOActor
+from verl.workers.config import MtpConfig
 
 __all__ = ["MegatronPPOActor"]
+
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -72,6 +74,7 @@ class MegatronPPOActor(BasePPOActor):
         tf_config,
         actor_module: nn.ModuleList,
         actor_optimizer: DistributedOptimizer,
+        mtp_config: MtpConfig = None,
     ):
         """MeagtronPPOActor class. This class implements the simple PPO logics when the model is built with Megatron.
 
@@ -93,6 +96,7 @@ class MegatronPPOActor(BasePPOActor):
                 ``model_config.hidden_size``
             hf_config (PretrainedConfig): huggingface config
             tf_config (TransformerConfig): mcore transformer config
+            mtp_config (MtpConfig): mtp config, default None
             actor_module (nn.ModuleList): actor module is a ModuleList that contains a list of nn.Module in this
                 pp stage.
                 each nn.Module in this rank holds a vpp module chunk. See https://arxiv.org/pdf/2104.04473.pdf for
@@ -128,6 +132,7 @@ class MegatronPPOActor(BasePPOActor):
         self.model_config = model_config
         self.hf_config = hf_config
         self.tf_config = tf_config
+        self.mtp_config = mtp_config
         self.actor_module = actor_module
         self.actor_optimizer: DistributedOptimizer = actor_optimizer
         self.use_torch_profiler = self.config.profiler.get("tool") == "torch"
@@ -137,13 +142,32 @@ class MegatronPPOActor(BasePPOActor):
             )
         else:
             self.prof = None
+
+        if self.mtp_config:
+            assert self.mtp_config.enable, "MTP requires mtp_config.enable to be True"
+
         self.use_fused_kernels = self.config.get("use_fused_kernels", False)
         if self.use_fused_kernels and not getattr(self.config, "overlap_moe_expert_parallel_comm", False):
             # do not patch if overlap_moe_expert_parallel_comm is enabled
+            logger.warning_once(
+                "Recommend to disable use_fused_kernels since the fused kernel's performance is broken for triton>=3.3"
+                "Unless you are using a very old version of triton < 3.3"
+            )
             from verl.models.mcore.model_forward_fused import patch_fused_forward
 
             for model in self.actor_module:
                 patch_fused_forward(model)
+        else:
+            from verl.models.mcore.mtp_patch import patch_postprocess
+
+            for model in self.actor_module:
+                if self.mtp_config:
+                    from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings
+
+                    patch_postprocess(model)
+
+                    if self.mtp_config.detach_encoder:
+                        patch_mtp_layer_get_embeddings(model)
 
         self.optimizer_step_args = OmegaConf.create(
             {
@@ -656,6 +680,7 @@ class MegatronPPOActor(BasePPOActor):
                     logits_processor=logits_processor,
                     logits_processor_args=logits_processor_args,
                     data_format="thd" if self.config.megatron.use_remove_padding else "bshd",
+                    mtp_config=None if forward_only else self.mtp_config,
                 )
 
             if forward_only:
@@ -728,15 +753,41 @@ class MegatronPPOActor(BasePPOActor):
                 losses_reduced["mini_layer_topk_idx_tensor"] = torch.cat(self.mini_layer_topk_idx_list, dim=0)
             self.mini_layer_topk_idx_list = []
 
+        # Collect and pass MTP metrics to losses_reduced
+        if not forward_only and self.mtp_config and self.mtp_config.enable_train:
+            from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
+
+            # Calculate MTP loss scale similar to Megatron-LM implementation
+            mtp_loss_scale = 1.0 / n_micro_batch
+
+            # Create a dummy total_loss_dict to collect MTP metrics
+            total_loss_dict = {}
+
+            # Track MTP metrics - this will populate total_loss_dict with MTP losses
+            MTPLossLoggingHelper.track_mtp_metrics(
+                loss_scale=mtp_loss_scale, iteration=0, writer=None, wandb_writer=None, total_loss_dict=total_loss_dict
+            )
+            # Add MTP metrics to losses_reduced if any were collected
+            # total_loss_dict: {'mtp_1 loss': tensor(value, device='cuda:0')}
+            if total_loss_dict:
+                mtp_metrics = {}
+                for key, value in total_loss_dict.items():
+                    # Convert key to have proper prefix and format
+                    formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
+                    mtp_metrics[formatted_key] = [value.cpu().item()]
+                losses_reduced["mtp_losses"] = [mtp_metrics]
+
         return losses_reduced
 
     @GPUMemoryLogger(role="megatron actor", logger=logger)
-    def update_policy(self, dataloader: Iterable[DataProto]) -> dict:
+    def update_policy(self, dataloader: Iterable[DataProto], enable_mtp: bool = False) -> dict:
         """Update the policy with an iterator of DataProto
 
         Args:
             dataloader (Iterable[DataProto]): an iterator over the DataProto that returns by ``make_minibatch_iterator``
                 The keys of each data batch is described in the make_minibatch_iterator.
+
+            enable_mtp (bool, optional): whether to enable MTP communication
 
         Returns:
             Dict: a dictionary containing the statistics. Note that the statistics are only valid in the last pp stage
@@ -771,6 +822,13 @@ class MegatronPPOActor(BasePPOActor):
                 max_token_len=max_token_len,
                 mini_batch_size=self.config.ppo_mini_batch_size,
             )
+
+            mtp_losses = metric_micro_batch.get("mtp_losses", None)
+            if mtp_losses is not None:
+                # mtp_losses is now in format: [{"mtp_losses/mtp_1_loss": [value1], "mtp_losses/mtp_2_loss": [value2]}]
+                for mtp_metrics_dict in mtp_losses:
+                    append_to_dict(metrics, mtp_metrics_dict)
+
             metric_micro_batch = metric_micro_batch["output"]
             for metric in metric_micro_batch:
                 # Note that o[0] is metrics, o[1] is entropy, o[2] is response_mask

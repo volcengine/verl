@@ -136,6 +136,7 @@ verl is fast with:
    advance/grafana_prometheus.md
    advance/fp8.md
    advance/async-on-policy-distill
+   advance/mtp.md
 
 .. toctree::
    :maxdepth: 1

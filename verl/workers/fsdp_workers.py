@@ -359,6 +359,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
+
+        if self.config.model.get("mtp", {}).get("enable", False):
+            raise NotImplementedError("Right now,  MTP is not supported in FSDP")
+        else:
+            if hasattr(actor_model_config, "num_nextn_predict_layers"):
+                actor_model_config.num_nextn_predict_layers = 0
+
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
