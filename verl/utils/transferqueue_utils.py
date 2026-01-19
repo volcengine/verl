@@ -173,6 +173,12 @@ async def _async_batchmeta_to_realdata(
 
     tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
 
+    non_tensor_data_keys = ["global_token_num", "images_seqlens",]
+    for keys in non_tensor_data_keys:
+        if keys in meta_info:
+            vals = meta_info.pop(keys)
+            tu.assign_non_tensor_data(tensordict, key=keys, val=vals)
+
     if convert_type == "DataProto":
         return DataProto.from_tensordict(tensordict, meta_info=meta_info)
     else:

@@ -459,11 +459,22 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
         # create actor and rollout
         actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
+
+        # pass tq_config to workers if enable TQ
+        actor_rollout_ref_config = self.config.actor_rollout_ref
+        # reward_config = self.config.reward_model
+        tq_config = OmegaConf.select(self.config, "transfer_queue", default=None)
+        if tq_config is not None and tq_config["enable"]:
+            OmegaConf.set_struct(actor_rollout_ref_config, False)
+            actor_rollout_ref_config.transfer_queue = tq_config
+            OmegaConf.set_struct(actor_rollout_ref_config, True)
+            # reward_config.transfer_queue = tq_config
+
         if self.hybrid_engine:
             resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[actor_role],
-                config=self.config.actor_rollout_ref,
+                config=actor_rollout_ref_config,
                 role=str(actor_role),
             )
             self.resource_pool_to_cls[resource_pool][str(actor_role)] = actor_rollout_cls
@@ -506,7 +517,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
             ref_policy_cls = RayClassWithInitArgs(
                 self.role_worker_mapping[Role.RefPolicy],
-                config=self.config.actor_rollout_ref,
+                config=actor_rollout_ref_config,
                 role=str(Role.RefPolicy),
             )
             self.resource_pool_to_cls[resource_pool][str(Role.RefPolicy)] = ref_policy_cls
