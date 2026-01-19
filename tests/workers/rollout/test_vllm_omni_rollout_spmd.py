@@ -24,15 +24,18 @@ from verl.workers.rollout.vllm_rollout.vllm_omni_rollout_spmd import vLLMOmniRol
 @pytest.fixture
 def mock_data() -> DataProto:
     test_prompt = "a photo of a cat"
-    data = DataProto(non_tensor_batch={"prompt": np.array([test_prompt])})
+    test_prompt_2 = "a photo of a dog"
+    data = DataProto(non_tensor_batch={"prompt": np.array([test_prompt, test_prompt_2])})
     return data
 
 
 class TestvLLMOmniRollout:
     def setup_class(self):
         model_path = os.path.expanduser("~/models/Qwen/Qwen-Image")
+        tokenizer_path = os.path.join(model_path, "tokenizer")
+
         diffusion_config = RolloutConfig()
-        model_config = HFModelConfig(path=model_path)
+        model_config = HFModelConfig(path=model_path, tokenizer_path=tokenizer_path)
         self.rollout_engine = vLLMOmniRollout(diffusion_config, model_config, None)
 
     def test_generate_sequences(self, mock_data: DataProto):

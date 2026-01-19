@@ -1,4 +1,3 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,30 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-The vllm_rollout that can be applied in different backend
-When working with FSDP:
-- Use DTensor weight loader (recommended) or HF weight loader
-- Utilize state_dict from the FSDP to synchronize the weights among tp ranks in vLLM
-When working with Megatron:
-- Use Megatron weight loader
-- During training, only the current pp stage holds the parameters
-- Before inference, broadcast the parameters of the current pp rank
-  to all other pp ranks (all pp ranks holds all the parameters)
-- Bind the parameters to the inference engine
-- Do inference in tp. pp is treated as additional dp
-- After inference, all the parameters that doesn't belong to this pp rank is freed.
-"""
-
 import inspect
 import logging
 import os
 from typing import Generator
 
 import torch
-import torch.distributed
+import torchvision.transforms as T
 from tensordict import TensorDict
 from torch.distributed.device_mesh import DeviceMesh
+from transformers import AutoTokenizer, PreTrainedTokenizer
 from vllm.lora.request import LoRARequest
 from vllm_omni.entrypoints.omni_diffusion import OmniDiffusion
 
@@ -45,21 +30,14 @@ from verl.utils.model import get_lora_rank_from_adapter
 from verl.utils.profiler import GPUMemoryLogger
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
-from verl.workers.rollout.vllm_rollout.utils import (
-    get_vllm_max_lora_rank,
-)
+from verl.workers.rollout.vllm_rollout.utils import get_vllm_max_lora_rank
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class vLLMOmniRollout(BaseRollout):
-    def __init__(
-        self,
-        config: RolloutConfig,
-        model_config: HFModelConfig,
-        device_mesh: DeviceMesh,
-    ):
+    def __init__(self, config: RolloutConfig, model_config: HFModelConfig, device_mesh: DeviceMesh):
         super().__init__(config, model_config, device_mesh)
 
         if config.layered_summon:
@@ -80,28 +58,27 @@ class vLLMOmniRollout(BaseRollout):
             else {}
         )
 
-        tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-        assert tensor_parallel_size <= torch.distributed.get_world_size(), (
-            "tensor parallel size should be less than or equal to the world size"
-        )
-
         self.inference_engine = OmniDiffusion(model=model_path)
+        if (tokenizer_path := self.model_config.tokenizer_path) is None:
+            tokenizer_path = model_path
+        self.tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        self._to_tensor = T.PILToTensor()
 
     @GPUMemoryLogger(role="vllm rollout spmd", logger=logger)
     @torch.no_grad()
     def generate_sequences(self, prompts: DataProto, **kwargs) -> DataProto:
-        idx = prompts.batch["input_ids"]  # (bs, prompt_length)
-        # left-padded attention_mask
-        attention_mask = prompts.batch["attention_mask"]
+        # TODO: the vllm-omni should able to feed tokenized ids directly
+        if (prompt := prompts.non_tensor_batch.get("prompt")) is None:
+            idx = prompts.batch["input_ids"]
+            prompt = self.tokenizer.batch_decode(idx, skip_special_tokens=True)
+        else:
+            prompt = prompt.tolist()
 
-        batch_size = idx.size(0)
+        batch_size = len(prompt)
 
-        non_tensor_batch = prompts.non_tensor_batch
-        vllm_omnit_inputs = [
-            {"prompt_token_ids": raw_prompt_ids} for raw_prompt_ids in non_tensor_batch.pop("raw_prompt_ids")
-        ]
+        vllm_omni_inputs = prompt
 
-        lora_requests = None
+        lora_requests = [None] * batch_size
         if self.lora_kwargs:
             lora_int_ids = list(self.inference_engine.llm_engine.list_loras())
             if len(lora_int_ids) > 0:
@@ -110,23 +87,23 @@ class vLLMOmniRollout(BaseRollout):
                     LoRARequest(lora_name=f"{lora_int_id}", lora_int_id=lora_int_id, lora_path="/simon-stub-path")
                 ] * batch_size
         # users can customize different sampling_params at different run
-        outputs = self.inference_engine.generate(vllm_omnit_inputs, lora_request=lora_requests)
+        # TODO: currently vLLM-Omni do not accept batch inference
+        outputs = [
+            self.inference_engine.generate(x, lora_request=lora_request)
+            for x, lora_request in zip(vllm_omni_inputs, lora_requests, strict=False)
+        ]
 
         response = []
         for output in outputs:
-            response.append(output.images)
+            response.append(self._to_tensor(output.images[0]))
+        response = torch.stack(response, dim=0)
 
-        # all the tp ranks should contain the same data here. data in all ranks are valid
         batch = TensorDict(
-            {
-                "prompts": idx,
-                "responses": response,
-                "attention_mask": attention_mask,
-            },
+            {"responses": response},
             batch_size=batch_size,
         )
 
-        return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
+        return DataProto(batch=batch)
 
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
