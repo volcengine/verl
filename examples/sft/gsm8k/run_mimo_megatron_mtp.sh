@@ -41,7 +41,7 @@ ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 PYPATH=$HOME/pythonpath
 mkdir -p $PYPATH && cd $PYPATH
 [ -d Megatron-LM ] || git clone https://github.com/NVIDIA/Megatron-LM -b dev && (cd Megatron-LM; git checkout 23e092f41ec8bc659020e401ddac9576c1cfed7e)
-[ -d mbridge ] || git clone https://github.com/ArronHZG/mbridge -b feature/verl_mtp && (cd mbridge; commit 6bf2d45a15dc4fb52d2f0c38ff546bee33447d10)
+[ -d mbridge ] || git clone https://github.com/ArronHZG/mbridge -b feature/verl_mtp && (cd mbridge; git checkout 6bf2d45a15dc4fb52d2f0c38ff546bee33447d10)
 cd -
 export PYTHONPATH=$PYTHONPATH:$PYPATH/mbridge:$PYPATH/Megatron-LM
 
