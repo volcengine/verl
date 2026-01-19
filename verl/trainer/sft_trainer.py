@@ -305,7 +305,7 @@ class SFTTrainer:
             self.train_sampler.set_epoch(epoch=epoch)
 
             aggressive_empty_cache(force_sync=True)
-            # log_gpu_memory_usage(f"rank {self.rank}: At start of epoch {epoch}", logger=logger)
+            log_gpu_memory_usage(f"rank {self.rank}: At start of epoch {epoch}", logger=logger)
 
             for step_in_epoch, data in enumerate(
                 tqdm(
