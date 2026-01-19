@@ -174,8 +174,8 @@ class TrainingWorker(Worker, DistProfilerExtension):
         final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={"metrics": final_metrics})
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
-    @tqbridge(put_data=False, convert_type="TensorDict")
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False,
+              put_data=False, convert_type="TensorDict")
     def train_mini_batch(self, data: TensorDict) -> TensorDict:
         """Split a batch into N mini-batches run for multiple epochs
 
@@ -307,8 +307,8 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
-    @tqbridge(put_data=False, convert_type="TensorDict")
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False,
+              put_data=False, convert_type="TensorDict")
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
@@ -397,6 +397,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         DistProfilerExtension.__init__(
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
+
+        self.tq_config = OmegaConf.select(self.config, "transfer_queue", default=None)
+        if self.tq_config is not None and self.tq_config["enable"] == True:
+            self.create_transferqueue_client(config=self.config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
@@ -523,23 +527,23 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
             self.layered_summon = self.config.rollout.get("layered_summon", False)
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"),
+              put_data=False, convert_type="TensorDict")
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
-    @tqbridge(put_data=False, convert_type="TensorDict")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
         output = self.ref.infer_batch(data=data)
         return output.cpu() if output is not None else None
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"),
+              put_data=False, convert_type="TensorDict")
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
-    @tqbridge(put_data=False, convert_type="TensorDict")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
         output = self.actor.infer_batch(data)
         return output.cpu() if output is not None else None
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"),
+              put_data=False, convert_type="TensorDict")
     @DistProfiler.annotate(color="red", role="actor_update")
-    @tqbridge(put_data=False, convert_type="TensorDict")
     def update_actor(self, data: TensorDict) -> TensorDict:
         output = self.actor.train_mini_batch(data=data)
         return output.cpu() if output is not None else None

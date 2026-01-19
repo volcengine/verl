@@ -779,7 +779,7 @@ class AgentLoopWorker:
 
         # add reward_extra_info to non_tensor_batch
         reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
-        reward_extra_keys = list(reward_extra_infos[0].keys())
+        reward_extra_keys = set(reward_extra_infos[0].keys())
         for key in reward_extra_keys:
             non_tensor_batch[key] = np.array([info[key] for info in reward_extra_infos])
 
@@ -1019,6 +1019,7 @@ class AgentLoopManager:
             timing = self._performance_metrics(metrics, output)
 
             output.update_extra_info({"timing": timing, **outputs[0].get_all_extra_info()})
+            output.remove_extra_info("metrics")
             return output
 
     def _performance_metrics(
