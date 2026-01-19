@@ -42,6 +42,7 @@ class MtpConfig(BaseConfig):
         mtp_loss_scaling_factor: Loss scaling factor during MTP training
 
     vLLM rollout parameters:
+        method: "mtp"
         num-speculative-tokens: 1
 
     SGLang rollout parameters:
@@ -49,7 +50,6 @@ class MtpConfig(BaseConfig):
         speculative-num-steps: 2
         speculative-eagle-topk: 2
         speculative-num-draft-tokens: [value]
-
     """
 
     enable: bool = False

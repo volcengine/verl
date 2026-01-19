@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 
-conda activate verl_torch2.8
-which python
-
 set -xeuo pipefail
 
 project_name='DAPO'
-exp_name='DAPO-Qwen2.5-7b-MATH-megatron-0519a1'
+exp_name='DAPO-mimo-7b-rl-megatron'
 
 adv_estimator=grpo
 
@@ -26,17 +23,23 @@ overlong_penalty_factor=1.0
 
 loss_agg_mode="token-mean"
 
-train_prompt_bsz=32
+train_prompt_bsz=128
 n_resp_per_prompt=16
 train_prompt_mini_bsz=32
 
 # Ray
-NNODES=1
+# RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
+# WORKING_DIR=${WORKING_DIR:-"${PWD}"}
+# RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/examples/mtp_trainer/runtime_env.yaml"}
+NNODES=${NNODES:-16}
+NGPUS_PER_NODE=${NGPUS_PER_NODE:-8}
 # Paths
 RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
-MODEL_PATH=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/model/XiaomiMiMo/MiMo-7B-RL
-TRAIN_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/train.parquet
-TEST_FILE=/cfs_shtx5_serving_3/mlp/training/docker/user/hadoop-ai-search/houzhenggang/data/gsm8k/test.parquet
+# very important! please modify the max_position_embeddings in config.json to 32768 after downloading from huggingface
+MODEL_PATH=${MODEL_PATH:-"${RAY_DATA_HOME}/models/MiMo-7B-RL"}
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+TRAIN_FILE=${TRAIN_FILE:-"${RAY_DATA_HOME}/data/dapo-math-17k.parquet"}
+TEST_FILE=${TEST_FILE:-"${RAY_DATA_HOME}/data/aime-2024.parquet"}
 
 # Algorithm
 temperature=1.0
@@ -49,10 +52,17 @@ use_dynamic_bsz=True
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 2))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) * 3))
 offload=True
-gen_tp=2
+gen_tp=4
 train_tp=2
 train_pp=2
 train_cp=2
+
+common_params=(
+actor_rollout_ref.model.mtp.enable=True
+actor_rollout_ref.model.mtp.enable_train=True
+actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1
+actor_rollout_ref.model.mtp.detach_encoder=True
+)
 
 python -m verl.trainer.main_ppo \
     --config-path=config \
@@ -86,6 +96,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.megatron.grad_offload=${offload} \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size=${train_tp} \
+    actor_rollout_ref.actor.megatron.context_parallel_size=${train_cp} \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.optim.clip_grad=1.0 \
     actor_rollout_ref.actor.loss_agg_mode=${loss_agg_mode} \
@@ -104,6 +115,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.ref.megatron.pipeline_model_parallel_size=${train_pp} \
     actor_rollout_ref.ref.megatron.tensor_model_parallel_size=${train_tp} \
+    actor_rollout_ref.ref.megatron.context_parallel_size=${train_cp} \
     actor_rollout_ref.ref.megatron.param_offload=${offload} \
     reward_model.reward_manager=dapo \
     +reward_model.reward_kwargs.overlong_buffer_cfg.enable=${enable_overlong_buffer} \
@@ -114,7 +126,7 @@ python -m verl.trainer.main_ppo \
     trainer.logger='["console","tensorboard"]' \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node="${NGPUS_PER_NODE}" \
     trainer.nnodes="${NNODES}" \
     trainer.val_before_train=False \
     trainer.test_freq=10 \
@@ -127,16 +139,6 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.prometheus.port=44398 \
     actor_rollout_ref.model.trust_remote_code=True \
     data.trust_remote_code=True \
+    trainer.total_training_steps=400 \
     actor_rollout_ref.actor.megatron.use_mbridge=True \
-    actor_rollout_ref.model.mtp.enable=True \
-    actor_rollout_ref.model.mtp.enable_train=True \
-    actor_rollout_ref.model.mtp.detach_encoder=True \
-    actor_rollout_ref.model.mtp.enable_rollout=False \
-    actor_rollout_ref.model.mtp.mtp_loss_scaling_factor=0.1 \
-    actor_rollout_ref.actor.megatron.context_parallel_size=${train_cp} \
-    actor_rollout_ref.ref.megatron.context_parallel_size=${train_cp} \
-    actor_rollout_ref.rollout.calculate_log_probs=True \
-    algorithm.rollout_correction.bypass_mode=True
-
-#    actor_rollout_ref.rollout.max_num_seqs=32 \
-#    +actor_rollout_ref.rollout.engine_kwargs.sglang.cuda_graph_max_bs=32
+    "${common_params[@]}"

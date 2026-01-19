@@ -65,7 +65,7 @@ The overall architecture of fully_async_policy is shown in the figure below. ful
 parts: Rollouter, MessageQueue, Trainer, and ParameterSynchronizer.
 
 ![fully_async_policy_structure](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_structure.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_structure.svg?raw=true)
 
 1. Rollouter generates sequences sample by sample and puts the generated samples into the MessageQueue, with the
    production speed controlled by freshness.
@@ -82,7 +82,7 @@ are used),
 but the overlap in their time consumption reduces the end-to-end time consumption.
 
 ![fully_async_policy_revenue](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_revenue.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_revenue.svg?raw=true)
 
 ## Usage
 
@@ -123,26 +123,28 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
   `require_batches * ppo_mini_batch_size` samples) before a parameter synchronization with Rollouter.
   Between every two parameter synchronizations between Rollouter and Trainer, the Trainer will process
   `trigger_parameter_sync_step* require_batches*ppo_mini_batch_size` samples.
-  To fairly compare speed with colocate, trigger_parameter_sync_step should be set to
+  To fairly compare speed with colocate, `trigger_parameter_sync_step` should be set to
   `data.train_batch_size / (require_batches * ppo_mini_batch_size)`.
 
 * `async_training.staleness_threshold`
 
   In the fully async strategy, it indicates the maximum proportion of stale samples allowed to be used.
 
-    * staleness_threshold=0, indicates synchronous training.
+    * `staleness_threshold`=0, indicates synchronous training.
       Rollouter will generate a fixed number of samples between two parameter updates, the sample count is:
-      $$rollout\_num = (trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size)$$
-    * staleness_threshold>0, indicates asynchronous training, can be set to a decimal for more flexible asynchronous
+      
+      `rollout_num = (trigger_parameter_sync_step*require_batches*ppo_mini_batch_size)`
+    * `staleness_threshold`>0, indicates asynchronous training, can be set to a decimal for more flexible asynchronous
       calls.
       Rollouter will generate at most the following number of samples between two parameter updates:
-      $$rollout\_num = (1+staleness\_threshold)*(trigger\_parameter\_sync\_step*require\_batches*ppo\_mini\_batch\_size) - num\_staleness\_sample $$
 
-  num_staleness_sample represents the number of stale samples generated in excess during the last rollout.
+      `rollout_num = (1+staleness_threshold)*(trigger_parameter_sync_step*require_batches*ppo_mini_batch_size) - num_staleness_sample`
+
+  `num_staleness_sample` represents the number of stale samples generated in excess during the last rollout.
 
   Since it's a streaming system, rollout continues to generate and trainer continues to consume. If rollouter is slower,
   trainer will trigger parameter synchronization earlier, and rollouter will not actually produce rollout_num samples.
-  When rollout is fast enough, setting staleness_threshold to 1 is basically equivalent to one_step_off policy.
+  When rollout is fast enough, setting `staleness_threshold` to 1 is basically equivalent to one_step_off policy.
   To avoid too many expired samples affecting training accuracy, it is recommended to set this value to less than 1.
 
 * `async_training.partial_rollout`
@@ -246,7 +248,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
     3. As shown in figure d;
 
 ![fully_async_policy_mode](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_mode.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_mode.svg?raw=true)
 
 ### Key Metrics
 

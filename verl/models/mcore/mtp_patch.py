@@ -19,14 +19,17 @@ from typing import Callable
 
 import torch
 from megatron.core import parallel_state
-from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.transformer.multi_token_prediction import (
     MTPLossAutoScaler,
     MTPLossLoggingHelper,
     roll_tensor,
 )
-from megatron.core.utils import unwrap_model
+
+try:
+    from megatron.core.utils import unwrap_model
+except ImportError:
+    from verl.utils.megatron_utils import unwrap_model
 
 
 def _get_patching_model(model: torch.nn.Module):
@@ -171,15 +174,12 @@ def patch_mtp_layer_get_embeddings(model: torch.nn.Module):
     from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
 
+    # Unwrap each model in the actor_module to get the actual GPTModel
+    model = _get_patching_model(model)
     # Collect all MultiTokenPredictionLayer instances
     target_layers = []
 
-    if isinstance(model, DistributedDataParallel):
-        model = unwrap_model(model)
-
-    if isinstance(model, MultiTokenPredictionLayer):
-        target_layers.append(model)
-    elif isinstance(model, GPTModel):
+    if isinstance(model, GPTModel):
         # Check if GPTModel has MTP and find the layers
         if hasattr(model, "mtp") and hasattr(model.mtp, "layers"):
             for layer in model.mtp.layers:
@@ -207,12 +207,13 @@ def unpatch_mtp_layer_get_embeddings(model: torch.nn.Module):
     from megatron.core.models.gpt.gpt_model import GPTModel
     from megatron.core.transformer.multi_token_prediction import MultiTokenPredictionLayer
 
+    # Unwrap each model in the actor_module to get the actual GPTModel
+    model = _get_patching_model(model)
+
     # Collect all MultiTokenPredictionLayer instances
     target_layers = []
 
-    if isinstance(model, MultiTokenPredictionLayer):
-        target_layers.append(model)
-    elif isinstance(model, GPTModel):
+    if isinstance(model, GPTModel):
         # Check if GPTModel has MTP and find the layers
         if hasattr(model, "mtp") and hasattr(model.mtp, "layers"):
             for layer in model.mtp.layers:
