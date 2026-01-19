@@ -41,6 +41,7 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
+from verl.trainer.distillation import Stage, extract_distillation_inputs
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
@@ -51,7 +52,14 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
-from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
+from verl.trainer.ppo.utils import (
+    Role,
+    WorkerType,
+    need_critic,
+    need_distillation_policy,
+    need_reference_policy,
+    need_reward_model,
+)
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -339,7 +347,7 @@ class RayPPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.config)
+        self.use_reference_policy = need_reference_policy(self.config) or need_distillation_policy(self.config)
         # legacy reward model implementation
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
@@ -1234,7 +1242,7 @@ class RayPPOTrainer:
             # step 2: convert from padding to nopadding
             batch_td = left_right_2_no_padding(batch_td)
             # step 3: add meta info
-            metadata = {"calculate_entropy": False, "compute_loss": False}
+            metadata = {"calculate_entropy": False, "compute_loss": False, "stage": Stage.REF_LOG_PROB}
             if self.ref_in_actor:
                 metadata["no_lora_adapter"] = True
             tu.assign_non_tensor(batch_td, **metadata)
@@ -1244,10 +1252,13 @@ class RayPPOTrainer:
                 output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
+            distillation_inputs = extract_distillation_inputs(
+                stage=Stage.REF_LOG_PROB, output=output, config=self.config.actor_rollout_ref.distillation
+            )
             # step 4. No padding to padding
             log_probs = no_padding_2_padding(log_probs, batch_td)
             # step 5: rebuild a tensordict and convert to dataproto
-            ref_log_prob = tu.get_tensordict({"ref_log_prob": log_probs.float()})
+            ref_log_prob = tu.get_tensordict({"ref_log_prob": log_probs.float(), **distillation_inputs})
             ref_log_prob = DataProto.from_tensordict(ref_log_prob)
         else:
             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
@@ -1262,17 +1273,22 @@ class RayPPOTrainer:
             # step 2: convert from padding to nopadding
             batch_td = left_right_2_no_padding(batch_td)
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False)
+            tu.assign_non_tensor(batch_td, calculate_entropy=True, compute_loss=False, stage=Stage.OLD_LOG_PROB)
             output = self.actor_rollout_wg.compute_log_prob(batch_td)
             # gather output
             entropy = tu.get(output, "entropy")
             log_probs = tu.get(output, "log_probs")
+            distillation_inputs = extract_distillation_inputs(
+                stage=Stage.OLD_LOG_PROB, output=output, config=self.config.actor_rollout_ref.distillation
+            )
             old_log_prob_mfu = tu.get(output, "metrics")["mfu"]
             # step 4. No padding to padding
             entropy = no_padding_2_padding(entropy, batch_td)
             log_probs = no_padding_2_padding(log_probs, batch_td)
             # step 5: rebuild a tensordict and convert to dataproto
-            old_log_prob = tu.get_tensordict({"old_log_probs": log_probs.float(), "entropys": entropy.float()})
+            old_log_prob = tu.get_tensordict(
+                {"old_log_probs": log_probs.float(), "entropys": entropy.float(), **distillation_inputs}
+            )
             old_log_prob = DataProto.from_tensordict(old_log_prob)
         else:
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
@@ -1303,6 +1319,7 @@ class RayPPOTrainer:
                 epochs=ppo_epochs,
                 seed=seed,
                 dataloader_kwargs={"shuffle": shuffle},
+                stage=Stage.ACTOR_UPDATE,
             )
 
             actor_output = self.actor_rollout_wg.update_actor(batch_td)

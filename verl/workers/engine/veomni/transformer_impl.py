@@ -40,7 +40,7 @@ from verl.utils.veomni_utils import (
     offload_veomni_model_to_cpu,
     offload_veomni_optimizer,
 )
-from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
+from verl.workers.config import DistillationConfig, HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
 from ..base import BaseEngineCtx, EngineRegistry
@@ -58,6 +58,7 @@ class VeOmniEngine(FSDPEngine):
         engine_config: VeOmniEngineConfig,
         optimizer_config: VeOmniOptimizerConfig,
         checkpoint_config: CheckpointConfig,
+        distillation_config: Optional[DistillationConfig],
         **kwargs,
     ):
         """
@@ -76,6 +77,9 @@ class VeOmniEngine(FSDPEngine):
         self.engine_config = engine_config
         self.optimizer_config = optimizer_config
         self.checkpoint_config = checkpoint_config
+        self.distillation_config = distillation_config
+        if distillation_config.enabled:
+            raise NotImplementedError("Distillation is not supported yet in VeOmniEngine")  # TODO: JacobHelwig
 
         self.mode = None
 
