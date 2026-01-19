@@ -701,8 +701,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         logits_processor_args = {"label": label, "temperature": temperature, "loss_mask": loss_mask}
 
-        has_mtp = self.model_config.mtp.enable
-
         output = forward_fn(
             model,
             input_ids,
@@ -712,7 +710,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
-            enable_mtp=has_mtp,
+            enable_mtp=self.model_config.mtp.enable,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
