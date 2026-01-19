@@ -198,7 +198,7 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
             batch = self.excess_batch[:request_trajectory_count]
             self.excess_batch = self.excess_batch[request_trajectory_count:]
             batch.meta_info["fully_async/total_wait_time"] = 0
-            return 0, batch
+            return batch
         t_start = time.time()
         print(
             f"[FullyAsyncTrainer] Requesting {request_trajectory_count} trajectories from queue",

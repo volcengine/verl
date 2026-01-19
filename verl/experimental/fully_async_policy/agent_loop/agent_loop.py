@@ -166,7 +166,6 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
         if self.config.async_training.compute_advantage_in_rollout and len(data) > 0:
             data.batch["token_level_rewards"] = data.batch["rm_scores"]
             # Temporarily assign the uid for grpo calculation: all items here are from same UID
-            data.non_tensor_batch["uid"] = np.array(len(data) * ["uid_tmp"])
             norm_adv_by_std_in_grpo = self.config.algorithm.get(
                 "norm_adv_by_std_in_grpo", True
             )  # GRPO adv normalization factor
@@ -179,7 +178,6 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
                 norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
                 config=self.config.algorithm,
             )
-            data.non_tensor_batch.pop("uid")
 
         return data
 

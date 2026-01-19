@@ -515,6 +515,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             full_batch = prepare_single_generation_data(batch_dict, self.config)
 
             sample_id = f"sample_{epoch}_{self.global_steps}"
+            full_batch.non_tensor_batch["uid"] = np.array([f"uid_{sample_id}"] * len(full_batch), dtype=object)
 
             rollout_sample = RolloutSample(
                 full_batch=full_batch,
@@ -567,7 +568,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 self.total_generated_trajectory_count += len(ret)
 
                 rollout_sample.agent_loop_output_list = []
-                ret.non_tensor_batch["uid"] = np.array([f"uid_{rollout_sample.sample_id}"] * len(ret), dtype=object)
                 ret.meta_info["rollout_param_versions"] = self.current_param_version
                 ret.meta_info["rollout_status"] = await self.get_statistics()
                 success = await self.message_queue_client.put_sample(
