@@ -54,7 +54,7 @@ class SFTTrainer:
     ):
         self.config = config
 
-        log_gpu_memory_usage("rank {self.rank}: Before SFTTrainer init", logger=logger)
+        log_gpu_memory_usage(f"rank {torch.distributed.get_rank()}: Before SFTTrainer init", logger=logger)
 
         self.rank = torch.distributed.get_rank()
 
@@ -77,7 +77,7 @@ class SFTTrainer:
         if self.rank == 0:
             print(self.config)
 
-        log_gpu_memory_usage("rank {self.rank}: After SFTTrainer init", logger=logger)
+        log_gpu_memory_usage(f"rank {self.rank}: After SFTTrainer init", logger=logger)
 
     def _build_ckpt_handler(self):
         resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
