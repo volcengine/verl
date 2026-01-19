@@ -32,9 +32,9 @@ from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
+from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 from megatron.core.utils import get_attr_wrapped_model
 from transformers import PretrainedConfig
-from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 
 import verl.utils.megatron.tensor_parallel as tp_utils
 from verl.utils.device import get_device_id, get_device_name, get_torch_device
@@ -1242,6 +1242,7 @@ def mapping_string_to_attn_backend(args: dict) -> dict:
         args["attention_backend"] = AttnBackend[args["attention_backend"]]
     return args
 
+
 def get_megatron_mtp_loss(output, n_micro_batch):
     # Calculate MTP loss scale similar to Megatron-LM implementation
     mtp_loss_scale = 1.0 / n_micro_batch
@@ -1256,13 +1257,13 @@ def get_megatron_mtp_loss(output, n_micro_batch):
     # Add MTP metrics to losses_reduced if any were collected
     # total_loss_dict: {'mtp_1 loss': tensor(value, device='cuda:0')}
     if total_loss_dict:
-        mtp_metrics = {}
         for key, value in total_loss_dict.items():
             # Convert key to have proper prefix and format
             formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
-            # only added to the 0th batch, as the MTP loss obtained is a global value, the value will be the same for every batch
-            output[0]['metrics'][formatted_key] = value.cpu().item()
+            # only added to the 0th batch, the MTP loss obtained is a global value, and will be the same for every batch
+            output[0]["metrics"][formatted_key] = value.cpu().item()
     return output
+
 
 def get_megatron_module_device(models: list[Any]) -> str:
     if not models:

@@ -263,11 +263,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                 model = model.module
 
             # GPTModel's sharded_state_dict function when having mtp requires metadata['dp_cp_group']
-            kwargs = {
-                "metadata": {                                                                                                                                                                                       
-                    "dp_cp_group": mpu.get_data_parallel_group(with_context_parallel=True)                                                                                                                          
-                } 
-            }
+            kwargs = {"metadata": {"dp_cp_group": mpu.get_data_parallel_group(with_context_parallel=True)}}
             state_dict[key] = model.sharded_state_dict(**kwargs)
 
         # Optimizer State Dict

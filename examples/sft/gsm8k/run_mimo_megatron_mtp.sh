@@ -13,13 +13,10 @@ LR="1e-5"
 MINLR="1e-6"
 
 export VERL_SFT_LOGGING_LEVEL=INFO
-#pip install --upgrade mbridge==0.15.1 megatron-core==0.14
-
-#pip install --upgrade mbridge==0.15.1 megatron-core==0.13
 
 backend=${BACKEND:-megatron}
 
-TENSORBOARD_DIR=
+TENSORBOARD_DIR=~/tensorboard
 
 MASTER_ADDR=${MASTER_ADDR:-localhost}
 MASTER_PORT=${MASTER_PORT:-29500}
@@ -27,12 +24,11 @@ NNODES=${NNODES:-1}
 RANK=${RANK:-0}
 
 ENTRYPOINT=${ENTRYPOINT:-"-m verl.trainer.sft_trainer"}
-#COMMAND="torchrun --nnodes=$NNODES --nproc-per-node=${NUM_GPUS} --node-rank=$RANK --master-addr=$MASTER_ADDR --master-port=$MASTER_PORT ${ENTRYPOINT}"
 
 # Note the default MultiturnSFT Dataset requires all the sys/user/assistant in 'data.message_key'
 DATASET_DIR=${DATASET_DIR:-~/dataset/rl/gsm8k}
 TRAIN_FILES=${DATASET_DIR}/train.parquet
-VAL_FILES=${DATASET_DIR}/train.parquet
+VAL_FILES=${DATASET_DIR}/eval.parquet
 
 project_name=verl_sft_test
 
@@ -103,9 +99,4 @@ $COMMAND \
     trainer.total_epochs=1 \
     trainer.default_local_dir="${ckpts_home}" \
     trainer.resume_mode=${RESUME_MODE}
-
-    # trainer.total_training_steps=${TOTAL_TRAIN_STEP} \
-    # trainer.checkpoint.save_contents=[model,optimizer,extra,hf_model] \
-    # trainer.max_ckpt_to_keep=1 \
     
-#rm -rf "${ckpts_home:?}/*"

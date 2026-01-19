@@ -168,14 +168,13 @@ def gptmodel_forward_no_padding(
     vision_model=False,
     pad_token_id=None,
     data_format: str = "thd",
-    enable_mtp: bool = True
+    enable_mtp: bool = True,
 ):
     """Default forward pass for GPT models with optional sequence packing."""
 
     assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
     pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
-
 
     model_kwargs = {}
     if "pixel_values" in multi_modal_inputs:
@@ -254,8 +253,8 @@ def gptmodel_forward_no_padding(
             model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
         logits_processor_args.pop("loss_mask")
 
-        #print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
-        #print(f'model_kwargs={model_kwargs}')
+        # print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
+        # print(f'model_kwargs={model_kwargs}')
 
         output_orig = model(
             input_ids=input_ids_bshd,

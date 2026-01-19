@@ -36,12 +36,12 @@ from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import (
     get_megatron_module_device,
+    get_megatron_mtp_loss,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     register_megatron_training_hooks,
-    get_megatron_mtp_loss,
 )
 from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
@@ -208,8 +208,7 @@ class MegatronEngine(BaseEngine):
             peft_config=self.model_config.get("lora", None),
         )
         self.tf_config = updated_tf_config
-        print(f"module: {module}")
-       
+        print(f"module: {len(module)}")
 
         if self.engine_config.use_dist_checkpointing:
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
@@ -521,8 +520,7 @@ class MegatronEngine(BaseEngine):
             forward_only=forward_only,
         )
 
-        if self.is_mp_src_rank_with_outputs() and \
-            self.model_config.mtp.enable:
+        if self.model_config.mtp.enable and self.is_mp_src_rank_with_outputs():
             # add mtp_losses
             losses_reduced = get_megatron_mtp_loss(losses_reduced, n_micro_batch)
 
@@ -676,7 +674,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
-            enable_mtp=has_mtp
+            enable_mtp=has_mtp,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
@@ -731,7 +729,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             value_model=True,
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
-            enable_mtp=has_mtp
+            enable_mtp=has_mtp,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)

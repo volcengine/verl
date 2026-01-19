@@ -1,3 +1,17 @@
+# Copyright 2025 Meituan Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import json
 from typing import Any, Optional
 
@@ -6,62 +20,12 @@ import torch
 
 from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 
-"""
-{%- if message['role'] == 'assistant' and message['tool_calls'] is defined and message['tool_calls'] is not none %}
-    {%- if ns.is_last_user %}
-      {{'<｜Assistant｜></think>'}}
-    {%- endif %}
-    {%- set ns.is_last_user = false -%}
-    {%- set ns.is_first = false %}
-    {%- set ns.is_tool = false -%}
-    {%- for tool in message['tool_calls'] %}
-      {%- set formatted_args = tool['function']['arguments'] if tool['function']['arguments'] is string else tool['function']['arguments']|tojson %}
-      {%- if not ns.is_first %}
-        {%- if message['content'] is none %}
-          {{'<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>'+ tool['function']['name'] + '<｜tool▁sep｜>' + formatted_args + '<｜tool▁call▁end｜>'}}
-        {%- else %}
-          {{message['content'] + '<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>' + tool['function']['name'] + '<｜tool▁sep｜>' + formatted_args + '<｜tool▁call▁end｜>'}}
-        {%- endif %}
-        {%- set ns.is_first = true -%}
-      {%- else %}
-        {{'<｜tool▁call▁begin｜>'+ tool['function']['name'] + '<｜tool▁sep｜>' + formatted_args + '<｜tool▁call▁end｜>'}}
-      {%- endif %}
-    {%- endfor %}
-    {{'<｜tool▁calls▁end｜><｜end▁of▁sentence｜>'}}
-  {%- endif %}
-  {%- if message['role'] == 'assistant' and (message['tool_calls'] is not defined or message['tool_calls'] is none) %}
-    {%- if ns.is_last_user %}
-      {{'<｜Assistant｜>'}}
-      {%- if message['prefix'] is defined and message['prefix'] and thinking %}
-        {{'<think>'}}
-      {%- else %}
-        {{'</think>'}}
-      {%- endif %}
-    {%- endif %}
-    {%- set ns.is_last_user = false -%}
-    {%- if ns.is_tool %}
-      {{message['content'] + '<｜end▁of▁sentence｜>'}}
-      {%- set ns.is_tool = false -%}
-    {%- else %}
-      {%- set content = message['content'] -%}
-      {%- if '</think>' in content %}
-        {%- set content = content.split('</think>', 1)[1] -%}
-      {%- endif %}
-      {{content + '<｜end▁of▁sentence｜>'}}
-    {%- endif %}
-  {%- endif %}
-"""
-
 
 class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
     def tokenize_assistant(self, index, message, full_message, tools, enable_thinking):
         """
         reimplement the jinja logic to suit multiturn data for dsv31
         """
-        # check if assistant is followed by user
-        #is_last_user = False
-        #if index > 0 and full_message[index - 1]["role"] == "user":
-        #    is_last_user = True
 
         # 判断当前assistant消息是否有tool_calls
         has_tool_calls = "tool_calls" in message and message["tool_calls"] is not None
@@ -74,13 +38,10 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
 
         tokens = []
         prefix = "      "
-        # tool_calls分支
+        # in case it has tool_call
         if has_tool_calls:
-            #if is_last_user:
-            #    tokens += processor.encode("<｜Assistant｜></think>", add_special_tokens=False)
             is_first = False
             for tool in message["tool_calls"]:
-                # 格式化参数
                 formatted_args = tool["function"]["arguments"]
                 if not isinstance(formatted_args, str):
                     for k, v in formatted_args.items():
@@ -91,7 +52,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                 if not is_first:
                     if message.get("content") is None:
                         tokens += processor.encode(
-                            prefix 
+                            prefix
                             + "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>"
                             + tool["function"]["name"]
                             + "<｜tool▁sep｜>"
@@ -114,7 +75,8 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                     is_first = True
                 else:
                     tokens += processor.encode(
-                        prefix + "<｜tool▁call▁begin｜>"
+                        prefix
+                        + "<｜tool▁call▁begin｜>"
                         + tool["function"]["name"]
                         + "<｜tool▁sep｜>"
                         + formatted_args
@@ -123,17 +85,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
                     )
             tokens += processor.encode("    <｜tool▁calls▁end｜><｜end▁of▁sentence｜>", add_special_tokens=False)
         else:
-            #if is_last_user:
-            #    tokens += processor.encode("<｜Assistant｜>", add_special_tokens=False)
-            #    if message.get("prefix") and enable_thinking:
-            #        tokens += processor.encode("<think>", add_special_tokens=False)
-            #    else:
-            #        tokens += processor.encode("</think>", add_special_tokens=False)
             content = message.get("content", "")
-            # remove <think>, when previous turn is not tool
-            #if not (index > 0 and full_message[index - 1]["role"] == "tool"):
-            #    if "</think>" in content:
-            #        content = content.split("</think>", 1)[1]
             tokens += processor.encode(prefix + content + "<｜end▁of▁sentence｜>", add_special_tokens=False)
 
         # 构造inputs
@@ -146,7 +98,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
         self,
         index: int,
         message: dict[str, Any],
-        full_message: list, 
+        full_message: list,
         tools: Optional[list[dict[str, Any]]] = None,
         enable_thinking: Optional[bool] = None,
     ) -> tuple[list[int], list[int], list[int]]:
@@ -169,12 +121,6 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
 
-        # the ns.is_last_user logic in chat template
-        # if ns.is_last_user: add <｜Assistant｜>, add </think>
-        # strip the assistant's <think> if previous turn is not a tool (which is always the case if tokenizing differnt turns individually)
-        #if message["role"] == "assistant":
-        #    # The first assistant turn after user, add <｜Assistant｜></think> at begining
-        #    inputs = self.tokenize_assistant(index, message, full_message, tools, enable_thinking)
         if message["role"] == "system":
             inputs = processor.apply_chat_template(
                 [message],
@@ -189,10 +135,6 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
             )
         elif message["role"] == "user":
             message_mod = message.copy()
-            # Assert message has only one message
-            #if apply_chat_template_kwargs["enable_thinking"]:
-            #  message_mod["content"] += "      <｜Assistant｜><think>"
-            #else:
             message_mod["content"] += "      <｜Assistant｜></think>"
             inputs = processor.apply_chat_template(
                 [message_mod],
@@ -226,51 +168,10 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
         if index != 0 and message["role"] not in ["system", "assistant"]:
             input_ids = input_ids[len(self.system_prompt) :]
             attention_mask = attention_mask[len(self.system_prompt) :]
-        
 
-        #if message["role"] == "assistant":
-        #    loss_mask = torch.ones_like(attention_mask)
-        #    # mask out generation prompt if assistant message
-        #    loss_mask[: len(self.generation_prompt)] = 0
         if message["role"] == "assistant":
-          loss_mask = torch.ones_like(attention_mask)
+            loss_mask = torch.ones_like(attention_mask)
         else:
-          loss_mask = torch.zeros_like(attention_mask)
+            loss_mask = torch.zeros_like(attention_mask)
 
         return input_ids, loss_mask, attention_mask, inputs
-
-
-if __name__ == "__main__":
-  import hydra
-  from transformers import AutoTokenizer
-
-  def test():
-    from omegaconf import OmegaConf
-    config=OmegaConf.create(
-        {
-            "max_length": 100000,
-            "messages_key": "prompt"
-        }
-    )
-    data_paths = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/yumingxuan/dataset/rl/gsm8k_full_prompt/train.parquet"
-    
-    
-    #data_paths = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/yumingxuan/dataset/rl/ds_data/train_data.parquet"
-    #config=OmegaConf.create(
-    #    {
-    #        "max_length": 100000,
-    #    }
-    #)
-    
-    tokenizer = AutoTokenizer.from_pretrained("/mnt/dolphinfs/ssd_pool/docker/user/hadoop-ai-search/deepsearch_files_ssd/LLMbasemodels/huggingface.co/deepseek-ai/DeepSeek-V3.1-bf16")
-    
-
-    dataset = MultiTurnSFTDatasetDeepseek(
-        parquet_files=data_paths, tokenizer=tokenizer, config=config
-    )
-    
-    for data in dataset:
-      pass
-
-
-  test()

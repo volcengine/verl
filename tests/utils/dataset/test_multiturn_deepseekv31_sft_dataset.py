@@ -1,4 +1,5 @@
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,28 +17,20 @@ Test the MultiTurnSFTDataset implementation
 """
 
 import os
-from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import pytest
 import torch
-from PIL import Image
-from tensordict import TensorDict
-from torch.utils.data import DistributedSampler
-from torchdata.stateful_dataloader import StatefulDataLoader
-from transformers import AutoProcessor, AutoTokenizer
-from transformers.utils import get_json_schema
+from transformers import AutoTokenizer
 
-from verl.utils.dataset.dataset_utils import DatasetPadMode, SFTTensorCollator
-from verl.utils.dataset.dsv31multiturn_sft_dataset import MultiTurnSFTDatasetDeepseek
-from verl.utils.model import extract_multi_modal_inputs
+from verl.utils.dataset.multiturn_sft_dataset_deepseek_v31 import MultiTurnSFTDatasetDeepseek
 
 custom_model_prefix = Path("~/models").expanduser().resolve()
-custom_model_prefix = Path("~/Documents/notes/1_CS/ai-infra/train/transformers/hugginface.co").expanduser().resolve()
 
 
-# This test is performed under the chat template from sglang, which accpet and uses the tool provided in the chat template
+# This test is performed under the chat template provided by sglang
+# which accpet and uses the tool provided in the chat template
 @pytest.mark.parametrize(
     "model_path",
     [
@@ -50,60 +43,43 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
     # Create a temporary parquet file with test data
     test_data = {
         "messages": [
-            #[
+            # [
             #    {"role": "user", "content": "What is 2+2?"},
             #    {"role": "assistant", "content": "2+2 equals 4."},
             #    {"role": "user", "content": "And what is 4+4?"},
             #    {"role": "assistant", "content": "4+4 equals 8."},
-            #],
+            # ],
             [
-                {
-                    "role": "system",
-                    "content": "SYSTEMPROMPT\n"
-                },
-                {
-                    "role": "user",
-                    "content": "USERPROMPT\n"
-                },
+                {"role": "system", "content": "SYSTEMPROMPT\n"},
+                {"role": "user", "content": "USERPROMPT\n"},
                 {
                     "role": "assistant",
                     "content": "<think>THINK</think>ASSISTANTPROMPT WITHTOOL\n",
-                    "tool_calls": [
-                        {"function": {"name": "\nTOOLNAME", "arguments": "ARGUMENT"}}
-                    ]
+                    "tool_calls": [{"function": {"name": "\nTOOLNAME", "arguments": "ARGUMENT"}}],
                 },
-                {
-                    "role": "tool",
-                    "content": "TOOLCALL 1\n"
-                },
+                {"role": "tool", "content": "TOOLCALL 1\n"},
                 {
                     "role": "assistant",
                     "content": "<think>THINK2</think>ANSWER\n",
-                    "tool_calls": [
-                        {"function": {"name": "\nTOOLNAME2", "arguments": "ARGUMENT2"}}
-                    ]
+                    "tool_calls": [{"function": {"name": "\nTOOLNAME2", "arguments": "ARGUMENT2"}}],
                 },
-                {
-                    "role": "tool",
-                    "content": "TOOLCALL 2\n"
-                },
-                {
-                    "role": "assistant",
-                    "content": "<think>THINK3</think>ANSWER\n"
-                },
+                {"role": "tool", "content": "TOOLCALL 2\n"},
+                {"role": "assistant", "content": "<think>THINK3</think>ANSWER\n"},
             ],
         ],
-        "tools": [[  # Optional: Explicitly declare available tools (for tool-calling models)
-            {
-                "function": {
-                    "name": "get_weather",
-                    "description": "Get weather for a location",
-                    "parameters": {"location": "string", "date": "string"}
+        "tools": [
+            [
+                {
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get weather for a location",
+                        "parameters": {"location": "string", "date": "string"},
+                    }
                 }
-            }
-        ]]
+            ]
+        ],
     }
-    
+
     # Create test directory if it doesn't exist
     os.makedirs("test_data", exist_ok=True)
     test_file = "test_data/test.parquet"
@@ -123,12 +99,12 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
     dataset = MultiTurnSFTDatasetDeepseek(parquet_files=test_file, tokenizer=tokenizer, config=config)
 
     # Test 1: Dataset Length
-    assert len(dataset) == len(test_data['messages']), f"Expected dataset length 2, got {len(dataset)}"
+    assert len(dataset) == len(test_data["messages"]), f"Expected dataset length 2, got {len(dataset)}"
 
     # Get items for testing
     item0 = dataset[0]  # multi-turn With tool
     # Multiple chats turn
-    #item1 = dataset[1]  
+    # item1 = dataset[1]
 
     # Test 2: Required Keys and Types
     required_keys = ["input_ids", "attention_mask", "position_ids", "loss_mask"]
@@ -151,26 +127,6 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
     # Find assistant response positions
     assistant_positions0 = torch.where(loss_mask0 == 1)[0]
     assert len(assistant_positions0) > 0, "No assistant positions found in loss mask"
-
-    ## Decode and verify assistant responses
-    #assistant_text0 = tokenizer.decode(input_ids0[loss_mask0 == 1])
-    #print(f"Math conversation assistant text: {assistant_text0}")
-    #assert "2+2 equals 4" in assistant_text0, "First assistant response not found"
-    #assert "4+4 equals 8" in assistant_text0, "Second assistant response not found"
-
-    ## Test 5: Loss Mask Pattern - Joke Conversation
-    #loss_mask1 = item1["loss_mask"]
-    #input_ids1 = item1["input_ids"]
-
-    # Find assistant response positions
-    #assistant_positions1 = torch.where(loss_mask1 == 1)[0]
-    #assert len(assistant_positions1) > 0, "No assistant positions found in loss mask"
-
-    ## Decode and verify assistant responses
-    #assistant_text1 = tokenizer.decode(input_ids1[loss_mask1 == 1])
-    #print(f"Joke conversation assistant text: {assistant_text1}")
-    #assert "chicken cross the road" in assistant_text1, "First assistant response not found"
-    #assert "other side" in assistant_text1, "Second assistant response not found"
 
     # Test 6: Attention Mask Pattern
     attention_mask0 = item0["attention_mask"]
@@ -243,5 +199,3 @@ def test_multiturn_sft_dataset(model_path: str, enable_thinking: bool):
 
     print("All tests passed!")
     print("Starting test...")
-
-

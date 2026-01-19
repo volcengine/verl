@@ -19,6 +19,7 @@ from typing import Callable
 
 import torch
 from megatron.core import parallel_state
+from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.transformer.multi_token_prediction import (
     MTPLossAutoScaler,
@@ -26,7 +27,6 @@ from megatron.core.transformer.multi_token_prediction import (
     roll_tensor,
 )
 from megatron.core.utils import unwrap_model
-from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
 
 
 def _get_patching_model(model: torch.nn.Module):
@@ -173,7 +173,7 @@ def patch_mtp_layer_get_embeddings(model: torch.nn.Module):
 
     # Collect all MultiTokenPredictionLayer instances
     target_layers = []
-    
+
     if isinstance(model, DistributedDataParallel):
         model = unwrap_model(model)
 

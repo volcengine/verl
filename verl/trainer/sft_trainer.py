@@ -38,9 +38,10 @@ from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
 from verl.utils.device import auto_set_device, get_device_name
 from verl.utils.distributed import destroy_global_process_group
 from verl.utils.logger import log_with_rank
+from verl.utils.memory_utils import aggressive_empty_cache
+from verl.utils.profiler import log_gpu_memory_usage
 from verl.utils.tracking import Tracking
 from verl.workers.engine_workers import TrainingWorker
-from verl.utils.memory_utils import aggressive_empty_cache
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
@@ -52,6 +53,8 @@ class SFTTrainer:
         config,
     ):
         self.config = config
+
+        log_gpu_memory_usage("rank {self.rank}: Before SFTTrainer init", logger=logger)
 
         self.rank = torch.distributed.get_rank()
 
@@ -74,6 +77,8 @@ class SFTTrainer:
         if self.rank == 0:
             print(self.config)
 
+        log_gpu_memory_usage("rank {self.rank}: After SFTTrainer init", logger=logger)
+
     def _build_ckpt_handler(self):
         resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
         resume_from_path = getattr(self.config.trainer, "resume_from_path", None)
@@ -89,7 +94,6 @@ class SFTTrainer:
             resume_mode=resume_mode,
             resume_from_path=resume_from_path,
         )
-        
 
     def _build_config(self):
         from verl.utils.config import omega_conf_to_dataclass
@@ -299,9 +303,11 @@ class SFTTrainer:
 
         train_time = 0
         total_tokens = 0
-        aggressive_empty_cache(force_sync=True)
         for epoch in range(start_epoch, self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
+
+            aggressive_empty_cache(force_sync=True)
+            # log_gpu_memory_usage(f"rank {self.rank}: At start of epoch {epoch}", logger=logger)
 
             for step_in_epoch, data in enumerate(
                 tqdm(
@@ -335,11 +341,11 @@ class SFTTrainer:
                     metrics = tu.get(output, "metrics")
 
                     # TODO: we can actual accumulate metrics for N steps and perform aggregate metrics
-                    for k in ["loss", "grad_norm", "lr", "mfu", "mtp_loss"]:
+                    for k in ["loss", "grad_norm", "lr", "mfu"]:
                         if k in metrics.keys():
                             value = metrics.pop(k)
                             metrics[f"train/{k}"] = value
-                
+
                     metrics["train/global_tokens"] = torch.sum(
                         torch.tensor(batch_seqlens, device=self.device_name)
                     ).item()
@@ -376,7 +382,6 @@ class SFTTrainer:
                         metric = {"val/loss": val_loss.detach().item()}
                         tracking.log(data=metric, step=global_step)
                         last_valid_metric = metric
-                    torch.distributed.barrier()
 
                 if is_last_step or (self.save_freq > 0 and is_save_step):
                     aggressive_empty_cache(force_sync=True)
