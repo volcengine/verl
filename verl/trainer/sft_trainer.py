@@ -54,7 +54,7 @@ class SFTTrainer:
     ):
         self.config = config
 
-        log_gpu_memory_usage("rank {self.rank}: Before SFTTrainer init", logger=logger)
+        log_gpu_memory_usage(f"rank {torch.distributed.get_rank()}: Before SFTTrainer init", logger=logger)
 
         self.rank = torch.distributed.get_rank()
 
