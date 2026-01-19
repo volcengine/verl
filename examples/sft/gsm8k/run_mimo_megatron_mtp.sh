@@ -34,7 +34,7 @@ project_name=verl_sft_test
 
 RESUME_MODE=disable
 
-MODEL_PATH="/workdir/mimo"
+MODEL_PATH="XiaomiMiMo/MiMo-7B-RL"
 ckpts_home=${ckpts_home:-~/verl/test/gsm8k-sft-${backend}}
 
 # currently relies on these two commits that is not on master
