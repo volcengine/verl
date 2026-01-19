@@ -176,11 +176,6 @@ class FullyAsyncTaskRunner:
         print("[ASYNC MAIN] Creating FullyAsyncTrainer...")
         self._create_trainer(config)
 
-        # sync total_train_steps between rollouter and trainer
-        total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
-        print(f"total_train_steps {total_train_steps}")
-        ray.get(self.components["trainer"].set_total_train_steps.remote(total_train_steps))
-
         # max_queue_size
         max_queue_size = ray.get(self.components["rollouter"].get_max_queue_size.remote())
         print(f"[ASYNC MAIN] Creating MessageQueue... max_queue_size {max_queue_size}")
@@ -253,6 +248,11 @@ class FullyAsyncTaskRunner:
             processor=self.components["processor"],
             device_name=config.trainer.device,
         )
+
+        # sync total_train_steps between rollouter and trainer
+        total_train_steps = ray.get(self.components["rollouter"].get_total_train_steps.remote())
+        print(f"total_train_steps {total_train_steps}")
+        ray.get(trainer.set_total_train_steps.remote(total_train_steps))
 
         ray.get(trainer.init_workers.remote())
         self.components["trainer"] = trainer
