@@ -62,7 +62,6 @@ class TRTLLMHttpServer:
         bundle_indices: list[list[int]] = None,
     ):
         os.environ["TRT_LLM_DISABLE_LOAD_WEIGHTS_IN_PARALLEL"] = "1"
-        assert is_cuda_available, "TRTLLM http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)

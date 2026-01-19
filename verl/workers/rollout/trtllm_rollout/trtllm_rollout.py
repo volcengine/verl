@@ -46,21 +46,6 @@ DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
 
 
-def device_id_to_physical_device_id(id: int) -> int:
-    """Convert a logical device ID to a physical device ID considering CUDA_VISIBLE_DEVICES."""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        device_ids = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-        try:
-            physical_device_id = int(device_ids[id])
-            return physical_device_id
-        except (ValueError, IndexError) as err:
-            raise RuntimeError(
-                f"Failed to convert logical device ID {id} to physical device ID. Available devices are: {device_ids}."
-            ) from err
-    else:
-        return id
-
-
 @contextlib.contextmanager
 def nvml_context():
     """Context manager for NVML initialization and shutdown.
@@ -95,12 +80,9 @@ def get_device_uuid(id: int) -> str:
             except pynvml.NVMLError as e:
                 raise RuntimeError(f"Failed to initialize NVML: {e}") from e
 
-    # The process has visibility to all GPUs within the TP group
-    global_device_idx = device_id_to_physical_device_id(id)
-
     # Get the device handle and UUID
     try:
-        handle = pynvml.nvmlDeviceGetHandleByIndex(global_device_idx)
+        handle = pynvml.nvmlDeviceGetHandleByIndex(id)
         uuid = pynvml.nvmlDeviceGetUUID(handle)
         # Ensure the UUID is returned as a string, not bytes
         if isinstance(uuid, bytes):
@@ -109,10 +91,10 @@ def get_device_uuid(id: int) -> str:
             return uuid
         else:
             raise RuntimeError(
-                f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {global_device_idx})"
+                f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {id})"
             )
     except pynvml.NVMLError as e:
-        raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {global_device_idx}): {e}") from e
+        raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {id}): {e}") from e
 
 
 async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
