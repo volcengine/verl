@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2025 Meituan Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,18 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-VL_TYPE2INDEX = {
-    "qwen2_5_vl": {
-        "IMAGE_INPUT_INDEX": 151655,
-        "VIDEO_INPUT_INDEX": 151656,
-    },
-    "qwen3_vl": {
-        "IMAGE_INPUT_INDEX": 151655,
-        "VIDEO_INPUT_INDEX": 151656,
-    },
-    "qwen3_vl_moe": {
-        "IMAGE_INPUT_INDEX": 151655,
-        "VIDEO_INPUT_INDEX": 151656,
-    },
-}
