@@ -733,7 +733,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # Check pause signal again before creating task
         if self.pause_event.is_set():
             # Pause signal is set; put sample back and enter PAUSED state
-            await self.pending_queue.put(rollout_sample)
+            await self.cancel_queue.put(rollout_sample)
             self.state = RollouterState.PAUSED
             return
 
