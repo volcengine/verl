@@ -92,6 +92,7 @@ jobs:
     env:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      ACTOR_STRATEGY: "fsdp2"
     steps:
       - name: Check npu and CANN info
         run: |
@@ -117,7 +118,7 @@ jobs:
           ln -s /root/.cache/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
       - name: Running the E2E test with one_step_off_policy algorithm (FSDP2)
         run: |
           ray stop --force
@@ -136,6 +137,7 @@ jobs:
     env:
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable
+      ACTOR_STRATEGY: "megatron"
     steps:
       - name: Check npu and CANN info
         run: |
@@ -161,7 +163,7 @@ jobs:
           ln -s /root/.cache/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k
+          python examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
       - name: Running the E2E test with one_step_off_policy algorithm (Megatron)
         run: |
           ray stop --force
