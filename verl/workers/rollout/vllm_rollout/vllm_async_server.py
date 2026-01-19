@@ -69,34 +69,16 @@ logger.setLevel(logging.INFO)
 
 _VLLM_VERSION = version.parse(vllm.__version__)
 
+# Import get_encoding function if needed (will be called conditionally based on model type)
+_get_encoding_func = None
 if _VLLM_VERSION > version.parse("0.11.0"):
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     from vllm.utils.network_utils import get_tcp_uri
 
     if _VLLM_VERSION == version.parse("0.12.0"):
-        from vllm.entrypoints.harmony_utils import get_encoding
-
-        try:
-            get_encoding()
-        except Exception as e:
-            logger.warning(
-                f"Failed to call get_encoding() for vLLM {_VLLM_VERSION}: {e}. "
-                "This operation requires network access. Please ensure you have internet connection "
-                "or configure proxy settings if needed."
-            )
-            raise
+        from vllm.entrypoints.harmony_utils import get_encoding as _get_encoding_func
     elif _VLLM_VERSION >= version.parse("0.13.0"):
-        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
-
-        try:
-            get_encoding()
-        except Exception as e:
-            logger.warning(
-                f"Failed to call get_encoding() for vLLM {_VLLM_VERSION}: {e}. "
-                "This operation requires network access. Please ensure you have internet connection "
-                "or configure proxy settings if needed."
-            )
-            raise
+        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding as _get_encoding_func
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
 if _VLLM_VERSION >= version.parse("0.12.0"):
@@ -223,6 +205,20 @@ class vLLMHttpServer:
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+
+        # Only call get_encoding() if using gpt-oss model
+        if _get_encoding_func is not None and getattr(self.model_config.hf_config, "model_type", None) == "gpt_oss":
+            try:
+                _get_encoding_func()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to call get_encoding() for vLLM {_VLLM_VERSION}: {e}. "
+                    "This operation requires network access. Please ensure you have internet connection "
+                    "or configure proxy settings, and run get_encoding() in a network-enabled environment "
+                    "first to cache the vocab file."
+                )
+                raise
+
         self.rollout_mode = rollout_mode
         self.workers = workers
 
