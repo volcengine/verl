@@ -31,9 +31,12 @@ from verl.experimental.agent_loop.agent_loop import (
     get_trajectory_info,
 )
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
+from verl.experimental.fully_async_policy.utils.filter.filter_manager import FilterManager
+from verl.experimental.fully_async_policy.utils.super_sample.super_sample_manager import SuperSampleManager
 from verl.experimental.fully_async_policy.vllm_rollout.vllm_async_server import FullyAsyncvLLMReplica
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup
+from verl.trainer.ppo.ray_trainer import compute_advantage
 from verl.utils.rollout_trace import (
     rollout_trace_attr,
     rollout_trace_op,
@@ -76,7 +79,7 @@ class FullyAsyncLLMServerManager(AsyncLLMServerManager):
         return output
 
 
-@ray.remote
+@ray.remote(concurrency_groups={"control": 1})
 class FullyAsyncAgentLoopWorker(AgentLoopWorker):
     def __init__(
         self, config: DictConfig, server_handles: list[ray.actor.ActorHandle], reward_router_address: str = None
@@ -85,6 +88,8 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
         super().__init__(config, server_handles, reward_router_address)
         # A shared cancellation event for all agent loops running on this worker.
         self.cancellation_event = asyncio.Event()
+        self.super_sample_manager = SuperSampleManager(self.config)
+        self.filter_manager = FilterManager(self.config)
 
     async def generate_sequences_no_post(
         self, batch: DataProto, partial_output_list: Optional[list[AgentLoopOutput]]
@@ -98,6 +103,15 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
         Returns:
             list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
         """
+
+        # apply super sampling first
+        if partial_output_list is None or len(partial_output_list) == 0:
+            batch = self.super_sample_manager.apply(batch)
+            partial_output_list = [None] * len(batch)
+        else:
+            # partial
+            batch = batch.repeat(repeat_times=len(partial_output_list), interleave=True)
+
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
             temperature=config.temperature,
@@ -124,8 +138,6 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
             batch.meta_info.get("global_steps", -1), index, batch.meta_info.get("validate", False)
         )
 
-        if not partial_output_list:
-            partial_output_list = [None] * len(batch)
         try:
             tasks = []
             for i in range(len(batch)):
@@ -146,14 +158,31 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
             return output, is_cancel
         return outputs, is_cancel
 
-    def _addition_process(self, output: DataProto):
-        """collect metirics"""
-        metrics = output.meta_info.pop("metrics")  # List[Dict[str, str]]
-        processing_times_list = [item["generate_sequences"] for item in metrics]
-        tool_calls_times_list = [item["tool_calls"] for item in metrics]
-        output.non_tensor_batch["processing_times"] = processing_times_list
-        output.non_tensor_batch["tool_calls_times"] = tool_calls_times_list
-        return output
+    def _addition_process(self, data: DataProto):
+        """addition process, include filter and advantage compute"""
+        # filter
+        data = self.filter_manager.apply(data)
+
+        # advantage compute
+        if self.config.async_training.compute_advantage_in_rollout and len(data) > 0:
+            data.batch["token_level_rewards"] = data.batch["rm_scores"]
+            # Temporarily assign the uid for grpo calculation: all items here are from same UID
+            data.non_tensor_batch["uid"] = np.array(len(data) * ["uid_tmp"])
+            norm_adv_by_std_in_grpo = self.config.algorithm.get(
+                "norm_adv_by_std_in_grpo", True
+            )  # GRPO adv normalization factor
+            data = compute_advantage(
+                data,
+                adv_estimator=self.config.algorithm.adv_estimator,
+                gamma=self.config.algorithm.gamma,
+                lam=self.config.algorithm.lam,
+                num_repeat=len(data),
+                norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+                config=self.config.algorithm,
+            )
+            data.non_tensor_batch.pop("uid")
+
+        return data
 
     async def _partial_run_agent_loop(
         self,
@@ -195,16 +224,21 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
                 if not output.extra_fields.get("is_cancel", False):
                     kwargs.pop("output", None)
                     output = await self._agent_loop_postprocess(output, **kwargs)
+                    # add metrics into extra_fields
+                    metrics = output.metrics.model_dump()
+                    output.extra_fields.update(metrics)
 
                 return output
         except Exception:
             logger.exception("Agent_loop run failed")
             raise
 
+    @ray.method(concurrency_group="control")
     async def cancel_agent_loops(self):
         """Set the shared cancellation event to stop all agent loops."""
         self.cancellation_event.set()
 
+    @ray.method(concurrency_group="control")
     async def resume_agent_loops(self):
         """Clear the shared cancellation event."""
         self.cancellation_event.clear()

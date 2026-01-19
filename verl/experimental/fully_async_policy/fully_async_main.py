@@ -265,7 +265,11 @@ class FullyAsyncTaskRunner:
         rollouter_future = self.components["rollouter"].fit.remote()
         trainer_future = self.components["trainer"].fit.remote()
 
-        futures = [rollouter_future, trainer_future]
+        # start monitor
+        print("[ASYNC MAIN] Starting Rollouter monitor...")
+        monitor_future = self.components["rollouter"].run_monitor.remote()
+
+        futures = [rollouter_future, trainer_future, monitor_future]
 
         try:
             while futures:
