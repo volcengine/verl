@@ -114,6 +114,7 @@ class MegatronWorker(Worker):
         override_transformer_config,
         trust_remote_code=False,
         megatron_config=None,
+        enable_mtp=False,
     ):
         from transformers import AutoConfig
 
@@ -151,6 +152,19 @@ class MegatronWorker(Worker):
         }
         override_config_kwargs.update(override_model_config.get("model_config", {}))
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
+
+        # only actor need enable mtp
+        if enable_mtp:
+            assert hf_config.num_nextn_predict_layers > 0, "MTP requires at least one nextn_predict_layer"
+            assert megatron_config.use_mbridge, "MTP requires use_mbridge to be True"
+            assert megatron_config.vanilla_mbridge, "MTP requires vanilla_mbridge to be True"
+            override_transformer_config["mtp_loss_scaling_factor"] = self.config.model.mtp.mtp_loss_scaling_factor
+        else:
+            if hasattr(hf_config, "num_nextn_predict_layers"):
+                hf_config.num_nextn_predict_layers = 0
+
+        self.enable_mtp = enable_mtp
+
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
@@ -374,6 +388,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
             self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
+            self.config.model.get("mtp", {}).get("enable", False),
         )
         self.generation_config = get_generation_config(
             self.local_path,
@@ -599,6 +614,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tf_config=self.tf_config,
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
+                mtp_config=self.config.model.mtp if self.config.model.mtp.enable else None,
             )
             print(f"routing replay layers: {len(RouterReplay.router_instances)}")
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
