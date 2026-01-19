@@ -66,7 +66,7 @@ on:
       # Home
       - "verl/experimental/one_step_off_policy"
       # Entrypoints
-      - ".github/workflows/e2e_one_step_off_policy.yml"
+      - ".github/workflows/e2e_one_step_off_policy_ascend.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "tests/special_e2e/run_one_step_off_policy.sh"
 
