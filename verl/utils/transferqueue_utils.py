@@ -194,7 +194,7 @@ async def _async_update_batchmeta_with_output(
     if isinstance(output, TensorDict):
         is_empty = output.batch_size[0] == 0
         meta_data = {}
-        for key, val in dict(output.get_non_tensor_items()).items():
+        for key, val in output.items():
             if isinstance(val, NonTensorData):
                 meta_data[key] = val.data
         tensordict = output

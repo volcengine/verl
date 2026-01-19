@@ -308,7 +308,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False,
-              put_data=False, convert_type="TensorDict")
+              put_data=True, convert_type="TensorDict")
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
@@ -528,16 +528,18 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.layered_summon = self.config.rollout.get("layered_summon", False)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"),
-              put_data=False, convert_type="TensorDict")
+              put_data=True, convert_type="TensorDict")
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
         output = self.ref.infer_batch(data=data)
         return output.cpu() if output is not None else None
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"),
-              put_data=False, convert_type="TensorDict")
+              put_data=True, convert_type="TensorDict")
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
+        from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
+        data = left_right_2_no_padding(data)
         output = self.actor.infer_batch(data)
         return output.cpu() if output is not None else None
 
