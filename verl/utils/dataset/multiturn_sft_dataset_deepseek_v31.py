@@ -27,7 +27,6 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
         reimplement the jinja logic to suit multiturn data for dsv31
         """
 
-        # 判断当前assistant消息是否有tool_calls
         has_tool_calls = "tool_calls" in message and message["tool_calls"] is not None
 
         processor = self.processor if self.processor is not None else self.tokenizer
@@ -38,7 +37,8 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
 
         tokens = []
         prefix = "      "
-        # in case it has tool_call
+
+        # having tool_call and not having tool call has different processing logic
         if has_tool_calls:
             is_first = False
             for tool in message["tool_calls"]:
@@ -88,7 +88,7 @@ class MultiTurnSFTDatasetDeepseek(MultiTurnSFTDataset):
             content = message.get("content", "")
             tokens += processor.encode(prefix + content + "<｜end▁of▁sentence｜>", add_special_tokens=False)
 
-        # 构造inputs
+        # construct the final input_ids
         input_ids = torch.tensor(tokens, dtype=torch.long)
         attention_mask = torch.ones_like(input_ids)
         inputs = {"input_ids": input_ids.unsqueeze(0), "attention_mask": attention_mask.unsqueeze(0)}

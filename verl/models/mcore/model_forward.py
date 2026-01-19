@@ -253,9 +253,6 @@ def gptmodel_forward_no_padding(
             model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
         logits_processor_args.pop("loss_mask")
 
-        # print(f'GPTModel fwd: pre_process={pre_process}, post_process={post_process}')
-        # print(f'model_kwargs={model_kwargs}')
-
         output_orig = model(
             input_ids=input_ids_bshd,
             attention_mask=attention_mask_bshd,

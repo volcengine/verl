@@ -758,8 +758,6 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
-        has_mtp = self.model_config.mtp.enable
-
         output = forward_fn(
             model,
             input_ids,
@@ -767,7 +765,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             value_model=True,
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
-            enable_mtp=has_mtp,
+            enable_mtp=self.model_config.mtp.enable,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
