@@ -29,7 +29,7 @@
 #     - new workflow yaml is added to `.github/workflows`
 #     - new tests are added to workflow mentioned in 2.
 
-name: e2e_one_step_off_policy_2
+name: e2e_one_step_off_policy_ascend
 
 on:
   # Trigger the workflow on push or pull request,
@@ -81,7 +81,7 @@ permissions:
 
 jobs:
   # Test FSDP2 strategy
-  e2e_one_step_off_policy_fsdp2:
+  e2e_one_step_off_policy_fsdp2_ascend:
     if: github.repository_owner == 'volcengine'
     runs-on: linux-aarch64-a2-8
     timeout-minutes: 60 # Increase this timeout value as needed
@@ -118,15 +118,14 @@ jobs:
           ln -s /root/.cache/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
       - name: Running the E2E test with one_step_off_policy algorithm (FSDP2)
         run: |
           ray stop --force
           bash tests/special_e2e/run_one_step_off_policy.sh
 
   # Test Megatron strategy
-  e2e_one_step_off_policy_megatron:
-    e2e_one_step_off_policy_fsdp2:
+  e2e_one_step_off_policy_megatron_ascend:
     if: github.repository_owner == 'volcengine'
     runs-on: linux-aarch64-a2-8
     timeout-minutes: 60 # Increase this timeout value as needed
@@ -163,8 +162,9 @@ jobs:
           ln -s /root/.cache/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
       - name: Running the E2E test with one_step_off_policy algorithm (Megatron)
         run: |
           ray stop --force
+          export PYTHONPATH=$PYTHONPATH:/Megatron-LM
           bash tests/special_e2e/run_one_step_off_policy.sh
