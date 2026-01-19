@@ -796,5 +796,6 @@ class MegatronPPOActor(BasePPOActor):
         if self.use_torch_profiler and self.prof and self.prof.enable:
             self.prof.stop_and_save()
             self.prof.stop_trace()
+        self.actor_optimizer.zero_grad()
         get_torch_device().empty_cache()
         return metrics
