@@ -25,7 +25,11 @@ from megatron.core.transformer.multi_token_prediction import (
     MTPLossLoggingHelper,
     roll_tensor,
 )
-from megatron.core.utils import unwrap_model
+
+try:
+    from megatron.core.utils import unwrap_model
+except ImportError:
+    from verl.utils.megatron_utils import unwrap_model
 
 
 def _get_patching_model(model: torch.nn.Module):
