@@ -462,13 +462,15 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
         # pass tq_config to workers if enable TQ
         actor_rollout_ref_config = self.config.actor_rollout_ref
-        # reward_config = self.config.reward_model
+        reward_config = self.config.reward_model
         tq_config = OmegaConf.select(self.config, "transfer_queue", default=None)
-        if tq_config is not None and tq_config["enable"]:
-            OmegaConf.set_struct(actor_rollout_ref_config, False)
-            actor_rollout_ref_config.transfer_queue = tq_config
-            OmegaConf.set_struct(actor_rollout_ref_config, True)
-            # reward_config.transfer_queue = tq_config
+        assert tq_config is not None and tq_config["enable"], "TQ should be enabled when running RayPPOTrainerTransferQueue"
+        OmegaConf.set_struct(actor_rollout_ref_config, False)
+        actor_rollout_ref_config.transfer_queue = tq_config
+        OmegaConf.set_struct(actor_rollout_ref_config, True)
+        OmegaConf.set_struct(reward_config, False)
+        reward_config.transfer_queue = tq_config
+        OmegaConf.set_struct(reward_config, True)
 
         if self.hybrid_engine:
             resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
@@ -507,6 +509,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     engine_config=engine_config,
                     optimizer_config=orig_critic_cfg.optim,
                     checkpoint_config=orig_critic_cfg.checkpoint,
+                    tq_config=tq_config,
                 )
 
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
