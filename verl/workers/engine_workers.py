@@ -105,6 +105,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         self.loss_fn = None
 
+        self.tq_config = self.config.tq_config
+        if self.tq_config is not None and self.tq_config["enable"] == True:
+            self.create_transferqueue_client(config=self.config)
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def to(self, device, model=True, optimizer=True, grad=True):
         """Manual control of load/offload"""

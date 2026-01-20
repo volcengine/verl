@@ -725,7 +725,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="update_actor", logger=logger)
     @DistProfiler.annotate(color="red", role="actor_update")
-    @tqbridge()
     def update_actor(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -822,7 +821,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
-    @tqbridge()
     def compute_ref_log_prob(self, data: DataProto):
         if self.peft_cls is not None:
             # if is lora, actor without lora applied is the ref
@@ -849,7 +847,6 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @GPUMemoryLogger(role="compute_log_prob", logger=logger)
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
-    @tqbridge()
     def compute_log_prob(self, data: DataProto):
         assert self._is_actor
         if self._is_offload_param:
@@ -1229,7 +1226,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="cyan", role="compute_values")
-    @tqbridge()
     def compute_values(self, data: DataProto):
         micro_batch_size = self.config.ppo_micro_batch_size_per_gpu
         data.meta_info["micro_batch_size"] = micro_batch_size
@@ -1247,7 +1243,6 @@ class CriticWorker(MegatronWorker, DistProfilerExtension):
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="critic"))
     @DistProfiler.annotate(color="pink", role="critic_update")
-    @tqbridge()
     def update_critic(self, data: DataProto):
         data = data.to(get_device_id())
 

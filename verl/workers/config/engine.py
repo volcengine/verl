@@ -268,6 +268,16 @@ class VeOmniEngineConfig(EngineConfig):
 
 
 @dataclass
+class TransferQueueConfig(BaseConfig):
+    enable: bool=False
+    num_global_batch: Optional[int] = None
+    storage_backend: Optional[str] = None
+    num_data_storage_units: Optional[int] = None
+    def __post_init__(self):
+        pass
+
+
+@dataclass
 class TrainingWorkerConfig(BaseConfig):
     model_type: str = None  # model type (language_model/value_model)
     model_config: HFModelConfig = None
@@ -275,3 +285,4 @@ class TrainingWorkerConfig(BaseConfig):
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
     profiler_config: ProfilerConfig = None
+    tq_config: Optional[TransferQueueConfig] = None
