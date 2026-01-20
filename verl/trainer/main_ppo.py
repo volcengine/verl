@@ -65,7 +65,7 @@ def run_ppo(config, task_runner_class=None) -> None:
         ray_init_kwargs = config.ray_kwargs.get("ray_init", {})
         runtime_env_kwargs = ray_init_kwargs.get("runtime_env", {})
 
-        if config.transfer_queue.enable:
+        if OmegaConf.select(config, "transfer_queue.enable", default=False):
             # Add runtime environment variables for transfer queue
             runtime_env_vars = runtime_env_kwargs.get("env_vars", {})
             runtime_env_vars["TRANSFER_QUEUE_ENABLE"] = "1"
@@ -344,7 +344,7 @@ class TaskRunner:
             max_samples=config.data.get("val_max_samples", -1),
         )
         train_sampler = create_rl_sampler(config.data, train_dataset)
-        if config.transfer_queue.enable:
+        if OmegaConf.select(config, "transfer_queue.enable", default=False):
             from verl.trainer.ppo.ray_trainer_tq import RayPPOTrainerTransferQueue
 
             trainer = RayPPOTrainerTransferQueue(
