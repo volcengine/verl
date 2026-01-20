@@ -406,7 +406,7 @@ class AgentLoopWorker:
             trace_config.get("max_samples_per_step_per_worker", None),
         )
 
-        if self.config.transfer_queue.enable:
+        if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             self._create_transferqueue_client()
 
     @tqbridge()
@@ -886,7 +886,7 @@ class AgentLoopManager:
         self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
-        if self.config.transfer_queue.enable:
+        if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             self._create_transferqueue_client()
 
         # Initially we're in sleep mode.
@@ -995,7 +995,7 @@ class AgentLoopManager:
             ]
         )
 
-        if self.config.transfer_queue.enable:
+        if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             from transfer_queue.metadata import BatchMeta
 
             output = BatchMeta.concat(outputs)
@@ -1042,7 +1042,7 @@ class AgentLoopManager:
         # batch sequence generation is bounded by the slowest sample
         slowest = np.argmax(t_generate_sequences + t_tool_calls)
 
-        if self.config.transfer_queue.enable:
+        if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             attention_mask = self.tq_client.get_data(output[slowest])["attention_mask"]
             prompt_length = self.tq_client.get_data(output)["prompts"].shape[1]
         else:
