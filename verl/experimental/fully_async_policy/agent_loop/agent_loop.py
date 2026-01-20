@@ -103,13 +103,15 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
             list[AgentLoopOutput]: List of agent loop outputs, one per sample in the batch.
         """
 
-        # apply super sampling first
+        # Apply super sampling first
         if partial_output_list is None or len(partial_output_list) == 0:
             batch = self.super_sample_manager.apply(batch)
-            partial_output_list = [None] * len(batch)
+            sampled_trajectory_count = len(batch)
+            partial_output_list = [None] * sampled_trajectory_count
         else:
             # partial
-            batch = batch.repeat(repeat_times=len(partial_output_list), interleave=True)
+            sampled_trajectory_count = len(partial_output_list)
+            batch = batch.repeat(repeat_times=sampled_trajectory_count, interleave=True)
 
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
@@ -153,19 +155,21 @@ class FullyAsyncAgentLoopWorker(AgentLoopWorker):
         is_cancel = any(output.extra_fields.get("is_cancel", False) for output in outputs)
         if not is_cancel:
             output = self._postprocess(outputs)
-            output = self._addition_process(output)
+            output = self._addition_process(output, batch)
+            output.meta_info["sampled_trajectory_count"] = sampled_trajectory_count
             return output, is_cancel
         return outputs, is_cancel
 
-    def _addition_process(self, data: DataProto):
+    def _addition_process(self, data: DataProto, original_batch: DataProto):
         """addition process, include filter and advantage compute"""
+        # add uid
+        data.non_tensor_batch["uid"] = original_batch.non_tensor_batch["uid"]
         # filter
         data = self.filter_manager.apply(data)
 
         # advantage compute
         if self.config.async_training.compute_advantage_in_rollout and len(data) > 0:
             data.batch["token_level_rewards"] = data.batch["rm_scores"]
-            # Temporarily assign the uid for grpo calculation: all items here are from same UID
             norm_adv_by_std_in_grpo = self.config.algorithm.get(
                 "norm_adv_by_std_in_grpo", True
             )  # GRPO adv normalization factor

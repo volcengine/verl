@@ -157,13 +157,16 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.max_required_samples = None
         self.max_concurrent_samples = None
         # Trajectories generated between parameter syncs (before filter)
-        self.sampled_trajectory_count = 0
+        self.sync_sampled_trajectory_count = 0
+        # Total trajectories sampled (before filter)
+        self.total_sampled_trajectory_count = 0
         # Trajectories generated between parameter syncs (after filter)
-        self.filtered_trajectory_count = 0
-        # Trajectories generated between parameter syncs (control)
+        self.sync_kept_trajectory_count = 0
+        # Total trajectories after filter (after filter)
+        self.total_kept_trajectory_count = 0
+        # Trajectories generated between parameter syncs (used for throttling)
         self.generated_trajectory_count = 0
-        # Total trajectories generated (count)
-        self.total_generated_trajectory_count = 0
+
         # Trajectories requested by trainer between parameter syncs
         self.request_trajectories_per_sync = (
             self.config.filter.trajectories_per_request
@@ -183,12 +186,15 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # Statistics counters
         self.current_param_version = 0
-        self.total_generated_samples = 0
-        self.staleness_samples = 0
-        self.dropped_stale_samples = 0
-        self.processed_sample_count = 0
-        # Filtered-out samples
-        self.filtered_samples_count = 0
+
+        # total_processed_sample_count =
+        #   total_generated_samples + total_dropped_samples + total_filtered_out_sample_count
+        # total_generated_samples + total_dropped_samples = count of non-empty outputs (len(ret) > 0)
+        self.total_generated_samples = 0  # samples successfully enqueued to MQ
+        self.total_dropped_samples = 0  # samples rejected by MQ
+        self.total_processed_sample_count = 0  # samples processed (non-cancel)
+        self.total_filtered_out_sample_count = 0  # samples fully filtered out
+
         # Global steps start at 1
         self.global_steps = 1
         self.idle_start_time = None
@@ -196,6 +202,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # State machine (initialized in _init_async_objects)
         self.state = RollouterState.IDLE
+        self.feed_finished = False
 
         # Add dataloader lock
         self.dataloader_lock = asyncio.Lock()
@@ -252,14 +259,14 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.max_concurrent_samples = min(self.max_concurrent_samples, self.max_required_samples)
 
         print(
-            f"[FullyAsyncRollouter] required_samples : {self.required_samples} "
-            f"max_required_samples: {self.max_required_samples} "
-            f"(filter)max_generate_trajectories_per_sync: {self.max_generate_trajectories_per_sync} "
-            f"(filter)request_trajectories_per_sync: {self.request_trajectories_per_sync}"
-            f"max_queue_size: {self.max_queue_size} "
-            f"total_train_steps: {self.total_train_steps} "
-            f"total_rollout_steps: {self.total_rollout_steps} "
-            f"max_concurrent_samples: {self.max_concurrent_samples} "
+            f"[FullyAsyncRollouter] required_samples : {self.required_samples}, "
+            f"max_required_samples: {self.max_required_samples}, "
+            f"max_generate_trajectories_per_sync: {self.max_generate_trajectories_per_sync}, "
+            f"request_trajectories_per_sync: {self.request_trajectories_per_sync}, "
+            f"max_queue_size: {self.max_queue_size}, "
+            f"total_train_steps: {self.total_train_steps}, "
+            f"total_rollout_steps: {self.total_rollout_steps}, "
+            f"max_concurrent_samples: {self.max_concurrent_samples}"
         )
 
     def get_rollout_wg(self):
@@ -278,10 +285,6 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         """Update current parameter version"""
         old_version = self.current_param_version
         self.current_param_version = version
-        # every time param change, reset staleness_samples
-        self.staleness_samples = (
-            len(self.active_tasks) + self.cancel_queue.qsize() + await self.message_queue_client.get_queue_size()
-        )
         timing_raw = {}
         idle_ratio = None
         if self.idle_start_time is not None and self.version_start_time is not None:
@@ -299,13 +302,12 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             self.request_trajectories_per_sync if not validate and global_steps > 0 else 0
         )
 
-        self.sampled_trajectory_count = 0
-        self.filtered_trajectory_count = 0
+        self.sync_sampled_trajectory_count = 0
+        self.sync_kept_trajectory_count = 0
 
         print(
             f"[FullyAsyncRollouter][Public][update_param_version] "
             f"Parameter version updated from {old_version} to {version} "
-            f", reset staleness_samples to: {self.staleness_samples}"
             f", reset generated_trajectory_count to: {self.generated_trajectory_count}"
             f", exceeding the specified limit: "
             f"{generated_trajectory_count_tmp - self.max_generate_trajectories_per_sync}"
@@ -539,6 +541,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # End signal
         await self.pending_queue.put("DONE")
+        self.feed_finished = True
         print(f"[FullyAsyncRollouter][Feed] Sample addition is complete, {self.global_steps} samples have been added")
 
     def _on_task_done(self, task: asyncio.Task):
@@ -563,9 +566,13 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         )
 
         if not is_cancel:
+            sampled_trajectory_count = ret.meta_info.pop("sampled_trajectory_count", len(ret))
+            self.sync_sampled_trajectory_count += sampled_trajectory_count
+            self.total_sampled_trajectory_count += sampled_trajectory_count
             if len(ret) > 0:
+                self.sync_kept_trajectory_count += len(ret)
+                self.total_kept_trajectory_count += len(ret)
                 self.generated_trajectory_count += len(ret)
-                self.total_generated_trajectory_count += len(ret)
 
                 rollout_sample.agent_loop_output_list = []
                 ret.meta_info["rollout_param_versions"] = self.current_param_version
@@ -578,28 +585,29 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 if success:
                     self.total_generated_samples += 1
                 else:
-                    self.dropped_stale_samples += 1
+                    self.total_dropped_samples += 1
+                    print("[FullyAsyncRollouter][_process_single_sample_streaming] Dropped stale sample")
 
-                if self.generated_trajectory_count >= self.max_generate_trajectories_per_sync:
+                if self.generated_trajectory_count > self.max_generate_trajectories_per_sync:
                     print(
                         f"[FullyAsyncRollouter][_process_single_sample_streaming] "
-                        f"Excess data detected: generated_trajectory_count={self.generated_trajectory_count} >= "
+                        f"Excess data detected: generated_trajectory_count={self.generated_trajectory_count} > "
                         f"max_generate_trajectories_per_sync={self.max_generate_trajectories_per_sync}. "
                     )
             else:
                 # Sample was completely filtered out
-                self.filtered_samples_count += 1
+                self.total_filtered_out_sample_count += 1
 
             self.avg_trajectories_per_sample = 0.1 * len(ret) + 0.9 * self.avg_trajectories_per_sample
 
             # Internal auto-resume: if paused internally and
-            # excepted_trajectory_count < max_generate_trajectories_per_sync
+            # expected_trajectory_count < max_generate_trajectories_per_sync
             if (
                 self.pause_event.is_set()
                 and not self.external_pause_event.is_set()
                 and not self._should_pause_generation(True)
             ):
-                # Rollouter has stopped adding new tasks due to internal pause (excepted_trajectory_count),
+                # Rollouter has stopped adding new tasks due to internal pause (expected_trajectory_count),
                 # but the expected number of generated trajectories is now insufficient,
                 # so Rollouter can be automatically resumed to add new tasks.
                 print(
@@ -609,11 +617,10 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 self.pause_event.clear()  # internal auto-resume (clear paused state)
                 # Trigger resume signal to wake waiters
                 self.resume_signal.set()
+            self.total_processed_sample_count += 1
         else:
             rollout_sample.agent_loop_output_list = ret
             await self.cancel_queue.put(rollout_sample)
-
-        self.processed_sample_count += 1
 
     async def fit(self):
         """Main loop scheduler that dispatches by state."""
@@ -625,7 +632,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             feed_task = await self._handle_init_state()
 
             # ===== State machine main loop =====
-            while self.running_event.is_set():
+            while True:
                 if self.state == RollouterState.ADD_TASK:
                     # Handle ADD_TASK state
                     await self._handle_add_task_state()
@@ -640,8 +647,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
                 elif self.state == RollouterState.FINISHING:
                     # Finishing state
-                    await self._handle_finishing_state()
-                    break
+                    finished = await self._handle_finishing_state()
+                    if finished:
+                        break
 
                 else:
                     # Unexpected state
@@ -686,6 +694,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # Ensure initial state is running
         self.pause_event.clear()  # clear = running
         self.running_event.set()
+        self.feed_finished = False
 
         # Start helper task
         feed_task = asyncio.create_task(self._feed_samples())
@@ -704,7 +713,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         if external_pause_active or internal_pause_needed:
             if internal_pause_needed and not external_pause_active:
                 # Internal pause: only set pause_event
-                print("[FullyAsyncRollouter][InternalPause] Pausing due to excepted_trajectory_count threshold")
+                print("[FullyAsyncRollouter][InternalPause] Pausing due to expected_trajectory_count threshold")
                 self.pause_event.set()  # set paused state
                 # Do not set external_pause_event for internal pause
             # For external_pause_active, no extra action
@@ -723,6 +732,9 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             rollout_sample = await self.cancel_queue.get()
             simple_from_cancel_queue = True
         else:
+            if self.feed_finished and self.pending_queue.empty():
+                self.state = RollouterState.FINISHING
+                return
             rollout_sample = await self.pending_queue.get()
 
         # End signal
@@ -771,7 +783,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                     return
 
                 all_tasks = self.active_tasks | {pause_wait_task}
-                done_tasks, pending_tasks = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
+                done_tasks, _ = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
 
                 # Check if pause signal triggered
                 if pause_wait_task in done_tasks:
@@ -812,16 +824,35 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         # Return to WAIT_CONCURRENCY (check slots before ADD_TASK)
         self.state = RollouterState.WAIT_CONCURRENCY
 
-    async def _handle_finishing_state(self):
+    async def _handle_finishing_state(self) -> bool:
         """Handle FINISHING state: wait for all tasks to complete."""
         print("[Rollouter] Entering FINISHING state")
+        if self.external_pause_event.is_set():
+            self.state = RollouterState.PAUSED
+            return False
 
         if self.active_tasks:
-            await asyncio.gather(*self.active_tasks, return_exceptions=True)
-            self.active_tasks.clear()
+            pause_wait_task = asyncio.create_task(self.external_pause_event.wait())
+            try:
+                while self.active_tasks:
+                    all_tasks = set(self.active_tasks) | {pause_wait_task}
+                    done_tasks, _ = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                    if pause_wait_task in done_tasks:
+                        print("[Rollouter] Pause signal received during finishing")
+                        self.state = RollouterState.PAUSED
+                        return False
+            finally:
+                if not pause_wait_task.done():
+                    pause_wait_task.cancel()
+                    try:
+                        await pause_wait_task
+                    except asyncio.CancelledError:
+                        pass
 
         print("[Rollouter] All active tasks completed")
         # Note: main loop will break and call _handle_finished_state
+        return True
 
     async def _handle_finished_state(self):
         """Handle FINISHED state: cleanup and send completion signal."""
@@ -843,20 +874,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
     def _should_pause_generation(self, in_process_single_sample: bool = False) -> bool:
         """Determine whether generation should pause"""
         if in_process_single_sample:
-            excepted_trajectory_count = (
+            expected_trajectory_count = (
                 self.generated_trajectory_count + (len(self.active_tasks) - 1) * self.avg_trajectories_per_sample
             )
         else:
-            excepted_trajectory_count = (
+            expected_trajectory_count = (
                 self.generated_trajectory_count + len(self.active_tasks) * self.avg_trajectories_per_sample
             )
-        if excepted_trajectory_count >= self.max_generate_trajectories_per_sync:
+        if expected_trajectory_count >= self.max_generate_trajectories_per_sync:
             # Use pause_event.is_set() to avoid duplicate logs
             if not self.pause_event.is_set():  # not set = running, log once
                 print(
                     "[FullyAsyncRollouter][ShouldPause] "
                     f"due to "
-                    f"excepted_trajectory_count: {excepted_trajectory_count} >= "
+                    f"expected_trajectory_count: {expected_trajectory_count} >= "
                     f"max_generate_trajectories_per_sync: {self.max_generate_trajectories_per_sync} "
                 )
             return True
@@ -900,6 +931,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def get_statistics(self) -> dict:
         queue_stats = self.message_queue_client.get_statistics_sync()
+        total_sampled_trajectories = self.total_sampled_trajectory_count
+        total_kept_trajectories = self.total_kept_trajectory_count
+        sync_sampled_trajectories = self.sync_sampled_trajectory_count
+        sync_kept_trajectories = self.sync_kept_trajectory_count
+        total_filtered_trajectory_rate = (
+            (total_sampled_trajectories - total_kept_trajectories) / total_sampled_trajectories
+            if total_sampled_trajectories > 0
+            else 0.0
+        )
+        sync_filtered_trajectory_rate = (
+            (sync_sampled_trajectories - sync_kept_trajectories) / sync_sampled_trajectories
+            if sync_sampled_trajectories > 0
+            else 0.0
+        )
 
         stats = {
             # state stats
@@ -907,6 +952,7 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             "state/is_paused": self.pause_event.is_set(),
             "state/is_external_pause": self.external_pause_event.is_set(),
             "state/is_running": self.running_event.is_set(),
+            "state/feed_finished": self.feed_finished,
             "state/resume_signal": self.resume_signal.is_set(),
             # monitor stats
             "monitor/active_tasks_size": len(self.active_tasks),
@@ -914,14 +960,22 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
             "monitor/queue/pending_queue_size": self.pending_queue.qsize(),
             "monitor/queue/cancel_queue_size": self.cancel_queue.qsize(),
             "monitor/queue/mq_queue_size": queue_stats["queue_size"],
-            # counting stats
-            "count/current_param_version": self.current_param_version,
+            # count: samples
             "count/total_generated_samples": self.total_generated_samples,
-            "count/staleness_samples": self.staleness_samples,
-            "count/dropped_stale_samples": self.dropped_stale_samples,
+            "count/total_dropped_samples": self.total_dropped_samples,
+            "count/total_processed_sample_count": self.total_processed_sample_count,
+            "count/total_filtered_out_sample_count": self.total_filtered_out_sample_count,
+            # count: trajectories (sync)
+            "count/sync_sampled_trajectory_count": self.sync_sampled_trajectory_count,
+            "count/sync_kept_trajectory_count": self.sync_kept_trajectory_count,
             "count/generated_trajectory_count": self.generated_trajectory_count,
-            "count/total_generated_trajectory_count": self.total_generated_trajectory_count,
-            "count/filtered_samples_count": self.filtered_samples_count,
+            # count: trajectories (total)
+            "count/total_sampled_trajectory_count": self.total_sampled_trajectory_count,
+            "count/total_kept_trajectory_count": self.total_kept_trajectory_count,
+            "count/total_filtered_trajectory_rate": total_filtered_trajectory_rate,
+            "count/sync_filtered_trajectory_rate": sync_filtered_trajectory_rate,
+            # count: other
+            "count/current_param_version": self.current_param_version,
             # static stats
             "static/max_required_samples": self.max_required_samples,
             "static/required_samples": self.required_samples,
