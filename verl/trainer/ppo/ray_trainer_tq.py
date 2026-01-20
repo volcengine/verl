@@ -1092,7 +1092,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                         batch_meta = batch_meta.union(compute_advantage_output_meta)
 
                         full_batch_meta = deepcopy(batch_meta)
-                        if "resampled_idx" in batch_meta.field_names and self.config.transferqueue.enable:
+                        if "resampled_idx" in batch_meta.field_names and self.config.transfer_queue.enable:
                             resample_idx_meta = batch_meta.select_fields(["pf_ppo_reweight_idx"])
                             resampled_idx = self.tq_client.get_data(resample_idx_meta)  # list of int
                             batch_meta = full_batch_meta.select_samples(resampled_idx)
