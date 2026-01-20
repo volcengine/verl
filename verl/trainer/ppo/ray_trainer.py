@@ -801,6 +801,10 @@ class RayPPOTrainer:
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
+        tq_config = OmegaConf.select(self.config, "transfer_queue", default=None)
+        assert tq_config is None or not tq_config["enable"], "tq_config should not exist or TQ should be disabled when running default RayPPOTrainer"
+        # in this case we do not need to modify config and remote workers will check and find tq_config is None
+
         # create actor and rollout
         actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
         if self.hybrid_engine:
