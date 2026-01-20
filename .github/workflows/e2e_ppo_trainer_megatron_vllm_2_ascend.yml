@@ -70,7 +70,7 @@ on:
       - "!verl/utils/checkpoint/fsdp_checkpoint_manager.py"
       - "!verl/model_merger/fsdp_model_merger.py"
       # Entrypoints
-      - ".github/workflows/e2e_ppo_trainer_megatron_vllm_2.yml"
+      - ".github/workflows/e2e_ppo_trainer_megatron_vllm_2_ascend.yml"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
       - "tests/special_e2e/run_ppo_trainer_megatron.sh"
@@ -88,7 +88,6 @@ permissions:
 
 jobs:
   e2e_ppo_trainer_fsdp_vllm_ascend:
-    e2e_one_step_off_policy_fsdp2_ascend:
     if: github.repository_owner == 'volcengine'
     runs-on: linux-aarch64-a2-8
     timeout-minutes: 60 # Increase this timeout value as needed
