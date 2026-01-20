@@ -1036,7 +1036,9 @@ class AgentLoopManager:
 
         if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             attention_mask = self.tq_client.get_data(output[slowest])["attention_mask"]
-            prompt_length = self.tq_client.get_data(output)["prompts"].shape[1]
+            # TODO: debug prompt length retrieval.
+            prompt_length = output.samples[0].get_field_by_name("prompts").shape[1]
+            # prompt_length = self.tq_client.get_data(output)["prompts"].shape[1]
         else:
             attention_mask = output.batch["attention_mask"][slowest]
             prompt_length = output.batch["prompts"].shape[1]
