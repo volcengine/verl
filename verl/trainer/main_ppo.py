@@ -344,6 +344,8 @@ class TaskRunner:
             max_samples=config.data.get("val_max_samples", -1),
         )
         train_sampler = create_rl_sampler(config.data, train_dataset)
+
+        # Initialize the PPO trainer.
         if OmegaConf.select(config, "transfer_queue.enable", default=False):
             from verl.trainer.ppo.ray_trainer_tq import RayPPOTrainerTransferQueue
 
@@ -362,7 +364,6 @@ class TaskRunner:
                 train_sampler=train_sampler,
             )
         else:
-            # Initialize the PPO trainer.
             trainer = RayPPOTrainer(
                 config=config,
                 tokenizer=tokenizer,
