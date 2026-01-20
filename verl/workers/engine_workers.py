@@ -426,6 +426,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        from verl.workers.config.engine import TransferQueueConfig
+        if self.tq_config and self.tq_config.get("enable", False):
+            transferqueue_config = TransferQueueConfig.from_dict(self.tq_config)
+        else:
+            transferqueue_config = None
 
         # 1. build reference model
         if "ref" in self.role:
@@ -448,6 +453,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=ref_config.engine,
                 optimizer_config=ref_config.optim,
                 checkpoint_config=ref_config.checkpoint,
+                transfer_queue=transferqueue_config,
             )
 
             # assign engine configs
@@ -473,6 +479,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=actor_config.engine,
                 optimizer_config=actor_config.optim,
                 checkpoint_config=actor_config.checkpoint,
+                transfer_queue=transferqueue_config,
             )
 
             assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz
