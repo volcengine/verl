@@ -77,12 +77,10 @@ require_batches=4
 partial_rollout=True
 
 # Rollout Correction
-rollout_is=geometric
-rollout_is_threshold=1.001
-rollout_rs=geometric
-rollout_rs_threshold=1.001
-rollout_rs_threshold_lower=0.99
-rollout_token_veto_threshold=1e-4
+rollout_is=token
+rollout_is_threshold=2.0
+rollout_rs=seq_mean_k1
+rollout_rs_threshold="0.99_1.001"
 
 python -m verl.experimental.fully_async_policy.fully_async_main \
     data.train_files="${TRAIN_FILE}" \
@@ -172,7 +170,4 @@ python -m verl.experimental.fully_async_policy.fully_async_main \
     algorithm.rollout_correction.rollout_is=${rollout_is} \
     algorithm.rollout_correction.rollout_is_threshold=${rollout_is_threshold} \
     algorithm.rollout_correction.rollout_rs=${rollout_rs} \
-    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
-    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
-    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold}
-
+    algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold}

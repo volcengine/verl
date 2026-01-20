@@ -113,10 +113,8 @@ partial_rollout=True
 # Rollout Importance Sampling
 
 rollout_is=null
-rollout_rs=geometric
-rollout_rs_threshold=1.001
-rollout_rs_threshold_lower=0.999
-rollout_token_veto_threshold=1e-4
+rollout_rs=seq_mean_k1
+rollout_rs_threshold="0.999_1.001"
 
 python -m verl.experimental.fully_async_policy.fully_async_main \
     --config-path=config \
@@ -137,8 +135,6 @@ python -m verl.experimental.fully_async_policy.fully_async_main \
     algorithm.rollout_correction.rollout_is=${rollout_is} \
     algorithm.rollout_correction.rollout_rs=${rollout_rs} \
     algorithm.rollout_correction.rollout_rs_threshold=${rollout_rs_threshold} \
-    algorithm.rollout_correction.rollout_rs_threshold_lower=${rollout_rs_threshold_lower} \
-    algorithm.rollout_correction.rollout_token_veto_threshold=${rollout_token_veto_threshold} \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.actor.use_kl_loss=${use_kl_loss} \
     actor_rollout_ref.actor.kl_loss_coef=${kl_loss_coef} \
@@ -241,4 +237,3 @@ python -m verl.experimental.fully_async_policy.fully_async_main \
     async_training.require_batches="${require_batches}" \
     async_training.partial_rollout="${partial_rollout}" \
     async_training.use_rollout_log_probs=True \
-

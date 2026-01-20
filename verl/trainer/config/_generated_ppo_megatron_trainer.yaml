@@ -236,6 +236,7 @@ actor_rollout_ref:
     engine_kwargs:
       vllm: {}
       sglang: {}
+      trtllm: {}
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
       top_k: -1
@@ -293,6 +294,7 @@ actor_rollout_ref:
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     quantization: null
     quantization_config_file: null
+    mtp: ${oc.select:actor_rollout_ref.model.mtp, null}
     layer_name_map:
       qkv_layer_name: qkv
       gate_proj_layer_name: gate_up
@@ -324,6 +326,19 @@ actor_rollout_ref:
     tiled_mlp:
       enabled: false
       num_shards: 4
+    mtp:
+      _target_: verl.workers.config.MtpConfig
+      enable: false
+      enable_train: false
+      enable_rollout: false
+      detach_encoder: false
+      mtp_loss_scaling_factor: 0.1
+      speculative_algorithm: EAGLE
+      speculative_num_steps: 2
+      speculative_eagle_topk: 2
+      speculative_num_draft_tokens: 4
+      method: mtp
+      num_speculative_tokens: 1
     lora:
       type: lora
       rank: 0
@@ -614,8 +629,6 @@ algorithm:
     rollout_is_threshold: 2.0
     rollout_rs: null
     rollout_rs_threshold: null
-    rollout_rs_threshold_lower: null
-    rollout_token_veto_threshold: null
     bypass_mode: false
     loss_type: ppo_clip
     rollout_is_batch_normalize: false
