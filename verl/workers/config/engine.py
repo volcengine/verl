@@ -77,6 +77,27 @@ class EngineConfig(BaseConfig):
 
 
 @dataclass
+class TransferQueueConfig(BaseConfig):
+    enable: bool = False
+    num_global_batch: Optional[int] = None
+    storage_backend: Optional[str] = None
+    num_data_storage_units: Optional[int] = None
+    controller_info: Optional[Any] = None
+    storage_unit_infos: Optional[dict[int, Any]] = None
+
+    def __post_init__(self):
+        if self.enable:
+            assert self.controller_info is not None, "controller_info required when enable=True"
+            assert self.storage_unit_infos is not None, "storage_unit_infos required when enable=True"
+            assert len(self.storage_unit_infos) == self.num_data_storage_units, \
+                f"storage_unit_infos size ({len(self.storage_unit_infos)}) must match num_data_storage_units ({self.num_data_storage_units})"
+
+    @classmethod
+    def from_dict(cls, config_dict: dict) -> 'TransferQueueConfig':
+        return cls(**config_dict)
+
+
+@dataclass
 class McoreEngineConfig(EngineConfig):
     """Configuration for Megatron parallelism.
 
@@ -286,4 +307,4 @@ class TrainingWorkerConfig(BaseConfig):
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
     profiler_config: ProfilerConfig = None
-    tq_config: Optional[TransferQueueConfig] = None
+    transfer_queue: Optional[TransferQueueConfig] = None

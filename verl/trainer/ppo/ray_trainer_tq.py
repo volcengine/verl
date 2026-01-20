@@ -560,6 +560,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         OmegaConf.set_struct(reward_config, False)
         reward_config.transfer_queue = tq_config
         OmegaConf.set_struct(reward_config, True)
+        from verl.workers.config.engine import TransferQueueConfig
+        transferqueue_config = TransferQueueConfig.from_dict(tq_config)
 
         if self.hybrid_engine:
             resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
@@ -598,7 +600,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     engine_config=engine_config,
                     optimizer_config=orig_critic_cfg.optim,
                     checkpoint_config=orig_critic_cfg.checkpoint,
-                    tq_config=tq_config,
+                    transfer_queue=transferqueue_config,
                 )
 
             critic_cls = RayClassWithInitArgs(cls=self.role_worker_mapping[Role.Critic], config=critic_cfg)
