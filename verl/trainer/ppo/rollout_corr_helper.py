@@ -1044,7 +1044,7 @@ def apply_bypass_mode(
     batch: DataProto,
     rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
     policy_loss_config: PolicyLossConfig = None,
-) -> DataProto:
+) -> TensorDict:
     """
     Setup bypass mode: Use rollout_log_probs as old_log_probs.
 
@@ -1078,6 +1078,7 @@ def apply_bypass_mode(
         # Always use bypass_mode loss function which handles both loss_types
         policy_loss_config["loss_mode"] = "bypass_mode"
 
+    # use return value to update the old_log_probs stored in TransferQueue
     output = TensorDict({"old_log_probs": old_log_probs}, batch_size=old_log_probs.size(0))
 
     return output
