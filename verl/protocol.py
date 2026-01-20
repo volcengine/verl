@@ -570,15 +570,14 @@ class DataProto:
         from tensordict import NonTensorData, NonTensorStack
 
         assert num_batch_dims > 0, "num_batch_dims must be greater than zero"
-        # if not all(isinstance(val, torch.Tensor) for val in tensor_dict.values()):
-        #     assert num_batch_dims == 1, "only support num_batch_dims=1 when tensor_dict contains non tensor data."
+        if not all(isinstance(val, torch.Tensor) for val in tensor_dict.values()):
+            assert num_batch_dims == 1, "only support num_batch_dims=1 when tensor_dict contains non tensor data."
 
         if meta_info is None:
             meta_info = {}
         batch = {}
         non_tensor_batch = {}
-        # batch_size = None
-        batch_size = tensor_dict.batch_size
+        batch_size = None
         for key, val in tensor_dict.items():
             if isinstance(val, torch.Tensor):
                 batch[key] = val
