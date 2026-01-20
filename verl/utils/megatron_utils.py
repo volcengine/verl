@@ -30,7 +30,6 @@ from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import ModelType
 from megatron.core.optimizer import ChainedOptimizer
-from megatron.core.parallel_state import get_global_memory_buffer
 from megatron.core.transformer import TransformerConfig
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_attr_wrapped_model
@@ -576,19 +575,6 @@ def offload_megatron_optimizer(optimizers):
                         v["exp_avg"] = v["exp_avg"].to("cpu", non_blocking=True)
                     if "exp_avg_sq" in v:
                         v["exp_avg_sq"] = v["exp_avg_sq"].to("cpu", non_blocking=True)
-
-        try:
-            # Free TransformerEngine's dummy weight gradients cache
-            # https://github.com/NVIDIA/TransformerEngine/blob/release_v2.10/transformer_engine/pytorch/module/base.py#L64
-            from transformer_engine.pytorch.module.base import _dummy_wgrads
-
-            _dummy_wgrads.clear()
-        except ImportError:
-            pass
-
-        # Free Megatron-LM's global memory buffer
-        get_global_memory_buffer().buffer.clear()
-
         gc.collect()
         get_torch_device().empty_cache()
 
