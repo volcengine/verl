@@ -250,7 +250,7 @@ agent:
 # 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
 # 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
 # when using Tensor Parallelism (TP) >= 8.
-update_weights_bucket_megabytes: 1024
+update_weights_bucket_megabytes: 2048
 
 # trace rollout data
 trace:

@@ -258,7 +258,7 @@ actor_rollout_ref:
         _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
-    update_weights_bucket_megabytes: 1024
+    update_weights_bucket_megabytes: 2048
     trace:
       _target_: verl.workers.config.TraceConfig
       backend: null
