@@ -219,6 +219,10 @@ async def _async_update_batchmeta_with_output(
         for key in meta_data.keys():
             tensordict.pop(key)
         updated_batch_meta = await _TRANSFER_QUEUE_CLIENT.async_put(data=tensordict, metadata=batchmeta)
+        # turn the lists in batchmeta into tuples to avoid concating them when collecting from remote workers
+        for key, val in updated_batch_meta.extra_info.items():
+            if isinstance(val, list):
+                updated_batch_meta.set_extra_info(key, tuple(val))
         return updated_batch_meta
     else:
         return batchmeta
