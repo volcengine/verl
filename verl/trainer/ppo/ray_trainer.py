@@ -1150,7 +1150,6 @@ class RayPPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
-    @tqbridge(put_data=False)
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
