@@ -186,7 +186,6 @@ def compute_response_mask(data: DataProto):
     return attention_mask[:, -response_length:]
 
 
-@tqbridge(put_data=True)
 def compute_advantage(
     data: DataProto,
     adv_estimator: AdvantageEstimator,

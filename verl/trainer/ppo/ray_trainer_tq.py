@@ -49,7 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
 )
-from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, apply_kl_penalty, compute_advantage
+from verl.trainer.ppo.ray_trainer import RayPPOTrainer, ResourcePoolManager, apply_kl_penalty
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.trainer.ppo.utils import Role, WorkerType
 from verl.utils import tensordict_utils as tu
@@ -64,6 +64,93 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, repeat_dict, tqbridge
 from verl.workers.config import FSDPEngineConfig
 
+@tqbridge(put_data=True)
+def compute_advantage(
+        data: DataProto,
+        adv_estimator: AdvantageEstimator,
+        gamma: float = 1.0,
+        lam: float = 1.0,
+        num_repeat: int = 1,
+        norm_adv_by_std_in_grpo: bool = True,
+        config: Optional[AlgoConfig] = None,
+) -> DataProto:
+    """Compute advantage estimates for policy optimization.
+
+    This function computes advantage estimates using various estimators like GAE, GRPO, REINFORCE++, etc.
+    The advantage estimates are used to guide policy optimization in RL algorithms.
+
+    Args:
+        data (DataProto): The data containing batched model outputs and inputs.
+        adv_estimator (AdvantageEstimator): The advantage estimator to use (e.g., GAE, GRPO, REINFORCE++).
+        gamma (float, optional): Discount factor for future rewards. Defaults to 1.0.
+        lam (float, optional): Lambda parameter for GAE. Defaults to 1.0.
+        num_repeat (int, optional): Number of times to repeat the computation. Defaults to 1.
+        norm_adv_by_std_in_grpo (bool, optional): Whether to normalize advantages by standard deviation in
+            GRPO. Defaults to True.
+        config (dict, optional): Configuration dictionary for algorithm settings. Defaults to None.
+
+    Returns:
+        DataProto: The updated data with computed advantages and returns.
+    """
+    # Back-compatible with trainers that do not compute response mask in fit
+
+    # prepare response group
+    if adv_estimator == AdvantageEstimator.GAE:
+        # Compute advantages and returns using Generalized Advantage Estimation (GAE)
+        advantages, returns = core_algos.compute_gae_advantage_return(
+            token_level_rewards=data.batch["token_level_rewards"],
+            values=data.batch["values"],
+            response_mask=data.batch["response_mask"],
+            gamma=gamma,
+            lam=lam,
+        )
+
+        if config.get("use_pf_ppo", False):
+            # the below code will resample the full data, for TQ adaption, we will return the resampled index
+            # which will be read and used for resample later in fit func
+            pf_ppo_reweight_idx = core_algos.compute_pf_ppo_reweight_data_tq(
+                data.batch["token_level_rewards"],
+                config.pf_ppo.get("reweight_method"),
+                config.pf_ppo.get("weight_pow"),
+            )
+
+            advantages_td = TensorDict(
+                {"advantages": advantages, "returns": returns,
+                 }, batch_size=advantages.size(0)
+            )
+            non_tensor_batch = {"pf_ppo_reweight_idx": pf_ppo_reweight_idx}
+            return DataProto(batch=advantages_td, non_tensor_batch=non_tensor_batch)
+    elif adv_estimator == AdvantageEstimator.GRPO:
+        # Initialize the mask for GRPO calculation
+        grpo_calculation_mask = data.batch["response_mask"]
+
+        # Call compute_grpo_outcome_advantage with parameters matching its definition
+        advantages, returns = core_algos.compute_grpo_outcome_advantage(
+            token_level_rewards=data.batch["token_level_rewards"],
+            response_mask=grpo_calculation_mask,
+            index=data.non_tensor_batch["uid"],
+            norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
+        )
+    else:
+        # handle all other adv estimator type other than GAE and GRPO
+        adv_estimator_fn = core_algos.get_adv_estimator_fn(adv_estimator)
+        adv_kwargs = {
+            "token_level_rewards": data.batch["token_level_rewards"],
+            "response_mask": data.batch["response_mask"],
+            "config": config,
+        }
+        if "uid" in data.non_tensor_batch:  # optional
+            adv_kwargs["index"] = data.non_tensor_batch["uid"]
+        if "reward_baselines" in data.batch:  # optional
+            adv_kwargs["reward_baselines"] = data.batch["reward_baselines"]
+
+        # calculate advantage estimator
+        advantages, returns = adv_estimator_fn(**adv_kwargs)
+
+    advantages_td = TensorDict(
+        {"advantages": advantages, "returns": returns}, batch_size=advantages.size(0)
+    )
+    return DataProto(batch=advantages_td)
 
 # TODO: dispatch these decorated functions from single-controller
 @tqbridge(put_data=False)
@@ -1092,7 +1179,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                         batch_meta = batch_meta.union(compute_advantage_output_meta)
 
                         full_batch_meta = deepcopy(batch_meta)
-                        if "resampled_idx" in batch_meta.field_names and self.config.transfer_queue.enable:
+                        if "pf_ppo_reweight_idx" in batch_meta.field_names and self.config.transfer_queue.enable:
                             resample_idx_meta = batch_meta.select_fields(["pf_ppo_reweight_idx"])
                             resampled_idx = self.tq_client.get_data(resample_idx_meta)  # list of int
                             batch_meta = full_batch_meta.select_samples(resampled_idx)
