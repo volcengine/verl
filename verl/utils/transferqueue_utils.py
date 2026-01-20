@@ -174,7 +174,14 @@ async def _async_batchmeta_to_realdata(
     tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
 
     if convert_type == "DataProto":
-        return DataProto.from_tensordict(tensordict, meta_info=meta_info)
+        if tensordict.batch_size[0] == 0:
+            return DataProto(
+                batch=TensorDict({}, batch_size=(0,)),
+                non_tensor_batch={},
+                meta_info=meta_info,
+            )
+        else:
+            return DataProto.from_tensordict(tensordict, meta_info=meta_info)
     else:
         for key, val in meta_info.items():
             if isinstance(val, (NonTensorData | NonTensorStack)):
