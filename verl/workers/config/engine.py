@@ -269,10 +269,11 @@ class VeOmniEngineConfig(EngineConfig):
 
 @dataclass
 class TransferQueueConfig(BaseConfig):
-    enable: bool=False
+    enable: bool = False
     num_global_batch: Optional[int] = None
     storage_backend: Optional[str] = None
     num_data_storage_units: Optional[int] = None
+
     def __post_init__(self):
         pass
 
