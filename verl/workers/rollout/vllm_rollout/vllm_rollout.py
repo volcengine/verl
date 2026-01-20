@@ -167,7 +167,7 @@ class ServerAdapter(BaseRollout):
         dtype = PrecisionType.to_dtype(self.config.dtype)
         for name, weight in weights:
             # model parameters are in fp32 full precision
-            weight = weight.to(dtype)
+            weight = weight.to(dtype, non_blocking=True)
 
             # fill the tensor bucket
             if offset + weight.nbytes > bucket_size:

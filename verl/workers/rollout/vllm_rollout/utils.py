@@ -185,10 +185,10 @@ class vLLMColocateWorkerExtension:
                 # NOTE: we need to clone the tensor to release CUDA IPC memory
                 tensor = buffer[offset : offset + size].view(dtype=dtype).view(shape).clone()
                 weights.append((name, tensor))
-            self._update_weights(weights, peft_config=peft_config, base_sync_done=base_sync_done)
-            del weights
             get_torch_device().synchronize()
             socket.send(b"")
+            self._update_weights(weights, peft_config=peft_config, base_sync_done=base_sync_done)
+            del weights
             if metadata["is_last"]:
                 break
 
