@@ -60,7 +60,6 @@ logger.setLevel(logging.INFO)
 visible_devices_keyword = get_visible_devices_keyword()
 
 
-@ray.remote(num_cpus=1)
 class SGLangHttpServer:
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
@@ -208,6 +207,24 @@ class SGLangHttpServer:
 
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
+
+        # mtp
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            args["speculative_algorithm"] = self.config.mtp.speculative_algorithm
+            args["speculative_num_steps"] = self.config.mtp.speculative_num_steps
+            args["speculative_eagle_topk"] = self.config.mtp.speculative_eagle_topk
+            args["speculative_num_draft_tokens"] = self.config.mtp.speculative_num_draft_tokens
+
+            args["log_level"] = "info"
+            args["load_format"] = "auto"
+
+            # Enable weights CPU backup for sglang >= 0.5.6
+            if sglang.__version__ >= "0.5.6":
+                args["enable_weights_cpu_backup"] = True
+                args["enable_draft_weights_cpu_backup"] = True
+
+            # args['enable_memory_saver'] = False
+            # enable_memory_saver = False MTP success but memory can't be release
 
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
@@ -364,6 +381,17 @@ _rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
 
 class SGLangReplica(RolloutReplica):
+    def __init__(
+        self,
+        replica_rank: int,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        gpus_per_node: int = 8,
+        is_reward_model: bool = False,
+    ):
+        super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
+        self.server_class = ray.remote(SGLangHttpServer)
+
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
@@ -425,7 +453,7 @@ class SGLangReplica(RolloutReplica):
                 if not self.is_reward_model
                 else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
             )
-            server = SGLangHttpServer.options(
+            server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,

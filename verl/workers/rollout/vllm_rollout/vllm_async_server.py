@@ -74,6 +74,10 @@ if _VLLM_VERSION > version.parse("0.11.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
 
         get_encoding()
+    elif _VLLM_VERSION >= version.parse("0.13.0"):
+        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
+
+        get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
 if _VLLM_VERSION >= version.parse("0.12.0"):
@@ -332,6 +336,14 @@ class vLLMHttpServer:
                     served_model_name = served_model_name.split("/")[-1]
                 args["served_model_name"] = served_model_name
 
+        # mtp
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            speculative_config = {
+                "method": self.config.mtp.method,
+                "num_speculative_tokens": self.config.mtp.num_speculative_tokens,
+            }
+            args["speculative_config"] = speculative_config
+
         if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
                 "gpus_per_node should be divisible by tensor_model_parallel_size"
@@ -546,8 +558,17 @@ class vLLMHttpServer:
         else:
             stop_reason = finish_reason  # for more stop reason in the future
 
+        num_preempted = None
+
+        if hasattr(final_res.outputs[0], "num_preempted"):
+            num_preempted = final_res.outputs[0].num_preempted
+
         return TokenOutput(
-            token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts, stop_reason=stop_reason
+            token_ids=token_ids,
+            log_probs=log_probs,
+            routed_experts=routed_experts,
+            stop_reason=stop_reason,
+            num_preempted=num_preempted,
         )
 
     async def wake_up(self):

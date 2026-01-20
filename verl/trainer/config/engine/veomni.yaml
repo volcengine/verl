@@ -1,6 +1,12 @@
 # Target class for this configuration
 _target_: verl.workers.config.VeOmniEngineConfig
 
+# Whether to offload model parameters to CPU
+param_offload: False
+
+# Whether to offload optimizer state to CPU
+optimizer_offload: False
+
 # fsdp or fsdp2
 data_parallel_mode: fsdp2
 
