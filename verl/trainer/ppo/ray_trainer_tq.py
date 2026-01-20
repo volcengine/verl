@@ -464,7 +464,9 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         actor_rollout_ref_config = self.config.actor_rollout_ref
         reward_config = self.config.reward_model
         tq_config = OmegaConf.select(self.config, "transfer_queue", default=None)
-        assert tq_config is not None and tq_config["enable"], "TQ should be enabled when running RayPPOTrainerTransferQueue"
+        assert tq_config is not None and tq_config["enable"], (
+            "Must have TQ related configs and set to enable when running RayPPOTrainerTransferQueue"
+        )
         OmegaConf.set_struct(actor_rollout_ref_config, False)
         actor_rollout_ref_config.transfer_queue = tq_config
         OmegaConf.set_struct(actor_rollout_ref_config, True)

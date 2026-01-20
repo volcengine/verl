@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 import torch
-from tensordict.tensorclass import NonTensorData
+from tensordict.tensorclass import NonTensorData, NonTensorStack
 
 if TYPE_CHECKING:
     from verl.single_controller.base.decorator import Dispatch
