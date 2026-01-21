@@ -755,15 +755,15 @@ class vLLMReplica(RolloutReplica):
         )
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
-        nnodes, gpus_per_node = self.nnodes, self.gpus_per_node
+        nnodes, gpus_per_replica_node = self.nnodes, self.gpus_per_replica_node
         if self.config.data_parallel_size == 1:
             nnodes = 1
-            gpus_per_node = self.world_size
+            gpus_per_replica_node = self.world_size
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
-            workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
-            node_id = worker_node_ids[node_rank * gpus_per_node]
+            workers = self.workers[node_rank * gpus_per_replica_node : (node_rank + 1) * gpus_per_replica_node]
+            node_id = worker_node_ids[node_rank * gpus_per_replica_node]
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
@@ -783,7 +783,7 @@ class vLLMReplica(RolloutReplica):
                 workers=workers,
                 replica_rank=self.replica_rank,
                 node_rank=node_rank,
-                gpus_per_node=gpus_per_node,
+                gpus_per_node=gpus_per_replica_node,
                 nnodes=nnodes,
             )
             self.servers.append(server)
