@@ -956,6 +956,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         """Stop profile
 
         Args:
+            (No arguments)
         Returns:
             Dict[str, Any]: Server response indicating profile status
         """
