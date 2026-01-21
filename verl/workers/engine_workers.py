@@ -427,6 +427,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
         from verl.workers.config.engine import TransferQueueConfig
+
         if self.tq_config and self.tq_config.get("enable", False):
             transferqueue_config = TransferQueueConfig.from_dict(self.tq_config)
         else:
