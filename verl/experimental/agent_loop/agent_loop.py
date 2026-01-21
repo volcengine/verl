@@ -751,6 +751,8 @@ class AgentLoopWorker:
         if inputs[0].routed_experts is not None:
             optional_outputs["routed_experts"] = torch.cat([input.routed_experts for input in inputs], dim=0)
 
+        # TODO(TQ): check if non-padded data is saved in TQ
+        # if so, set data["loss_mask"] = data["response_mask"]
         batch = TensorDict(
             {
                 "prompts": prompt_ids,  # [bsz, prompt_length]

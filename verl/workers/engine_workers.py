@@ -193,6 +193,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         Returns:
 
         """
+        # TODO(TQ): need to remove the pad and unpad processing
         if self.tq_config is not None and self.tq_config['enable']:
             data = left_right_2_no_padding(data)
         maybe_fix_3d_position_ids(data)
@@ -556,6 +557,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     )
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
+        # TODO(TQ): need to remove the pad and unpad processing
         if self.tq_config is not None and self.tq_config['enable']:
             data = left_right_2_no_padding(data)
             output = self.ref.infer_batch(data=data)
@@ -571,6 +573,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     )
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
+        # TODO(TQ): need to remove the pad and unpad processing
         if self.tq_config is not None and self.tq_config['enable']:
             data = left_right_2_no_padding(data)
             output = self.actor.infer_batch(data)
