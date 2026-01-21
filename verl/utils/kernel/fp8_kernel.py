@@ -12,15 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-FP8 quantization kernels using Triton for high-performance blockwise quantization.
-
-This module provides memory-efficient FP8 quantization using Triton kernels,
-which eliminates intermediate tensor allocations compared to pure PyTorch implementations.
-
-Ported from slime/slime/backends/megatron_utils/kernels/fp8_kernel.py
-"""
-
 import logging
 import os
 import torch
@@ -81,6 +72,8 @@ if _TRITON_AVAILABLE:
 
         Each program instance handles one block of size (BLOCK_M, BLOCK_N).
         Computes per-block scale and quantizes to FP8 in a single pass.
+
+        Refer to https://github.com/THUDM/slime/blob/main/slime/backends/megatron_utils/kernels/fp8_kernel.py
         """
         pid_m = tl.cast(tl.program_id(axis=0), tl.int64)
         pid_n = tl.cast(tl.program_id(axis=1), tl.int64)
