@@ -30,6 +30,7 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
+from transferqueue import BatchMeta
 
 import verl.utils.tensordict_utils as tu
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
@@ -479,7 +480,21 @@ class AgentLoopWorker:
         """
         if isinstance(batch, BatchMeta) and self.tq_client is not None:
             batch_meta = batch
-            batch = self.tq_client.async_get_data(batch_meta)
+            batch = await self.tq_client.async_get_data(batch_meta)
+            # current batch contains no tensor data
+            meta_info = batch_meta.get_all_extra_info()
+            non_tensor_batch = {}
+            from tensordict import NonTensorStack, NonTensorData
+            for key, val in batch.items():
+                if isinstance(val, NonTensorStack):
+                    non_tensor_batch[key] = np.array([elem.data for elem in val], dtype=object)
+                elif isinstance(val, NonTensorData) and key not in meta_info.keys():
+                    meta_info[key] = val.data
+            batch = DataProto(
+                batch=None,
+                non_tensor_batch=non_tensor_batch,
+                meta_info=meta_info
+            )
         else:
             batch_meta = None
 
