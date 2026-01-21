@@ -945,7 +945,7 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
         """Start profile
 
         Args:
-            tags (Optional[List[str]], optional): Arguments for profiling. Defaults to None.
+            tags (Optional[dict[str, Any]], optional): Arguments for profiling. Defaults to None.
 
         Returns:
             Dict[str, Any]: Server response indicating profile status
