@@ -51,18 +51,14 @@ def test_split_resource_pool_with_split_size():
     ray.init()
     # assume we have 2 nodes, with 4 GPUs each
     global_resource_pool = RayResourcePool(process_on_nodes=[4, 4])
-    global_resource_pool.get_placement_groups(device_name=get_device_name())
+    global_resource_pool.get_placement_groups()
 
     # first 4 gpus for actor_1, last 4 gpus for actor_2
     actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(resource_pool=global_resource_pool, split_size=4)
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
-    actor_worker_1 = RayWorkerGroup(
-        resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1, device_name=get_device_name()
-    )
-    actor_worker_2 = RayWorkerGroup(
-        resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2, device_name=get_device_name()
-    )
+    actor_worker_1 = RayWorkerGroup(resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1)
+    actor_worker_2 = RayWorkerGroup(resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2)
     assert actor_worker_1.world_size == 4
     assert actor_worker_2.world_size == 4
 
@@ -79,7 +75,7 @@ def test_split_resource_pool_with_split_size_list():
     ray.init()
     # assume we have 4 nodes, with 2 GPUs each
     global_resource_pool = RayResourcePool(process_on_nodes=[2, 2, 2, 2])
-    global_resource_pool.get_placement_groups(device_name=get_device_name())
+    global_resource_pool.get_placement_groups()
 
     # first 2 gpus for actor_1, last 6 gpus for actor_2
     actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(
@@ -88,12 +84,8 @@ def test_split_resource_pool_with_split_size_list():
     )
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
-    actor_worker_1 = RayWorkerGroup(
-        resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1, device_name=get_device_name()
-    )
-    actor_worker_2 = RayWorkerGroup(
-        resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2, device_name=get_device_name()
-    )
+    actor_worker_1 = RayWorkerGroup(resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1)
+    actor_worker_2 = RayWorkerGroup(resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2)
     assert actor_worker_1.world_size == 2
     assert actor_worker_2.world_size == 6
 
@@ -113,7 +105,7 @@ def test_split_resource_pool_with_split_size_list_cross_nodes():
     ray.init()
     # assume we have 4 nodes, with 2 GPUs each
     global_resource_pool = RayResourcePool(process_on_nodes=[4, 4])
-    global_resource_pool.get_placement_groups(device_name=get_device_name())
+    global_resource_pool.get_placement_groups()
 
     # first 2 gpus for actor_1, last 6 gpus for actor_2
     actor_1_resource_pool, actor_2_resource_pool = split_resource_pool(
@@ -122,12 +114,8 @@ def test_split_resource_pool_with_split_size_list_cross_nodes():
     )
     actor_cls_1 = RayClassWithInitArgs(cls=Actor, worker_id=0)
     actor_cls_2 = RayClassWithInitArgs(cls=Actor, worker_id=100)
-    actor_worker_1 = RayWorkerGroup(
-        resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1, device_name=get_device_name()
-    )
-    actor_worker_2 = RayWorkerGroup(
-        resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2, device_name=get_device_name()
-    )
+    actor_worker_1 = RayWorkerGroup(resource_pool=actor_1_resource_pool, ray_cls_with_init=actor_cls_1)
+    actor_worker_2 = RayWorkerGroup(resource_pool=actor_2_resource_pool, ray_cls_with_init=actor_cls_2)
 
     assert actor_worker_1.world_size == 2
     assert actor_worker_2.world_size == 6
@@ -149,7 +137,7 @@ def test_split_resource_pool_with_split_twice():
 
     # assume we have 4 nodes, with 2 GPUs each
     global_resource_pool = RayResourcePool(process_on_nodes=[2, 2, 2, 2])
-    global_resource_pool.get_placement_groups(device_name=get_device_name())
+    global_resource_pool.get_placement_groups()
 
     # actors with [2, 1, 1, 1, 1, 2] (split twice)
     rp_1, rp_2, rp_3 = split_resource_pool(

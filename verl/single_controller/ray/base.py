@@ -27,7 +27,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, Place
 from verl.protocol import DataProto, _padding_size_key
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
-from verl.utils.device import get_device_name
+from verl.utils.device import get_device_name, get_resource_name
 from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
@@ -112,21 +112,17 @@ class RayResourcePool(ResourcePool):
         self.detached = detached
         self.accelerator_type = accelerator_type
 
-    def get_placement_groups(self, strategy="STRICT_PACK", name=None, device_name="cuda"):
+    def get_placement_groups(self, strategy="STRICT_PACK", name=None):
         if self.pgs is not None:
             return self.pgs
 
         pg_name_prefix = (
             name if name else f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         )
-        # print(f"pg_name_prefix = {pg_name_prefix}")
-        if device_name == "npu":
-            device_name = "NPU"
-        elif device_name == "cuda":
-            device_name = "GPU"
 
         bundle = {"CPU": self.max_colocate_count}
         if self.use_gpu:
+            device_name = get_resource_name()
             bundle[device_name] = 1
             if self.accelerator_type is not None:
                 bundle[self.accelerator_type] = 1e-4
@@ -249,9 +245,7 @@ def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResour
     merged = type(rp1)(
         new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}", rp1.max_colocate_count, rp1.detached
     )
-    merged.pgs = rp1.get_placement_groups(device_name=get_device_name()) + rp2.get_placement_groups(
-        device_name=get_device_name()
-    )
+    merged.pgs = rp1.get_placement_groups() + rp2.get_placement_groups()
 
     return merged
 
@@ -293,7 +287,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         use_gpu: bool = True,
         num_gpus=1,
         sharing_with=None,
-        device_name="cuda",
+        **kwargs,
     ) -> Any:
         """Create and return a Ray actor with the configured options.
 
@@ -303,7 +297,7 @@ class RayClassWithInitArgs(ClassWithInitArgs):
             use_gpu: Whether to use GPU resources
             num_gpus: Number of GPUs to allocate
             sharing_with: Actor to share resources with
-            device_name: Device for training
+            kwargs: Additional keyword arguments
 
         Returns:
             A Ray actor handle with the configured options
@@ -321,10 +315,12 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         }
         options.update(self._options)
 
-        if use_gpu and device_name == "cuda":
-            options["num_gpus"] = num_gpus
-        if use_gpu and device_name == "npu":
-            options["resources"] = {"NPU": num_gpus}
+        if use_gpu:
+            device_name = get_device_name()
+            if device_name == "cuda":
+                options["num_gpus"] = num_gpus
+            elif device_name == "npu":
+                options["resources"] = {"NPU": num_gpus}
 
         if len(self._additional_resource) > 1:
             for k, v in self._additional_resource.items():
@@ -380,7 +376,7 @@ class RayWorkerGroup(WorkerGroup):
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
         # this WorkerGroup.
         self.sub_cls_name = ""
-        self.device_name = kwargs.get("device_name", "cuda")
+        self.device_name = kwargs.get("device_name", get_device_name())
         self.profile_steps = kwargs.get("profile_steps", None)
         self.worker_nsight_options = kwargs.get("worker_nsight_options", None)
         self.customized_worker_env = kwargs.get("worker_env", {})
@@ -469,7 +465,7 @@ class RayWorkerGroup(WorkerGroup):
         strategy = "PACK"
         if bin_pack:
             strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
+        pgs = resource_pool.get_placement_groups(strategy=strategy)
         world_size = resource_pool.world_size
         self._world_size = world_size
         # cia.add_kwarg("_world_size", world_size)
@@ -505,7 +501,7 @@ class RayWorkerGroup(WorkerGroup):
         strategy = "PACK"
         if bin_pack:
             strategy = "STRICT_PACK"
-        pgs = resource_pool.get_placement_groups(strategy=strategy, device_name=self.device_name)
+        pgs = resource_pool.get_placement_groups(strategy=strategy)
         world_size = resource_pool.world_size
         self._world_size = world_size
 
