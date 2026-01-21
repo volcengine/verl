@@ -1061,14 +1061,16 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                         ref_log_prob_meta = batch_meta.select_fields(ref_log_prob_fields)
                         with marked_timer(str(Role.RefPolicy), timing_raw, color="olive"):
                             ref_log_prob_output_meta = self._compute_ref_log_prob(ref_log_prob_meta)
-                            data = self.tq_client.get_data(ref_log_prob_output_meta.select_fields(["log_probs"]))
-                            ref_log_probs = TensorDict(
-                                {"ref_log_prob": data["log_probs"]},
-                                batch_size=data["log_probs"].size(0),
-                            )
-                            ref_log_prob_output_meta = self.tq_client.put(
-                                data=ref_log_probs, metadata=ref_log_prob_output_meta
-                            )
+                            if self.ref_in_actor:
+                                data = self.tq_client.get_data(ref_log_prob_output_meta.select_fields(["log_probs"]))
+                                ref_log_probs = TensorDict(
+                                    {"ref_log_prob": data["log_probs"]},
+                                    batch_size=data["log_probs"].size(0),
+                                )
+                                ref_log_prob_output_meta = self.tq_client.put(
+                                    data=ref_log_probs, metadata=ref_log_prob_output_meta
+                                )
+                                ref_log_prob_output_meta.field_names.remove("log_probs")
                             batch_meta = batch_meta.union(ref_log_prob_output_meta)
 
                     # compute values
