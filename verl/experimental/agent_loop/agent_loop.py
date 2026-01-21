@@ -409,6 +409,7 @@ class AgentLoopWorker:
         if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             self._create_transferqueue_client()
 
+    # TODO: 只通过tqbrige读取，put写回采用单条逻辑处理
     @tqbridge()
     async def generate_sequences(self, batch: DataProto) -> DataProto:
         """Generate sequences from agent loop.
