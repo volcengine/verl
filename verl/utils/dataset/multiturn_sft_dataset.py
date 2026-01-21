@@ -49,13 +49,19 @@ def once(func):
         if not hasattr(wrapper, "called"):
             wrapper.called = True
             return func(*args, **kwargs)
-        # Explicitly do nothing (no-op)
 
     return wrapper
 
 
 @once
 def tokenize_full_and_print(tokenizer, message_list, input_ids, loss_mask, attn_mask, tools):
+    """
+    Print the message after applying the chat template
+    """
+
+    # only the first rank will print
+    if torch.distributed.get_rank() != 0:
+        return
     tokenized = tokenizer.apply_chat_template(message_list, add_generation_prompt=False, tokenize=False, tools=tools)
     str1 = f"tokenized entire message:\n{tokenized}"
     str2 = f"tokenized seperately    :\n{tokenizer.decode(input_ids)}"
