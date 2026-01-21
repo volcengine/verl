@@ -42,8 +42,8 @@ def rollout_profile_args(config: DictConfig, global_step: int = 1) -> dict[str, 
 
     if backend not in backend_profile_builders:
         raise NotImplementedError(
-            f"Unsupported rollout backend: {config.rollout.name}, \
-               currently supported: {list(backend_profile_builders.keys())}"
+            f"Unsupported rollout backend: {config.rollout.name}, "
+            f"currently supported: {list(backend_profile_builders.keys())}"
         )
 
     return backend_profile_builders[backend](config, global_step)
