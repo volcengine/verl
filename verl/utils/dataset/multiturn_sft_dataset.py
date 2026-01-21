@@ -220,7 +220,6 @@ class MultiTurnSFTDataset(Dataset):
         apply_chat_template_kwargs = {**self.apply_chat_template_kwargs}
         if enable_thinking is not None:
             apply_chat_template_kwargs["enable_thinking"] = enable_thinking
-            apply_chat_template_kwargs["thinking"] = enable_thinking
 
         inputs = processor.apply_chat_template(
             [message],

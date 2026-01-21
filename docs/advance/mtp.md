@@ -2,7 +2,7 @@
 
 **Author**: `https://github.com/meituan-search`
 
-Last updated: 01/16/2026
+Last updated: 01/21/2026
 
 # 1. Scope of Support
 
@@ -40,6 +40,8 @@ Experiment chart:
 
 ![fully_async_policy_revenue](
 https://github.com/ArronHZG/verl-community/blob/main/docs/mimo-7b-mtp.png?raw=true)
+
+The wandb link for the graph: [wandb](https://wandb.ai/hou-zg-meituan/mimo-7b-sft-mtp?nw=nwuserhouzg)
 
 **Scenarios with No Significant Effect**
 
@@ -90,6 +92,7 @@ The SFT training with MTP is supported, using the same MTP training configuratio
 An example configuration for running SFT can be found in `examples/sft/gsm8k/run_mimo_megatron_mtp.sh`
 
 **SFT result**
+
 The experiment was conducted using following data:
 - model = mimo-7B-math
 - dataset = gsm8k
@@ -97,5 +100,4 @@ The experiment was conducted using following data:
 The result: [wandb link](https://wandb.ai/hou-zg-meituan/mimo-7b-sft-mtp?nw=nwuserhouzg)
 
 The presence of mtp layer has limited effect on main loss. However, when MTP layer is detached, the mtp_loss converges to a higher value.
-
 
