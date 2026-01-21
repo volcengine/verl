@@ -428,6 +428,7 @@ class AgentLoopWorker:
         sampling_params = dict(
             temperature=config.temperature,
             top_p=config.top_p,
+            top_k=config.top_k,
             repetition_penalty=1.0,
             logprobs=config.calculate_log_probs,
         )
@@ -435,6 +436,7 @@ class AgentLoopWorker:
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
+            sampling_params["top_k"] = config.val_kwargs.top_k
             sampling_params["temperature"] = config.val_kwargs.temperature
 
         # by default, we assume it's a single turn agent
@@ -836,13 +838,18 @@ class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
     def __init__(
-        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+        self,
+        config: DictConfig,
+        worker_group: RayWorkerGroup = None,
+        rollout_resource_pool: RayResourcePool = None,
+        rm_resource_pool: RayResourcePool = None,
     ):
         """Initialize agent loop manager.
 
         Args:
             config (DictConfig): trainer config.
             worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
+            rollout_resource_pool (RayResourcePool): Resource pool for actor rollout (Colocate or Standalone mode).
             rm_resource_pool (RayResourcePool): Resource pool for reward model (Standalone mode).
         """
         self.config = config
@@ -861,14 +868,14 @@ class AgentLoopManager:
         if not hasattr(self, "agent_loop_workers_class"):
             self.agent_loop_workers_class = ray.remote(AgentLoopWorker)
 
-        self._initialize_llm_servers()
+        self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
         # Initially we're in sleep mode.
         if self.config.actor_rollout_ref.rollout.free_cache_engine:
             self.sleep()
 
-    def _initialize_llm_servers(self):
+    def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
             * self.config.actor_rollout_ref.rollout.data_parallel_size
@@ -892,10 +899,19 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if self.worker_group:
+
+        if self.worker_group and rollout_config.name != "trtllm":
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        elif self.worker_group and rollout_config.name == "trtllm":
+            self._run_all(
+                [
+                    server.init_hybrid_colocated(self.worker_group, rollout_resource_pool)
+                    for server in self.rollout_replicas
+                ]
+            )
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
+
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
@@ -983,6 +999,7 @@ class AgentLoopManager:
         timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
         timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
         timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        timing["agent_loop/slowest/num_preempted"] = num_preempted[slowest]
 
         return timing
 
