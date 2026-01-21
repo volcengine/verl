@@ -621,7 +621,8 @@ class AgentLoopWorker:
             prompt_ids = prompt_ids.unsqueeze(0)
             response_ids = response_ids.unsqueeze(0)
             response_mask = response_mask.unsqueeze(0)
-            response_logprobs = response_logprobs.unsqueeze(0)
+            if response_logprobs is not None:
+                response_logprobs = response_logprobs.unsqueeze(0)
 
         input_ids = torch.cat([prompt_ids, response_ids], dim=1)
         attention_mask = torch.cat([torch.ones_like(prompt_ids), torch.ones_like(response_ids)], dim=1)
@@ -679,7 +680,7 @@ class AgentLoopWorker:
             extra_fields=output.extra_fields,
         ).to_tensordict()
 
-        return await self.tq_client.async_put(data, batch_meta=batch_meta)
+        return await self.tq_client.async_put(data=data, metadata=batch_meta)
 
     async def _agent_loop_postprocess(self, output: AgentLoopOutput, **kwargs) -> _InternalAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
