@@ -594,12 +594,22 @@ class AgentLoopWorker:
         batch_meta = kwargs.pop("batch_meta", None)
         output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
 
-        input_ids = torch.cat([output.prompt_ids, output.response_ids], dim=1)
-        attention_mask = torch.cat([output.attention_mask, torch.ones_like(output.response_ids)], dim=1)
+        prompt_ids = torch.tensor(output.prompt_ids)
+        response_ids = torch.tensor(output.response_ids)
+        response_mask = torch.tensor(output.response_mask)
 
         response_logprobs = None
         if output.response_logprobs is not None:
-            response_logprobs = torch.tensor(output.response_logprobs).unsqueeze(0)
+            response_logprobs = torch.tensor(output.response_logprobs)
+
+        if prompt_ids.dim() == 1:
+            prompt_ids = prompt_ids.unsqueeze(0)
+            response_ids = response_ids.unsqueeze(0)
+            response_mask = response_mask.unsqueeze(0)
+            response_logprobs = response_logprobs.unsqueeze(0)
+
+        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+        attention_mask = torch.cat([torch.ones_like(prompt_ids), torch.ones_like(response_ids)], dim=1)
 
         routed_experts = None
         if output.routed_experts is not None:
@@ -629,20 +639,20 @@ class AgentLoopWorker:
 
         await self._compute_score(
             output,
-            prompts=output.prompt_ids,
-            responses=output.response_ids,
+            prompts=prompt_ids,
+            responses=response_ids,
             attention_mask=attention_mask,
             input_ids=input_ids,
-            position_ids=output.position_ids,
+            position_ids=position_ids,
             kwargs=kwargs,
         )
 
         data = _InternalAgentLoopOutput(
-            prompt_ids=output.prompt_ids,
-            response_ids=output.response_ids,
+            prompt_ids=prompt_ids,
+            response_ids=response_ids,
             input_ids=input_ids,
             position_ids=position_ids,
-            response_mask=torch.ones_like(output.response_ids),
+            response_mask=response_mask,
             attention_mask=attention_mask,
             response_logprobs=response_logprobs,
             routed_experts=routed_experts,
