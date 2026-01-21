@@ -43,6 +43,8 @@ from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
+from verl.trainer.config import AlgoConfig
+from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
@@ -64,15 +66,16 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, repeat_dict, tqbridge
 from verl.workers.config import FSDPEngineConfig
 
+
 @tqbridge(put_data=True)
 def compute_advantage(
-        data: DataProto,
-        adv_estimator: AdvantageEstimator,
-        gamma: float = 1.0,
-        lam: float = 1.0,
-        num_repeat: int = 1,
-        norm_adv_by_std_in_grpo: bool = True,
-        config: Optional[AlgoConfig] = None,
+    data: DataProto,
+    adv_estimator: AdvantageEstimator,
+    gamma: float = 1.0,
+    lam: float = 1.0,
+    num_repeat: int = 1,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
 ) -> DataProto:
     """Compute advantage estimates for policy optimization.
 
@@ -115,8 +118,11 @@ def compute_advantage(
             )
 
             advantages_td = TensorDict(
-                {"advantages": advantages, "returns": returns,
-                 }, batch_size=advantages.size(0)
+                {
+                    "advantages": advantages,
+                    "returns": returns,
+                },
+                batch_size=advantages.size(0),
             )
             non_tensor_batch = {"pf_ppo_reweight_idx": pf_ppo_reweight_idx}
             return DataProto(batch=advantages_td, non_tensor_batch=non_tensor_batch)
@@ -147,10 +153,9 @@ def compute_advantage(
         # calculate advantage estimator
         advantages, returns = adv_estimator_fn(**adv_kwargs)
 
-    advantages_td = TensorDict(
-        {"advantages": advantages, "returns": returns}, batch_size=advantages.size(0)
-    )
+    advantages_td = TensorDict({"advantages": advantages, "returns": returns}, batch_size=advantages.size(0))
     return DataProto(batch=advantages_td)
+
 
 # TODO: dispatch these decorated functions from single-controller
 @tqbridge(put_data=False)
@@ -561,6 +566,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
         reward_config.transfer_queue = tq_config
         OmegaConf.set_struct(reward_config, True)
         from verl.workers.config.engine import TransferQueueConfig
+
         transferqueue_config = TransferQueueConfig.from_dict(tq_config)
 
         if self.hybrid_engine:

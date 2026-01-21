@@ -553,22 +553,21 @@ class DataProto:
             meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
-
     @classmethod
     def from_tensordict_without_tensor(
-            cls,
-            tensor_dict: TensorDict = None,
-            meta_info=None,
+        cls,
+        tensor_dict: TensorDict = None,
+        meta_info=None,
     ):
-        """Create a DataProto from a TensorDict which only contains non-tensor data.
-        """
+        """Create a DataProto from a TensorDict which only contains non-tensor data."""
         assert version.parse(tensordict.__version__) >= version.parse("0.10.0"), (
             "Build DataProto from TensorDict at least requires tensordict version 0.10.0"
         )
         from tensordict import NonTensorData, NonTensorStack
 
-        assert len(
-            tensor_dict.batch_size) == 1, "Batch size length needs to be 1 when using from_tensordict_without_tensor."
+        assert len(tensor_dict.batch_size) == 1, (
+            "Batch size length needs to be 1 when using from_tensordict_without_tensor."
+        )
         batch_size = tensor_dict.batch_size
 
         if meta_info is None:
@@ -586,7 +585,6 @@ class DataProto:
             non_tensor_batch=non_tensor_batch,
             meta_info=meta_info,
         )
-
 
     @classmethod
     def from_tensordict(

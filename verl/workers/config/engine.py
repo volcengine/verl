@@ -81,19 +81,28 @@ class TransferQueueConfig(BaseConfig):
     enable: bool = False
     num_global_batch: Optional[int] = None
     storage_backend: Optional[str] = None
+    controller_info: Optional[Any] = None  # TODO: update type hint once TransferQueue is default dependency.
+
+    # for AsyncSimpleStorageManager backend
     num_data_storage_units: Optional[int] = None
-    controller_info: Optional[Any] = None
     storage_unit_infos: Optional[dict[int, Any]] = None
 
     def __post_init__(self):
         if self.enable:
-            assert self.controller_info is not None, "controller_info required when enable=True"
-            assert self.storage_unit_infos is not None, "storage_unit_infos required when enable=True"
-            assert len(self.storage_unit_infos) == self.num_data_storage_units, \
-                f"storage_unit_infos size ({len(self.storage_unit_infos)}) must match num_data_storage_units ({self.num_data_storage_units})"
+            assert self.controller_info is not None, "controller_info is required when enabling TransferQueue"
+            assert self.storage_backend is not None, "storage_backend is required when enabling TransferQueue"
+
+            if self.storage_backend == "AsyncSimpleStorageManager":
+                assert self.storage_unit_infos is not None, (
+                    "storage_unit_infos required when using AsyncSimpleStorageManager backend"
+                )
+                assert len(self.storage_unit_infos) == self.num_data_storage_units, (
+                    f"storage_unit_infos size ({len(self.storage_unit_infos)}) must match "
+                    f"num_data_storage_units ({self.num_data_storage_units})"
+                )
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> 'TransferQueueConfig':
+    def from_dict(cls, config_dict: dict) -> "TransferQueueConfig":
         return cls(**config_dict)
 
 
@@ -286,17 +295,6 @@ class VeOmniEngineConfig(EngineConfig):
     def __post_init__(self):
         super().__post_init__()
         assert self.strategy in ["veomni"], f"strategy {self.strategy} not supported"
-
-
-@dataclass
-class TransferQueueConfig(BaseConfig):
-    enable: bool = False
-    num_global_batch: Optional[int] = None
-    storage_backend: Optional[str] = None
-    num_data_storage_units: Optional[int] = None
-
-    def __post_init__(self):
-        pass
 
 
 @dataclass
