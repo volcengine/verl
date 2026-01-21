@@ -77,6 +77,48 @@ class BaseRollout(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    async def start_profile_auto_stop(self, **kwargs):
+        """
+        Abstract method: Start profiling with auto-stop (wrapper for start_profile).
+
+        Args:
+            **kwargs: Must contain 'tags' dict with:
+                      - "activities": List of profiled activity types
+                      - "num_steps": Auto-stop step count
+
+        Returns:
+            Any: Engine response of profiling start
+        """
+        pass
+
+    @abstractmethod
+    async def start_profile(self, tags: dict[str, any] = None, profile_ranks: list[int] = None):
+        """
+        Abstract method: Start profiling (only for specified dp ranks).
+
+        Args:
+            tags: Profiling config (required: "activities"; optional: "num_steps")
+            profile_ranks: Target dp ranks (default: [0])
+
+        Returns:
+            Any: Engine response of profiling start
+        """
+        pass
+
+    @abstractmethod
+    async def stop_profile(self, profile_ranks: list[int] = None):
+        """
+        Abstract method: Stop profiling (only for specified dp ranks).
+
+        Args:
+            profile_ranks: Target dp ranks (default: [0])
+
+        Returns:
+            Any: Engine response of profiling stop
+        """
+        pass
+
 
 _ROLLOUT_REGISTRY = {
     ("vllm", "async"): "verl.workers.rollout.vllm_rollout.vLLMAsyncRollout",

@@ -70,6 +70,7 @@ from verl.utils.profiler import (
     GPUMemoryLogger,
     ProfilerConfig,
     log_gpu_memory_usage,
+    rollout_profile_args,
     simple_timer,
 )
 from verl.utils.profiler.performance import reduce_timing, topk_reduce_ratio_min_max
@@ -684,6 +685,12 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         set_expandable_segments(False)
 
+        if self.config.rollout.profiler.enable and self._do_profile:
+            await self.rollout.start_profile_auto_stop(
+                tags=rollout_profile_args(self.config, self._profile_step),
+                profile_ranks=self.config.rollout.profiler.ranks,
+            )
+
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
             log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
@@ -955,11 +962,14 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def start_profile(self, **kwargs) -> None:
         """Start profiling for the current rank in the current training step."""
+        self._profile_step = kwargs.get("profile_step", 1)
+        self._do_profile = True
         self.profiler.start(**kwargs)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def stop_profile(self) -> None:
         """Stop profiling for the current rank in the current training step."""
+        self._do_profile = False
         self.profiler.stop()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

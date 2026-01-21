@@ -200,3 +200,75 @@ class ServerAdapter(BaseRollout):
 
         if self.device_mesh["infer_tp"].get_local_rank() == 0:
             await self._engine.flush_cache()
+
+    async def start_profile_auto_stop(self, **kwargs):
+        """
+        Start performance profiling with auto-stop functionality.
+        This is a wrapper method that internally calls start_profile() with provided arguments.
+        Args:
+            **kwargs: Keyword arguments passed to start_profile().
+                     Must include 'tags' dict containing:
+                     - "activities": List of activity types to profile (e.g., ["cpu", "gpu"])
+                     - "num_steps": Number of steps after which profiling should auto-stop
+        Raises:
+            AssertionError: If 'tags' is not provided in kwargs, or if required keys
+                           ("activities" and "num_steps") are missing from tags.
+        return: Engine response of profiling start
+        """
+        assert "num_steps" in kwargs.get("tags", {}), (
+            "Missing required 'num_steps' in tags for auto-stop profiling for sglang. "
+        )
+        return await self.start_profile(**kwargs)
+
+    async def start_profile(self, tags: dict[str, any] = None, profile_ranks: list[int] = None):
+        """
+        Start performance profiling (only executed by specified rank processes)
+        Args:
+            tags: Profiling configuration tags, must contain "activities" (types of activities to profile),
+                     optional "num_steps" (steps for auto-stop)
+            profile_ranks: List of dp ranks to perform profiling, default = [0]
+        return: Engine response of profiling start
+        """
+        profile_ranks = profile_ranks or [0]
+        tags = tags or {}
+        if (
+            self.device_mesh["infer_tp"].get_local_rank() == 0
+            and self.device_mesh["dp"].get_local_rank() in profile_ranks
+        ):
+            assert tags.get("activities") is not None, "Please specify the activities to profile."
+            await self._init_server_adapter()
+
+            response = await self._engine.start_profile(tags=tags)
+            if response:
+                self._profiling = True
+                self._rollout_profile_auto_stop = "num_steps" in tags
+            else:
+                self._profiling = None
+            logger.debug(f"Start profile done for rank {self.device_mesh['dp'].get_local_rank()}. Response: {response}")
+            return response
+        else:
+            return None
+
+    async def stop_profile(self, profile_ranks: list[int] = None):
+        """
+        Stop performance profiling (only executed by specified rank processes)
+        Args:
+            profile_ranks: List of dp ranks to stop profiling, default = [0]
+        return: Engine response of profiling stop
+        """
+        profile_ranks = profile_ranks or [0]
+        if (
+            self.device_mesh["infer_tp"].get_local_rank() == 0
+            and self.device_mesh["dp"].get_local_rank() in profile_ranks
+        ):
+            logger.debug(f"Try to stopping rollout profile for rank {self.device_mesh['dp'].get_local_rank()}.")
+            if not self._profiling or self._rollout_profile_auto_stop:
+                return None
+
+            await self._init_server_adapter()
+            response = await self._engine.stop_profile()
+            if response:
+                self._profiling = False
+            return response
+        else:
+            return None

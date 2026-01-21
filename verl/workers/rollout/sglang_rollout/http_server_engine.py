@@ -941,6 +941,26 @@ class AsyncHttpServerAdapter(HttpServerAdapter):
             lora_path=lora_path,
         )
 
+    async def start_profile(self, tags: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Start profile
+
+        Args:
+            tags (Optional[List[str]], optional): Arguments for profiling. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: Server response indicating profile status
+        """
+        return await self._make_async_request("start_profile", payload=tags)
+
+    async def stop_profile(self) -> dict[str, Any]:
+        """Stop profile
+
+        Args:
+        Returns:
+            Dict[str, Any]: Server response indicating profile status
+        """
+        return await self._make_async_request("stop_profile", payload=None)
+
     async def abort_request(self, rid: str = "", abort_all: bool = False) -> dict[str, Any]:
         """Abort a request asynchronously.
 
