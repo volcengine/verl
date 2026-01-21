@@ -1015,6 +1015,14 @@ class AgentLoopManager:
         """Clear all rollout kv cache, but don`t sleep."""
         self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
 
+    def start_profile(self, **kwargs):
+        """Start profiling on all rollout replicas."""
+        self._run_all([replica.start_profile(**kwargs) for replica in self.rollout_replicas])
+
+    def stop_profile(self):
+        """Stop profiling on all rollout replicas."""
+        self._run_all([replica.stop_profile() for replica in self.rollout_replicas])
+
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
             await asyncio.gather(*tasks)
