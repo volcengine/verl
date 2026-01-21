@@ -11,18 +11,10 @@ AtroposConfig
    :undoc-members:
    :show-inheritance:
 
-AtroposEnvironmentClient
-------------------------
+AtroposTrainerClient
+--------------------
 
-.. autoclass:: recipe.atropos.AtroposEnvironmentClient
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-AtroposGRPOComputer
--------------------
-
-.. autoclass:: recipe.atropos.AtroposGRPOComputer
+.. autoclass:: recipe.atropos.AtroposTrainerClient
    :members:
    :undoc-members:
    :show-inheritance:

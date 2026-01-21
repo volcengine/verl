@@ -123,6 +123,9 @@ GRPO runs inside VERL's PPO scaffold (`RayPPOTrainer`) using
 `token_level_advantages` that override the default GRPO computation when
 provided by the Atropos API.
 
+The trainer registers with Atropos via `POST /register` and polls `GET /batch`.
+Atropos environments post scored data via `/scored_data` or `/scored_data_list`.
+
 Quick Reference
 ---------------
 
@@ -130,3 +133,8 @@ Quick Reference
 
    python recipe/atropos/launch_atropos_verl_services.py \
      --config recipe/atropos/config/atropos_grpo_small.yaml
+
+   # Standard VERL overrides are supported after `--`
+   python recipe/atropos/launch_atropos_verl_services.py \
+     --config recipe/atropos/config/atropos_grpo_small.yaml -- \
+     trainer.total_epochs=1 data.train_batch_size=2 actor_rollout_ref.rollout.n=2
