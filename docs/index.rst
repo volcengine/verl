@@ -63,7 +63,6 @@ verl is fast with:
    examples/gsm8k_example
    examples/multi_modal_example
    examples/atropos_integration
-   examples/atropos_quick_reference
    examples/skypilot_examples
 
 .. toctree::

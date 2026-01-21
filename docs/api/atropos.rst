@@ -3,70 +3,34 @@
 Atropos Integration API
 ======================
 
-AtroposRLTrainer
-----------------
-
-.. autoclass:: recipe.atropos.main_atropos.AtroposRLTrainer
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-AtroposDataLoader
------------------
-
-.. autoclass:: recipe.atropos.data_loader.AtroposDataLoader
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-AtroposShardingManager
-----------------------
-
-.. autoclass:: recipe.atropos.main_atropos.AtroposShardingManager
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-AtroposAPI
-----------
-
-.. autoclass:: recipe.atropos.atropos_api.AtroposAPI
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Configuration Classes
---------------------
-
 AtroposConfig
-~~~~~~~~~~~~~
+-------------
 
-.. autoclass:: recipe.atropos.config.AtroposConfig
+.. autoclass:: recipe.atropos.AtroposConfig
    :members:
    :undoc-members:
    :show-inheritance:
 
-DataConfig
-~~~~~~~~~~
+AtroposEnvironmentClient
+------------------------
 
-.. autoclass:: recipe.atropos.config.DataConfig
+.. autoclass:: recipe.atropos.AtroposEnvironmentClient
    :members:
    :undoc-members:
    :show-inheritance:
 
-TrainingConfig
-~~~~~~~~~~~~~~
+AtroposGRPOComputer
+-------------------
 
-.. autoclass:: recipe.atropos.config.TrainingConfig
+.. autoclass:: recipe.atropos.AtroposGRPOComputer
    :members:
    :undoc-members:
    :show-inheritance:
 
-Utility Functions
------------------
+RayGRPOAtroposTrainer
+---------------------
 
-.. autofunction:: recipe.atropos.utils.compute_advantages_from_atropos
-.. autofunction:: recipe.atropos.utils.compute_advantages_from_gpro
-.. autofunction:: recipe.atropos.utils.compute_advantage_weighted_loss
-.. autofunction:: recipe.atropos.utils.normalize_advantages
-.. autofunction:: recipe.atropos.utils.clip_advantages 
+.. autoclass:: recipe.atropos.grpo_atropos_trainer.RayGRPOAtroposTrainer
+   :members:
+   :undoc-members:
+   :show-inheritance:
