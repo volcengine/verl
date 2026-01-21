@@ -167,6 +167,15 @@ print(get_device_name())
 EOF
 )
 
+    extra_flash_args=()
+
+    if [ "$device_name" == "npu" ]; then
+        echo "Detect NPU device, enabling FlashAttention..."
+        extra_flash_args+=(
+            ++actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True
+        )
+    fi
+
     # For Ascend NPU, please add:
     #++actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True \
     #++actor_rollout_ref.ref.megatron.override_transformer_config.use_flash_attn=True \
