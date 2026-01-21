@@ -225,9 +225,9 @@ class RLHFDataset(Dataset):
                                 text=[raw_prompt],
                                 images=images,
                                 videos=videos,
-                                video_metadatas=video_metadatas,  # 直接传 video_metadatas
-                                return_tensors="pt",               # 添加 return_tensors
-                                do_sample_frames=False,            # 添加 do_sample_frames(为了和后面的逻辑保持一致)
+                                video_metadatas=video_metadatas, 
+                                return_tensors="pt",               
+                                do_sample_frames=False,            
                             )["input_ids"][0]
                         )
 
