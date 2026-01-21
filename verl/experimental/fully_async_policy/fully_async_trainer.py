@@ -115,11 +115,11 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
         self.required_samples = config.actor_rollout_ref.actor.ppo_mini_batch_size * self.require_batches
         # Number of trajectories to be acquired at one time(filter mode)
         self.trajectories_per_request = None
-        # The extra or remaining trajectories requested last time(filter mode)
         self.trajectories_per_request = (
-            self.config.filter.trajectories_per_request
-            or self.required_samples * self.config.actor_rollout_ref.rollout.n
-        )
+            self.config.filter.trajectories_per_mini_batch
+            or self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+        ) * self.require_batches
+        # The extra or remaining trajectories requested last time(filter mode)
         self.excess_batch = DataProto(None, {}, {})
         self.compute_prox_log_prob = self.config.async_training.compute_prox_log_prob
         total_gpus = (
@@ -567,7 +567,8 @@ class FullyAsyncTrainer(FullyAsyncRayPPOTrainer):
                     use_trainer_do_validate=self.config.async_training.use_trainer_do_validate,
                 )
             )
-
+        if self.config.async_training.force_cleanup_stale_samples:
+            self.excess_batch = DataProto(None, {}, {})
         #  do trainer validate
         do_validate_param = (
             self.config.rollout.test_freq > 0

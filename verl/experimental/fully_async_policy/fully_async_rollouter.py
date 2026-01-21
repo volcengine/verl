@@ -169,9 +169,13 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
         # Trajectories requested by trainer between parameter syncs
         self.request_trajectories_per_sync = (
-            self.config.filter.trajectories_per_request
-            or self.required_samples * self.config.actor_rollout_ref.rollout.n
-        ) * self.config.async_training.trigger_parameter_sync_step
+            (
+                self.config.filter.trajectories_per_mini_batch
+                or self.config.actor_rollout_ref.actor.ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
+            )
+            * self.require_batches
+            * self.config.async_training.trigger_parameter_sync_step
+        )
         # Max trajectories generated between parameter syncs
         self.max_generate_trajectories_per_sync = int(
             self.request_trajectories_per_sync * (self.staleness_threshold + 1)
@@ -298,9 +302,19 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         generated_trajectory_count_tmp = self.generated_trajectory_count
         # reset generated_trajectory_count to number of extra trajectories generated
         # warning, When validate=true, it occurs outside of the training process, and 0 should be subtracted.
-        self.generated_trajectory_count -= (
-            self.request_trajectories_per_sync if not validate and global_steps > 0 else 0
-        )
+        if self.config.async_training.force_cleanup_stale_samples:
+            self.generated_trajectory_count = 0
+            while not self.cancel_queue.empty():
+                try:
+                    _ = self.cancel_queue.get_nowait()
+                    self.task_done()
+                except asyncio.QueueEmpty:
+                    break
+            print("[FullyAsyncRollouter]: clear cancel_queue(drop partial task)")
+        else:
+            self.generated_trajectory_count -= (
+                self.request_trajectories_per_sync if not validate and global_steps > 0 else 0
+            )
 
         self.sync_sampled_trajectory_count = 0
         self.sync_kept_trajectory_count = 0

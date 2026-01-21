@@ -122,6 +122,10 @@ class MessageQueue:
             old_version = self.current_param_version
             self.current_param_version = version
             print(f"Parameter version updated from {old_version} to {version}")
+            if self.config.async_training.force_cleanup_stale_samples:
+                print(f"MessageQueue clear, drop {len(self.queue)} samples, {self.trajectory_count} trajectories")
+                self.queue.clear()
+                self.trajectory_count = 0
 
     async def get_queue_size(self) -> int:
         """Get current queue length"""
