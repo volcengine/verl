@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
+import verl.utils.tensordict_utils as tu
 from verl.experimental.agent_loop.prometheus_utils import update_prometheus_config
 from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.experimental.reward_loop import RewardLoopWorker
@@ -47,7 +48,6 @@ from verl.utils.rollout_trace import (
     rollout_trace_attr,
     rollout_trace_op,
 )
-from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 
 if TYPE_CHECKING:
@@ -184,6 +184,52 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
     """Multi-modal inputs for processors (e.g., pixel_values, image_grid_thw)."""
     extra_fields: dict[str, Any] = {}
     """Extra fields for dynamic addition."""
+
+    def to_tensordict(self):
+        """
+        Convert to a TensorDict.
+
+        Returns:
+            TensorDict: converted TensorDict.
+        """
+        tensor_data = {}
+        non_tensor_data = {}
+
+        # 1. compulsory tensor fields
+        tensor_data.update(
+            {
+                "prompt_ids": self.prompt_ids,
+                "response_ids": self.response_ids,
+                "input_ids": self.input_ids,
+                "position_ids": self.position_ids,
+                "response_mask": self.response_mask,
+                "attention_mask": self.attention_mask,
+            }
+        )
+
+        # 2. optional tensor fields
+        if self.response_logprobs is not None:
+            tensor_data["response_logprobs"] = self.response_logprobs
+
+        if self.routed_experts is not None:
+            tensor_data["routed_experts"] = self.routed_experts
+
+        # 3. multi-modal inputs
+        if self.multi_modal_inputs is not None:
+            non_tensor_data["multi_modal_inputs"] = self.multi_modal_inputs
+
+        # 4. extra_fields
+        extra_fields = {}
+        all_keys = set(key for key in self.extra_fields)
+        for key in all_keys:
+            extra_fields[key] = np.array([self.extra_fields.get(key)], dtype=object)
+
+        non_tensor_data.update(extra_fields)
+
+        # 5. construct tensordict
+        td = tu.get_tensordict(tensor_dict=tensor_data, non_tensor_dict=non_tensor_data)
+
+        return td
 
 
 class DictConfigWrap:
@@ -406,19 +452,18 @@ class AgentLoopWorker:
             trace_config.get("max_samples_per_step_per_worker", None),
         )
 
+        self.tq_client = None
         if self.config.get("transfer_queue", None) and self.config.transfer_queue.get("enable", False):
             self._create_transferqueue_client()
 
-    # TODO: 只通过tqbrige读取，put写回采用单条逻辑处理
-    @tqbridge()
-    async def generate_sequences(self, batch: DataProto) -> DataProto:
+    async def generate_sequences(self, batch: DataProto | BatchMeta) -> DataProto | BatchMeta:
         """Generate sequences from agent loop.
 
         Args:
-            batch (DataProto): Input batch.
+            batch (DataProto | BatchMeta): Input batch.
 
         Returns:
-            DataProto: Output batch.
+            DataProto | BatchMeta: Output batch.
             - prompts: [bsz, prompt_length], prompt token ids from dataset.
             - responses: [bsz, response_length], output token ids include response tokens
               from LLM generation and observation tokens from tool_calls.
@@ -432,6 +477,12 @@ class AgentLoopWorker:
             responses:     |<- LLM generation ->|<- tool_calls ->|<- LLM generation ->|<- padding ->|
             response_mask: | 1, 1, 1, ..., 1, 1 | 0, 0, .., 0, 0 | 1, 1, 1, ..., 1, 1 | 0, 0, ..., 0|
         """
+        if isinstance(batch, BatchMeta) and self.tq_client is not None:
+            batch_meta = batch
+            batch = self.tq_client.async_get_data(batch_meta)
+        else:
+            batch_meta = None
+
         config = self.config.actor_rollout_ref.rollout
         sampling_params = dict(
             temperature=config.temperature,
@@ -483,12 +534,21 @@ class AgentLoopWorker:
             kwargs = {k: v[i] for k, v in batch.non_tensor_batch.items()}
             tasks.append(
                 asyncio.create_task(
-                    self._run_agent_loop(sampling_params, trajectory_info[i], trace=trace_this_sample, **kwargs)
+                    self._run_agent_loop(
+                        sampling_params,
+                        trajectory_info[i],
+                        trace=trace_this_sample,
+                        batch_meta=batch_meta.select_samples([i]),
+                        **kwargs,
+                    )
                 )
             )
         outputs = await asyncio.gather(*tasks)
 
-        output = self._postprocess(outputs)
+        if self.tq_client is not None:
+            output = BatchMeta.concat(outputs)
+        else:
+            output = self._postprocess(outputs)
 
         return output
 
@@ -500,7 +560,7 @@ class AgentLoopWorker:
         agent_name: str,
         trace: bool = True,
         **kwargs,
-    ) -> _InternalAgentLoopOutput:
+    ) -> _InternalAgentLoopOutput | BatchMeta:
         with rollout_trace_attr(
             step=trajectory["step"],
             sample_index=trajectory["sample_index"],
@@ -524,9 +584,79 @@ class AgentLoopWorker:
                 dataset_config=self.config.data,
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
-            return await self._agent_loop_postprocess(output, **kwargs)
 
-    async def _agent_loop_postprocess(self, output, **kwargs) -> _InternalAgentLoopOutput:
+            if self.tq_client is not None:
+                return await self._agent_loop_postprocess_tq(output, **kwargs)
+            else:
+                return await self._agent_loop_postprocess(output, **kwargs)
+
+    async def _agent_loop_postprocess_tq(self, output: AgentLoopOutput, **kwargs) -> BatchMeta:
+        batch_meta = kwargs.pop("batch_meta", None)
+        output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
+
+        input_ids = torch.cat([output.prompt_ids, output.response_ids], dim=1)
+        attention_mask = torch.cat([output.attention_mask, torch.ones_like(output.response_ids)], dim=1)
+
+        response_logprobs = None
+        if output.response_logprobs is not None:
+            response_logprobs = torch.tensor(output.response_logprobs).unsqueeze(0)
+
+        routed_experts = None
+        if output.routed_experts is not None:
+            total_length = input_ids.shape[1]
+            length, layer_num, topk_num = output.routed_experts.shape
+            if isinstance(output.routed_experts, np.ndarray):
+                experts_tensor = torch.from_numpy(output.routed_experts)
+            elif isinstance(output.routed_experts, torch.Tensor):
+                experts_tensor = output.routed_experts
+            else:
+                raise TypeError(f"Unsupported type for routed_experts: {type(output.routed_experts)}")
+            routed_experts = torch.zeros(1, total_length, layer_num, topk_num, dtype=experts_tensor.dtype)
+
+            start_pos = 0  # there is no padding when using TransferQueue
+            end_pos = min(start_pos + length, total_length)
+
+            # Add boundary checks for robustness
+            if start_pos < 0 or end_pos > total_length:
+                raise ValueError(
+                    f"Invalid position range: start_pos={start_pos}, end_pos={end_pos}, total_length={total_length}"
+                )
+
+            routed_experts[:, start_pos:end_pos] = experts_tensor.unsqueeze(0)
+
+        multi_modal_inputs = self._compute_multi_modal_inputs(output, input_ids)
+        position_ids = self._compute_position_ids(input_ids, attention_mask, multi_modal_inputs)
+
+        await self._compute_score(
+            output,
+            prompts=output.prompt_ids,
+            responses=output.response_ids,
+            attention_mask=attention_mask,
+            input_ids=input_ids,
+            position_ids=output.position_ids,
+            kwargs=kwargs,
+        )
+
+        data = _InternalAgentLoopOutput(
+            prompt_ids=output.prompt_ids,
+            response_ids=output.response_ids,
+            input_ids=input_ids,
+            position_ids=position_ids,
+            response_mask=torch.ones_like(output.response_ids),
+            attention_mask=attention_mask,
+            response_logprobs=response_logprobs,
+            routed_experts=routed_experts,
+            multi_modal_inputs=multi_modal_inputs,
+            multi_modal_data=output.multi_modal_data,
+            reward_score=output.reward_score,
+            num_turns=output.num_turns,
+            metrics=output.metrics,
+            extra_fields=output.extra_fields,
+        ).to_tensordict()
+
+        return await self.tq_client.async_put(data, batch_meta=batch_meta)
+
+    async def _agent_loop_postprocess(self, output: AgentLoopOutput, **kwargs) -> _InternalAgentLoopOutput:
         """Perform post-processing operations on the output of each individual agent loop."""
         output.extra_fields["raw_prompt"] = kwargs["raw_prompt"]
 

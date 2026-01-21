@@ -194,7 +194,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         """
         # TODO(TQ): need to remove the pad and unpad processing
-        if self.tq_config is not None and self.tq_config['enable']:
+        if self.tq_config is not None and self.tq_config["enable"]:
             data = left_right_2_no_padding(data)
         maybe_fix_3d_position_ids(data)
         batch_size_per_dp = data.shape[0]
@@ -268,8 +268,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
                 output = None
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False,
-    put_data = False, convert_type = "TensorDict")
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"),
+        blocking=False,
+        put_data=False,
+        convert_type="TensorDict",
+    )
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         assert not self.engine_config.forward_only, "Can't run `train_batch` when forward_only is in the engine config."
@@ -558,7 +562,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
         # TODO(TQ): need to remove the pad and unpad processing
-        if self.tq_config is not None and self.tq_config['enable']:
+        if self.tq_config is not None and self.tq_config["enable"]:
             data = left_right_2_no_padding(data)
             output = self.ref.infer_batch(data=data)
             log_probs = tu.get(output, "log_probs")
@@ -574,7 +578,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
         # TODO(TQ): need to remove the pad and unpad processing
-        if self.tq_config is not None and self.tq_config['enable']:
+        if self.tq_config is not None and self.tq_config["enable"]:
             data = left_right_2_no_padding(data)
             output = self.actor.infer_batch(data)
             entropy = tu.get(output, "entropy")
