@@ -996,7 +996,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             old_log_prob_meta = batch_meta.select_fields(old_log_prob_meta_fields)
                             old_log_prob_output_meta, old_log_prob_mfu = self._compute_old_log_prob(old_log_prob_meta)
 
-                            data = self.tq_client.get_data(old_log_prob_output_meta.select_fields(["log_probs"]))
+                            data = self.tq_client.get_data(old_log_prob_output_meta.select_fields(["log_probs", "response_mask", "entropys"]))
                             old_log_probs = TensorDict(
                                 {"old_log_probs": data["log_probs"]},
                                 batch_size=data["log_probs"].size(0),
@@ -1004,8 +1004,10 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             old_log_prob_output_meta = self.tq_client.put(
                                 data=old_log_probs, metadata=old_log_prob_output_meta
                             )
-                            old_log_prob_output_fields = ["response_mask", "old_log_probs", "entropys"]
-                            data = self.tq_client.get_data(batch_meta.select_fields(old_log_prob_output_fields))
+
+                            old_log_prob_output_meta.field_names.remove("log_probs")
+                            old_log_prob_output_meta.field_names.remove("entropys")
+
                             entropys = data["entropys"]
                             response_masks = data["response_mask"]
                             actor_config = self.config.actor_rollout_ref.actor
