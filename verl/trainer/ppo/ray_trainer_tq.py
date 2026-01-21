@@ -350,7 +350,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             actor_output = self.actor_rollout_wg.update_actor(batch_meta)
         return actor_output
 
-    def _update_critic(self, batch_meta: BatchMeta) -> BatchMeta:
+    def _update_critic(self, batch_meta: BatchMeta) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
             ppo_mini_batch_size = self.config.critic.ppo_mini_batch_size
             ppo_mini_batch_size = ppo_mini_batch_size * self.config.actor_rollout_ref.rollout.n
@@ -365,15 +365,15 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 "dataloader_kwargs": {"shuffle": shuffle},
             }
             batch_meta.update_extra_info(extra_meta)
-            critic_output_meta = self.critic_wg.train_mini_batch(batch_meta)
-            output = critic_output_meta.extra_info.get("metrics")
+            output = self.critic_wg.train_mini_batch(batch_meta)
+            output = tu.get(output, "metrics")
             output = rename_dict(output, "critic/")
             # modify key name
             output["perf/mfu/critic"] = output.pop("critic/mfu")
-            critic_output_meta.set_extra_info("metrics", output)
+            critic_output = DataProto.from_single_dict(data={}, meta_info={"metrics": output})
         else:
-            critic_output_meta = self.critic_wg.update_critic(batch_meta)
-        return critic_output_meta
+            critic_output = self.critic_wg.update_critic(batch_meta)
+        return critic_output
 
     def _get_gen_batch_fields(self, non_tensor_batch_keys: set) -> set:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & non_tensor_batch_keys
@@ -1189,9 +1189,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                     # update critic
                     if self.use_critic:
                         with marked_timer("update_critic", timing_raw, color="pink"):
-                            critic_output_meta = self._update_critic(batch_meta)
-                            batch_meta = batch_meta.union(critic_output_meta)
-                        critic_output_metrics = reduce_metrics(critic_output_meta.extra_info["metrics"])
+                            critic_output = self._update_critic(batch_meta)
+                        critic_output_metrics = reduce_metrics(critic_output.meta_info["metrics"])
                         metrics.update(critic_output_metrics)
 
                     # implement critic warmup
