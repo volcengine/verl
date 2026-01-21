@@ -318,7 +318,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
             old_log_prob_mfu = 0
         return output_meta, old_log_prob_mfu
 
-    def _update_actor(self, batch_meta: BatchMeta) -> BatchMeta:
+    def _update_actor(self, batch_meta: BatchMeta) -> DataProto:
         rollout_config = self.config.actor_rollout_ref.rollout
         batch_meta.set_extra_info("multi_turn", rollout_config.multi_turn.enable)
         # TODO: Make "temperature" single source of truth from generation.
@@ -340,15 +340,15 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                 "dataloader_kwargs": {"shuffle": shuffle},
             }
             batch_meta.update_extra_info(extra_meta)
-            actor_output_meta = self.actor_rollout_wg.update_actor(batch_meta)
-            actor_output = actor_output_meta.extra_info.get("metrics")
-            actor_output = rename_dict(actor_output, "actor/")
+            output = self.actor_rollout_wg.update_actor(batch_meta)
+            output = tu.get(output, "metrics")
+            output = rename_dict(output, "actor/")
             # modify key name
-            actor_output["perf/mfu/actor"] = actor_output.pop("actor/mfu")
-            actor_output_meta.set_extra_info("metrics", actor_output)
+            output["perf/mfu/actor"] = output.pop("actor/mfu")
+            actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": output})
         else:
-            actor_output_meta = self.actor_rollout_wg.update_actor(batch_meta)
-        return actor_output_meta
+            actor_output = self.actor_rollout_wg.update_actor(batch_meta)
+        return actor_output
 
     def _update_critic(self, batch_meta: BatchMeta) -> BatchMeta:
         if self.use_legacy_worker_impl == "disable":
@@ -1221,8 +1221,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                                 "ability",
                             ]
                             update_actor_meta = batch_meta.select_fields(update_actor_fields)
-                            actor_output_meta = self._update_actor(update_actor_meta)
-                        actor_output_metrics = reduce_metrics(actor_output_meta.extra_info["metrics"])
+                            actor_output = self._update_actor(update_actor_meta)
+                        actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 
                     # Log rollout generations if enabled
