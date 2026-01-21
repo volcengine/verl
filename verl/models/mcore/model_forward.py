@@ -158,7 +158,7 @@ def model_forward_gen(vision_model: bool = False):
     return model_forward
 
 
-def gptmodel_forward_no_padding(
+def gptmodel_forward_model_engine(
     model,
     input_ids,
     multi_modal_inputs: dict,

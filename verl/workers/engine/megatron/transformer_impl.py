@@ -622,12 +622,12 @@ class MegatronEngineWithLMHead(MegatronEngine):
         else:
             raise NotImplementedError(f"Pad mode {pad_mode} is not supported for megatron engine")
 
-        from verl.models.mcore import get_mcore_forward_no_padding_fn
+        from verl.models.mcore import get_mcore_engine_forward_fn
 
         if use_fused_kernels:
             raise NotImplementedError("Fused kernels are not supported for megatron engine")
 
-        forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
+        forward_fn = get_mcore_engine_forward_fn(self.model_config.hf_config)
 
         def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
@@ -706,9 +706,9 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
         input_ids = model_inputs["input_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
 
-        from verl.models.mcore import get_mcore_forward_no_padding_fn
+        from verl.models.mcore import get_mcore_engine_forward_fn
 
-        forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
+        forward_fn = get_mcore_engine_forward_fn(self.model_config.hf_config)
 
         output = forward_fn(
             model,
