@@ -220,7 +220,7 @@ class ServerAdapter(BaseRollout):
         )
         return await self.start_profile(**kwargs)
 
-    async def start_profile(self, tags: dict[str, any] = None, profile_ranks: list[int] = None):
+    async def start_profile(self, tags: dict[str, Any] = None, profile_ranks: list[int] = None):
         """
         Start performance profiling (only executed by specified rank processes)
         Args:
