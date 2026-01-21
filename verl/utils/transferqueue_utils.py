@@ -174,18 +174,21 @@ async def _async_batchmeta_to_realdata(
     tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
 
     if convert_type == "DataProto":
-        if tensordict.batch_size[0] == 0:
-            return DataProto(
-                batch=TensorDict({}, batch_size=(0,)),
-                non_tensor_batch={},
-                meta_info=meta_info,
+        if all(not isinstance(val, torch.Tensor) for val in tensordict.values()):
+            non_tensor_batch = {}
+            for key, val in tensordict.items():
+                if isinstance(val, NonTensorStack):
+                    non_tensor_batch[key] = np.array([elem.data for elem in val], dtype=object)
+                elif isinstance(val, NonTensorData) and key not in meta_info.keys():
+                    meta_info[key] = val.data
+            dataproto = DataProto(
+                batch=None,
+                non_tensor_batch=non_tensor_batch,
+                meta_info=meta_info
             )
         else:
-            if all(not isinstance(val, torch.Tensor) for val in tensordict.values()):
-                dataproto = DataProto.from_tensordict_without_tensor(tensordict, meta_info=meta_info)
-            else:
-                dataproto = DataProto.from_tensordict(tensordict, meta_info=meta_info)
-            return dataproto
+            dataproto = DataProto.from_tensordict(tensordict, meta_info=meta_info)
+        return dataproto
     else:
         for key, val in meta_info.items():
             if isinstance(val, (NonTensorData | NonTensorStack)):
