@@ -560,7 +560,10 @@ class MegatronEngine(BaseEngine):
 
         if self.model_config.mtp.enable and self.is_mp_src_rank_with_outputs():
             # add mtp_losses
-            losses_reduced = get_megatron_mtp_loss(losses_reduced, n_micro_batch)
+            metrics = get_megatron_mtp_loss(n_micro_batch)
+            if "metrics" not in losses_reduced[0]:
+                losses_reduced[0]["metrics"] = {}
+            losses_reduced[0]["metrics"].update(metrics)
 
         # loss_reduces contains the stats returned from loss_func
         if mpu.is_pipeline_last_stage(ignore_virtual=True):

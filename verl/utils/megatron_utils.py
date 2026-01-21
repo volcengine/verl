@@ -1243,7 +1243,7 @@ def mapping_string_to_attn_backend(args: dict) -> dict:
     return args
 
 
-def get_megatron_mtp_loss(output, n_micro_batch):
+def get_megatron_mtp_loss(n_micro_batch):
     # Calculate MTP loss scale similar to Megatron-LM implementation
     mtp_loss_scale = 1.0 / n_micro_batch
 
@@ -1256,12 +1256,13 @@ def get_megatron_mtp_loss(output, n_micro_batch):
     )
     # Add MTP metrics to losses_reduced if any were collected
     # total_loss_dict: {'mtp_1 loss': tensor(value, device='cuda:0')}
+    output = {}
     if total_loss_dict:
         for key, value in total_loss_dict.items():
             # Convert key to have proper prefix and format
             formatted_key = f"mtp_losses/{key.replace(' ', '_')}"
             # only added to the 0th batch, the MTP loss obtained is a global value, and will be the same for every batch
-            output[0]["metrics"][formatted_key] = value.cpu().item()
+            output[formatted_key] = value.cpu().item()
     return output
 
 
