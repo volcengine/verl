@@ -1,4 +1,4 @@
-# Guide to Using MTP in RL Training and Inference
+# Guide to Using MTP in SFT/RL Training and Inference
 
 **Author**: `https://github.com/meituan-search`
 
@@ -82,3 +82,20 @@ Taking the mimo-7B model deployed separately on H20 hardware using SGLang as an 
 - Current priority recommendation: Do not enable MTP acceleration during the inference phase for now;
 
 - Future planning: Further optimization of the speculative logic in the Rollout phase will be conducted to improve throughput performance.
+
+# 5. SFT training
+
+The SFT training with MTP is supported, using the same MTP training configuration as RL training.
+
+An example configuration for running SFT can be found in `examples/sft/gsm8k/run_mimo_megatron_mtp.sh`
+
+**SFT result**
+The experiment was conducted using following data:
+- model = mimo-7B-math
+- dataset = gsm8k
+
+The result: [wandb link](https://wandb.ai/hou-zg-meituan/mimo-7b-sft-mtp?nw=nwuserhouzg)
+
+The presence of mtp layer has limited effect on main loss. However, when MTP layer is detached, the mtp_loss converges to a higher value.
+
+
