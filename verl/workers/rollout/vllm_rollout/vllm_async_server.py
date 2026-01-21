@@ -549,8 +549,6 @@ class vLLMHttpServer:
 
     async def sleep(self):
         if self.rollout_mode == RolloutMode.HYBRID:
-            if self.node_rank == 0:
-                await self.engine.reset_prefix_cache()
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
             if self.node_rank == 0:

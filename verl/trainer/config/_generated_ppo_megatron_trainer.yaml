@@ -268,7 +268,11 @@ actor_rollout_ref:
         _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
-    update_weights_bucket_megabytes: 2048
+    checkpoint_engine:
+      _target_: verl.workers.config.CheckpointEngineConfig
+      backend: nccl
+      update_weights_bucket_megabytes: 2048
+      engine_kwargs: {}
     trace:
       _target_: verl.workers.config.TraceConfig
       backend: null

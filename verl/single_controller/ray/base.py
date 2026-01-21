@@ -376,7 +376,7 @@ class RayWorkerGroup(WorkerGroup):
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
         self._ray_wait_register_center_timeout = ray_wait_register_center_timeout
         # Whether the WorkerGroup is a Colocate WorkerGroup created by FusedWorker.
-        self.fused_worker_used = ray_cls_with_init.fused_worker_used
+        self.fused_worker_used = False if ray_cls_with_init is None else ray_cls_with_init.fused_worker_used
         # if a WorkerGroup is spawned from Colocate WorkerGroup, this indicates which sub-class is binded to
         # this WorkerGroup.
         self.sub_cls_name = ""
@@ -435,7 +435,7 @@ class RayWorkerGroup(WorkerGroup):
         # https://github.com/ray-project/ray/pull/45699
         workers = worker_handles if worker_handles else [ray.get_actor(name=name) for name in worker_names]
         self._workers = workers
-        self._world_size = len(worker_names)
+        self._world_size = len(workers)
 
     def _get_master_addr_port(self, pg, bundle_index=0):
         """Get master addr and port for this worker group"""
