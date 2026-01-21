@@ -181,7 +181,11 @@ async def _async_batchmeta_to_realdata(
                 meta_info=meta_info,
             )
         else:
-            return DataProto.from_tensordict(tensordict, meta_info=meta_info)
+            if all(not isinstance(val, torch.Tensor) for val in tensordict.values()):
+                dataproto = DataProto.from_tensordict_without_tensor(tensordict, meta_info=meta_info)
+            else:
+                dataproto = DataProto.from_tensordict(tensordict, meta_info=meta_info)
+            return dataproto
     else:
         for key, val in meta_info.items():
             if isinstance(val, (NonTensorData | NonTensorStack)):
