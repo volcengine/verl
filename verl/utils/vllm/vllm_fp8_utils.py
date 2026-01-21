@@ -122,9 +122,7 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
         Tuples of (name, tensor) for each weight and its scale
     """
     if quant_config.weight_block_size is None:
-        raise ValueError(
-            "Currently only support blockwise quantization, please set weight_block_size in quant_config"
-        )
+        raise ValueError("Currently only support blockwise quantization, please set weight_block_size in quant_config")
 
     is_vllm_11_or_later = version.parse(vllm.__version__) >= version.parse("0.11.0")
 
@@ -135,7 +133,7 @@ def quant_weights(weights, model, quant_config, dtype=torch.bfloat16):
 
         # Cast the weight into fp8 and its scale factor
         if torch.distributed.get_rank() == 0:
-                logger.debug(f"Quantizing to FP8 blockwise: {k}")
+            logger.debug(f"Quantizing to FP8 blockwise: {k}")
 
         param_lp, param_scale = scaled_fp8_blockwise(
             v.to(dtype),

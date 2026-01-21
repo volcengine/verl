@@ -14,6 +14,7 @@
 # limitations under the License.
 import logging
 import os
+
 import torch
 
 logger = logging.getLogger(__name__)
@@ -302,7 +303,7 @@ def _scaled_fp8_blockwise_pytorch(
     fp_data = fp_data.reshape(blk_m, blk_n, block_size0, block_size1).permute(0, 2, 1, 3).reshape(padded_shape)
 
     # Remove padding to restore original shape
-    if (original_shape[0] != padded_shape[0] or original_shape[1] != padded_shape[1]):
+    if original_shape[0] != padded_shape[0] or original_shape[1] != padded_shape[1]:
         fp_data = fp_data[: original_shape[0], : original_shape[1]].contiguous()
 
     return fp_data, descale_fp
