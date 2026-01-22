@@ -207,7 +207,8 @@ class vLLMHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        self.max_model_context_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -494,11 +495,11 @@ class vLLMHttpServer:
         """Generate sequence with token-in-token-out."""
         # Calculate the maximum possible new tokens based on available context space
         # This serves as a safety upper bound
-        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+        max_possible_tokens = self.max_model_context_len - len(prompt_ids)
         if max_possible_tokens < 0:
             raise ValueError(
                 f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
-                f"({self.config.max_model_len})."
+                f"({self.max_model_context_len})."
             )
 
         # Determine max_tokens from sampling_params or use configured response_length as default
