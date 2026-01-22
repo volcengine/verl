@@ -20,12 +20,14 @@ import os
 from concurrent.futures import Future
 from pprint import pprint
 from typing import Any, Callable, Optional
+from uuid import uuid4
 
 import cloudpickle as pickle
 import numpy as np
 import ray
 import vllm.entrypoints.cli.serve
 import zmq
+from packaging import version
 from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -44,29 +46,42 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.profiler.profile import DistProfiler
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
-from verl.workers.rollout.utils import get_free_port, is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import (
+    get_free_port,
+    get_max_position_embeddings,
+    is_valid_ipv6_address,
+    run_unvicorn,
+)
 from verl.workers.rollout.vllm_rollout import vLLMAsyncRollout
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
     VLLM_LORA_NAME,
     VLLM_LORA_PATH,
+    build_cli_args_from_config,
     get_vllm_max_lora_rank,
 )
 
-if vllm.__version__ > "0.11.0":
+_VLLM_VERSION = version.parse(vllm.__version__)
+
+if _VLLM_VERSION > version.parse("0.11.0"):
     from vllm.utils.argparse_utils import FlexibleArgumentParser
     from vllm.utils.network_utils import get_tcp_uri
 
-    if vllm.__version__ == "0.12.0":
+    if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
+
+        get_encoding()
+    elif _VLLM_VERSION >= version.parse("0.13.0"):
+        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
 
         get_encoding()
 else:
     from vllm.utils import FlexibleArgumentParser, get_tcp_uri
-if vllm.__version__ >= "0.12.0":
+if _VLLM_VERSION >= version.parse("0.12.0"):
     from vllm.v1.core.sched.output import GrammarOutput, SchedulerOutput
     from vllm.v1.outputs import ModelRunnerOutput
 
@@ -105,7 +120,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
-    if vllm.__version__ >= "0.12.0":
+    if _VLLM_VERSION >= version.parse("0.12.0"):
 
         def execute_model(
             self, scheduler_output: "SchedulerOutput", non_block: bool = False
@@ -160,7 +175,7 @@ class ExternalZeroMQDistributedExecutor(Executor):
         return
 
 
-class vLLMHttpServerBase:
+class vLLMHttpServer:
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -192,7 +207,7 @@ class vLLMHttpServerBase:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -208,6 +223,18 @@ class vLLMHttpServerBase:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for controlling vllm server profiler
+        profiler_config = self.config.profiler
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
+        self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
+        self.server_profiler_dir = os.environ.pop("VLLM_TORCH_PROFILER_DIR", None)
 
         # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
         if self.node_rank == 0:
@@ -263,7 +290,12 @@ class vLLMHttpServerBase:
             set_expandable_segments(True)
 
         quantization = self.config.quantization
+
         if quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
+
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {
                     "activation_scheme": "dynamic",
@@ -275,8 +307,14 @@ class vLLMHttpServerBase:
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+
+        hf_overrides = {}
+        if quantization is not None and self.config.quantization_config_file is not None:
+            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
+
+        if quantization == "fp8":
+            hf_overrides["quantization_config"] = fp8_block_quant_kwargs
+
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -288,6 +326,7 @@ class vLLMHttpServerBase:
             "max_num_batched_tokens": self.config.max_num_batched_tokens,
             "enable_prefix_caching": self.config.enable_prefix_caching,
             "enable_sleep_mode": self.config.enable_sleep_mode,
+            "logprobs_mode": self.config.logprobs_mode,
             "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
@@ -296,7 +335,8 @@ class vLLMHttpServerBase:
             "seed": self.config.get("seed", 0),
             "override_generation_config": json.dumps(override_generation_config),
             "quantization": quantization,
-            "hf_overrides": {"quantization_config": fp8_block_quant_kwargs} if quantization == "fp8" else None,
+            "hf_overrides": hf_overrides,
+            "scheduling_policy": self.config.scheduling_policy,
             **engine_kwargs,
         }
 
@@ -308,6 +348,14 @@ class vLLMHttpServerBase:
                     # If it's a full path, extract the last part as model name
                     served_model_name = served_model_name.split("/")[-1]
                 args["served_model_name"] = served_model_name
+
+        # mtp
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            speculative_config = {
+                "method": self.config.mtp.method,
+                "num_speculative_tokens": self.config.mtp.num_speculative_tokens,
+            }
+            args["speculative_config"] = speculative_config
 
         if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
@@ -343,15 +391,7 @@ class vLLMHttpServerBase:
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
 
-        server_args = ["serve", self.model_config.local_path]
-        for k, v in args.items():
-            if isinstance(v, bool):
-                if v:
-                    server_args.append(f"--{k}")
-            elif v is not None:
-                server_args.append(f"--{k}")
-                # Use json.dumps for dict to ensure valid JSON format
-                server_args.append(json.dumps(v) if isinstance(v, dict) else str(v))
+        server_args = ["serve", self.model_config.local_path] + build_cli_args_from_config(args)
 
         if self.replica_rank == 0:
             pprint(server_args)
@@ -406,7 +446,7 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        if vllm.__version__ > "0.11.0":
+        if _VLLM_VERSION > version.parse("0.11.0"):
             await init_app_state(engine_client, app.state, args)
         else:
             await init_app_state(engine_client, vllm_config, app.state, args)
@@ -448,17 +488,46 @@ class vLLMHttpServerBase:
         sampling_params: dict[str, Any],
         request_id: str,
         image_data: Optional[list[Any]] = None,
+        video_data: Optional[list[Any]] = None,
+        priority: int = 0,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out."""
-        # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
-        max_tokens = self.config.max_model_len - len(prompt_ids)
+        # Calculate the maximum possible new tokens based on available context space
+        # This serves as a safety upper bound
+        max_possible_tokens = self.config.max_model_len - len(prompt_ids)
+        if max_possible_tokens < 0:
+            raise ValueError(
+                f"Prompt length ({len(prompt_ids)}) exceeds the model's maximum context length "
+                f"({self.config.max_model_len})."
+            )
+
+        # Determine max_tokens from sampling_params or use configured response_length as default
+        if "max_tokens" in sampling_params:
+            max_tokens = sampling_params.pop("max_tokens")
+        elif "max_new_tokens" in sampling_params:
+            # support sglang-style 'max_new_tokens' param
+            max_tokens = sampling_params.pop("max_new_tokens")
+        else:
+            # Default to a calculation that considers configured lengths
+            max_tokens = self.config.response_length + self.config.prompt_length - len(prompt_ids)
+
+        # Clamp max_tokens to the valid range [0, max_possible_tokens]
+        max_tokens = max(0, min(max_tokens, max_possible_tokens))
+
+        assert max_tokens <= max_possible_tokens, (
+            f"max_tokens {max_tokens} exceeds available context space {max_possible_tokens}"
+        )
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
-        prompt = TokensPrompt(
-            prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
-        )
+        multi_modal_data = {}
+        if image_data is not None:
+            multi_modal_data["image"] = image_data
+        if video_data is not None:
+            multi_modal_data["video"] = video_data
+
+        prompt = TokensPrompt(prompt_token_ids=prompt_ids, multi_modal_data=multi_modal_data)
 
         # Add lora request
         lora_request = None
@@ -471,7 +540,11 @@ class vLLMHttpServerBase:
                 )
 
         generator = self.engine.generate(
-            prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
+            prompt=prompt,
+            sampling_params=sampling_params,
+            request_id=request_id,
+            lora_request=lora_request,
+            priority=priority,
         )
 
         # Get final response
@@ -498,8 +571,17 @@ class vLLMHttpServerBase:
         else:
             stop_reason = finish_reason  # for more stop reason in the future
 
+        num_preempted = None
+
+        if hasattr(final_res.outputs[0], "num_preempted"):
+            num_preempted = final_res.outputs[0].num_preempted
+
         return TokenOutput(
-            token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts, stop_reason=stop_reason
+            token_ids=token_ids,
+            log_probs=log_probs,
+            routed_experts=routed_experts,
+            stop_reason=stop_reason,
+            num_preempted=num_preempted,
         )
 
     async def wake_up(self):
@@ -524,6 +606,24 @@ class vLLMHttpServerBase:
                 await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def start_profile(self, **kwargs):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.start_profile(**kwargs)
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.stop_profile()
 
     async def clear_kv_cache(self):
         if self.node_rank == 0:
@@ -615,28 +715,6 @@ class vLLMHttpServerBase:
             return {"aborted": False, "request_id": request_id, "error": str(e)}
 
 
-@ray.remote(num_cpus=1)
-class vLLMHttpServer(vLLMHttpServerBase):
-    """vLLM http server in single node, this is equivalent to launch server with command line:
-    ```
-    vllm serve --tensor-parallel-size=8 ...
-    ```
-    """
-
-    def __init__(
-        self,
-        config: RolloutConfig,
-        model_config: HFModelConfig,
-        rollout_mode: RolloutMode,
-        workers: list[ActorHandle],
-        replica_rank: int,
-        node_rank: int,
-        gpus_per_node: int,
-        nnodes: int,
-    ):
-        super().__init__(config, model_config, rollout_mode, workers, replica_rank, node_rank, gpus_per_node, nnodes)
-
-
 _rollout_worker_actor_cls = ray.remote(vLLMAsyncRollout)
 
 
@@ -650,7 +728,7 @@ class vLLMReplica(RolloutReplica):
         is_reward_model: bool = False,
     ):
         super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
-        self.server_class = vLLMHttpServer
+        self.server_class = ray.remote(vLLMHttpServer)
 
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
@@ -677,20 +755,21 @@ class vLLMReplica(RolloutReplica):
         )
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
-        nnodes, gpus_per_node = self.nnodes, self.gpus_per_node
+        nnodes, gpus_per_replica_node = self.nnodes, self.gpus_per_replica_node
         if self.config.data_parallel_size == 1:
             nnodes = 1
-            gpus_per_node = self.world_size
+            gpus_per_replica_node = self.world_size
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
-            workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
-            node_id = worker_node_ids[node_rank * gpus_per_node]
+            workers = self.workers[node_rank * gpus_per_replica_node : (node_rank + 1) * gpus_per_replica_node]
+            node_id = worker_node_ids[node_rank * gpus_per_replica_node]
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
                 else f"vllm_server_reward_{self.replica_rank}_{node_rank}"
             )
+            name = name + f"_{uuid4().hex[:8]}"
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
@@ -704,7 +783,7 @@ class vLLMReplica(RolloutReplica):
                 workers=workers,
                 replica_rank=self.replica_rank,
                 node_rank=node_rank,
-                gpus_per_node=gpus_per_node,
+                gpus_per_node=gpus_per_replica_node,
                 nnodes=nnodes,
             )
             self.servers.append(server)
@@ -773,7 +852,7 @@ class vLLMReplica(RolloutReplica):
 
 def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
     """Deduplicate consecutive image tokens in prompt_ids for Qwen2.5-VL, since vLLM will replicate the
-    <|image_pad|> token by image_data.
+    <|image_pad|> and <|video_pad|> token by image_data.
 
     For example,
     ```
@@ -789,7 +868,7 @@ def _qwen2_5_vl_dedup_image_tokens(prompt_ids: list[int], processor):
         mask = np.ones(len(prompt_ids), dtype=bool)
 
         # Find where the array equals the value
-        is_value = prompt_ids == processor.image_token_id
+        is_value = (prompt_ids == processor.image_token_id) | (prompt_ids == processor.video_token_id)
 
         # Find consecutive duplicates by checking if previous element is also the value
         mask[1:] &= ~(is_value[1:] & is_value[:-1])

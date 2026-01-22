@@ -27,6 +27,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy, Place
 from verl.protocol import DataProto, _padding_size_key
 from verl.single_controller.base import ClassWithInitArgs, ResourcePool, Worker, WorkerGroup
 from verl.single_controller.base.decorator import MAGIC_ATTR, Dispatch
+from verl.utils.device import get_device_name
 from verl.utils.py_functional import temp_env_var
 
 __all__ = ["Worker"]
@@ -245,8 +246,12 @@ def merge_resource_pool(rp1: RayResourcePool, rp2: RayResourcePool) -> RayResour
 
     new_store = rp1.store + rp2.store
 
-    merged = type(rp1)(new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}")
-    merged.pgs = rp1.get_placement_groups() + rp2.get_placement_groups()
+    merged = type(rp1)(
+        new_store, rp1.use_gpu, f"{rp1.name_prefix}_{rp2.name_prefix}", rp1.max_colocate_count, rp1.detached
+    )
+    merged.pgs = rp1.get_placement_groups(device_name=get_device_name()) + rp2.get_placement_groups(
+        device_name=get_device_name()
+    )
 
     return merged
 
@@ -365,6 +370,7 @@ class RayWorkerGroup(WorkerGroup):
         """
         self._master_addr = kwargs.pop("master_addr", None)
         self._master_port = kwargs.pop("master_port", None)
+        self.use_gpu = kwargs.pop("use_gpu", resource_pool.use_gpu if resource_pool is not None else True)
         super().__init__(resource_pool=resource_pool, **kwargs)
         self.ray_cls_with_init = ray_cls_with_init
         self.name_prefix = get_random_string(length=6) if name_prefix is None else name_prefix
@@ -431,13 +437,13 @@ class RayWorkerGroup(WorkerGroup):
         self._workers = workers
         self._world_size = len(worker_names)
 
-    def _get_master_addr_port(self, pg):
+    def _get_master_addr_port(self, pg, bundle_index=0):
         """Get master addr and port for this worker group"""
         if self._master_addr is None and self._master_port is None:
             self._master_addr, self._master_port = ray.get(
                 get_master_addr_port.options(
                     scheduling_strategy=PlacementGroupSchedulingStrategy(
-                        placement_group=pg, placement_group_bundle_index=0
+                        placement_group=pg, placement_group_bundle_index=bundle_index
                     ),
                 ).remote()
             )
@@ -505,7 +511,10 @@ class RayWorkerGroup(WorkerGroup):
 
         rank = -1
         local_world_size = resource_pool.store[0]
-        self._get_master_addr_port(pgs[0])
+        self._get_master_addr_port(
+            pgs[resource_pool.start_bundle_index // local_world_size],
+            resource_pool.start_bundle_index % local_world_size,
+        )
         for curr_rank in range(resource_pool.start_bundle_index, resource_pool.start_bundle_index + world_size):
             pg_idx = curr_rank // local_world_size
             pg = pgs[pg_idx]
@@ -527,6 +536,8 @@ class RayWorkerGroup(WorkerGroup):
     def _create_worker(self, rank, pg_idx, pg, local_rank, resource_pool, ray_cls_with_init, worker_env, detached):
         world_size = resource_pool.world_size
         use_gpu = resource_pool.use_gpu
+        if self.use_gpu and not use_gpu:
+            raise ValueError("use_gpu is True but resource_pool.use_gpu is False")
         local_world_size = resource_pool.store[0]
         num_gpus = 1 / resource_pool.max_colocate_count
 
@@ -577,7 +588,7 @@ class RayWorkerGroup(WorkerGroup):
         worker = ray_cls_with_init(
             placement_group=pg,
             placement_group_bundle_idx=local_rank,
-            use_gpu=use_gpu,
+            use_gpu=self.use_gpu,
             num_gpus=num_gpus,
             device_name=self.device_name,
         )

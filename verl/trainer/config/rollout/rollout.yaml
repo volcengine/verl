@@ -1,7 +1,7 @@
 # Target class for this configuration
 _target_: verl.workers.config.RolloutConfig
 
-# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
+# actor_rollout_ref.rollout.name: hf/vllm/sglang/trtllm. The default value will be removed in the future
 name: ???
 
 # sync: LLM, async: AsyncLLM
@@ -28,7 +28,7 @@ response_length: ${oc.select:data.max_response_length,512}
 # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
 dtype: bfloat16
 
-# Fraction of GPU memory used by vLLM/SGLang for KV cache.
+# Fraction of GPU memory used by vLLM/SGLang/TRTLLM for KV cache.
 gpu_memory_utilization: 0.5
 
 # Whether to ignore EOS and continue generating after EOS is hit.
@@ -73,6 +73,12 @@ enable_chunked_prefill: True
 # Prefix caching kv-cache blocks is a popular optimization in LLM inference to avoid redundant prompt computations.
 enable_prefix_caching: True
 
+# logprobs mode for rollout logprobs
+logprobs_mode: processed_logprobs
+
+# scheduling policy for vllm rollout
+scheduling_policy: fcfs
+
 # Which loader to use for rollout model weights: dummy, hf, megatron, etc.
 # safetensors (for huge model, and set use_shm=True); dummy: randomly init model weight
 load_format: dummy
@@ -110,7 +116,7 @@ over_sample_rate: 0
 # This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
-# Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
+# Extra inference engine arguments (vllm, sglang, trtllm), please refer vllm/sglang/trtllm official doc for detail
 engine_kwargs:
 
   # vllm engine config
@@ -118,6 +124,9 @@ engine_kwargs:
 
   # sglang engine config
   sglang: {}
+
+  # trtllm engine config
+  trtllm: {}
 
 # Sampling parameters used during validation.
 val_kwargs:
@@ -208,7 +217,7 @@ agent:
   # default agent loop to use if `agent_name` not set in RL dataset
   default_agent_loop: single_turn_agent
 
-  # custom agent loop config path, which should contain list of configs to intialize AgentLoop instances.
+  # custom agent loop config path, which should contain list of configs to initialize AgentLoop instances.
   # https://hydra.cc/docs/advanced/instantiate_objects/overview/
   #
   # - name: react_agent
@@ -282,7 +291,7 @@ skip_tokenizer_init: True
 enable_rollout_routing_replay: False
 
 
-# profile the rollout model in `generate_sequence` 
+# profile the rollout model in `generate_sequence`
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -325,3 +334,11 @@ prometheus:
   # Specify served_model_name to avoid displaying overly long model paths in Grafana
   served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
 
+# type of quantization in vllm, currently support fp8 and torchao
+quantization: null
+
+# extra quantization information serialized in a config file, e.g. torchao_config.json
+quantization_config_file: null
+
+# MTP configuration, reuse model configuration
+mtp: ${oc.select:actor_rollout_ref.model.mtp, null}

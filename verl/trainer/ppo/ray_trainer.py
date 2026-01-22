@@ -47,6 +47,7 @@ from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
+    compute_variance_proxy_metrics,
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
@@ -256,6 +257,17 @@ def compute_advantage(
             adv_kwargs["index"] = data.non_tensor_batch["uid"]
         if "reward_baselines" in data.batch:  # optional
             adv_kwargs["reward_baselines"] = data.batch["reward_baselines"]
+        # Add sum_pi_squared for Optimal Token Baseline
+        if adv_estimator in (AdvantageEstimator.OPTIMAL_TOKEN_BASELINE, AdvantageEstimator.TIR_OPTIMAL_TOKEN_BASELINE):
+            # Check if sum_pi_squared is available
+            assert "sum_pi_squared" in data.batch, (
+                "Step-dependent optimal baseline requires sum_pi_squared from actor. "
+                "Please set actor.calculate_sum_pi_squared=True in config."
+            )
+            adv_kwargs["sum_pi_squared"] = data.batch["sum_pi_squared"]
+            # Get pre-computed rollout IS weights if available
+            rollout_is_weights = data.batch.get("rollout_is_weights", None)
+            adv_kwargs["rollout_is_weights"] = rollout_is_weights
 
         # calculate advantage estimator
         advantages, returns = adv_estimator_fn(**adv_kwargs)
@@ -327,7 +339,7 @@ class RayPPOTrainer:
 
         self.role_worker_mapping = role_worker_mapping
         self.resource_pool_manager = resource_pool_manager
-        self.use_reference_policy = need_reference_policy(self.role_worker_mapping)
+        self.use_reference_policy = need_reference_policy(self.config)
         # legacy reward model implementation
         self.use_rm = need_reward_model(self.role_worker_mapping)
         self.use_reward_loop = self.config.reward_model.use_reward_loop
@@ -341,16 +353,17 @@ class RayPPOTrainer:
         )
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
-        self.ref_in_actor = (
-            config.actor_rollout_ref.model.get("lora_rank", 0) > 0
-            or config.actor_rollout_ref.model.get("lora_adapter_path") is not None
-        )
+        lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = config.actor_rollout_ref.model.get("lora_rank", 0)
+        self.ref_in_actor = lora_rank > 0 or config.actor_rollout_ref.model.get("lora_adapter_path") is not None
 
         # define in-reward KL control
         # kl loss control currently not suppoorted
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
+        self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
         self.use_legacy_worker_impl = config.trainer.get("use_legacy_worker_impl", "auto")
 
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
@@ -525,9 +538,9 @@ class RayPPOTrainer:
         self,
         batch: DataProto,
         reward_fn=None,
-        return_dict: bool = False,
+        reward_for_val: bool = False,
         sum_reward: bool = False,
-    ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor | dict[str, Any]:
+    ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
         Compute or extract reward from batch.
 
@@ -538,13 +551,12 @@ class RayPPOTrainer:
         Args:
             batch: DataProto containing the batch data
             reward_fn: Reward function to use if rm_scores doesn't exist (for training/validation)
-            return_dict: Whether to return dict format with reward_extra_info (for validation)
+            reward_for_val: Whether this is for validation
             sum_reward: Whether to sum reward tensor along last dimension (for REMAX baseline)
 
         Returns:
-            If return_dict=True: dict with "reward_tensor" and "reward_extra_info"
-            If return_dict=False and sum_reward=True: summed reward_tensor (1D tensor)
-            If return_dict=False and sum_reward=False: reward_tensor (2D tensor)
+            If reward_for_val=False and sum_reward=True: summed reward_tensor (1D tensor)
+            Otherwise: tuple of (reward_tensor, reward_extra_infos_dict)
         """
         # When rm_scores already exists, extract it directly (format conversion only)
         if "rm_scores" in batch.batch.keys():
@@ -552,35 +564,26 @@ class RayPPOTrainer:
             if sum_reward:
                 reward_tensor = reward_tensor.sum(dim=-1)
 
-            if return_dict:
-                # Extract reward_extra_info if available
-                reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
-                reward_extra_info = (
-                    {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
-                )
-                return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
-            else:
-                # If sum_reward=True, only return tensor (for REMAX baseline)
-                if sum_reward:
-                    return reward_tensor
-                # Otherwise, return tuple with reward_extra_info (for training loop)
-                reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
-                reward_extra_infos_dict = (
-                    {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
-                )
-                return reward_tensor, reward_extra_infos_dict
+            if not reward_for_val and sum_reward:
+                return reward_tensor
+
+            reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
+            reward_extra_infos_dict = (
+                {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
+            )
+            return reward_tensor, reward_extra_infos_dict
 
         # Otherwise, compute reward using reward_fn
         if reward_fn is None:
             raise ValueError("reward_fn must be provided when rm_scores is not available.")
 
-        if return_dict:
+        if reward_for_val:
             result = reward_fn(batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
             if sum_reward:
                 reward_tensor = reward_tensor.sum(dim=-1)
-            reward_extra_info = result.get("reward_extra_info", {})
-            return {"reward_tensor": reward_tensor, "reward_extra_info": reward_extra_info}
+            reward_extra_infos_dict = result.get("reward_extra_info", {})
+            return reward_tensor, reward_extra_infos_dict
         else:
             reward_tensor, reward_extra_infos_dict = compute_reward(batch, reward_fn)
             if sum_reward:
@@ -591,7 +594,7 @@ class RayPPOTrainer:
         reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
 
         # pop those keys for generation
-        batch_keys_to_pop = ["input_ids", "attention_mask", "position_ids"]
+        batch_keys_to_pop = []
         non_tensor_batch_keys_to_pop = set(batch.non_tensor_batch.keys()) - reward_model_keys
         gen_batch = batch.pop(
             batch_keys=batch_keys_to_pop,
@@ -604,7 +607,7 @@ class RayPPOTrainer:
 
         return gen_batch
 
-    def _validate(self):
+    def _validate(self, merged: bool = False):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -632,13 +635,6 @@ class RayPPOTrainer:
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
                 return {}
-
-            # Store original inputs
-            input_ids = test_batch.batch["input_ids"]
-            # TODO: Can we keep special tokens except for padding tokens?
-            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
-            sample_inputs.extend(input_texts)
-            sample_uids.extend(test_batch.non_tensor_batch["uid"])
 
             ground_truths = [
                 item.non_tensor_batch.get("reward_model", {}).get("ground_truth", None) for item in test_batch
@@ -681,14 +677,21 @@ class RayPPOTrainer:
             test_batch = test_batch.union(test_output_gen_batch)
             test_batch.meta_info["validate"] = True
 
+            # Store original inputs
+            input_ids = test_batch.batch["prompts"]
+            # TODO: Can we keep special tokens except for padding tokens?
+            input_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in input_ids]
+            sample_inputs.extend(input_texts)
+            sample_uids.extend(test_batch.non_tensor_batch["uid"])
+
             # evaluate using reward_function
-            result = self._compute_or_extract_reward(test_batch, reward_fn=self.val_reward_fn, return_dict=True)
-            reward_tensor = result["reward_tensor"]
+            reward_tensor, reward_extra_info = self._compute_or_extract_reward(
+                test_batch, reward_fn=self.val_reward_fn, reward_for_val=True
+            )
             scores = reward_tensor.sum(-1).cpu().tolist()
             sample_scores.extend(scores)
 
             reward_extra_infos_dict["reward"].extend(scores)
-            reward_extra_info = result.get("reward_extra_info", {})
             for key, values in reward_extra_info.items():
                 if key not in reward_extra_infos_dict:
                     reward_extra_infos_dict[key] = []
@@ -720,8 +723,18 @@ class RayPPOTrainer:
         for key_info, lst in reward_extra_infos_dict.items():
             assert len(lst) == 0 or len(lst) == len(sample_scores), f"{key_info}: {len(lst)=}, {len(sample_scores)=}"
 
+        if merged:
+            print("_merge_validation_results validate result will be merged")
+            return {
+                "data_sources": data_source_lst,
+                "sample_uids": sample_uids,
+                "sample_turns": sample_turns,
+                "reward_extra_infos_dict": reward_extra_infos_dict,
+            }
         data_sources = np.concatenate(data_source_lst, axis=0)
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
 
+    def _val_metrics_update(self, data_sources, sample_uids, reward_extra_infos_dict, sample_turns):
         data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
@@ -748,6 +761,30 @@ class RayPPOTrainer:
 
         return metric_dict
 
+    def _merge_validation_results(self, result_a, result_b):
+        if result_a is None and result_b is None:
+            return {}
+        if result_a is None:
+            result_a = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
+        if result_b is None:
+            result_b = {"data_sources": [], "sample_uids": [], "sample_turns": [], "reward_extra_infos_dict": {}}
+
+        if not result_a.get("data_sources") and not result_b.get("data_sources"):
+            return {}
+
+        data_sources = np.concatenate(result_a["data_sources"] + result_b["data_sources"], axis=0)
+        sample_uids = result_a["sample_uids"] + result_b["sample_uids"]
+        sample_turns = result_a["sample_turns"] + result_b["sample_turns"]
+
+        reward_extra_infos_dict = {}
+        all_keys = set(result_a["reward_extra_infos_dict"].keys()) | set(result_b["reward_extra_infos_dict"].keys())
+        for key in all_keys:
+            list_a = result_a["reward_extra_infos_dict"].get(key, [])
+            list_b = result_b["reward_extra_infos_dict"].get(key, [])
+            reward_extra_infos_dict[key] = list_a + list_b
+
+        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+
     def init_workers(self):
         """Initialize distributed training workers using Ray backend.
 
@@ -762,13 +799,13 @@ class RayPPOTrainer:
         # create actor and rollout
         actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
         if self.hybrid_engine:
-            resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
+            actor_rollout_resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
             actor_rollout_cls = RayClassWithInitArgs(
                 cls=self.role_worker_mapping[actor_role],
                 config=self.config.actor_rollout_ref,
                 role=str(actor_role),
             )
-            self.resource_pool_to_cls[resource_pool][str(actor_role)] = actor_rollout_cls
+            self.resource_pool_to_cls[actor_rollout_resource_pool][str(actor_role)] = actor_rollout_cls
         else:
             raise NotImplementedError
 
@@ -827,9 +864,8 @@ class RayPPOTrainer:
                 self.resource_pool_to_cls[resource_pool][str(Role.RewardModel)] = rm_cls
         else:
             # reward loop handle hybrid reward scenario (rule, disrm, genrm, ...)
-            can_reward_loop_parallelize = self.config.actor_rollout_ref.rollout.mode == "async" and (
-                not self.use_rm or self.config.reward_model.enable_resource_pool
-            )
+            # Note: mode is always "async" since sync mode is deprecated
+            can_reward_loop_parallelize = not self.use_rm or self.config.reward_model.enable_resource_pool
             # judge if we can asynchronously parallelize reward model with actor rollout
             # two condition that we can parallelize reward model with actor rollout:
             # 1. reward model is not enabled (rule-based reward can parallelize)
@@ -915,26 +951,27 @@ class RayPPOTrainer:
             self.ref_policy_wg = self.actor_rollout_wg
 
         # create async rollout manager and request scheduler
-        self.async_rollout_mode = False
-        if self.config.actor_rollout_ref.rollout.mode == "async":
-            # Support custom AgentLoopManager via config
-            manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
-            if manager_class_fqn:
-                AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
-            else:
-                from verl.experimental.agent_loop import AgentLoopManager
+        # Note: mode is always "async" since sync mode is deprecated
+        self.async_rollout_mode = True
 
-            self.async_rollout_mode = True
-            if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-                rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-            else:
-                rm_resource_pool = None
+        # Support custom AgentLoopManager via config
+        manager_class_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get("agent_loop_manager_class")
+        if manager_class_fqn:
+            AgentLoopManager = load_class_from_fqn(manager_class_fqn, "AgentLoopManager")
+        else:
+            from verl.experimental.agent_loop import AgentLoopManager
 
-            self.async_rollout_manager = AgentLoopManager(
-                config=self.config,
-                worker_group=self.actor_rollout_wg,
-                rm_resource_pool=rm_resource_pool,
-            )
+        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
+            rm_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
+        else:
+            rm_resource_pool = None
+
+        self.async_rollout_manager = AgentLoopManager(
+            config=self.config,
+            worker_group=self.actor_rollout_wg,
+            rollout_resource_pool=actor_rollout_resource_pool,
+            rm_resource_pool=rm_resource_pool,
+        )
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1084,40 +1121,93 @@ class RayPPOTrainer:
             if self.use_rm and not self.use_reward_loop:
                 self.rm_wg.stop_profile()
 
+    def _get_dp_size(self, worker_group, role: str) -> int:
+        """Get data parallel size from worker group dispatch info.
+
+        This method retrieves the data parallel size by querying the dispatch info
+        for the specified role. The dispatch info is cached for subsequent calls.
+
+        Args:
+            worker_group: The worker group to query dispatch info from.
+            role: The role name (e.g., "actor", "critic") to get DP size for.
+
+        Returns:
+            The data parallel size (number of DP ranks).
+        """
+        if role not in worker_group._dispatch_info:
+            dp_rank_mapping = worker_group._query_dispatch_info(role)
+            worker_group._dispatch_info[role] = dp_rank_mapping
+        else:
+            dp_rank_mapping = worker_group._dispatch_info[role]
+        return max(dp_rank_mapping) + 1
+
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
-        """Reorder the data on single controller such that each dp rank gets similar total tokens"""
+        """Reorder the data on single controller such that each dp rank gets similar total tokens.
+
+        When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
+        the same uid together on the same rank for prefix sharing optimization.
+        """
         attention_mask = batch.batch["attention_mask"]
         batch_size = attention_mask.shape[0]
         global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
         workload_lst = calculate_workload(global_seqlen_lst)
-        world_size = self.actor_rollout_wg.world_size
-        if keep_minibatch:
+        # Get dp_size from dispatch info to correctly balance across data parallel ranks
+        # Note: world_size may include tensor/pipeline parallel dimensions, but we only want DP
+        dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
+
+        # Use group-level balancing for PrefixGrouper to keep same-uid samples together
+        if getattr(self, "use_prefix_grouper", False) and "uid" in batch.non_tensor_batch:
+            from verl.utils.seqlen_balancing import get_group_balanced_partitions
+
+            uid_list = list(batch.non_tensor_batch["uid"])
+            seqlen_list = global_seqlen_lst.tolist()
+
+            # Count number of uid groups
+            num_groups = len(set(uid_list))
+
+            if num_groups % dp_size != 0:
+                raise ValueError(
+                    f"PrefixGrouper with balance_batch requires num_uid_groups ({num_groups}) "
+                    f"% dp_size ({dp_size}) == 0. "
+                    f"This ensures each rank gets equal number of groups. "
+                    f"Current batch_size={batch_size}, adjust batch_size to be a multiple of "
+                    f"dp_size * rollout.n."
+                )
+
+            global_partition_lst = get_group_balanced_partitions(
+                seqlen_list=seqlen_list,
+                uid_list=uid_list,
+                k_partitions=dp_size,
+            )
+
+        elif keep_minibatch:
             # Decouple the DP balancing and mini-batching.
             minibatch_size = self.config.actor_rollout_ref.actor.get("ppo_mini_batch_size")
             minibatch_num = len(workload_lst) // minibatch_size
-            global_partition_lst = [[] for _ in range(world_size)]
+            global_partition_lst = [[] for _ in range(dp_size)]
             for i in range(minibatch_num):
                 rearrange_minibatch_lst = get_seqlen_balanced_partitions(
                     workload_lst[i * minibatch_size : (i + 1) * minibatch_size],
-                    k_partitions=world_size,
+                    k_partitions=dp_size,
                     equal_size=True,
                 )
                 for j, part in enumerate(rearrange_minibatch_lst):
                     global_partition_lst[j].extend([x + minibatch_size * i for x in part])
         else:
-            global_partition_lst = get_seqlen_balanced_partitions(
-                workload_lst, k_partitions=world_size, equal_size=True
-            )
+            global_partition_lst = get_seqlen_balanced_partitions(workload_lst, k_partitions=dp_size, equal_size=True)
         # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
-        for idx, partition in enumerate(global_partition_lst):
-            partition.sort(key=lambda x: (workload_lst[x], x))
-            ordered_partition = partition[::2] + partition[1::2][::-1]
-            global_partition_lst[idx] = ordered_partition
+        # Skip reordering within partitions for PrefixGrouper to maintain uid grouping
+        if not getattr(self, "use_prefix_grouper", False):
+            for idx, partition in enumerate(global_partition_lst):
+                partition.sort(key=lambda x: (workload_lst[x], x))
+                ordered_partition = partition[::2] + partition[1::2][::-1]
+                global_partition_lst[idx] = ordered_partition
+
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
         batch.reorder(global_idx)
         global_balance_stats = log_seqlen_unbalance(
-            seqlen_list=global_seqlen_lst, partitions=global_partition_lst, prefix=logging_prefix
+            seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
 
@@ -1145,8 +1235,14 @@ class RayPPOTrainer:
             # step 2: convert from padding to nopadding
             batch_td = left_right_2_no_padding(batch_td)
             # step 3: add meta info
-            tu.assign_non_tensor(batch_td, calculate_entropy=False, compute_loss=False)
-            output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
+            metadata = {"calculate_entropy": False, "compute_loss": False}
+            if self.ref_in_actor:
+                metadata["no_lora_adapter"] = True
+            tu.assign_non_tensor(batch_td, **metadata)
+            if self.ref_in_actor:
+                output = self.actor_rollout_wg.compute_log_prob(batch_td)
+            else:
+                output = self.ref_policy_wg.compute_ref_log_prob(batch_td)
             # gather output
             log_probs = tu.get(output, "log_probs")
             # step 4. No padding to padding
@@ -1341,7 +1437,11 @@ class RayPPOTrainer:
                         if not self.async_rollout_mode:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         else:
+                            if curr_step_profile:
+                                self.async_rollout_manager.start_profile()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                            if curr_step_profile:
+                                self.async_rollout_manager.stop_profile()
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1356,7 +1456,11 @@ class RayPPOTrainer:
                             if not self.async_rollout_mode:
                                 gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
                             else:
+                                if curr_step_profile:
+                                    self.async_rollout_manager.start_profile()
                                 gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
+                                if curr_step_profile:
+                                    self.async_rollout_manager.stop_profile()
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None
@@ -1396,7 +1500,13 @@ class RayPPOTrainer:
 
                     # compute global_valid tokens
                     batch.meta_info["global_token_num"] = torch.sum(batch.batch["attention_mask"], dim=-1).tolist()
-
+                    # get images_seqlens
+                    images_seqlens_all = []
+                    for multi_modal_input in batch.non_tensor_batch["multi_modal_inputs"]:
+                        if "image_grid_thw" not in multi_modal_input.keys():
+                            continue
+                        images_seqlens_all.extend(multi_modal_input["images_seqlens"].tolist())
+                    batch.meta_info["images_seqlens"] = images_seqlens_all
                     with marked_timer("reward", timing_raw, color="yellow"):
                         # compute reward model score
                         if self.use_rm and "rm_scores" not in batch.batch.keys():
@@ -1414,7 +1524,7 @@ class RayPPOTrainer:
                             )
                         else:
                             reward_tensor, reward_extra_infos_dict = self._compute_or_extract_reward(
-                                batch, reward_fn=self.reward_fn, return_dict=False
+                                batch, reward_fn=self.reward_fn, reward_for_val=False
                             )
 
                     # Operating Mode Selection:
@@ -1601,6 +1711,9 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                # compute variance proxy metrics
+                gradient_norm = metrics.get("actor/grad_norm", None)
+                metrics.update(compute_variance_proxy_metrics(batch=batch, gradient_norm=gradient_norm))
                 # Note: mismatch metrics (KL, PPL, etc.) are collected at line 1179 after advantage computation
 
                 # this is experimental and may be changed/removed in the future in favor of a general-purpose one

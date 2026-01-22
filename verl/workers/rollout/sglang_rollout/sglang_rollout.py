@@ -52,6 +52,8 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+    # Enable faulthandler in subprocesses
+    os.environ["PYTHONFAULTHANDLER"] = "1"
 
     # Set prometheus env vars
     if server_args.enable_metrics:
@@ -99,8 +101,11 @@ class ServerAdapter(BaseRollout):
     ):
         if config.get("quantization", None) == "fp8":
             import sglang
+            from packaging import version
 
-            assert sglang.__version__ >= "0.5.5", "sglang>=0.5.5 is required for FP8 quantization"
+            assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
+                "sglang>=0.5.5 is required for FP8 quantization"
+            )
             FP8_BLOCK_QUANT_KWARGS = {
                 "activation_scheme": "dynamic",
                 "fmt": "e4m3",
@@ -133,7 +138,11 @@ class ServerAdapter(BaseRollout):
         )
         host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
+            model_path=self.model_config.local_path,
+            host=host,
+            port=server_port,
+            launch_server=False,
+            trust_remote_code=self.model_config.trust_remote_code,
         )
 
     async def resume(self, tags: list[str]):

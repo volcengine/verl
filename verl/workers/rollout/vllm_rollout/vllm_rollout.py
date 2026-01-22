@@ -73,6 +73,8 @@ from verl.workers.rollout.vllm_rollout.utils import (
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+VLLM_ASCEND_REQUIRED_ENV_VARS = {"VLLM_ALL2ALL_BACKEND": "flashinfer_all2allv", "VLLM_ASCEND_ENABLE_NZ": "0"}
+
 # TODO
 # 1. support pp in vllm
 # 2. passing tokenizer is not necessary? no encoding/decoding is happending here
@@ -175,8 +177,29 @@ class vLLMAsyncRollout(BaseRollout):
                 await self.socket.send(pickle.dumps(e))
                 break
 
+    def _build_inference_engine(self) -> WorkerWrapperBase:
+        """Create a vLLM worker wrapper across vLLM versions.
+
+        vLLM changed WorkerWrapperBase signature (i.e., removing vllm_config from
+        __init__). We keep a small runtime fallback to support multiple versions.
+
+        https://github.com/vllm-project/vllm/commit/aafd4d23548ae54adeca1d4898cc15a4d2c390ac
+        """
+        try:
+            return WorkerWrapperBase(vllm_config=self.vllm_config)
+        except TypeError:
+            return WorkerWrapperBase()
+
     def _init_worker(self, all_kwargs: list[dict[str, Any]]):
         """Initialize worker engine."""
+        # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
+        # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
+        # This is only a fix for vllm version < v0.13.0.
+        if is_npu_available:
+            for k in VLLM_ASCEND_REQUIRED_ENV_VARS:
+                if k not in os.environ:
+                    os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
+
         if not torch.distributed.is_initialized():
             initialize_global_process_group_ray()
         all_kwargs[0]["rank"] = int(os.environ["RANK"])
@@ -191,13 +214,18 @@ class vLLMAsyncRollout(BaseRollout):
             lora_dtype = getattr(torch, self.config.dtype)
             self.vllm_config.lora_config = LoRAConfig(lora_dtype=lora_dtype, **self.lora_config)
         if self.config.quantization is not None:
+            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            if self.config.quantization not in _SUPPORTED_QUANTIZATION:
+                raise ValueError(
+                    f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {self.config.quantization}"
+                )
+
             if self.config.quantization == "fp8":
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {self.config.quantization}")
-        self.inference_engine = WorkerWrapperBase(vllm_config=self.vllm_config)
+
+        self.inference_engine = self._build_inference_engine()
         self.inference_engine.init_worker(all_kwargs)
 
     def _load_model(self, *args, **kwargs):
@@ -265,8 +293,22 @@ class vLLMAsyncRollout(BaseRollout):
                 model.load_weights(weights)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
-        """Batch generate sequences in sync mode."""
-        raise NotImplementedError
+        """Batch generate sequences in sync mode.
+
+        Note: vLLMAsyncRollout uses async server mode and does not support synchronous
+        generation. Since SPMD mode was retired (PR #4411), the generation workflow
+        should use the async server interface instead.
+
+        Raises:
+            NotImplementedError: Always raised as sync generation is not supported.
+        """
+        raise NotImplementedError(
+            "vLLMAsyncRollout does not support synchronous generate_sequences(). "
+            "The vLLM SPMD mode was retired in PR #4411. For batch generation, "
+            "please use the async server interface via vLLMReplica and AsyncLLMServerManager, "
+            "or use HFRollout for synchronous generation. "
+            "See https://github.com/volcengine/verl/issues/4682 for more details."
+        )
 
     # ==================== server mode public methods ====================
 

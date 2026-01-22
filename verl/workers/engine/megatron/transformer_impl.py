@@ -15,7 +15,7 @@
 import logging
 import os
 from functools import partial
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, ContextManager, Iterator, Optional
 
 import torch
 import torch.distributed
@@ -24,6 +24,7 @@ from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
+import verl.utils.torch_functional as verl_F
 from verl.models.mcore import get_mcore_weight_converter
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
@@ -32,28 +33,20 @@ from verl.utils.dataset.dataset_utils import DatasetPadMode
 from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
-from verl.utils.megatron.tensor_parallel import (
-    vocab_parallel_entropy,
-    vocab_parallel_log_probs_from_logits,
-)
+from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import (
+    get_megatron_module_device,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
     register_megatron_training_hooks,
 )
-from verl.utils.model import (
-    extract_multi_modal_inputs,
-    load_mcore_dist_weights,
-)
+from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
-from ..utils import (
-    postprocess_batch_func,
-    prepare_micro_batches,
-)
+from ..utils import postprocess_batch_func, prepare_micro_batches
 from .utils import set_random_seed
 
 logger = logging.getLogger(__file__)
@@ -180,10 +173,7 @@ class MegatronEngine(BaseEngine):
         )
 
     def _build_megatron_module(self):
-        from verl.utils.megatron_utils import (
-            McoreModuleWrapperConfig,
-            make_megatron_module,
-        )
+        from verl.utils.megatron_utils import McoreModuleWrapperConfig, make_megatron_module
         from verl.utils.model import print_model_size
 
         # TODO: add more cases
@@ -238,10 +228,7 @@ class MegatronEngine(BaseEngine):
         return module
 
     def _build_optimizer(self):
-        from verl.utils.megatron.optimizer import (
-            get_megatron_optimizer,
-            init_megatron_optim_config,
-        )
+        from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
         optim_config_megatron = init_megatron_optim_config(
             self.optimizer_config,
@@ -311,6 +298,7 @@ class MegatronEngine(BaseEngine):
             use_checkpoint_opt_param_scheduler=self.optimizer_config.use_checkpoint_opt_param_scheduler,
             bridge=self.bridge,
             provider=self.provider,
+            peft_cls=self.peft_cls,
             use_dist_checkpointing=self.engine_config.use_dist_checkpointing,
         )
 
@@ -436,7 +424,8 @@ class MegatronEngine(BaseEngine):
             global_step: Integer training step number for naming.
             max_ckpt_to_keep: Maximum number of recent checkpoints to retain.
         """
-        if self._is_offload_param:
+        origin_module_device = get_megatron_module_device(self.module)
+        if self._is_offload_param or origin_module_device == "cpu":
             load_megatron_model_to_gpu(self.module, load_grad=True)
         self.checkpoint_mananager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
@@ -535,12 +524,17 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-    def get_per_tensor_param(self):
-        if self._is_offload_param:
-            load_megatron_model_to_gpu(self.module, load_grad=False)
-        per_tensor_param = self.bridge.export_weights(self.module)
+    def get_per_tensor_param(self, **kwargs):
+        load_megatron_model_to_gpu(self.module, load_grad=False)
+        if self.vanilla_bridge:
+            per_tensor_param = self.bridge.export_weights(self.module)
+        else:
+            per_tensor_param = self.bridge.export_hf_weights(self.module)
         # TODO: support megatron LoRA
         return per_tensor_param, None
+
+    def disable_adapter(self) -> ContextManager:
+        return self.peft_cls.disable_adapter(self.module)
 
     def forward_step(self, batch_iter, model, postprocess_micro_batch_func):
         raise NotImplementedError("forward_step must be implemented in subclass")
@@ -612,10 +606,16 @@ class MegatronEngineWithLMHead(MegatronEngine):
         calculate_entropy = tu.get_non_tensor_data(batch, key="calculate_entropy", default=False)
         pad_mode = tu.get_non_tensor_data(batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         temperature = batch["temperature"]
-
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
+
+        if not isinstance(temperature, torch.Tensor):
+            temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
+
+        temperature = temperature.to(torch.float32)
+        assert temperature.shape[0] == input_ids.shape[0]
+        temperature = verl_F.expand_as_nested(temperature, input_ids)  # (bsz, j1)
 
         if pad_mode == DatasetPadMode.NO_PADDING:
             label = input_ids.clone()
@@ -629,9 +629,12 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
 
-        def logits_processor(logits, label):
+        def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
-            logits.div_(temperature)
+            # avoid non-positive temperature such as padding
+            temperature[temperature <= 0] = 1e-8
+            assert torch.all(temperature > 0).item(), f"temperature tensor must be positive. Got {temperature}"
+            logits.div_(temperature.unsqueeze(dim=-1).to(logits.dtype))
             ret = {}
             if calculate_entropy:
                 logits_bak = logits.clone()
@@ -651,7 +654,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             ret["log_probs"] = log_probs
             return ret
 
-        logits_processor_args = {"label": label}
+        logits_processor_args = {"label": label, "temperature": temperature}
 
         output = forward_fn(
             model,

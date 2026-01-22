@@ -28,9 +28,11 @@ from codetiming import Timer
 from omegaconf import DictConfig, OmegaConf
 
 try:
-    from mindspeed.megatron_adaptor import repatch
+    from verl.workers.engine.mindspeed.transformer_impl import repatch
 except ImportError:
     repatch = None
+
+from contextlib import nullcontext
 
 from megatron.core import parallel_state as mpu
 
@@ -112,6 +114,7 @@ class MegatronWorker(Worker):
         override_transformer_config,
         trust_remote_code=False,
         megatron_config=None,
+        enable_mtp=False,
     ):
         from transformers import AutoConfig
 
@@ -149,6 +152,19 @@ class MegatronWorker(Worker):
         }
         override_config_kwargs.update(override_model_config.get("model_config", {}))
         self.share_embeddings_and_output_weights = getattr(hf_config, "tie_word_embeddings", False)
+
+        # only actor need enable mtp
+        if enable_mtp:
+            assert hf_config.num_nextn_predict_layers > 0, "MTP requires at least one nextn_predict_layer"
+            assert megatron_config.use_mbridge, "MTP requires use_mbridge to be True"
+            assert megatron_config.vanilla_mbridge, "MTP requires vanilla_mbridge to be True"
+            override_transformer_config["mtp_loss_scaling_factor"] = self.config.model.mtp.mtp_loss_scaling_factor
+        else:
+            if hasattr(hf_config, "num_nextn_predict_layers"):
+                hf_config.num_nextn_predict_layers = 0
+
+        self.enable_mtp = enable_mtp
+
         update_model_config(hf_config, override_config_kwargs=override_config_kwargs)
         self.architectures = getattr(hf_config, "architectures", None)
         if self.rank == 0:
@@ -258,7 +274,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             set_numa_affinity()
             rank = int(os.environ["LOCAL_RANK"])
             torch.distributed.init_process_group(
-                backend=get_nccl_backend(),
+                backend=f"cpu:gloo,{get_device_name()}:{get_nccl_backend()}",
                 timeout=datetime.timedelta(seconds=self.config.get("nccl_timeout", 600)),
                 init_method=os.environ.get("DIST_INIT_METHOD", None),
             )
@@ -372,6 +388,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             override_transformer_config,
             self.config.model.get("trust_remote_code", False),
             self.config.actor.megatron if not self._is_ref else self.config.ref.megatron,
+            self.config.model.get("mtp", {}).get("enable", False),
         )
         self.generation_config = get_generation_config(
             self.local_path,
@@ -533,11 +550,8 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
-        # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
-        if rollout_config.mode == "sync" and self._is_actor:
-            loop = get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+        # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -600,6 +614,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
                 tf_config=self.tf_config,
                 actor_module=self.actor_module,
                 actor_optimizer=self.actor_optimizer,
+                mtp_config=self.config.model.mtp if self.config.model.mtp.enable else None,
             )
             print(f"routing replay layers: {len(RouterReplay.router_instances)}")
             log_gpu_memory_usage("After MegatronPPOActor init", logger=logger)
@@ -741,7 +756,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             metrics = self.actor.update_policy(dataloader=dataloader)
         delta_time = timer.last
         global_num_tokens = data.meta_info["global_token_num"]
-        estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
+        images_seqlens = data.meta_info.get("images_seqlens", None)
+        estimated_flops, promised_flops = self.flops_counter.estimate_flops(
+            global_num_tokens, delta_time, images_seqlens=images_seqlens
+        )
         metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
         metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
         metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
@@ -819,6 +837,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     @GPUMemoryLogger(role="compute_ref_log_prob", logger=logger)
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: DataProto):
+        if self.peft_cls is not None:
+            # if is lora, actor without lora applied is the ref
+            data.meta_info["is_lora"] = True
+            return self.compute_log_prob(data)
         assert self._is_ref
         if self._ref_is_offload_param:
             load_megatron_model_to_gpu(self.ref_module, load_grad=False)
@@ -845,10 +867,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module, load_grad=False)
             log_gpu_memory_usage("After load actor params and grad during compute_log_prob", logger=logger)
+        is_lora = data.meta_info.pop("is_lora", False)
+        adapter_ctx = self.peft_cls.disable_adapter(self.actor_module) if is_lora else nullcontext()
         # we should always recompute old_log_probs when it is HybridEngine
-        data.meta_info["micro_batch_size"] = self.config.rollout.log_prob_micro_batch_size_per_gpu
-        data.meta_info["max_token_len"] = self.config.rollout.log_prob_max_token_len_per_gpu
-        data.meta_info["use_dynamic_bsz"] = self.config.rollout.log_prob_use_dynamic_bsz
+        config_source = self.config.ref if is_lora else self.config.rollout
+        data.meta_info["micro_batch_size"] = config_source.log_prob_micro_batch_size_per_gpu
+        data.meta_info["max_token_len"] = config_source.log_prob_max_token_len_per_gpu
+        data.meta_info["use_dynamic_bsz"] = config_source.log_prob_use_dynamic_bsz
         data.meta_info["temperature"] = self.config.rollout.temperature
 
         if self.enable_routing_replay and self.config.actor.router_replay.mode == "R2":
@@ -857,9 +882,13 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         if self.enable_routing_replay and self.config.actor.router_replay.mode == "R3":
             RouterReplay.set_global_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
 
-        output, entropys, layers_topk_idx = self.actor.compute_log_prob(data=data, calculate_entropy=True)
+        with adapter_ctx:
+            output, entropys, layers_topk_idx = self.actor.compute_log_prob(data=data, calculate_entropy=not is_lora)
+        tensors = {"ref_log_prob": output} if is_lora else {"old_log_probs": output}
+        if not is_lora:
+            tensors["entropys"] = entropys
         output = DataProto.from_dict(
-            tensors={"old_log_probs": output, "entropys": entropys},
+            tensors=tensors,
             meta_info={"temperature": self.config.rollout.temperature},
         )
         if self.config.actor.router_replay.mode == "R2":
@@ -906,12 +935,16 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
     def save_checkpoint(self, checkpoint_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         if self._is_offload_param:
             load_megatron_model_to_gpu(self.actor_module)
+        if self.checkpoint_mananager.checkpoint_config.async_save and self._is_offload_optimizer:
+            load_megatron_optimizer(self.actor_optimizer)
         self.checkpoint_mananager.save_checkpoint(
             local_path=checkpoint_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
         )
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+        if self.checkpoint_mananager.checkpoint_config.async_save and self._is_offload_optimizer:
+            offload_megatron_optimizer(self.actor_optimizer)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def async_calls_finalize_fn_exec(self, blocking=False):

@@ -1,5 +1,4 @@
 set -x
-export VLLM_ASCEND_ENABLE_NZ=0
 
 MODEL_ID=${MODEL_ID:-Qwen/Qwen2.5-0.5B-Instruct}
 MODEL_PATH=${MODEL_PATH:-${HOME}/.cache/models/${MODEL_ID}}

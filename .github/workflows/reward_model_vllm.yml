@@ -59,7 +59,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm011.dev7"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:vllm012.dev3"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -97,11 +97,12 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
-          pip3 install -e .[test]
+          pip3 install -r requirements-test.txt
+          pip3 install --no-deps -e .
       - name: Prepare gsm8k dataset
         run: |
           ray stop --force
-          python3 examples/data_preprocess/gsm8k.py --local_dir ${HOME}/data/gsm8k
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k --local_dir ${HOME}/data/gsm8k
       - name: Running vllm generative reward model tests on 8 L20 GPUs
         run: |
           unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
