@@ -15,6 +15,14 @@ import torch
 logger = logging.getLogger(__name__)
 
 
+def get_resource_name() -> str:
+    """Function that return ray resource name based on the device type.
+    Returns:
+        ray resource name string, either "GPU" or "NPU".
+    """
+    return "GPU" if is_cuda_available else "NPU"
+
+
 def is_torch_npu_available(check_device=True) -> bool:
     """Check if Ascend NPU is available for PyTorch operations.
 
