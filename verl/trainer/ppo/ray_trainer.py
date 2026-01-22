@@ -1103,7 +1103,7 @@ class RayPPOTrainer:
         """Start profiling for all worker groups if profiling is enabled."""
         if do_profile:
             self.actor_rollout_wg.start_profile(role="e2e", profile_step=self.global_steps)
-            if self.use_reference_policy:
+            if self.use_reference_policy and not self.ref_in_actor:
                 self.ref_policy_wg.start_profile(profile_step=self.global_steps)
             if self.use_critic:
                 self.critic_wg.start_profile(profile_step=self.global_steps)
@@ -1114,7 +1114,7 @@ class RayPPOTrainer:
         """Stop profiling for all worker groups if profiling is enabled."""
         if do_profile:
             self.actor_rollout_wg.stop_profile()
-            if self.use_reference_policy:
+            if self.use_reference_policy and not self.ref_in_actor:
                 self.ref_policy_wg.stop_profile()
             if self.use_critic:
                 self.critic_wg.stop_profile()

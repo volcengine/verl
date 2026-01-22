@@ -273,7 +273,7 @@ class vLLMAsyncRollout(BaseRollout):
                 lora_tensors=weights,
             )
             self.inference_engine.worker.add_lora(lora_request)
-            logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
+            logger.info("vLLM load lora weights")
         else:
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
