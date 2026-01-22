@@ -256,8 +256,8 @@ class VeOmniEngineConfig(EngineConfig):
     load_checkpoint_path: Optional[str] = None
     enable_fsdp_offload: bool = False
     enable_reentrant: bool = False
-    attn_implementation: Optional[Literal["eager", "sdpa", "flash_attention_2", "native-sparse"]] = "flash_attention_2"
-    moe_implementation: Optional[Literal[None, "eager", "fused"]] = "eager"
+    attn_implementation: str = "flash_attention_2"
+    moe_implementation: str = "fused"
     force_use_huggingface: bool = False
     activation_gpu_limit: float = 0.0
     basic_modules: Optional[list[str]] = field(default_factory=list)
