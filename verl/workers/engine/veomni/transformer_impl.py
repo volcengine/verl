@@ -31,9 +31,15 @@ import verl.utils.torch_functional as verl_F
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
-from verl.utils.device import get_device_id
+from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import fsdp_version
 from verl.utils.profiler import log_gpu_memory_usage
+from verl.utils.veomni_utils import (
+    load_veomni_model_to_gpu,
+    load_veomni_optimizer,
+    offload_veomni_model_to_cpu,
+    offload_veomni_optimizer,
+)
 from verl.workers.config import HFModelConfig, VeOmniEngineConfig, VeOmniOptimizerConfig
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
 
@@ -216,6 +222,34 @@ class VeOmniEngine(FSDPEngine):
             self.model_config.enable_gradient_checkpointing,
             self.engine_config.activation_gpu_limit,
         )
+
+    def to(self, device: str, model: bool = True, optimizer: bool = True, grad: bool = True):
+        """
+        Move model parameters, optimizer states, or both to the specified device.
+        Note that this function executes irrespective of offload config. It serves as manual control.
+
+        Args:
+            device: Target device identifier.
+            model: If True, move the model.
+            optimizer: If True, move the optimizer states.
+        """
+        super(FSDPEngine, self).to(device=device, model=model, optimizer=optimizer, grad=grad)
+
+        device_name = get_device_name()
+
+        assert device in (device_name, "cpu")
+        if device == device_name:
+            if model:
+                load_veomni_model_to_gpu(self.module)
+            if optimizer and self.optimizer is not None:
+                load_veomni_optimizer(self.optimizer, device)
+        elif device == "cpu":
+            if model:
+                offload_veomni_model_to_cpu(self.module)
+            if optimizer and self.optimizer is not None:
+                offload_veomni_optimizer(self.optimizer)
+        else:
+            raise ValueError(f"Invalid device type: {device}")
 
     def optimizer_step(self):
         """

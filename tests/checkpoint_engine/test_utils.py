@@ -29,7 +29,7 @@ class TrainingWorkerTest(TrainingWorker):
     def __init__(self, config: TrainingWorkerConfig, checkpoint_backend: str, checkpoint_kwargs: dict) -> None:
         copy_to_local(config.model_config.path)
         super().__init__(config)
-        if torch.distributed.get_rank() == 0 and checkpoint_backend in ["nccl", "kimi_ckpt_engine"]:
+        if torch.distributed.get_rank() == 0 and checkpoint_backend in ["nccl", "hccl", "kimi_ckpt_engine"]:
             checkpoint_kwargs["is_master"] = True
         self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
 
@@ -120,6 +120,7 @@ def create_rollout_worker_group(
         model_path=model_path,
         checkpoint_backend=checkpoint_backend,
         checkpoint_kwargs=checkpoint_kwargs,
+        device=get_device_name(),
         **kwargs,
     )
     wg = RayWorkerGroup(resource_pool=resource_pool, ray_cls_with_init=ray_cls_with_init, device_name=get_device_name())
