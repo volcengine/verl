@@ -41,6 +41,8 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      hybrid_context_parallel: false
+      max_seqlen_per_dp_cp_rank: null
       dist_checkpointing_prefix: ''
       seed: 42
       override_ddp_config: {}
@@ -185,6 +187,8 @@ actor_rollout_ref:
       use_distributed_optimizer: true
       use_dist_checkpointing: false
       dist_checkpointing_path: null
+      hybrid_context_parallel: false
+      max_seqlen_per_dp_cp_rank: null
       dist_checkpointing_prefix: ''
       seed: ${oc.select:actor_rollout_ref.actor.megatron.seed,42}
       override_ddp_config: {}
@@ -446,6 +450,8 @@ critic:
     use_distributed_optimizer: true
     use_dist_checkpointing: false
     dist_checkpointing_path: null
+    hybrid_context_parallel: false
+    max_seqlen_per_dp_cp_rank: null
     dist_checkpointing_prefix: ''
     seed: 42
     override_ddp_config: {}

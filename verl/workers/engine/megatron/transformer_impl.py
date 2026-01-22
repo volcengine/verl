@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import logging
 import os
 from functools import partial
@@ -89,6 +90,19 @@ class MegatronEngine(BaseEngine):
         if mpu.is_initialized():
             return
 
+        extra_args = dict()
+
+        if self.engine_config.hybrid_context_parallel:
+            assert "hybrid_context_parallel" in inspect.signature(mpu.initialize_model_parallel).parameters, (
+                "hybrid_context_parallel is not supported in your megatron version, "
+                + "please update your megatron version to the latest version"
+            )
+            assert self.engine_config.max_seqlen_per_dp_cp_rank is not None, (
+                "max_seqlen_per_dp_cp_rank is required when hybrid_context_parallel is enabled"
+            )
+            extra_args["hybrid_context_parallel"] = self.engine_config.hybrid_context_parallel
+            extra_args["max_seqlen_per_dp_cp_rank"] = self.engine_config.max_seqlen_per_dp_cp_rank
+
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=self.engine_config.tensor_model_parallel_size,
             pipeline_model_parallel_size=self.engine_config.pipeline_model_parallel_size,
@@ -98,6 +112,7 @@ class MegatronEngine(BaseEngine):
             expert_model_parallel_size=self.engine_config.expert_model_parallel_size,
             expert_tensor_parallel_size=self.engine_config.expert_tensor_parallel_size,
             nccl_communicator_config_path=None,
+            **extra_args,
         )
 
     def _build_tf_config(self):
@@ -115,6 +130,11 @@ class MegatronEngine(BaseEngine):
             from verl.models.mcore.mbridge import AutoBridge
 
             bridge = AutoBridge.from_config(self.model_config.hf_config, dtype=self.param_dtype)
+            if self.engine_config.hybrid_context_parallel:
+                override_transformer_config["max_seqlen_per_dp_cp_rank"] = self.engine_config.max_seqlen_per_dp_cp_rank
+                override_transformer_config["hybrid_context_parallel"] = self.engine_config.hybrid_context_parallel
+                override_transformer_config["sequence_packing"] = True
+                override_transformer_config["sequence_packing_scheduler"] = "default_hybrid_cp"
             bridge.set_extra_args(**override_transformer_config)
             tf_config = bridge.config
             tf_config.fp16 = self.param_dtype == torch.float16
