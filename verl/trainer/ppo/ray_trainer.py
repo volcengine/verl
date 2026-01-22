@@ -1636,9 +1636,7 @@ class RayPPOTrainer:
                             "norm_adv_by_std_in_grpo", True
                         )  # GRPO adv normalization factor
 
-                        rollout_multi_turn_cfg = getattr(
-                            self.config.actor_rollout_ref.rollout, "multi_turn", None
-                        )
+                        rollout_multi_turn_cfg = getattr(self.config.actor_rollout_ref.rollout, "multi_turn", None)
                         rollout_multi_turn_enabled = (
                             getattr(rollout_multi_turn_cfg, "enable", False)
                             if rollout_multi_turn_cfg is not None
