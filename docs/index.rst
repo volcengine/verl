@@ -91,6 +91,7 @@ verl is fast with:
    workers/fsdp_workers
    workers/megatron_workers
    workers/sglang_worker
+   workers/trtllm_worker
    workers/model_engine
 
 .. toctree::
@@ -104,6 +105,7 @@ verl is fast with:
    perf/device_tuning
    perf/verl_profiler_system.md
    perf/nsight_profiling.md
+   perf/torch_profiling.md
 
 .. toctree::
    :maxdepth: 1
