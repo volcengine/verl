@@ -28,7 +28,7 @@ from cachetools import LRUCache
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image
 from pydantic import BaseModel, ConfigDict
-from tensordict import TensorDict
+from tensordict import TensorDict, NonTensorStack, NonTensorData
 from transformers import AutoProcessor, AutoTokenizer
 from transferqueue import BatchMeta
 
@@ -484,7 +484,6 @@ class AgentLoopWorker:
             # current batch contains no tensor data
             meta_info = batch_meta.get_all_extra_info()
             non_tensor_batch = {}
-            from tensordict import NonTensorStack, NonTensorData
             for key, val in batch.items():
                 if isinstance(val, NonTensorStack):
                     non_tensor_batch[key] = np.array([elem.data for elem in val], dtype=object)
@@ -679,6 +678,16 @@ class AgentLoopWorker:
             metrics=output.metrics,
             extra_fields=output.extra_fields,
         ).to_tensordict()
+        
+        keys_to_pop = []
+
+        for key, val in data.items():
+            if isinstance(val, NonTensorData):
+                batch_meta.set_extra_info(key, val)
+                keys_to_pop.append(key)
+
+        for key in keys_to_pop:
+            del data[key]
 
         return await self.tq_client.async_put(data=data, metadata=batch_meta)
 
