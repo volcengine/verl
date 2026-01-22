@@ -33,6 +33,7 @@ __all__ = [
     "McoreActorConfig",
     "DistillationConfig",
     "FSDPDistillationConfig",
+    "McoreDistillationConfig",
 ]
 
 
@@ -369,3 +370,26 @@ class FSDPDistillationConfig(FSDPActorConfig, DistillationConfig):
 
     def __post_init__(self):
         super().__post_init__()
+
+
+@dataclass
+class McoreDistillationConfig(McoreActorConfig, DistillationConfig):
+    """Configuration for on-policy distillation training with Megatron.
+
+    Extends McoreActorConfig with distillation settings for distributed
+    training with tensor and pipeline parallelism.
+
+    Args:
+        teacher_tensor_model_parallel_size (Optional[int]):
+            Tensor parallel size for the teacher model. If None, defaults
+            to the same TP size as the student model. Allows for flexible
+            TP configurations where teacher and student may have different
+            parallelism settings.
+    """
+
+    teacher_tensor_model_parallel_size: Optional[int] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        # if self.teacher_tensor_model_parallel_size is None:
+        #     self.teacher_tensor_model_parallel_size = self.megatron.tensor_model_parallel_size
