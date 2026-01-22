@@ -217,6 +217,12 @@ def load_quanted_weights(weights, model_runner):
             param.__class__ = param.subclass_type
     # Finally load the weights into vllm
     loaded_params = model.load_weights(weights_quantized)
+    # Need to call process_weights_after_loading to finalize the weight loading
+    model_config = model_runner.vllm_config.model_config
+    device = next(model.parameters()).device
+    from vllm.model_executor.model_loader.utils import process_weights_after_loading
+
+    process_weights_after_loading(model, model_config, device)
     # Undo the type change above to the original type
     for name, param in model.named_parameters():
         if hasattr(param, "subclass_type"):
@@ -324,16 +330,18 @@ def process_weights_after_loading_for_vllm11(self, layer) -> None:
             weight_loader=layer.weight.weight_loader,
         )
     )
+
+    weight_scale_loader = layer.weight_scale_inv.weight_loader if hasattr(layer, "weight_scale_inv") else layer.weight_scale.weight_loader
     layer.weight_scale = _create_param_from_subclass_attributes(
         BlockQuantScaleParameter(
             data=weight_scale.data,
             output_dim=0,
             input_dim=1,
-            weight_loader=layer.weight_scale_inv.weight_loader,
+            weight_loader=weight_scale_loader,
         )
     )
-
-    del layer.weight_scale_inv
+    if hasattr(layer, "weight_scale_inv"):
+        del layer.weight_scale_inv
 
     if version.parse(vllm.__version__) == version.parse("0.11.0"):
         maybe_post_process_fp8_weight_block(layer, self.cutlass_block_fp8_supported)
