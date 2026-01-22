@@ -212,8 +212,21 @@ class VeOmniEngineConfig(EngineConfig):
         enable_full_shard (bool): Enable fully shard for FSDP training (ZeRO-3), default False
         enable_fsdp_offload (bool): Enable CPU offload for FSDP1, default False
         enable_reentrant (bool): Use reentrant gradient checkpointing, default False
-        attn_implementation (str): Attention implementation to use, default "flash-attn"
-        moe_implementation (str): MoE implementation to use, default "eager"
+        attn_implementation (str): Attention implementation to use.
+            1. `eager`
+            2. `sdpa`
+            3. `flash_attention_2`
+            4. `flash_attention_3`
+            5. `veomni_flash_attention_2_with_sp`
+            6. `veomni_flash_attention_3_with_sp`
+            7. `native-sparse`
+            default "flash_attention_2"
+            Note: In case VeOmni add more attn_implementation, please check https://github.com/ByteDance-Seed/VeOmni/
+        moe_implementation (str): MoE implementation to use.
+            1. `eager`
+            2. `fused`
+            default "fused"
+            Note: In case VeOmni add more moe_implementation, please check https://github.com/ByteDance-Seed/VeOmni/
         force_use_huggingface (bool): Force loading model from huggingface, default False
         activation_gpu_limit (float): When enabling activation offload, `activation_gpu_limit` GB
             activations are allowed to reserve on GPU, default 0.0
