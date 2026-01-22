@@ -232,16 +232,14 @@ def compute_advantage(
         reweight_method = "pow"
         weight_pow = 2.0
         if config is not None:
-            if hasattr(config, "get"):
-                use_pf_ppo = config.get("use_pf_ppo", False)
-                reweight_method = config.get("pf_ppo_reweight_method", reweight_method)
-                weight_pow = config.get("pf_ppo_weight_pow", weight_pow)
-            else:
-                use_pf_ppo = getattr(config, "use_pf_ppo", False)
+            use_pf_ppo = getattr(config, "use_pf_ppo", False)
+            if use_pf_ppo:
                 pf_cfg = getattr(config, "pf_ppo", None)
+                if pf_cfg is None and hasattr(config, "get"):
+                    pf_cfg = config.get("pf_ppo", None)
                 if pf_cfg is not None:
-                    reweight_method = getattr(pf_cfg, "reweight_method", reweight_method)
-                    weight_pow = getattr(pf_cfg, "weight_pow", weight_pow)
+                    reweight_method = pf_cfg.get("reweight_method", reweight_method)
+                    weight_pow = pf_cfg.get("weight_pow", weight_pow)
         if use_pf_ppo:
             data = core_algos.compute_pf_ppo_reweight_data(data, reweight_method, weight_pow)
     elif adv_estimator == AdvantageEstimator.GRPO:
