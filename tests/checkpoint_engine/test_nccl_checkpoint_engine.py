@@ -24,7 +24,7 @@ from verl.single_controller.ray.base import (
 from verl.utils.device import get_device_name
 
 
-@pytest.mark.skipif(get_device_name() != "cuda")
+@pytest.mark.skipif(get_device_name() != "cuda", reason="GPU is not available")
 @pytest.mark.parametrize("rebuild_group", [False, True])
 @pytest.mark.parametrize("num_trainer, num_rollout", [(2, 6)])
 def test_nccl_checkpoint_engine(
