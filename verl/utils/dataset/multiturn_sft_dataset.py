@@ -54,19 +54,18 @@ def once(func):
 
 
 @once
-def tokenize_full_and_print(tokenizer, message_list, input_ids, loss_mask, attn_mask, tools):
+def print_assembled_message(tokenizer, message_list, input_ids, loss_mask, attn_mask, tools):
     """
     Print the message after applying the chat template
     """
 
-    # only the first rank will print
-    if torch.distributed.get_rank() != 0:
-        return
     tokenized = tokenizer.apply_chat_template(message_list, add_generation_prompt=False, tokenize=False, tools=tools)
-    str1 = f"tokenized entire message:\n{tokenized}"
-    str2 = f"tokenized seperately    :\n{tokenizer.decode(input_ids)}"
     sep = "\n\n"
-    print(str1 + sep + str2)
+    str = f"tokenized entire message:\n{tokenized}"
+    str += sep
+    str += f"tokenized seperately    :\n{tokenizer.decode(input_ids)}"
+
+    logger.debug(str)
 
 
 def convert_nested_value_to_list_recursive(data_item):
@@ -326,7 +325,7 @@ class MultiTurnSFTDataset(Dataset):
             f"Shape mismatch: {input_ids.shape}, {loss_mask.shape}, {attention_mask.shape}"
         )
 
-        tokenize_full_and_print(self.tokenizer, messages, input_ids, loss_mask, attention_mask, tools)
+        print_assembled_message(self.tokenizer, messages, input_ids, loss_mask, attention_mask, tools)
         self.sanity_check(input_ids, messages, tools, enable_thinking)
 
         # Since the tokenizer may return user-customized results, we need to filter out inconsistent tensor shapes
