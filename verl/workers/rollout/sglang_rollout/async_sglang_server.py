@@ -389,26 +389,81 @@ class SGLangHttpServer:
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
+    def _profile_args(self, **kwargs) -> dict[str, Any]:
+        global_step = kwargs.pop("global_step", 0)
+        config = self.profiler_controller.tool_config
+        contents = self.profiler_controller.tool_config.contents
+        save_path = os.path.join(
+            self.config.profiler.save_path, f"rollout_step_{global_step}", f"agent_loop_replica_{self.replica_rank}"
+        )
+
+        profiler_tool = self.profiler_controller.config.tool
+        activities: Optional[list[str]] = None
+        if contents and profiler_tool:
+            activities_tmp = []
+            check_map = {
+                "cpu": ("CPU", "torch"),
+                "cuda|gpu": ("GPU", "torch"),
+                "MEM": ("MEM", "torch_memory"),
+            }
+            for key, (act, tool) in check_map.items():
+                if any(k in contents for k in key.split("|")):
+                    activities_tmp.append(act)
+                    if profiler_tool != tool:
+                        raise ValueError(f"{act} profiling requires '{tool}' (got '{profiler_tool}')")
+            for unsupported in ("CUDA_PROFILER", "RPD"):
+                if unsupported in contents:
+                    raise NotImplementedError(f"{unsupported} profiling is not supported")
+            activities = activities_tmp if len(activities_tmp) > 0 else activities
+
+        with_stack = bool(contents) and "stack" in contents
+        record_shapes = bool(contents) and "shapes" in contents
+        # Profiling by stage of Prefill or Decode
+        profile_by_stage = bool(contents) and "profile-by-stage" in contents
+        # Merge profiles from all ranks into a single trace
+        merge_profiles = bool(contents) and "merge-profiles" in contents
+
+        # Rollout start step must be greater than 0 for sglang
+        rollout_start_step = max(1, config.step_start or 1)
+        rollout_end_step = max(2, config.step_end or 2)
+
+        rollout_num_steps = rollout_end_step - rollout_start_step
+        assert rollout_num_steps is None or rollout_num_steps > 0, (
+            f"Rollout num steps must be greater than 0 for sglang, but got {rollout_num_steps}"
+        )
+        self._auto_stop_profiling = rollout_num_steps is not None
+        os.makedirs(save_path, exist_ok=True)
+
+        if rollout_num_steps is None and profile_by_stage:
+            raise Exception(
+                "profile_by_stage requires rollout_num_steps to be set (possible limitation in sglang <= 0.5.5)"
+            )
+
+        return {
+            "start_step": rollout_start_step,
+            "num_steps": rollout_num_steps,
+            "activities": activities,
+            "with_stack": with_stack,
+            "record_shapes": record_shapes,
+            "output_dir": save_path,
+            "profile_by_stage": profile_by_stage,
+            "merge_profiles": merge_profiles,
+        }
+
     async def start_profile(self, **kwargs):
         if (
             self.profiler_controller.check_enable()
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
         ):
-            contents = self.profiler_controller.tool_config.contents
-            save_path = os.path.join(self.config.profiler.save_path, f"agent_loop_replica_{self.replica_rank}")
-            await self.tokenizer_manager.start_profile(
-                output_dir=save_path,
-                with_stack=contents is None or "stack" in contents,
-                record_shapes=contents is None or "shapes" in contents,
-                **kwargs,
-            )
+            await self.tokenizer_manager.start_profile(**self._profile_args(**kwargs))
 
     async def stop_profile(self):
         if (
             self.profiler_controller.check_enable()
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
+            and not self._auto_stop_profiling
         ):
             await self.tokenizer_manager.stop_profile()
 
