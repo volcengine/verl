@@ -125,7 +125,7 @@ class CheckpointEngineConfig(BaseConfig):
     """
 
     # Backend for checkpoint engine: nccl, nixl, hccl
-    backend: str = "nccl"
+    backend: Optional[str] = MISSING
     # Bucket size in MB to transfer multiple weights at one time
     update_weights_bucket_megabytes: int = 2048
     # Additional keyword arguments for checkpoint engine
