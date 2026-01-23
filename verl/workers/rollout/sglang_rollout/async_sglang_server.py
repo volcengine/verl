@@ -61,6 +61,87 @@ logger.setLevel(logging.INFO)
 visible_devices_keyword = get_visible_devices_keyword()
 
 
+class SGLangProfilerArgsBuilder:
+    """Builder for SGLang profiling parameters, decoupling profiler parameter logic from the core service class."""
+
+    def __init__(
+        self,
+        profiler_controller: DistProfiler,
+        rollout_config: RolloutConfig,
+        replica_rank: int,
+    ):
+        self.profiler_controller = profiler_controller
+        self.rollout_config = rollout_config
+        self.replica_rank = replica_rank
+        self.auto_stop_profiling = False
+
+    def build_profile_args(self, **kwargs) -> dict[str, Any]:
+        global_step = kwargs.pop("global_step", 0)
+        config = self.profiler_controller.tool_config
+        contents = self.profiler_controller.tool_config.contents
+
+        save_path = os.path.join(
+            self.rollout_config.profiler.save_path,
+            f"rollout_step_{global_step}",
+            f"agent_loop_replica_{self.replica_rank}",
+        )
+        os.makedirs(save_path, exist_ok=True)
+
+        profiler_tool = self.profiler_controller.config.tool
+        activities: Optional[list[str]] = None
+        if contents and profiler_tool:
+            activities_tmp = []
+            check_map = {
+                "cpu": ("CPU", "torch"),
+                "cuda|gpu": ("GPU", "torch"),
+                "MEM": ("MEM", "torch_memory"),
+            }
+            for key, (act, tool) in check_map.items():
+                if any(k in contents for k in key.split("|")):
+                    activities_tmp.append(act)
+                    if profiler_tool != tool:
+                        raise ValueError(f"{act} profiling requires '{tool}' (got '{profiler_tool}')")
+            for unsupported in ("CUDA_PROFILER", "RPD"):
+                if unsupported in contents:
+                    raise NotImplementedError(f"{unsupported} profiling is not supported")
+            activities = activities_tmp if len(activities_tmp) > 0 else activities
+
+        with_stack = bool(contents) and "stack" in contents
+        record_shapes = bool(contents) and "shapes" in contents
+        # Profiling by stage of Prefill or Decode
+        profile_by_stage = bool(contents) and "profile-by-stage" in contents
+        # Merge profiles from all ranks into a single trace
+        merge_profiles = bool(contents) and "merge-profiles" in contents
+
+        # Rollout start step must be greater than 0 for sglang
+        rollout_start_step = config.step_start if config.step_end is not None else 1
+        rollout_end_step = config.step_end if config.step_end is not None else -1
+        rollout_num_steps = rollout_end_step - rollout_start_step
+        self.auto_stop_profiling = rollout_num_steps > 0
+
+        # num_steps must be greater than 0 or None in SGLang.
+        rollout_num_steps = None if rollout_num_steps <= 0 else rollout_num_steps
+
+        if rollout_num_steps is None and profile_by_stage:
+            raise Exception(
+                "profile_by_stage requires rollout_num_steps to be set (possible limitation in sglang <= 0.5.5)"
+            )
+
+        # start_step must be greater than 0 for sglang
+        rollout_start_step = max(rollout_start_step, 1)
+
+        return {
+            "start_step": rollout_start_step,
+            "num_steps": rollout_num_steps,
+            "activities": activities,
+            "with_stack": with_stack,
+            "record_shapes": record_shapes,
+            "output_dir": save_path,
+            "profile_by_stage": profile_by_stage,
+            "merge_profiles": merge_profiles,
+        }
+
+
 class SGLangHttpServer:
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
@@ -121,6 +202,9 @@ class SGLangHttpServer:
                 logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
                 profiler_config = None
         self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
+        self.profiler_args_builder = SGLangProfilerArgsBuilder(
+            profiler_controller=self.profiler_controller, rollout_config=self.config, replica_rank=self.replica_rank
+        )
 
         # used for NCCL process group
         if self.node_rank == 0:
@@ -389,76 +473,15 @@ class SGLangHttpServer:
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
-    def _profile_args(self, **kwargs) -> dict[str, Any]:
-        global_step = kwargs.pop("global_step", 0)
-        config = self.profiler_controller.tool_config
-        contents = self.profiler_controller.tool_config.contents
-        save_path = os.path.join(
-            self.config.profiler.save_path, f"rollout_step_{global_step}", f"agent_loop_replica_{self.replica_rank}"
-        )
-
-        profiler_tool = self.profiler_controller.config.tool
-        activities: Optional[list[str]] = None
-        if contents and profiler_tool:
-            activities_tmp = []
-            check_map = {
-                "cpu": ("CPU", "torch"),
-                "cuda|gpu": ("GPU", "torch"),
-                "MEM": ("MEM", "torch_memory"),
-            }
-            for key, (act, tool) in check_map.items():
-                if any(k in contents for k in key.split("|")):
-                    activities_tmp.append(act)
-                    if profiler_tool != tool:
-                        raise ValueError(f"{act} profiling requires '{tool}' (got '{profiler_tool}')")
-            for unsupported in ("CUDA_PROFILER", "RPD"):
-                if unsupported in contents:
-                    raise NotImplementedError(f"{unsupported} profiling is not supported")
-            activities = activities_tmp if len(activities_tmp) > 0 else activities
-
-        with_stack = bool(contents) and "stack" in contents
-        record_shapes = bool(contents) and "shapes" in contents
-        # Profiling by stage of Prefill or Decode
-        profile_by_stage = bool(contents) and "profile-by-stage" in contents
-        # Merge profiles from all ranks into a single trace
-        merge_profiles = bool(contents) and "merge-profiles" in contents
-
-        # Rollout start step must be greater than 0 for sglang
-        rollout_start_step = config.step_start if config.step_end is not None else 1
-        rollout_end_step = config.step_end if config.step_end is not None else -1
-
-        rollout_num_steps = rollout_end_step - rollout_start_step
-        self._auto_stop_profiling = rollout_num_steps > 0
-        os.makedirs(save_path, exist_ok=True)
-
-        # num_steps must be greater than 0 or None in SGLang.
-        rollout_num_steps = None if rollout_num_steps <= 0 else rollout_num_steps
-        if rollout_num_steps is None and profile_by_stage:
-            raise Exception(
-                "profile_by_stage requires rollout_num_steps to be set (possible limitation in sglang <= 0.5.5)"
-            )
-
-        # start_step must be greater than 0 for sglang
-        rollout_start_step = max(rollout_start_step, 1)
-
-        return {
-            "start_step": rollout_start_step,
-            "num_steps": rollout_num_steps,
-            "activities": activities,
-            "with_stack": with_stack,
-            "record_shapes": record_shapes,
-            "output_dir": save_path,
-            "profile_by_stage": profile_by_stage,
-            "merge_profiles": merge_profiles,
-        }
-
     async def start_profile(self, **kwargs):
         if (
             self.profiler_controller.check_enable()
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
         ):
-            await self.tokenizer_manager.start_profile(**self._profile_args(**kwargs))
+            profile_args = self.profiler_args_builder.build_profile_args(**kwargs)
+            self._auto_stop_profiling = self.profiler_args_builder.auto_stop_profiling
+            await self.tokenizer_manager.start_profile(**profile_args)
 
     async def stop_profile(self):
         if (
