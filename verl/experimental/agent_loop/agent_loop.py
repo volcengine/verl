@@ -194,6 +194,7 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
         """
         tensor_data = {}
         non_tensor_data = {}
+        meta_info = {}
 
         # 1. compulsory tensor fields
         tensor_data.update(
@@ -227,16 +228,14 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
         # 3.1 multi-modal inputs
         if self.multi_modal_inputs is not None:
             non_tensor_data["multi_modal_inputs"] = [self.multi_modal_inputs]
-        ## 3.2 multi_modal_data ----- the original _postprocess() func does not include this data
-        # if self.multi_modal_data is not None:
-        #     non_tensor_data["multi_modal_data"] = np.array([self.multi_modal_data], dtype=object)
+        # 3.2 multi_modal_data ----- the original _postprocess() func does not include this data
         # 3.3 num_turns
         if self.num_turns is not None:
             non_tensor_data["__num_turns__"] = [self.num_turns]
         # 3.4 metrics
         if self.metrics is not None:
             metrics = self.metrics.model_dump()
-            non_tensor_data["metrics"] = [metrics]
+            meta_info["metrics"] = [metrics]
 
         # 4. extra_fields
         extra_fields = {}
@@ -249,11 +248,18 @@ class _InternalAgentLoopOutput(AgentLoopOutput):
         reward_extra_keys = set(reward_extra_infos.keys())
         if reward_extra_keys is not None:
             for key in reward_extra_keys:
+                print("reward_extra_infos[key] =====================", reward_extra_infos[key])
                 non_tensor_data[key] = [reward_extra_infos[key]]
-            non_tensor_data["reward_extra_keys"] = reward_extra_keys
+            meta_info["reward_extra_keys"] = reward_extra_keys
+
+        # meta_info contains "metrics" and "reward_extra_keys"
+        # non_tensor_data contains other non-tensor data with batch_size dimension that need to be saved into TQ
+        for key, val in non_tensor_data.items():
+            if isinstance(val, list):
+                tensor_data[key] = NonTensorStack.from_list([NonTensorData(item) for item in val])
 
         # 5. construct tensordict
-        td = tu.get_tensordict(tensor_dict=tensor_data, non_tensor_dict=non_tensor_data)
+        td = tu.get_tensordict(tensor_dict=tensor_data, non_tensor_dict=meta_info)
 
         return td
 
