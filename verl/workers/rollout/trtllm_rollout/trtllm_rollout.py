@@ -31,8 +31,8 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.multiprocessing.reductions import reduce_tensor
 
-from verl.utils.net_utils import is_valid_ipv6_address
 from verl.utils.memory_utils import aggressive_empty_cache
+from verl.utils.net_utils import is_valid_ipv6_address
 from verl.utils.profiler.performance import log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
@@ -312,8 +312,6 @@ class ServerAdapter(BaseRollout):
         assert self.replica_rank >= 0, "replica_rank is not set"
         assert self.is_leader_rank is not None, "is_leader_rank is not set"
 
-        print(f"ServerAdapter, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
-
         self.node_ip = ray.util.get_node_ip_address().strip("[]")
 
     async def _init_server_adapter(self):
@@ -394,8 +392,7 @@ class ServerAdapter(BaseRollout):
         try:
             device_uuid = get_device_uuid(self.gpu_id)
         except Exception as e:
-            logger.error(f"Failed to get device UUID: {e}")
-            logger.error("Did you miss to set RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1 before ray start?")
+            logger.error(f"Failed to get device UUID in update_weights(): {e}")
             device_uuid = None
             raise e
 

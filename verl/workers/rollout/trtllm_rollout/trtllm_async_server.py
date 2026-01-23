@@ -17,6 +17,7 @@ import os
 from typing import Any, Optional
 
 import ray
+import torch
 from omegaconf import DictConfig
 from ray.actor import ActorHandle
 from ray.util import placement_group_table
@@ -63,6 +64,7 @@ class TRTLLMHttpServer:
         bundle_indices: list[list[int]] = None,
     ):
         os.environ["TRT_LLM_DISABLE_LOAD_WEIGHTS_IN_PARALLEL"] = "1"
+        assert torch.cuda.is_available(), "TRTLLM http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
@@ -144,7 +146,7 @@ class TRTLLMHttpServer:
                     "cuda_graph_config": CudaGraphConfig(
                         enable_padding=True,
                         batch_sizes=self.config.cudagraph_capture_sizes,
-                        max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_batch_size,
+                        max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
                     )
                 }
             )
