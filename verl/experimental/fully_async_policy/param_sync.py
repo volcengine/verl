@@ -51,7 +51,7 @@ class ParameterSynchronizer:
         self.current_version = 0
 
         self._init_weights_info()
-        self._init_sync_group()
+        # self._init_sync_group()
 
         if self.config.async_training.checkpoint_engine.enable:
             self._init_actor_rollout_checkpoint_engine()
@@ -80,18 +80,21 @@ class ParameterSynchronizer:
         )
 
     def _init_actor_rollout_checkpoint_engine(self):
+        ray.get(self.actor_wg.init_checkpoint_engine())
+        ray.get(self.rollout_wg.init_checkpoint_engine())
+
+        metadata = ray.get(self.actor_wg.prepare() + self.rollout_wg.prepare())
+        print(f"metadata: {metadata}")
         ray.get(
-            self.actor_wg.init_checkpoint_engine(
+            self.actor_wg.init_ckpt_engine_process_group(
                 rank_offset=0,
-                actor_num=len(self.actor_wg.workers),
-                rollout_num=len(self.rollout_wg.workers),
+                world_size=1 + len(self.rollout_wg.workers),
+                master_metadata=metadata[0],
             )
-        )
-        ray.get(
-            self.rollout_wg.init_checkpoint_engine(
-                rank_offset=len(self.actor_wg.workers),
-                actor_num=len(self.actor_wg.workers),
-                rollout_num=len(self.rollout_wg.workers),
+            + self.rollout_wg.init_ckpt_engine_process_group(
+                rank_offset=1,
+                world_size=1 + len(self.rollout_wg.workers),
+                master_metadata=metadata[0],
             )
         )
 
