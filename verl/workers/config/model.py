@@ -119,7 +119,7 @@ class HFModelConfig(BaseConfig):
     # fsdp lora related. We may setup a separate config later
     lora_rank: int = 0
     lora_alpha: int = 16
-    target_modules: Optional[str] = "all-linear"
+    target_modules: Optional[Any] = "all-linear"
 
     exclude_modules: Optional[str] = None
 
