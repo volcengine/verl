@@ -307,10 +307,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             assert os.path.exists(local_path), f"Checkpoint path {local_path} does not exist."
 
         # For load optimizer dist_ckpt
-        import transformer_engine
+        try:
+            import transformer_engine
 
-        torch.serialization.add_safe_globals([torch.optim.AdamW])
-        torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
+            torch.serialization.add_safe_globals([torch.optim.AdamW])
+            torch.serialization.add_safe_globals([transformer_engine.pytorch.optimizers.fused_adam.FusedAdam])
+        except Exception:
+            pass
 
         dist_checkpoint_path = get_dist_checkpoint_path(local_path)
 
