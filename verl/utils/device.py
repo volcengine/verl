@@ -43,6 +43,14 @@ is_cuda_available = torch.cuda.is_available()
 is_npu_available = is_torch_npu_available()
 
 
+def get_resource_name() -> str:
+    """Function that return ray resource name based on the device type.
+    Returns:
+        ray resource name string, either "GPU" or "NPU".
+    """
+    return "GPU" if is_cuda_available else "NPU"
+
+
 def get_visible_devices_keyword() -> str:
     """Get the environment variable name for visible device selection.
 

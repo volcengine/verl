@@ -18,16 +18,22 @@
 
 
 def apply_patch():
+    import megatron.core
     import torch
+    import torch.nn.functional as F
     from megatron.core import parallel_state, tensor_parallel
     from megatron.core.transformer.multi_latent_attention import (
         MLASelfAttention,
+        MultiLatentAttention,
         apply_rotary_pos_emb,
         deprecate_inference_params,
         gather_from_sequence_parallel_region,
         gather_from_tensor_model_parallel_region,
         scatter_to_sequence_parallel_region,
     )
+    from packaging import version
+
+    mcore_013 = version.parse(megatron.core.__version__) >= version.parse("0.13.0rc0")
 
     def patch_get_query_key_value_tensors(
         self,
@@ -59,7 +65,11 @@ def apply_patch():
         mscale = 1.0
         if self.config.rope_type == "rope":
             packed_seq = packed_seq_params is not None and packed_seq_params.qkv_format == "thd"
-            rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len, packed_seq=packed_seq)
+            try:
+                # In case of TypeError: RotaryEmbedding.forward() got an unexpected keyword argument 'packed_seq'
+                rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len, packed_seq=packed_seq)
+            except TypeError:
+                rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
         else:
             rotary_pos_emb, mscale = self.rotary_pos_emb(rotary_seq_len)
 
@@ -217,4 +227,108 @@ def apply_patch():
 
         return query, key, value
 
+    def patch_forward(
+        self,
+        hidden_states,
+        attention_mask,
+        key_value_states=None,
+        inference_context=None,
+        rotary_pos_emb=None,
+        rotary_pos_cos=None,
+        rotary_pos_sin=None,
+        attention_bias=None,
+        packed_seq_params=None,
+        position_ids=None,
+        sequence_len_offset=None,
+        *,
+        inference_params=None,
+        **kwargs,
+    ):
+        """Forward pass for multi-latent attention"""
+        assert attention_bias is None, "Attention bias should not be passed into MLA."
+        assert rotary_pos_cos is None and rotary_pos_sin is None, "MLA does not support Flash Decoding"
+
+        # hidden_states: [sq, b, h]
+
+        inference_context = deprecate_inference_params(inference_context, inference_params)
+
+        # =====================
+        # Query, Key, and Value
+        # =====================
+        # Get the query, key and value tensors based on the type of attention -
+        # self or cross attn.
+        # query: [96, 1, 16, 128], key:[96, 1, 16, 128], value:[96, 1, 16, 128]
+        query, key, value = self.get_query_key_value_tensors(
+            hidden_states,
+            key_value_states,
+            position_ids,
+            packed_seq_params,
+            inference_context=inference_context,
+        )
+
+        # ===================================================
+        # Adjust key, value for inference
+        # ===================================================
+        # rotary_pos_emb = None
+        if mcore_013:
+            query, key, value, _, attn_mask_type, _ = self._adjust_key_value_for_inference(
+                inference_context, query, key, value, rotary_pos_emb=None
+            )
+        else:
+            query, key, value, _, attn_mask_type = self._adjust_key_value_for_inference(
+                inference_context, query, key, value, rotary_pos_emb=None
+            )
+
+        # TODO: Currently, TE can only accept contiguous tensors for MLA
+        query = query.contiguous()
+        key = key.contiguous()
+        value = value.contiguous()
+
+        # ==================================
+        # core attention computation
+        # ==================================
+        # Need corresponding TE change
+        thd_qkv_format = packed_seq_params and packed_seq_params.qkv_format == "thd"
+        v_dim = value.shape[-1]
+        if thd_qkv_format and query.shape[-1] != v_dim:
+            value = F.pad(value, [0, query.shape[-1] - v_dim])
+            self.core_attention.hidden_size_per_attention_head_v = value.shape[-1]
+        if self.checkpoint_core_attention and self.training:
+            core_attn_out = self._checkpointed_attention_forward(
+                query, key, value, attention_mask, packed_seq_params=packed_seq_params
+            )
+        else:
+            core_attn_out = self.core_attention(
+                query,
+                key,
+                value,
+                attention_mask,
+                packed_seq_params=packed_seq_params,
+                attn_mask_type=attn_mask_type,
+            )
+        if thd_qkv_format:
+            if core_attn_out.ndim == 2:
+                core_attn_out = core_attn_out.reshape(*core_attn_out.shape[:-1], -1, value.shape[-1])
+            if query.shape[-1] != v_dim:
+                core_attn_out = core_attn_out[..., :v_dim]
+            # reshape to same output shape as unpacked case
+            # (t, np, hn) -> (t, b=1, h=np*hn)
+            # t is the pack size = sum (sq_i)
+            # note that batch is a dummy dimension in the packed case
+            core_attn_out = core_attn_out.reshape(core_attn_out.size(0), 1, -1)
+
+        if self.recompute_up_proj:
+            assert self.qkv_up_checkpoint is not None
+            self.qkv_up_checkpoint.discard_output_and_register_recompute(core_attn_out)
+            self.qkv_up_checkpoint = None
+
+        # =================
+        # Output. [sq, b, h]
+        # =================
+        output, bias = self.linear_proj(core_attn_out)
+
+        return output, bias
+
     MLASelfAttention.get_query_key_value_tensors = patch_get_query_key_value_tensors
+
+    MultiLatentAttention.forward = patch_forward
