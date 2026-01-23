@@ -159,3 +159,10 @@ class HFModelConfig(BaseConfig):
 
     def get_processor(self):
         return self.processor if self.processor is not None else self.tokenizer
+
+
+@dataclass
+class TorchtitanModelConfig(BaseConfig):
+    name: str = "llama3"
+    flavor: str = "debugmodel"
+    hf_assets_path: str = "./tests/assets/tokenizer"

@@ -19,7 +19,14 @@ from omegaconf import MISSING
 
 from verl.base_config import BaseConfig
 
-__all__ = ["OptimizerConfig", "FSDPOptimizerConfig", "McoreOptimizerConfig", "build_optimizer", "VeOmniOptimizerConfig"]
+__all__ = [
+    "OptimizerConfig",
+    "FSDPOptimizerConfig",
+    "McoreOptimizerConfig",
+    "build_optimizer",
+    "VeOmniOptimizerConfig",
+    "TorchtitanOptimizerConfig",
+]
 
 
 @dataclass
@@ -141,6 +148,24 @@ class McoreOptimizerConfig(OptimizerConfig):
     lr_wsd_decay_steps: Optional[int] = None
     use_checkpoint_opt_param_scheduler: bool = False
     override_optimizer_config: Optional[dict] = None
+
+
+@dataclass
+class TorchtitanOptimizerConfig(OptimizerConfig):
+    """VeOmni optimizer configuration extending base OptimizerConfig.
+
+    Args:
+        optimizer (str): Optimizer name; default is "AdamW".
+        lr_min (float): Minimum learning rate.
+        lr_start (float): Starting learning rate for warmup.
+        lr_decay_ratio (float): LR decay ratio.
+        decay_type (str): Weight decay_type type: "linear", "sqrt", or "cosine".
+    """
+
+    name: str = "AdamW"
+    eps: float = 1e-8
+    decay_type: str = "linear"
+    min_lr_factor: float = 0.0
 
 
 def build_optimizer(parameters, config: FSDPOptimizerConfig):
