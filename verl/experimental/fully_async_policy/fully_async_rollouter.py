@@ -13,8 +13,11 @@
 # limitations under the License.
 
 import asyncio
+import functools
+import multiprocessing
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pprint import pformat
 
 import numpy as np
@@ -168,6 +171,12 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
         self.active_tasks = set()
         self.cancel_queue = asyncio.Queue()
 
+        cpu_cores = multiprocessing.cpu_count()
+        # cpu case use cpu_cores; io case use cpu_cores*2
+        self.validate_executor = ThreadPoolExecutor(max_workers=cpu_cores)
+        self.parallel_validate_and_rollout = config.async_training.get("parallel_validate_and_rollout", False)
+        self.validate_task = None
+
     def _init_async_objects(self):
         # Initialize asyncio synchronization primitives.
         # We let asyncio.Condition create the Lock internally to ensure they share the same Event Loop.
@@ -245,21 +254,70 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
                 f",reset staleness_samples to: {self.staleness_samples}"
                 f",idle_ratio: {idle_ratio}"
             )
-            val_metrics = None
-            if (
-                self.val_reward_fn is not None
-                and self.config.rollout.test_freq > 0
-                and self.current_param_version % self.config.rollout.test_freq == 0
-                and self.current_param_version > 0  # don't test here in the initial parameter sync
-            ) or (validate and self.val_reward_fn is not None):
-                with marked_timer("rollouter/validate_time", timing_raw, color="green"):
-                    val_metrics: dict = self._validate(use_trainer_do_validate)
-            data = ValidateMetrics(
-                timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
+            need_validate = (
+                (
+                    self.val_reward_fn is not None
+                    and self.config.rollout.test_freq > 0
+                    and self.current_param_version % self.config.rollout.test_freq == 0
+                    and self.current_param_version > 0
+                )  # don't test here in the initial parameter sync
+                or (validate and self.val_reward_fn is not None)
             )
-            await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
+            print(
+                f"[FullyAsyncRollouter] need_validate: {need_validate},"
+                f"parallel_validate_and_rollout: {self.parallel_validate_and_rollout}"
+            )
+            if not need_validate:
+                data = ValidateMetrics(
+                    timing_raw=timing_raw, metrics=None, global_steps=global_steps, param_version=version
+                )
+            elif need_validate and not self.parallel_validate_and_rollout:
+                data = self._validate_wrapper(timing_raw, version, global_steps, use_trainer_do_validate)
+
+            if not need_validate or not self.parallel_validate_and_rollout:
+                await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
             self.version_start_time = time.time()
+
+        if need_validate and self.parallel_validate_and_rollout:
+            if self.validate_task and not self.validate_task.done():
+                print("[FullyAsyncRollouter] validate_task is running, wait last validate_task to finish")
+                self.validate_task.get()
+            self.validate_task = asyncio.create_task(
+                self.do_validate_async(timing_raw, version, global_steps, use_trainer_do_validate)
+            )
+
+    def _validate_wrapper(
+        self, timing_raw: dict, version: int, global_steps: int = 0, use_trainer_do_validate: bool = False
+    ):
+        val_metrics = None
+        with marked_timer("rollouter/validate_time", timing_raw, color="green"):
+            val_metrics: dict = self._validate(use_trainer_do_validate)
+        data = ValidateMetrics(
+            timing_raw=timing_raw, metrics=val_metrics, global_steps=global_steps, param_version=version
+        )
+        return data
+
+    async def do_validate_async(
+        self,
+        timing_raw: dict,
+        version: int,
+        global_steps: int = 0,
+        use_trainer_do_validate: bool = False,
+    ):
+        loop = asyncio.get_running_loop()
+
+        data = await loop.run_in_executor(
+            self.validate_executor,
+            functools.partial(
+                self._validate_wrapper,
+                timing_raw=timing_raw,
+                version=version,
+                global_steps=global_steps,
+                use_trainer_do_validate=use_trainer_do_validate,
+            ),
+        )
+        await self.message_queue_client.put_validate(ray.cloudpickle.dumps(data))
 
     async def save_checkpoint(self, local_global_step_folder: str):
         # WARNING!: Due to the asynchronous nature, there are some in-flight samples
@@ -682,16 +740,20 @@ class FullyAsyncRollouter(FullyAsyncRayPPOTrainer):
 
     async def pause(self):
         """pause rollout"""
-        print("[FullyAsyncRollouter][Public][Pause]")
+        print("[FullyAsyncRollouter][Public][Pause] partial rollout:", self.config.async_training.partial_rollout)
         async with self.lock:
             self.paused = True
             # Cancel all rollout tasks
             if self.config.async_training.partial_rollout:
                 await self.async_rollout_manager.cancel()
+                print("[FullyAsyncRollouter][Public][Pause] Unfinished rollout tasks canceled")
             if self.active_tasks:
                 await asyncio.gather(*self.active_tasks, return_exceptions=True)
                 self.active_tasks.clear()
                 print("[FullyAsyncRollouter][Public][Pause] All active tasks completed")
+            print("[FullyAsyncRollouter][Public][Pause] Prefix cache reset")
+            # Always clear KV cache to release GPU memory during weight synchronization,
+            # regardless of partial_rollout setting.
             await self.async_rollout_manager.clear_kv_cache()
             self.monitor_loop_trigger = False
 

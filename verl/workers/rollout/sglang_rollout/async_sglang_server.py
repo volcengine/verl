@@ -41,6 +41,10 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import (
+    get_visible_devices_keyword,
+)
+from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
@@ -54,8 +58,9 @@ from verl.workers.rollout.utils import (
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
+visible_devices_keyword = get_visible_devices_keyword()
 
-@ray.remote(num_cpus=1)
+
 class SGLangHttpServer:
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
@@ -81,20 +86,22 @@ class SGLangHttpServer:
         node_rank: int,
         nnodes: int,
         cuda_visible_devices: str,
+        base_gpu_id: int,
     ):
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
-        os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
-        assert torch.cuda.is_available(), "SGLang http server should run on GPU node"
+        os.environ[visible_devices_keyword] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
         self.replica_rank = replica_rank
         self.node_rank = node_rank
         self.nnodes = nnodes
+        self.base_gpu_id = base_gpu_id
 
         if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
             logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
@@ -103,6 +110,17 @@ class SGLangHttpServer:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for controlling sglang server profiler
+        profiler_config = self.config.profiler
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
+        self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
 
         # used for NCCL process group
         if self.node_rank == 0:
@@ -153,16 +171,16 @@ class SGLangHttpServer:
             if is_valid_ipv6_address(self._master_address)
             else f"{self._master_address}:{self._master_port}"
         )
-
+        infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,
             "dtype": self.config.dtype,
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
             "enable_memory_saver": True,
-            "base_gpu_id": 0,
+            "base_gpu_id": self.base_gpu_id,
             "gpu_id_step": 1,
-            "tp_size": self.config.tensor_model_parallel_size,
+            "tp_size": infer_tp,
             "dp_size": self.config.data_parallel_size,
             "ep_size": self.config.expert_parallel_size,
             "node_rank": self.node_rank,
@@ -203,14 +221,40 @@ class SGLangHttpServer:
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
 
+        # mtp
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            args["speculative_algorithm"] = self.config.mtp.speculative_algorithm
+            args["speculative_num_steps"] = self.config.mtp.speculative_num_steps
+            args["speculative_eagle_topk"] = self.config.mtp.speculative_eagle_topk
+            args["speculative_num_draft_tokens"] = self.config.mtp.speculative_num_draft_tokens
+
+            args["log_level"] = "info"
+            args["load_format"] = "auto"
+
+            # Enable weights CPU backup for sglang >= 0.5.6
+            if sglang.__version__ >= "0.5.6":
+                args["enable_weights_cpu_backup"] = True
+                args["enable_draft_weights_cpu_backup"] = True
+
+            # args['enable_memory_saver'] = False
+            # enable_memory_saver = False MTP success but memory can't be release
+
         # NOTE: We can't directly call SGLang's launch_server since it's not an async function.
         # https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/entrypoints/http_server.py
         sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
         os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
         server_args = ServerArgs(**args)
-        self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
-            server_args=server_args
-        )
+        if version.parse(sglang.__version__) >= version.parse("0.5.7"):
+            self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
+                server_args=server_args,
+                init_tokenizer_manager_func=sglang.srt.entrypoints.engine.init_tokenizer_manager,
+                run_scheduler_process_func=sglang.srt.entrypoints.engine.run_scheduler_process,
+                run_detokenizer_process_func=sglang.srt.entrypoints.engine.run_detokenizer_process,
+            )
+        else:
+            self.tokenizer_manager, self.template_manager, self.scheduler_info, *_ = _launch_subprocesses(
+                server_args=server_args
+            )
 
         # In multi-node cases, non-zero rank nodes should not launch http server.
         if self.node_rank > 0:
@@ -345,11 +389,45 @@ class SGLangHttpServer:
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
 
+    async def start_profile(self, **kwargs):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            contents = self.profiler_controller.tool_config.contents
+            save_path = os.path.join(self.config.profiler.save_path, f"agent_loop_replica_{self.replica_rank}")
+            await self.tokenizer_manager.start_profile(
+                output_dir=save_path,
+                with_stack=contents is None or "stack" in contents,
+                record_shapes=contents is None or "shapes" in contents,
+                **kwargs,
+            )
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            await self.tokenizer_manager.stop_profile()
+
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
 
 
 class SGLangReplica(RolloutReplica):
+    def __init__(
+        self,
+        replica_rank: int,
+        config: RolloutConfig,
+        model_config: HFModelConfig,
+        gpus_per_node: int = 8,
+        is_reward_model: bool = False,
+    ):
+        super().__init__(replica_rank, config, model_config, gpus_per_node, is_reward_model)
+        self.server_class = ray.remote(SGLangHttpServer)
+
     def get_ray_class_with_init_args(self) -> RayClassWithInitArgs:
         """Get rollout worker actor class for colocated and standalone mode."""
         worker_dict_cls = RayClassWithInitArgs(
@@ -370,32 +448,53 @@ class SGLangReplica(RolloutReplica):
         worker_infos = await asyncio.gather(
             *[
                 worker.__ray_call__.remote(
-                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ["CUDA_VISIBLE_DEVICES"])
+                    lambda self: (ray.get_runtime_context().get_node_id(), os.environ[visible_devices_keyword])
                 )
                 for worker in self.workers
             ]
         )
         worker_cuda_visible_devices = [worker_info[1] for worker_info in worker_infos]
         worker_node_ids = [worker_info[0] for worker_info in worker_infos]
-
+        base_gpu_id = 0
+        infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
+        replica_world_size = infer_tp * self.config.pipeline_model_parallel_size
+        if os.environ.get(f"RAY_EXPERIMENTAL_NOSET_{visible_devices_keyword}", None):
+            logger.warning(f"RAY_EXPERIMENTAL_NOSET_{visible_devices_keyword} is set True!")
+            base_gpu_id = (0 + self.replica_rank * replica_world_size) % self.gpus_per_node
         # create server actor in each node with node affinity and cuda visible devices
         for node_rank in range(self.nnodes):
-            workers = self.workers[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+            workers = self.workers[
+                node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
+            ]
+            node_cuda_visible_devices_set = worker_cuda_visible_devices[
+                node_rank * self.gpus_per_replica_node : (node_rank + 1) * self.gpus_per_replica_node
+            ]
             node_cuda_visible_devices = ",".join(
-                worker_cuda_visible_devices[node_rank * self.gpus_per_node : (node_rank + 1) * self.gpus_per_node]
+                map(
+                    str,
+                    sorted(
+                        set(
+                            int(device)
+                            for worker_devices_set in node_cuda_visible_devices_set
+                            for device in worker_devices_set.split(",")
+                            if device.strip()
+                        )
+                    ),
+                )
             )
-            node_id = worker_node_ids[node_rank * self.gpus_per_node]
+
+            node_id = worker_node_ids[node_rank * self.gpus_per_replica_node]
             name = (
                 f"sglang_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
                 else f"sglang_server_reward_{self.replica_rank}_{node_rank}"
             )
-            server = SGLangHttpServer.options(
+            server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
                 ),
-                runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
+                runtime_env={"env_vars": {f"RAY_EXPERIMENTAL_NOSET_{visible_devices_keyword}": "1"}},
                 name=name,
             ).remote(
                 config=self.config,
@@ -406,6 +505,7 @@ class SGLangReplica(RolloutReplica):
                 node_rank=node_rank,
                 nnodes=self.nnodes,
                 cuda_visible_devices=node_cuda_visible_devices,
+                base_gpu_id=base_gpu_id,
             )
             self.servers.append(server)
 

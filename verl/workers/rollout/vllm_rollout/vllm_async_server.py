@@ -46,6 +46,7 @@ from vllm.v1.executor.abstract import Executor
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.profiler.profile import DistProfiler
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -72,6 +73,10 @@ if _VLLM_VERSION > version.parse("0.11.0"):
 
     if _VLLM_VERSION == version.parse("0.12.0"):
         from vllm.entrypoints.harmony_utils import get_encoding
+
+        get_encoding()
+    elif _VLLM_VERSION >= version.parse("0.13.0"):
+        from vllm.entrypoints.openai.parser.harmony_utils import get_encoding
 
         get_encoding()
 else:
@@ -202,7 +207,8 @@ class vLLMHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -218,6 +224,18 @@ class vLLMHttpServer:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for controlling vllm server profiler
+        profiler_config = self.config.profiler
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
+        self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
+        self.server_profiler_dir = os.environ.pop("VLLM_TORCH_PROFILER_DIR", None)
 
         # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
         if self.node_rank == 0:
@@ -331,6 +349,14 @@ class vLLMHttpServer:
                     # If it's a full path, extract the last part as model name
                     served_model_name = served_model_name.split("/")[-1]
                 args["served_model_name"] = served_model_name
+
+        # mtp
+        if self.config.mtp.enable and self.config.mtp.enable_rollout:
+            speculative_config = {
+                "method": self.config.mtp.method,
+                "num_speculative_tokens": self.config.mtp.num_speculative_tokens,
+            }
+            args["speculative_config"] = speculative_config
 
         if self.config.expert_parallel_size > 1:
             assert self.gpus_per_node % self.config.tensor_model_parallel_size == 0, (
@@ -546,8 +572,17 @@ class vLLMHttpServer:
         else:
             stop_reason = finish_reason  # for more stop reason in the future
 
+        num_preempted = None
+
+        if hasattr(final_res.outputs[0], "num_preempted"):
+            num_preempted = final_res.outputs[0].num_preempted
+
         return TokenOutput(
-            token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts, stop_reason=stop_reason
+            token_ids=token_ids,
+            log_probs=log_probs,
+            routed_experts=routed_experts,
+            stop_reason=stop_reason,
+            num_preempted=num_preempted,
         )
 
     async def wake_up(self):
@@ -572,6 +607,24 @@ class vLLMHttpServer:
                 await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def start_profile(self, **kwargs):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.start_profile(**kwargs)
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+            and self.server_profiler_dir
+        ):
+            await self.engine.stop_profile()
 
     async def clear_kv_cache(self):
         if self.node_rank == 0:
@@ -703,15 +756,15 @@ class vLLMReplica(RolloutReplica):
         )
 
         # For non-data parallel case, there's only one server whether it's single or multi nodes.
-        nnodes, gpus_per_node = self.nnodes, self.gpus_per_node
+        nnodes, gpus_per_replica_node = self.nnodes, self.gpus_per_replica_node
         if self.config.data_parallel_size == 1:
             nnodes = 1
-            gpus_per_node = self.world_size
+            gpus_per_replica_node = self.world_size
 
         # create server actor in each node with node affinity
         for node_rank in range(nnodes):
-            workers = self.workers[node_rank * gpus_per_node : (node_rank + 1) * gpus_per_node]
-            node_id = worker_node_ids[node_rank * gpus_per_node]
+            workers = self.workers[node_rank * gpus_per_replica_node : (node_rank + 1) * gpus_per_replica_node]
+            node_id = worker_node_ids[node_rank * gpus_per_replica_node]
             name = (
                 f"vllm_server_{self.replica_rank}_{node_rank}"
                 if not self.is_reward_model
@@ -731,7 +784,7 @@ class vLLMReplica(RolloutReplica):
                 workers=workers,
                 replica_rank=self.replica_rank,
                 node_rank=node_rank,
-                gpus_per_node=gpus_per_node,
+                gpus_per_node=gpus_per_replica_node,
                 nnodes=nnodes,
             )
             self.servers.append(server)
