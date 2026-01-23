@@ -92,9 +92,7 @@ def get_device_uuid(id: int) -> str:
         elif isinstance(uuid, str):
             return uuid
         else:
-            raise RuntimeError(
-                f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {id})"
-            )
+            raise RuntimeError(f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {id})")
     except pynvml.NVMLError as e:
         raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {id}): {e}") from e
 
