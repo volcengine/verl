@@ -293,27 +293,27 @@ class vLLMHttpServer:
         quantization = self.config.quantization
 
         if quantization is not None:
-            _SUPPORTED_QUANTIZATION = ["fp8", "torchao"]
+            _SUPPORTED_QUANTIZATION = ["fp8", "mxfp8", "torchao"]
             if quantization not in _SUPPORTED_QUANTIZATION:
                 raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
 
             if quantization == "fp8":
-                FP8_BLOCK_QUANT_KWARGS = {
-                    "activation_scheme": "dynamic",
-                    "fmt": "e4m3",
-                    "quant_method": "fp8",
-                    "weight_block_size": [128, 128],
-                }
+                from verl.utils.vllm.vllm_fp8_utils import FP8_BLOCK_QUANT_KWARGS
                 fp8_block_quant_kwargs = dict(FP8_BLOCK_QUANT_KWARGS)
                 # Apply vllm fp8 patches
                 # Will remove the patch after vllm support on-the-fly quant for rollout natively.
                 apply_vllm_fp8_patches()
+            elif quantization == "mxfp8":
+                from verl.utils.vllm.vllm_fp8_utils import MXFP8_BLOCK_QUANT_KWARGS
+                fp8_block_quant_kwargs = dict(MXFP8_BLOCK_QUANT_KWARGS)
+                # TODO(slightwindsec): apply MXFP8 patches?
+                pass
 
         hf_overrides = {}
         if quantization is not None and self.config.quantization_config_file is not None:
             hf_overrides["quantization_config_file"] = self.config.quantization_config_file
 
-        if quantization == "fp8":
+        if quantization == "fp8" or quantization == "mxfp8":
             hf_overrides["quantization_config"] = fp8_block_quant_kwargs
 
         args = {
