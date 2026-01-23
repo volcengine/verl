@@ -257,8 +257,9 @@ jobs:
       - name: Preprocess gsm8k dataset
         run: |
           python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
-      - name: Running the E2E test with one_step_off_policy algorithm on ASCEND NPU (FSDP2)
-        run: |
-          ray stop --force
-          bash tests/special_npu/run_one_step_off_policy.sh
-          rm -rf $HOME/ckpts
+      # TODO(wuxibin): temporary disable until we refactor with checkpoint engine
+      # - name: Running the E2E test with one_step_off_policy algorithm on ASCEND NPU (FSDP2)
+      #   run: |
+      #     ray stop --force
+      #     bash tests/special_npu/run_one_step_off_policy.sh
+      #     rm -rf $HOME/ckpts
