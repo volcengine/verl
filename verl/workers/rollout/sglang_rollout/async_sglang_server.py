@@ -424,20 +424,22 @@ class SGLangHttpServer:
         merge_profiles = bool(contents) and "merge-profiles" in contents
 
         # Rollout start step must be greater than 0 for sglang
-        rollout_start_step = max(1, config.step_start or 1)
-        rollout_end_step = max(2, config.step_end or 2)
+        rollout_start_step = config.step_start if config.step_end is not None else 1
+        rollout_end_step = config.step_end if config.step_end is not None else -1
 
         rollout_num_steps = rollout_end_step - rollout_start_step
-        assert rollout_num_steps is None or rollout_num_steps > 0, (
-            f"Rollout num steps must be greater than 0 for sglang, but got {rollout_num_steps}"
-        )
-        self._auto_stop_profiling = rollout_num_steps is not None
+        self._auto_stop_profiling = rollout_num_steps > 0
         os.makedirs(save_path, exist_ok=True)
 
+        # num_steps must be greater than 0 or None in SGLang.
+        rollout_num_steps = None if rollout_num_steps <= 0 else rollout_num_steps
         if rollout_num_steps is None and profile_by_stage:
             raise Exception(
                 "profile_by_stage requires rollout_num_steps to be set (possible limitation in sglang <= 0.5.5)"
             )
+
+        # start_step must be greater than 0 for sglang
+        rollout_start_step = max(rollout_start_step, 1)
 
         return {
             "start_step": rollout_start_step,
