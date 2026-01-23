@@ -65,7 +65,7 @@ max_num_batched_tokens: 8192
 max_model_len: null
 
 # max length of sequences
-max_num_seqs: 1024
+max_num_seqs: 256
 
 # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
 enable_chunked_prefill: True
@@ -253,7 +253,7 @@ agent:
 # 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
 # 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
 # when using Tensor Parallelism (TP) >= 8.
-update_weights_bucket_megabytes: 512
+update_weights_bucket_megabytes: 2048
 
 # trace rollout data
 trace:

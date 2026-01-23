@@ -629,6 +629,7 @@ class EngineTrainModeCtx(BaseEngineCtx):
 
     def __exit__(self, exc_type, exc_value, traceback):
         assert isinstance(self.engine, MegatronEngine)
+        self.engine.optimizer_zero_grad()
         super().__exit__(exc_type, exc_value, traceback)
 
 

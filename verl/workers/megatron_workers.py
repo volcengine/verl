@@ -19,7 +19,6 @@ import datetime
 import logging
 import os
 import time
-from typing import Any, Optional
 
 import psutil
 import torch
@@ -988,30 +987,6 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     async def sleep(self):
         await self.trainer_mode()
         return True
-
-    # ============================ vLLM related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def get_zeromq_address(self):
-        return self.rollout.get_zeromq_address()
-
-    # ============================ SGLang related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def chat_completion(self, json_request):
-        ret = await self.rollout.chat_completion(json_request)
-        return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
-        return ret
 
 
 class CriticWorker(MegatronWorker, DistProfilerExtension):

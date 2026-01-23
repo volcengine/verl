@@ -25,10 +25,11 @@ from ray.util.placement_group import PlacementGroup
 from verl.single_controller.ray import RayClassWithInitArgs, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import is_cuda_available
+from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
-from verl.workers.rollout.utils import is_valid_ipv6_address, run_unvicorn
+from verl.workers.rollout.utils import run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
