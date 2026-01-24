@@ -171,6 +171,7 @@ class SGLangHttpServer:
         args = {
             "model_path": self.model_config.local_path,
             "dtype": self.config.dtype,
+            "enable_fp32_lm_head": self.config.get("enable_fp32_lm_head", False),
             "mem_fraction_static": self.config.gpu_memory_utilization,
             "disable_cuda_graph": self.config.enforce_eager,
             "enable_memory_saver": True,

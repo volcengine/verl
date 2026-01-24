@@ -139,6 +139,7 @@ class RolloutConfig(BaseConfig):
     response_length: int = 512
 
     dtype: str = "bfloat16"
+    enable_fp32_lm_head: bool = False
     gpu_memory_utilization: float = 0.5
     ignore_eos: bool = False
     enforce_eager: bool = True

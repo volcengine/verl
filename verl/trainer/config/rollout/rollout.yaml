@@ -28,6 +28,11 @@ response_length: ${oc.select:data.max_response_length,512}
 # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
 dtype: bfloat16
 
+# Whether to enable an FP32 LM head during SGLang rollout.
+# If true, the LM head weights and the last-layer hidden states are upcast to FP32
+# to improve alignment between training and inference.
+enable_fp32_lm_head: False
+
 # Fraction of GPU memory used by vLLM/SGLang/TRTLLM for KV cache.
 gpu_memory_utilization: 0.5
 
