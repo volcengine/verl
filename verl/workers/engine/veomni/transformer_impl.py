@@ -401,7 +401,7 @@ class VeOmniEngine(FSDPEngine):
         device = get_device_id()
         ps = parallel_state.get_parallel_state()
         model_type = getattr(self.module.config, "model_type", "default")
-        process_func = MOE_PARAM_HANDERS.get(model_type, lambda n, t: (yield n, t))
+        process_func = MOE_PARAM_HANDERS.get(model_type, lambda n, t: iter([(n, t)]))
 
         def param_generator():
             for name, param in params.items():
