@@ -610,6 +610,7 @@ class MegatronCheckpointManager(BaseCheckpointManager):
                     "grad_sync_func",
                     "param_sync_func",
                     "generation_config",
+                    "_pg_collection",
                 ]
                 backup = {}
                 for k in bypass_keys:

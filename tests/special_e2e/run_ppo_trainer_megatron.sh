@@ -55,6 +55,7 @@ LORA_RANK=${LORA_RANK:-0}
 CRITIC_LORA_RANK=${CRITIC_LORA_RANK:-$LORA_RANK}
 LORA_ALPHA=${LORA_ALPHA:-${LORA_RANK}}
 LORA_TARGET_MODULES=${LORA_TARGET_MODULES:-"['linear_qkv','linear_proj','linear_fc1','linear_fc2']"}
+LORA_MERGE=${LORA_MERGE:-False}
 
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-512}
 MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-512}
@@ -163,6 +164,7 @@ python3 -m verl.trainer.main_ppo --config-path=config \
     actor_rollout_ref.model.lora.rank=${LORA_RANK} \
     actor_rollout_ref.model.lora.alpha=${LORA_ALPHA} \
     actor_rollout_ref.model.lora.target_modules=${LORA_TARGET_MODULES} \
+    actor_rollout_ref.model.lora.merge=${LORA_MERGE} \
     actor_rollout_ref.actor.optim.lr_warmup_steps=$LR_WARMUP_STEPS \
     +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=$OPTIM_MEMORY_EFFICIENT \
     +actor_rollout_ref.actor.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=$OPTIM_MEMORY_EFFICIENT \

@@ -341,6 +341,7 @@ actor_rollout_ref:
       num_speculative_tokens: 1
     lora:
       type: lora
+      merge: false
       rank: 0
       alpha: 32
       dropout: 0.0

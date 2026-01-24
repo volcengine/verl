@@ -27,11 +27,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import (
-    get_device_name,
-    get_torch_device,
-    set_expandable_segments,
-)
+from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -516,6 +512,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # used for LoRA
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
             self.layered_summon = self.config.rollout.get("layered_summon", False)
+            self.peft_merge: bool = model_config.lora.get("merge", False)
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
@@ -567,16 +564,33 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         set_expandable_segments(False)
 
-        # 1. get per tensor generator from engine, this will load model to gpu
-        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param(
-            layered_summon=self.layered_summon, base_sync_done=self.base_sync_done
-        )
-
-        # 2. resume weights and update weights
+        # 1. resume weights and update weights
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
         log_gpu_memory_usage("After resume weights", logger=logger)
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+
+        # 2. get per tensor generator from engine, this will load model to gpu
+        per_tensor_param, peft_config = self.actor.engine.get_per_tensor_param(
+            layered_summon=self.layered_summon, base_sync_done=True
+        )
+
+        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=True)
+
+        do_lora_base_sync = False
+        if not self.peft_merge and peft_config is not None:
+            # set sleep level for LoRA adapter weights only sync
+            # TODO: make this configurable so that users with small
+            # main memory can trade sync time to avoid OOM
+            self.rollout.sleep_level = 1
+
+            do_lora_base_sync = not self.base_sync_done or self.rollout.sleep_level != 1
+
+        if do_lora_base_sync:
+            per_tensor_base_params, _ = self.actor.engine.get_per_tensor_param(
+                layered_summon=self.layered_summon, base_sync_done=False
+            )
+            await self.rollout.update_weights(per_tensor_base_params, peft_config=peft_config, base_sync_done=False)
+
         log_gpu_memory_usage("After update_weights", logger=logger)
 
         # 3. offload model to cpu

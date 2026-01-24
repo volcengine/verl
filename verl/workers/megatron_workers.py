@@ -53,6 +53,7 @@ from verl.utils.distributed import set_numa_affinity
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.fs import copy_to_local
 from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction, apply_router_replay_patch
+from verl.utils.megatron_peft_utils import add_base_layer_suffix, build_peft_config_for_vllm
 from verl.utils.megatron_utils import (
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
@@ -344,6 +345,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         self._is_offload_grad = False
         self._is_offload_optimizer = False
 
+        # Initialize LoRA-related attributes (will be updated in _build_rollout if needed)
+        self.base_sync_done = False
+        self.peft_merge = False
+
         # normalize config
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
@@ -504,14 +509,7 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         # 1. parse rollout and huggingface model config
         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
-
-        # Convert megatron lora config to HFModelConfig
-        model_config_dict = OmegaConf.to_container(self.config.model)
-        model_config_dict.pop("lora", None)
-
-        model_config: HFModelConfig = omega_conf_to_dataclass(
-            OmegaConf.create(model_config_dict), dataclass_type=HFModelConfig
-        )
+        model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
 
         # 2. build rollout device mesh
         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
@@ -546,6 +544,10 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
+
+        # Initialize base_sync_done for LoRA
+        self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
+        self.peft_merge: bool = model_config.lora.get("merge", False)
 
         # 5. switch to trainer mode
         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
@@ -687,9 +689,24 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
             log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
 
+        # Build peft_config for vLLM LoRA support
+        peft_config = None
+        do_lora_base_sync = False
+        if not self.peft_merge and self.peft_cls is not None:
+            peft_config = build_peft_config_for_vllm(self.config.model.get("lora", {}))
+            # set sleep level for LoRA adapter weights only sync
+            # TODO: make this configurable so that users with small
+            # main memory can trade sync time to avoid OOM
+            self.rollout.sleep_level = 1
+
+            do_lora_base_sync = not self.base_sync_done or self.rollout.sleep_level != 1
+
         if self.bridge is not None:
             if self.vanilla_bridge:
                 per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
+            elif not self.peft_merge and self.peft_cls is not None:
+                # Only export adapter weights
+                per_tensor_param = self.bridge.export_adapter_weights(self.actor.actor_module)
             else:
                 per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
         else:
@@ -703,7 +720,21 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
-        await self.rollout.update_weights(per_tensor_param)
+        if do_lora_base_sync:
+            # Base layer sync
+            per_tensor_param_lora_base = self.bridge.export_hf_weights(
+                self.actor.actor_module, merge_adapter_weights=False
+            )
+            await self.rollout.update_weights(
+                add_base_layer_suffix(per_tensor_param_lora_base, model_type=self.hf_config.model_type),
+                peft_config=peft_config,
+                base_sync_done=False,
+            )
+
+            # Mark base sync as done after first successful sync
+            self.base_sync_done = True
+
+        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=True)
         if self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor.actor_module)
         aggressive_empty_cache(force_sync=True)
