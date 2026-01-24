@@ -83,6 +83,8 @@ from verl.workers.rollout import get_rollout_class
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
+load_actor_from_cpu=os.getenv("MEGATRON_VERL_LOAD_FROM_CPU", "1") == "1"
+
 
 def set_random_seed(seed, only_rollout=False):
     import random
@@ -683,15 +685,21 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
         aggressive_empty_cache(force_sync=True)
         set_expandable_segments(False)
 
+        set_expandable_segments(True)
+
         if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
-            log_gpu_memory_usage("After load actor params during rollout_mode", logger=logger)
+            log_gpu_memory_usage("[rollout] Before load megatron actor params from cpu to GPU during rollout_mode", logger=logger)
+            if not load_actor_from_cpu:
+                load_megatron_model_to_gpu(self.actor.actor_module, load_grad=False)
+            log_gpu_memory_usage("[rollout] After load megatron actor params from cpu to GPU during rollout_mode", logger=logger)
 
         if self.bridge is not None:
             if self.vanilla_bridge:
                 per_tensor_param = self.bridge.export_weights(self.actor.actor_module)
             else:
-                per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module)
+                log_gpu_memory_usage("[rollout] Before Load Meagtron Bridge", logger=logger)
+                per_tensor_param = self.bridge.export_hf_weights(self.actor.actor_module, cpu=load_actor_from_cpu, show_progress=False)
+                log_gpu_memory_usage("[rollout] After Load Meagtron Bridge", logger=logger)
         else:
             per_tensor_param = per_tensor_generator(
                 self.actor.actor_module,
@@ -703,10 +711,23 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
 
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
-        await self.rollout.update_weights(per_tensor_param)
-        if self._is_offload_param:
-            offload_megatron_model_to_cpu(self.actor.actor_module)
+        log_gpu_memory_usage("[rollout] After rollout resume weights", logger=logger)
+
         aggressive_empty_cache(force_sync=True)
+        log_gpu_memory_usage("[rollout] After aggressive empty (1)", logger=logger)
+
+        await self.rollout.update_weights(per_tensor_param)
+        log_gpu_memory_usage("[rollout] After rollout weights update", logger=logger)
+
+        log_gpu_memory_usage("[rollout] Before offload megatron actor params from GPU to CPU during rollout_mode", logger=logger)
+        if self._is_offload_param:
+            if not load_actor_from_cpu:
+                offload_megatron_model_to_cpu(self.actor.actor_module)
+        log_gpu_memory_usage("[rollout] After offload megatron actor params from GPU to CPU during rollout_mode", logger=logger)
+
+        aggressive_empty_cache(force_sync=True)
+        log_gpu_memory_usage("[rollout] After aggressive empty (2)", logger=logger)
+
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["kv_cache"])
 
@@ -720,17 +741,15 @@ class ActorRolloutRefWorker(MegatronWorker, DistProfilerExtension):
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
             log_gpu_memory_usage("After rollout offload", logger=logger)
-
+        
         for model in self.actor.actor_module:
             model.train()
+        
         # add empty cache after each compute
         aggressive_empty_cache(force_sync=True)
 
-        # FIXME(@wuxibin): megatron+sglang failed with `expandable_segments:True` in ci,
-        # can't reproduce it in dev environment, temporary disable it.
-        # https://github.com/volcengine/verl/actions/runs/17382936845/job/49344264323?pr=3285
-        if os.environ.get("MEGATRON_CI_DISABLE_EXPANDABLE_SEGMENTS", "0") == "0":
-            set_expandable_segments(True)
+        logger.debug("megatron workers (sglang/vllm rollout engine) _set_allocator_settings to True")
+        set_expandable_segments(True)
 
         # restore random states
         self.gen_random_states = get_torch_device().get_rng_state()
