@@ -28,10 +28,7 @@ from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.cli.serve import run_headless
-from vllm.entrypoints.openai.api_server import (
-    build_app,
-    init_app_state,
-)
+from vllm.entrypoints.openai.api_server import build_app, init_app_state
 from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
@@ -333,14 +330,22 @@ class vLLMHttpServer:
             )
 
         # update lora-related args
-        if self.model_config.lora_rank > 0:
-            args.update(
-                {
-                    "enable_lora": True,
-                    "max_loras": 1,
-                    "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank),
-                }
-            )
+        lora_rank = self.model_config.lora.get("rank", 0)
+        megatron_lora = True
+        if self.model_config.lora.get("merge", False):
+            lora_rank = 0
+        if lora_rank <= 0:
+            megatron_lora = False
+            lora_rank = self.model_config.lora_rank
+        if lora_rank > 0:
+            lora_args = {
+                "enable_lora": True,
+                "max_loras": 1,
+                "max_lora_rank": get_vllm_max_lora_rank(lora_rank),
+            }
+            if megatron_lora:
+                lora_args["fully_sharded_loras"] = True
+            args.update(lora_args)
 
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
@@ -476,7 +481,9 @@ class vLLMHttpServer:
 
         # Add lora request
         lora_request = None
-        if self.model_config.lora_rank > 0:
+        if self.model_config.lora_rank > 0 or (
+            self.model_config.lora.get("rank", 0) > 0 and not self.model_config.lora.get("merge", False)
+        ):
             # Make sure we also check that the lora is already loaded in the engine
             lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
             if lora_loaded:

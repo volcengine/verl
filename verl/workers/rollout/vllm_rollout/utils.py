@@ -20,7 +20,7 @@ import platform
 import signal
 import threading
 from types import MethodType
-from typing import Any, Callable, TypedDict
+from typing import Any, Callable, TypedDict, get_args
 
 import torch
 import zmq
@@ -65,18 +65,20 @@ def get_device_uuid(device_id: int) -> str:
 
 def get_vllm_max_lora_rank(lora_rank: int):
     """
-    For vLLM, the smallest `max_lora_rank` is 8, and allowed values are (8, 16, 32, 64, 128, 256, 320, 512)
-    This function automatically adjusts the `max_lora_rank` to the nearest allowed value.
-
-    Reference: https://github.com/vllm-project/vllm/blob/8a297115e2367d463b781adb86b55ac740594cf6/vllm/config/lora.py#L27
+    For vLLM, automatically adjusts the `max_lora_rank` to the nearest allowed value.
+    The allowed values are retrieved from vLLM's MaxLoRARanks type definition.
     """
-    assert lora_rank > 0, f"lora_rank must be greater than 0 to invoke this function, get {lora_rank}"
-    vllm_max_lora_ranks = [8, 16, 32, 64, 128, 256, 320, 512]
+    assert lora_rank > 0, f"lora_rank must be greater than 0, get {lora_rank}"
+
+    from vllm.config.lora import MaxLoRARanks
+
+    vllm_max_lora_ranks = sorted(get_args(MaxLoRARanks))
+    if lora_rank > vllm_max_lora_ranks[-1]:
+        raise ValueError(f"lora_rank must be less than or equal to {vllm_max_lora_ranks[-1]}, but got {lora_rank}")
+
     for rank in vllm_max_lora_ranks:
         if lora_rank <= rank:
             return rank
-
-    raise ValueError(f"lora_rank must be less than or equal to {vllm_max_lora_ranks[-1]}, but got {lora_rank}")
 
 
 # https://github.com/vllm-project/vllm/issues/13175
