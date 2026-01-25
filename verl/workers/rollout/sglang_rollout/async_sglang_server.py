@@ -87,7 +87,7 @@ class SGLangProfilerArgsBuilder:
         )
         os.makedirs(save_path, exist_ok=True)
 
-        profiler_tool = self.profiler_controller.config.tool
+        profiler_tool = self.rollout_config.profiler.tool
         activities: Optional[list[str]] = None
         if contents and profiler_tool:
             activities_tmp = []
@@ -139,7 +139,7 @@ class SGLangProfilerArgsBuilder:
             "output_dir": save_path,
             "profile_by_stage": profile_by_stage,
             "merge_profiles": merge_profiles,
-        }
+        }, self.auto_stop_profiling
 
 
 class SGLangHttpServer:
@@ -202,9 +202,6 @@ class SGLangHttpServer:
                 logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
                 profiler_config = None
         self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
-        self.profiler_args_builder = SGLangProfilerArgsBuilder(
-            profiler_controller=self.profiler_controller, rollout_config=self.config, replica_rank=self.replica_rank
-        )
 
         # used for NCCL process group
         if self.node_rank == 0:
@@ -479,8 +476,9 @@ class SGLangHttpServer:
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
         ):
-            profile_args = self.profiler_args_builder.build_profile_args(**kwargs)
-            self._auto_stop_profiling = self.profiler_args_builder.auto_stop_profiling
+            profile_args, self._auto_stop_profiling = SGLangProfilerArgsBuilder(
+                profiler_controller=self.profiler_controller, rollout_config=self.config, replica_rank=self.replica_rank
+            ).build_profile_args(**kwargs)
             await self.tokenizer_manager.start_profile(**profile_args)
 
     async def stop_profile(self):
