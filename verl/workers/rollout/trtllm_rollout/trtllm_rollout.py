@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,6 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.net_utils import is_valid_ipv6_address
-from verl.utils.profiler.performance import log_gpu_memory_usage
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 
@@ -407,9 +406,6 @@ class ServerAdapter(BaseRollout):
             await self.update_weights_from_ipc_handles(serialized_device_handles)
             cur_available_bytes = total_available_bytes
             cur_handles = []
-            aggressive_empty_cache(force_sync=True)
-
-        log_gpu_memory_usage("Start IPC handles creation in update_weights().", logger=logger)
 
         for name, param in weights:
             size_in_bytes = param.element_size() * param.numel()
@@ -425,9 +421,8 @@ class ServerAdapter(BaseRollout):
 
         await flush()
 
-        log_gpu_memory_usage("Finished IPC handles creation in update_weights().", logger=logger)
-
         if self.is_leader_rank:
             # Finalize update weights
             await self._adapter.update_weights(None)
         await asyncio.to_thread(dist.barrier, group=self.hybrid_device_mesh["exclude_dp"].get_group())
+        aggressive_empty_cache(force_sync=False)
