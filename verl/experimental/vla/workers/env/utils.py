@@ -83,6 +83,9 @@ class TaskBalancedSampler(Sampler):
         self._epoch = 0
         self.stage_num = stage_num
 
+        # Ensure batch_size is evenly divisible by stage_num
+        assert batch_size % stage_num == 0, f"batch_size ({batch_size}) must be divisible by stage_num ({stage_num})"
+
         # When stage_num > 1, each stage gets batch_size/stage_num samples
         # and each stage has its own max_per_task constraint
         self.samples_per_stage = batch_size // stage_num

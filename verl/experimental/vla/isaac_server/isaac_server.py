@@ -45,10 +45,18 @@ Usage:
 
 import logging
 import os
+import shutil
 from typing import Any, Optional
 
 import numpy as np
 import ray
+
+# NOTE: DO NOT import torch here!
+# Isaac Sim (AppLauncher) must initialize CUDA before any GPU libraries are loaded.
+# If torch is imported at module level, it will initialize CUDA with default settings,
+# causing conflicts with Isaac Sim's GPU resource allocation and rendering pipeline.
+# Instead, import torch inside methods after AppLauncher is initialized (see init_env()).
+# Subsequent imports are cached by Python (no overhead), but ensure correct initialization order.
 
 logger = logging.getLogger("IsaacServer")
 
@@ -68,7 +76,6 @@ def setup_per_process_caches(server_rank: int, stage_id: int = 0, clear_cache: b
         clear_cache: If True, clear existing cache directories before setup.
                      This ensures clean state but increases startup time.
     """
-    import shutil
 
     # Use stage_id/server_rank to create unique cache paths
     cache_suffix = f"stage_{stage_id}/rank_{server_rank}"
@@ -115,13 +122,13 @@ def setup_per_process_caches(server_rank: int, stage_id: int = 0, clear_cache: b
     os.makedirs(os.environ["XDG_CONFIG_HOME"], exist_ok=True)
     os.makedirs(os.environ["XDG_CACHE_HOME"], exist_ok=True)
 
-    # Use print to ensure visibility in Ray logs
+    # Log cache configuration for debugging
     cleared_msg = " (cleared)" if clear_cache else ""
-    print(f"[Stage {stage_id} Rank {server_rank}] Cache directories configured{cleared_msg}:", flush=True)
-    print(f"  OptiX:  {optix_rank_cache}", flush=True)
-    print(f"  Shader: {shader_rank_cache}", flush=True)
-    print(f"  OV Kit: {ov_rank_cache}", flush=True)
-    print(f"  XDG:    {xdg_rank_home}", flush=True)
+    logger.info(f"[Stage {stage_id} Rank {server_rank}] Cache directories configured{cleared_msg}:")
+    logger.info(f"  OptiX:  {optix_rank_cache}")
+    logger.info(f"  Shader: {shader_rank_cache}")
+    logger.info(f"  OV Kit: {ov_rank_cache}")
+    logger.info(f"  XDG:    {xdg_rank_home}")
 
 
 @ray.remote(num_gpus=1)
@@ -219,8 +226,6 @@ class IsaacServer:
                 "total_envs": self.total_envs,
             }
 
-        import torch
-
         # Setup per-process caches (unique per stage + actor to avoid conflicts)
         # Set ISAAC_CLEAR_CACHE=1 env var to clear caches on startup (slower but cleaner)
         clear_cache = os.environ.get("ISAAC_CLEAR_CACHE", "0") == "1"
@@ -234,10 +239,14 @@ class IsaacServer:
 
         logger.info(f"[Stage {self.stage_id} Actor {self.actor_rank}] Initializing Isaac environment: {self.env_id}")
 
-        # Detect GPU
+        # Import torch after Isaac Sim initialization (see module-level comment for details)
+        # This is the first real import in the process - torch will initialize CUDA here.
+        # Subsequent imports in other methods are no-ops (cached lookup only).
+        import torch
+
+        # Detect GPU - Ray assigns GPU via CUDA_VISIBLE_DEVICES, so device is always "cuda:0" from actor's view
         num_gpus = torch.cuda.device_count()
-        # Ray assigns GPU via CUDA_VISIBLE_DEVICES, so device is always "cuda:0" from actor's view
-        self.device = "cuda:0"
+        self.device = "cuda:0" if num_gpus > 0 else "cpu"
 
         logger.info(f"[Stage {self.stage_id} Actor {self.actor_rank}] Visible GPUs: {num_gpus}, using {self.device}")
 
@@ -287,6 +296,10 @@ class IsaacServer:
         # Create environment (same as IsaacEnv)
         self.env = gym.make(self.env_id, cfg=env_cfg).unwrapped
         self.action_dim = self.env.action_space.shape[-1]
+
+        # Get decimation (number of sim steps per action) for efficient rendering
+        # Set render_interval = decimation to render only once per action (at the last sim step)
+        self.decimation = self.env.cfg.decimation
 
         # Verify envs created
         actual_num_envs = self.env.num_envs
@@ -351,6 +364,7 @@ class IsaacServer:
         if not self._initialized:
             raise RuntimeError("Actor not initialized. Call init_env() first.")
 
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
         actions = np.array(actions)
@@ -385,40 +399,38 @@ class IsaacServer:
 
     def _handle_chunk_step(self, chunk_actions: np.ndarray, env_indices: list) -> dict:
         """
-        Handle action chunks: execute each chunk sequentially.
+        Handle action chunk: execute each action in the chunk sequentially.
 
         Args:
-            chunk_actions: [num_envs, num_chunks, action_dim]
+            chunk_actions: [num_envs, num_actions, action_dim] - one action chunk containing multiple actions
             env_indices: list of env indices to step
 
         Returns:
             dict with accumulated rewards and final obs
         """
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
-        num_chunks = chunk_actions.shape[1]
+        num_actions = chunk_actions.shape[1]
 
-        chunk_rewards = []
-        chunk_terminations = []
-        chunk_truncations = []
+        action_rewards = []
+        action_terminations = []
+        action_truncations = []
 
-        # Save original render_interval to restore later
-        original_render_interval = None
+        # Skip rendering by setting a very large interval for all intermediate actions if render_last_only is enabled
         if self.render_last_only and hasattr(self.env.unwrapped, "cfg"):
-            original_render_interval = self.env.unwrapped.cfg.sim.render_interval
+            self.env.unwrapped.cfg.sim.render_interval = 999999
 
-        for chunk_idx in range(num_chunks):
-            is_last_chunk = chunk_idx == num_chunks - 1
+        for action_idx in range(num_actions):
+            is_last_action = action_idx == num_actions - 1
 
-            # Control rendering for efficiency
-            if self.render_last_only and original_render_interval is not None:
-                if is_last_chunk:
-                    self.env.unwrapped.cfg.sim.render_interval = original_render_interval
-                else:
-                    self.env.unwrapped.cfg.sim.render_interval = 999999
+            # Enable rendering for the last action to get observations
+            # Set to decimation to render only once at the end of the action (avoids multiple renders per action)
+            if is_last_action and self.render_last_only and hasattr(self.env.unwrapped, "cfg"):
+                self.env.unwrapped.cfg.sim.render_interval = self.decimation
 
-            # Get actions for this chunk
-            actions = chunk_actions[:, chunk_idx, :]
+            # Get current action from the chunk
+            actions = chunk_actions[:, action_idx, :]
 
             # Build full action tensor
             full_actions = torch.zeros(self.total_envs, self.action_dim, device=self.device)
@@ -427,19 +439,15 @@ class IsaacServer:
             # Step all envs
             obs, rewards, terminations, truncations, infos = self.env.step(full_actions)
 
-            # Collect results for this chunk
-            chunk_rewards.append(rewards[env_indices].cpu().numpy())
-            chunk_terminations.append(terminations[env_indices].cpu().numpy())
-            chunk_truncations.append(truncations[env_indices].cpu().numpy())
+            # Collect results for this action
+            action_rewards.append(rewards[env_indices].cpu().numpy())
+            action_terminations.append(terminations[env_indices].cpu().numpy())
+            action_truncations.append(truncations[env_indices].cpu().numpy())
 
-        # Restore original render_interval
-        if self.render_last_only and original_render_interval is not None:
-            self.env.unwrapped.cfg.sim.render_interval = original_render_interval
-
-        # Stack chunk results: [num_envs, num_chunks]
-        stacked_rewards = np.stack(chunk_rewards, axis=1)
-        stacked_terminations = np.stack(chunk_terminations, axis=1)
-        stacked_truncations = np.stack(chunk_truncations, axis=1)
+        # Stack action results: [num_envs, num_actions]
+        stacked_rewards = np.stack(action_rewards, axis=1)
+        stacked_terminations = np.stack(action_terminations, axis=1)
+        stacked_truncations = np.stack(action_truncations, axis=1)
 
         return {
             "status": "ok",
@@ -464,6 +472,7 @@ class IsaacServer:
         if not self._initialized:
             raise RuntimeError("Actor not initialized. Call init_env() first.")
 
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
         if env_indices is None:
@@ -522,6 +531,7 @@ class IsaacServer:
 
     def _to_cpu_numpy(self, value: Any) -> Any:
         """Recursively convert any CUDA tensors to CPU numpy arrays."""
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
         if isinstance(value, torch.Tensor):
@@ -542,6 +552,7 @@ class IsaacServer:
 
     def _extract_obs(self, obs: Any, env_indices: list) -> dict:
         """Extract observations for specified env indices."""
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
         if isinstance(obs, dict):
@@ -565,6 +576,7 @@ class IsaacServer:
 
     def _extract_infos(self, infos: dict, env_indices: list) -> dict:
         """Extract infos for specified env indices."""
+        # Import torch (cached lookup, no overhead - see module-level comment)
         import torch
 
         result = {}

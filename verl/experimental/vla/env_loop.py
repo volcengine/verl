@@ -177,6 +177,10 @@ class EnvLoop:
             trajectory_chunks = data_proto.chunk(self.total_trajs)
         else:
             # Local mode: each trajectory has num_envs_per_worker envs
+            assert self.total_trajs % self.num_envs_per_worker == 0, (
+                f"total_trajs ({self.total_trajs}) must be divisible by "
+                f"num_envs_per_worker ({self.num_envs_per_worker})"
+            )
             num_trajectories = self.total_trajs // self.num_envs_per_worker
             trajectory_chunks = data_proto.chunk(num_trajectories)
 

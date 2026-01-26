@@ -394,10 +394,9 @@ class EnvWorkerServer(Worker):
 
         # Log step info
         server_summary = {rank: len(group["indices"]) for rank, group in server_groups.items()}
-        print(
+        logger.debug(
             f"[EnvWorker Ray] Step {step_idx + 1}/{max_steps} Stage {stage_id}: "
-            f"{len(traj_keys)} trajs -> {len(server_groups)} servers {server_summary}",
-            flush=True,
+            f"{len(traj_keys)} trajs -> {len(server_groups)} servers {server_summary}"
         )
 
         # Build batched requests
@@ -599,9 +598,8 @@ class EnvWorkerServer(Worker):
             server_requests = {rank: group["env_indices"] for rank, group in server_groups.items()}
 
             trajs_in_stage = len(stage_trajs[stage_id])
-            print(
-                f"[EnvWorker Ray] Stage {stage_id} Reset: {trajs_in_stage} trajs -> {len(server_requests)} server(s)",
-                flush=True,
+            logger.debug(
+                f"[EnvWorker Ray] Stage {stage_id} Reset: {trajs_in_stage} trajs -> {len(server_requests)} server(s)"
             )
 
             # Reset this stage

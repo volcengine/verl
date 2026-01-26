@@ -97,7 +97,8 @@ mkdir -p /root/LIBERO/libero/libero/../datasets
 
 SAVE_VIDEO=False
 
-export PYTHONRECURSIONLIMIT=10000
+# TODO: Verify if this is necessary - may be needed for deep config nesting in multi-task setups
+# export PYTHONRECURSIONLIMIT=10000
 # uncomment this to see full error messages
 # export HYDRA_FULL_ERROR=1
 
