@@ -18,6 +18,27 @@ import time
 from dataclasses import dataclass
 from typing import AsyncGenerator, Generator
 
+# TODO: remove this hook when we upgradge cupy>=14.0.0rc1
+# https://github.com/cupy/cupy/blob/v14.0.0rc1/cupy/_environment.py#L590
+try:
+    import importlib.util
+    import sys
+
+    spec = importlib.util.find_spec("cupy._environment")
+    if spec:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["cupy._environment"] = module
+
+        def no_op(*args, **kwargs):
+            pass
+
+        spec.loader.exec_module(module)
+
+        module._detect_duplicate_installation = no_op
+        print("Successfully hooked cupy._environment._detect_duplicate_installation")
+except Exception as e:
+    print(f"Failed to hook cupy: {e}")
+
 import cupy as cp
 import ray
 import ray.util.collective as collective
