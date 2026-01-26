@@ -97,6 +97,8 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install -e .
+          pip install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
+          pip install pandas==2.3.3
       - name: Check final pip list
         run: |
           pip list
@@ -135,9 +137,6 @@ jobs:
         run: |
           ray stop --force
           python3 examples/data_preprocess/gsm8k_multiturn_sft.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
-      - name: Install the veomni repository
-        run: |
-          pip install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
       - name: Running GSM8K E2E training tests with multiturn and various configs and compare results
         run: |
           export PYTHONPATH=$PYTHONPATH:/Megatron-LM
