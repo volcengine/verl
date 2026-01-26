@@ -261,7 +261,7 @@ actor_rollout_ref:
         name: null
     checkpoint_engine:
       _target_: verl.workers.config.CheckpointEngineConfig
-      backend: nccl
+      backend: naive
       update_weights_bucket_megabytes: 2048
       engine_kwargs: {}
     trace:

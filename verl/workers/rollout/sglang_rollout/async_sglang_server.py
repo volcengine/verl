@@ -281,9 +281,12 @@ class SGLangHttpServer:
         self.tokenizer_manager.server_status = ServerStatus.Up
 
     async def wake_up(self):
+        if self.node_rank != 0:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            # Call all workers to switch between trainer mode and rollout mode.
-            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
+            # In hybrid mode, rollout is wake up in `update_weights`
+            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
         elif self.rollout_mode == RolloutMode.COLOCATED:
             # Directly call engine to wake up without sync weights.
             obj = ResumeMemoryOccupationReqInput(tags=["kv_cache", "weights"])
@@ -293,8 +296,12 @@ class SGLangHttpServer:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
+        if self.node_rank != 0 or not self.config.free_cache_engine:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+            obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache", "weights"])
+            await self.tokenizer_manager.release_memory_occupation(obj, None)
         elif self.rollout_mode == RolloutMode.COLOCATED:
             obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.release_memory_occupation(obj, None)

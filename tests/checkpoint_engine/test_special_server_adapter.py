@@ -41,7 +41,7 @@ def init_config() -> DictConfig:
 
     config.trainer.n_gpus_per_node = 8
     config.trainer.nnodes = 1
-    config.actor_rollout_ref.model.path = "~/models/Qwen/Qwen3-VL-2B-Instruct"
+    config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen3-VL-2B-Instruct")
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.skip_tokenizer_init = False
     config.actor_rollout_ref.rollout.checkpoint_engine.backend = "nccl" if get_device_name() == "cuda" else "hccl"
@@ -103,7 +103,7 @@ async def test_server_adapter(init_config):
         backend=checkpoint_engine_config.backend, trainer=trainer, replicas=rollout_replicas
     )
     for i in range(3):
-        await checkpoint_manager.update_weights()
+        checkpoint_manager.update_weights()
 
         server_addresses = rollout_replicas[i % len(rollout_replicas)].server_address
         client = AsyncOpenAI(

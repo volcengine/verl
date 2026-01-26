@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, Generator, TypedDict
 
@@ -348,24 +349,48 @@ class CheckpointEngineManager:
         replicas_set = set(replicas)
         self.replicas = [r for r in self.replicas if r not in replicas_set]
 
-    async def update_weights(self):
+    def sleep_replicas(self):
+        """Sleep all rollout replicas: free weight and kv_cache device memory."""
+        # skip sleep replicas for disaggregated rollout
+        if self.backend != "naive":
+            return
+        self._run_all([r.sleep() for r in self.replicas])
+
+    def update_weights(self):
         """Update weights from trainer to rollout replicas."""
 
-        # 1. create a temporay worker group for all replicas
+        # 0. update weights for sync training with colocated trainer and rollout
+        if self.backend == "naive":
+            ray.get(self.trainer.update_weights())
+            return
+
+        # 1. abort and save all unfinished requests for partial rollout
+        self._run_all([r.abort_all_requests() for r in self.replicas])
+
+        # 2. create a temporay worker group for all replicas
         workers = []
         for replica in self.replicas:
             workers.extend(replica.workers)
         rollout = RayWorkerGroup(worker_handles=workers, ray_cls_with_init=RayClassWithInitArgs(cls=_worker_cls))
         trainer = self.trainer
 
-        # 2. build process group
+        # 3. build process group
         self.build_process_group(rollout)
 
-        # 3. update weights of all workers
+        # 4. update weights of all workers
         ray.get(trainer.update_weights() + rollout.update_weights())
 
-        # 4. finalize all workers
+        # 5. finalize all workers
         ray.get(
             trainer.execute_checkpoint_engine(["finalize"] * trainer.world_size)
             + rollout.execute_checkpoint_engine(["finalize"] * rollout.world_size)
         )
+
+        # 6. resume all unfinished requests for partial rollout
+        self._run_all([r.resume_all_requests() for r in self.replicas])
+
+    def _run_all(self, tasks: list[asyncio.Task]):
+        async def run_all():
+            await asyncio.gather(*tasks)
+
+        asyncio.run(run_all())

@@ -247,8 +247,8 @@ checkpoint_engine:
   # Target class for checkpoint engine config
   _target_: verl.workers.config.CheckpointEngineConfig
 
-  # Backend for checkpoint engine: nccl, nixl, hccl
-  backend: nccl
+  # Backend for checkpoint engine: naive, nccl, nixl, hccl
+  backend: naive
 
   # Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
   # This parameter controls the maximum payload size for a single weight update request.

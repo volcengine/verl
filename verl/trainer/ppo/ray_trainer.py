@@ -36,6 +36,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
 
 from verl import DataProto
+from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
@@ -663,6 +664,7 @@ class RayPPOTrainer:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+                self.checkpoint_manager.sleep_replicas()
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -972,6 +974,15 @@ class RayPPOTrainer:
             rollout_resource_pool=actor_rollout_resource_pool,
             rm_resource_pool=rm_resource_pool,
         )
+
+        self.checkpoint_manager = CheckpointEngineManager(
+            backend=self.config.actor_rollout_ref.rollout.checkpoint_engine.backend,
+            trainer=self.actor_rollout_wg,
+            replicas=self.async_rollout_manager.rollout_replicas,
+        )
+
+        # sleep all replicas to load checkpoint
+        self.checkpoint_manager.sleep_replicas()
 
     def _save_checkpoint(self):
         from verl.utils.fs import local_mkdir_safe
@@ -1314,6 +1325,10 @@ class RayPPOTrainer:
             actor_output = DataProto.from_single_dict(data={}, meta_info={"metrics": actor_output})
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
+
+        # update weights from trainer to rollout
+        self.checkpoint_manager.update_weights()
+
         return actor_output
 
     def _update_critic(self, batch: DataProto) -> DataProto:
@@ -1366,8 +1381,9 @@ class RayPPOTrainer:
 
         self.global_steps = 0
 
-        # load checkpoint before doing anything
+        # load checkpoint and update weights before doing anything
         self._load_checkpoint()
+        self.checkpoint_manager.update_weights()
 
         current_epoch = self.global_steps // len(self.train_dataloader)
 
@@ -1459,6 +1475,7 @@ class RayPPOTrainer:
                                 if curr_step_profile:
                                     self.async_rollout_manager.start_profile()
                                 gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
+                                self.checkpoint_manager.sleep_replicas()
                                 if curr_step_profile:
                                     self.async_rollout_manager.stop_profile()
                             batch = batch.union(gen_baseline_output)
