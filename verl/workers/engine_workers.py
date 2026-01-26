@@ -551,8 +551,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     async def update_weights(self):
         """Update weights from trainer to rollout.
 
-        - For sync training with colocated trainer and rollout, update rollout directly from model engine.
-        - For async training with disaggregated trainer and rollout, send_weights only by checkpoint engine.
+        1. For sync training with colocated trainer and rollout, update rollout directly from model engine.
+           - before update_weights: rollout should be in sleep mode.
+           - after update_weights: rollout should be in wake_up mode.
+        2. For async training with disaggregated trainer and rollout, send_weights only by checkpoint engine.
         """
         assert self.checkpoint_engine is not None
 
