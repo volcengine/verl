@@ -14,8 +14,8 @@
 
 from tensordict import TensorDict
 import torch
-from verl.trainer.distillation.fsdp import utils
-from verl.trainer.distillation.megatron import utils
+from verl.trainer.distillation.fsdp import utils as fsdp_utils
+from verl.trainer.distillation.megatron import utils as megatron_utils
 from verl.trainer.distillation.common import Stage, DistillationLossInputs
 from verl.workers.config.actor import DistillationConfig
 
@@ -25,9 +25,9 @@ def prepare_distillation_inputs(
 ) -> DistillationLossInputs:
     match config.strategy:
         case "fsdp":
-            return utils.prepare_distillation_inputs(log_prob=log_prob, data=data, model_output=model_output, config=config)
+            return fsdp_utils.prepare_distillation_inputs(log_prob=log_prob, data=data, model_output=model_output, config=config)
         case "megatron":
-            return utils.prepare_distillation_inputs(log_prob=log_prob, data=data, model_output=model_output, config=config)
+            return megatron_utils.prepare_distillation_inputs(log_prob=log_prob, data=data, model_output=model_output, config=config)
         case _:
             raise ValueError(f"Unsupported distillation strategy: {config.strategy}")
 
@@ -36,9 +36,9 @@ def extract_distillation_inputs(
 ) -> dict[str, torch.Tensor]:
     match config.strategy:
         case "fsdp":
-            return utils.extract_distillation_inputs(stage=stage, output=output, config=config)
+            return fsdp_utils.extract_distillation_inputs(stage=stage, output=output, config=config)
         case "megatron":
-            return utils.extract_distillation_inputs(stage=stage, output=output, config=config)
+            return megatron_utils.extract_distillation_inputs(stage=stage, output=output, config=config)
         case _:
             raise ValueError(f"Unsupported distillation strategy: {config.strategy}")
         

@@ -236,7 +236,7 @@ def compute_topk_distillation_inputs(
         case _:
             raise ValueError(f"Unexpected stage: {stage}")
     topk_logprobs, topk_indices = topk_logprobs_from_logits(
-        logprobs=logits,
+        logits=logits,
         k=topk,
         compute_topk=should_compute_topk,
         topk_indices=topk_indices,
