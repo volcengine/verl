@@ -150,6 +150,7 @@ verl is fast with:
    ascend_tutorial/ascend_profiling_en.rst
    ascend_tutorial/dockerfile_build_guidance.rst
    ascend_tutorial/ascend_sglang_quick_start.rst
+   ascend_tutorial/gspo_optimization_practice.md
 
 .. toctree::
    :maxdepth: 1
