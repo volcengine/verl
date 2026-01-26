@@ -41,18 +41,13 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import (
-    get_visible_devices_keyword,
-)
+from verl.utils.device import get_visible_devices_keyword
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
+from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import (
-    get_free_port,
-    get_max_position_embeddings,
-    is_valid_ipv6_address,
-    run_unvicorn,
-)
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -92,7 +87,10 @@ class SGLangHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        self.config.max_model_len = min(
+            get_max_position_embeddings(self.model_config.hf_config),
+            self.config.prompt_length + self.config.response_length,
+        )
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -108,6 +106,17 @@ class SGLangHttpServer:
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
+
+        # used for controlling sglang server profiler
+        profiler_config = self.config.profiler
+        tool_config = None
+        if profiler_config is not None:
+            if profiler_config.tool in ["torch", "npu"]:
+                tool_config = omega_conf_to_dataclass((profiler_config.tool_config or {}).get(profiler_config.tool))
+            else:
+                logger.warning(f"agent loop only support torch and npu profiler, got {profiler_config.tool}")
+                profiler_config = None
+        self.profiler_controller = DistProfiler(self.replica_rank, config=profiler_config, tool_config=tool_config)
 
         # used for NCCL process group
         if self.node_rank == 0:
@@ -375,6 +384,29 @@ class SGLangHttpServer:
                 )
 
         return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
+
+    async def start_profile(self, **kwargs):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            contents = self.profiler_controller.tool_config.contents
+            save_path = os.path.join(self.config.profiler.save_path, f"agent_loop_replica_{self.replica_rank}")
+            await self.tokenizer_manager.start_profile(
+                output_dir=save_path,
+                with_stack=contents is None or "stack" in contents,
+                record_shapes=contents is None or "shapes" in contents,
+                **kwargs,
+            )
+
+    async def stop_profile(self):
+        if (
+            self.profiler_controller.check_enable()
+            and self.profiler_controller.check_this_rank()
+            and self.profiler_controller.is_discrete_mode()
+        ):
+            await self.tokenizer_manager.stop_profile()
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

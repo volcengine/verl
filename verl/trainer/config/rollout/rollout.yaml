@@ -1,7 +1,7 @@
 # Target class for this configuration
 _target_: verl.workers.config.RolloutConfig
 
-# actor_rollout_ref.rollout.name: hf/vllm/sglang. The default value will be removed in the future
+# actor_rollout_ref.rollout.name: hf/vllm/sglang/trtllm. The default value will be removed in the future
 name: ???
 
 # sync: LLM, async: AsyncLLM
@@ -28,7 +28,7 @@ response_length: ${oc.select:data.max_response_length,512}
 # Rollout model parameters type. Align with actor model's FSDP/Megatron type.
 dtype: bfloat16
 
-# Fraction of GPU memory used by vLLM/SGLang for KV cache.
+# Fraction of GPU memory used by vLLM/SGLang/TRTLLM for KV cache.
 gpu_memory_utilization: 0.5
 
 # Whether to ignore EOS and continue generating after EOS is hit.
@@ -65,7 +65,7 @@ max_num_batched_tokens: 8192
 max_model_len: null
 
 # max length of sequences
-max_num_seqs: 1024
+max_num_seqs: 256
 
 # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
 enable_chunked_prefill: True
@@ -116,7 +116,7 @@ over_sample_rate: 0
 # This is only effective for SGLang rollout.
 multi_stage_wake_up: false
 
-# Extra inference engine arguments (vllm, sglang), please refer vllm/sglang official doc for detail
+# Extra inference engine arguments (vllm, sglang, trtllm), please refer vllm/sglang/trtllm official doc for detail
 engine_kwargs:
 
   # vllm engine config
@@ -124,6 +124,9 @@ engine_kwargs:
 
   # sglang engine config
   sglang: {}
+
+  # trtllm engine config
+  trtllm: {}
 
 # Sampling parameters used during validation.
 val_kwargs:
@@ -250,7 +253,7 @@ agent:
 # 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
 # 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
 # when using Tensor Parallelism (TP) >= 8.
-update_weights_bucket_megabytes: 512
+update_weights_bucket_megabytes: 2048
 
 # trace rollout data
 trace:
@@ -288,7 +291,7 @@ skip_tokenizer_init: True
 enable_rollout_routing_replay: False
 
 
-# profile the rollout model in `generate_sequence` 
+# profile the rollout model in `generate_sequence`
 profiler:
 
   # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
