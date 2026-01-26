@@ -21,6 +21,7 @@ import inspect
 import os
 import warnings
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -180,6 +181,7 @@ def make_megatron_module(
     override_ddp_config: dict[str, Any] = None,
     peft_cls: Any = None,
     peft_config: Any = None,
+    full_model_config: Any = None,
 ):
     if override_model_config is None:
         override_model_config = {}
@@ -198,11 +200,53 @@ def make_megatron_module(
             value_model_hook = make_value_model(hidden_size, provider.sequence_parallel)
 
         post_model_creation_callbacks = []
+        speculator_adapter = None
         if wrap_config.is_value_model:
             post_model_creation_callbacks.append(value_model_hook)
         if override_model_config.get("moe_config", {}).get("freeze_moe_router", False):
             post_model_creation_callbacks.append(freeze_moe_router)
         if provider is not None:
+            if full_model_config is not None and (
+                getattr(full_model_config, "speculator", None) is not None
+                or getattr(full_model_config, "speculator_adapter", None) is not None
+            ):
+                from verl.trainer.speculators.interface import build_speculator_adapter
+
+                def speculator_pre_wrap_hook(model):
+                    if isinstance(model, list):
+                        for item in model:
+                            speculator_pre_wrap_hook(item)
+                        return model
+                    if torch.distributed.get_rank() == 0:
+                        print(
+                            f"[debug][speculator] pre-wrap hook model={model.__class__.__name__} "
+                            f"post_process={getattr(model, 'post_process', None)}"
+                        )
+                    nonlocal speculator_adapter
+                    if not getattr(model, "post_process", False):
+                        return model
+                    if speculator_adapter is None:
+                        device_mesh = SimpleNamespace(get_rank=lambda: torch.distributed.get_rank())
+                        params_dtype = getattr(tf_config, "params_dtype", None)
+                        if params_dtype is None:
+                            params_dtype = getattr(provider, "params_dtype", torch.bfloat16)
+                        speculator_adapter = build_speculator_adapter(
+                            config=None,
+                            model_config=full_model_config,
+                            device_name=get_device_name(),
+                            device_mesh=device_mesh,
+                            torch_dtype=params_dtype,
+                        )
+                    if getattr(model, "speculator", None) is None:
+                        speculator_module = speculator_adapter.build_speculator_module(model)
+                        if speculator_module is not None:
+                            setattr(model, "speculator", speculator_module)
+                            if torch.distributed.get_rank() == 0:
+                                print("[debug][speculator] attached speculator in pre-wrap hook")
+                    return model
+
+                provider.register_pre_wrap_hook(speculator_pre_wrap_hook)
+
             # When using PEFT with Megatron-Bridge, we must apply PEFT transformation
             # BEFORE wrapping the model in DDP. This is required because:
             # 1. PEFT freezes base model parameters (requires_grad=False)
@@ -267,6 +311,46 @@ def make_megatron_module(
             # Extract TransformerConfig from the created model
             tf_config = get_model_config(model[0] if isinstance(model, list) else model)
         else:
+            if full_model_config is not None and (
+                getattr(full_model_config, "speculator", None) is not None
+                or getattr(full_model_config, "speculator_adapter", None) is not None
+            ):
+                from verl.trainer.speculators.interface import build_speculator_adapter
+
+                def speculator_post_creation_hook(model, **_kwargs):
+                    target = model
+                    while hasattr(target, "module"):
+                        target = target.module
+                    if torch.distributed.get_rank() == 0:
+                        print(
+                            f"[debug][speculator] post-create hook model={target.__class__.__name__} "
+                            f"post_process={getattr(target, 'post_process', None)}"
+                        )
+                    if not getattr(target, "post_process", False):
+                        return model
+                    device_mesh = SimpleNamespace(get_rank=lambda: torch.distributed.get_rank())
+                    params_dtype = getattr(tf_config, "params_dtype", None)
+                    if params_dtype is None:
+                        params_dtype = torch.bfloat16
+                    speculator_adapter = build_speculator_adapter(
+                        config=None,
+                        model_config=full_model_config,
+                        device_name=get_device_name(),
+                        device_mesh=device_mesh,
+                        torch_dtype=params_dtype,
+                    )
+                    if getattr(target, "speculator", None) is None:
+                        speculator_module = speculator_adapter.build_speculator_module(target)
+                        if speculator_module is not None:
+                            setattr(target, "speculator", speculator_module)
+                            if target is not model:
+                                setattr(model, "speculator", speculator_module)
+                            if torch.distributed.get_rank() == 0:
+                                print("[debug][speculator] attached speculator in post-create hook")
+                    return model
+
+                post_model_creation_callbacks.append(speculator_post_creation_hook)
+
             model = bridge.get_model(
                 post_model_creation_callbacks=post_model_creation_callbacks,
                 wrap_with_ddp=wrap_config.wrap_with_ddp,
@@ -289,6 +373,31 @@ def make_megatron_module(
                 freeze_moe_router=override_model_config.get("moe_config", {}).get("freeze_moe_router", False),
                 vp_stage=vp_stage,
             )
+            if (
+                post_process
+                and full_model_config is not None
+                and (
+                    getattr(full_model_config, "speculator", None) is not None
+                    or getattr(full_model_config, "speculator_adapter", None) is not None
+                )
+            ):
+                from verl.trainer.speculators.interface import build_speculator_adapter
+
+                device_mesh = SimpleNamespace(get_rank=lambda: torch.distributed.get_rank())
+                params_dtype = getattr(tf_config, "params_dtype", None)
+                if params_dtype is None:
+                    params_dtype = torch.bfloat16
+                speculator_adapter = build_speculator_adapter(
+                    config=None,
+                    model_config=full_model_config,
+                    device_name=get_device_name(),
+                    device_mesh=device_mesh,
+                    torch_dtype=params_dtype,
+                )
+                if getattr(parallel_model, "speculator", None) is None:
+                    speculator_module = speculator_adapter.build_speculator_module(parallel_model)
+                    if speculator_module is not None:
+                        setattr(parallel_model, "speculator", speculator_module)
             parallel_model.to(get_device_name())
             return parallel_model
 

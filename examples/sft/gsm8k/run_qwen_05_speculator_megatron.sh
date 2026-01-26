@@ -13,11 +13,9 @@ torchrun --standalone --nnodes=1 --nproc-per-node=1 \
   data.ignore_input_ids_mismatch=true \
   model.path=/root/autodl-tmp/qwen3_moe_small  \
   model.use_remove_padding=true \
-  ++model.speculator_adapter.fqn=verl.trainer.speculators.lstm_adapter.LSTMSpeculatorAdapter \
-  ++model.speculator.n_predict=3 \
-  ++model.speculator.method=sum_lstm \
-  ++model.speculator.tie_lstm_embs=true \
-  ++model.speculator.tie_weights=true \
+  model.lora.rank=32 \
+  model.lora.alpha=16 \
+  model.lora.target_modules=all-linear \
   engine=megatron \
   optim=megatron \
   engine.tensor_model_parallel_size=1 \

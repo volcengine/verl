@@ -208,7 +208,21 @@ class MegatronEngine(BaseEngine):
             override_ddp_config=self.engine_config.override_ddp_config,
             peft_cls=self.peft_cls,
             peft_config=self.model_config.get("lora", None),
+            full_model_config=self.model_config,
         )
+        if (
+            getattr(self.model_config, "speculator", None) is not None
+            or getattr(self.model_config, "speculator_adapter", None) is not None
+        ):
+            last_stage = module[-1]
+            target_stage = last_stage
+            while hasattr(target_stage, "module"):
+                target_stage = target_stage.module
+            if not hasattr(target_stage, "speculator"):
+                raise RuntimeError(
+                    "Speculator was not injected during model build. "
+                    "Ensure speculator config is set and pre-wrap hook ran before DDP."
+                )
         self.tf_config = updated_tf_config
         print(f"module: {len(module)}")
 
@@ -216,14 +230,39 @@ class MegatronEngine(BaseEngine):
             load_mcore_dist_weights(module, self.engine_config.dist_checkpointing_path, is_value_model=is_value_model)
         else:
             if self.vanilla_bridge:
-                self.bridge.load_weights(module, self.model_config.local_path)
+                if hasattr(self.bridge, "load_weights"):
+                    self.bridge.load_weights(module, self.model_config.local_path)
+                else:
+                    self.bridge.load_hf_weights(module, self.model_config.local_path)
             else:
                 allowed_mismatched_params = []
                 if self.is_value_model:
                     allowed_mismatched_params = ["output_layer.weight"]
-                self.bridge.load_hf_weights(
-                    module, self.model_config.local_path, allowed_mismatched_params=allowed_mismatched_params
-                )
+                if hasattr(self.bridge, "_model_bridge"):
+                    from types import SimpleNamespace
+
+                    from megatron.bridge.models.conversion.auto_bridge import PreTrainedCausalLM
+
+                    trust_remote_code = getattr(self.bridge.hf_pretrained, "trust_remote_code", False)
+                    pre_trained = PreTrainedCausalLM.from_pretrained(
+                        self.model_config.local_path, trust_remote_code=trust_remote_code
+                    )
+                    if not hasattr(pre_trained, "state"):
+                        pre_trained.state = SimpleNamespace()
+                    class _HFSource:
+                        def __init__(self, keys):
+                            self._keys = list(keys)
+
+                        def get_all_keys(self):
+                            return self._keys
+                    source = getattr(pre_trained.state, "source", None)
+                    if not hasattr(source, "get_all_keys"):
+                        pre_trained.state.source = _HFSource(pre_trained.state_dict().keys())
+                    self.bridge._model_bridge.load_weights_hf_to_megatron(
+                        pre_trained, module, allowed_mismatched_params=allowed_mismatched_params
+                    )
+                else:
+                    self.bridge.load_hf_weights(module, self.model_config.local_path)
 
         if torch.distributed.get_rank() == 0:
             print_model_size(module[0])
@@ -234,18 +273,6 @@ class MegatronEngine(BaseEngine):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
         use_dist_opt = self.engine_config.use_distributed_optimizer
-        if self.has_speculator:
-            total_params = 0
-            trainable_params = 0
-            modules = self.module if isinstance(self.module, (list, tuple)) else [self.module]
-            for module in modules:
-                for p in module.parameters():
-                    total_params += p.numel()
-                    if p.requires_grad:
-                        trainable_params += p.numel()
-            if trainable_params > 0 and trainable_params < total_params:
-                # Speculator-only training can break distributed optimizer param mapping.
-                use_dist_opt = False
         optim_config_megatron = init_megatron_optim_config(
             self.optimizer_config,
             use_distributed_optimizer=use_dist_opt,
@@ -785,19 +812,9 @@ class MegatronEngineWithLMHeadAndSpeculator(MegatronEngineWithLMHead):
             return
         last_stage = self.module[-1]
         target_stage = last_stage.module if hasattr(last_stage, "module") else last_stage
-        self.speculator = self.speculator_adapter.build_speculator_module(target_stage)
+        self.speculator = getattr(target_stage, "speculator", None)
         if self.speculator is not None:
             self.speculator_adapter.speculator = self.speculator
-            # Register speculator on the last stage so optimizer can see its parameters.
-            setattr(last_stage, "speculator", self.speculator)
-            if target_stage is not last_stage:
-                setattr(target_stage, "speculator", self.speculator)
-        for module in self.module:
-            for param in module.parameters():
-                param.requires_grad = False
-        if self.speculator is not None:
-            for param in self.speculator.parameters():
-                param.requires_grad = True
 
     def _ensure_speculator_for_checkpoint(self):
         if self.speculator_adapter is None:
