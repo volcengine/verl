@@ -19,8 +19,11 @@ import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import AsyncGenerator, Generator
+from unittest.mock import patch
 
-import cupy as cp
+with patch("importlib.metadata.distributions", return_value=[]):
+    import cupy as cp
+
 import nixl._api as nixl_api
 import nixl._bindings as nixl_bindings
 import ray
