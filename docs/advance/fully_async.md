@@ -63,7 +63,7 @@ Currently, the supported usage mode is Megatron/FSDP+vLLM/SGLang. vLLM/SGLang mu
 The overall architecture of fully_async_policy is shown in the figure below. fully_async_policy mainly consists of four
 parts: Rollouter, MessageQueue, Trainer, and ParameterSynchronizer.
 
-![fully_async_policy_structure](https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_structure.svg?raw=true)
+![fully_async_policy_structure](https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_structure.svg?raw=true)
 
 1. Rollouter generates sequences sample by sample and puts the generated samples into the MessageQueue, with the
    production speed controlled by freshness.
@@ -79,7 +79,7 @@ After we perform resource isolation, the time for rollout and train may be longe
 are used),
 but the overlap in their time consumption reduces the end-to-end time consumption.
 
-![fully_async_policy_revenue](https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_revenue.svg?raw=true)
+![fully_async_policy_revenue](https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_revenue.svg?raw=true)
 
 ## Usage
 
@@ -246,7 +246,7 @@ but the overlap in their time consumption reduces the end-to-end time consumptio
       generated after synchronization. This reduces the time to wait for active tasks to finish.
    3. As shown in figure d;
 
-![fully_async_policy_mode](https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_mode.svg?raw=true)
+![fully_async_policy_mode](https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_mode.svg?raw=true)
 
 ### Key Metrics
 
