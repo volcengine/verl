@@ -183,7 +183,7 @@ class BroadcastOperation:
 
     Args:
         rank (int): The rank of the current process.
-        group_name (dist.ProcessGroup): The NCCL process group.
+        ranks_group (int): The process group's value.
         bucket (torch.Tensor): The tensor to broadcast.
         metadata (list[ParameterMeta]): The metadata of the tensor.
     """
@@ -224,7 +224,6 @@ class KIMICheckpointEngine(CheckpointEngine):
     Args:
         bucket_size (int): Bucket size in bytes to transfer multiple weights at one time. Note that we use
             two buffer to send and recv weights at same time, so the device memory overhead is 2 * bucket_size.
-        group_name (str): The name of the NCCL process group. Defaults to "default".
         rebuild_group (bool): Whether to rebuild the NCCL process group in each update. Defaults to False.
         is_master (bool): Whether the current process is the master process. Defaults to False.
         rollout_dtype (torch.dtype): The dtype of the weights received from rollout workers. Defaults to torch.bfloat16.
@@ -273,7 +272,8 @@ class KIMICheckpointEngine(CheckpointEngine):
             world_size (int): The total number of processes.
         """
         self.rank = rank
-        # unregister_memory in transfer engine is not supported on NPU, so we have to initialize ParameterServer each time
+        # unregister_memory in transfer engine is not supported on NPU,
+        # so we have to initialize ParameterServer each time
         if get_device_name() == "npu" or not self.initialized:
             self.parameter_server = ParameterServer(rank=rank, world_size=world_size, auto_pg=False, custom_dist=True)
             self.parameter_server.receive_tensor = types.MethodType(receive_tensor, self.parameter_server)

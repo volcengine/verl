@@ -66,7 +66,6 @@ def test_kimi_checkpoint_engine(
         rollout_pool,
         "kimi_ckpt_engine",
         checkpoint_kwargs,
-        device=get_device_name(),
         check_allclose=check_allclose,
     )
 
