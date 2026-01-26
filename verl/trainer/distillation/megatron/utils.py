@@ -23,18 +23,10 @@ import torch.nn.functional as F
 from tensordict import TensorDict
 
 from verl.trainer.distillation.losses import DistillationLossSettings, get_distillation_loss_settings
-from verl.trainer.distillation.types import DistillationLossInputs
+from verl.trainer.distillation.common import DistillationLossInputs, Stage
 from verl.utils import tensordict_utils as tu
 from verl.workers.config import DistillationConfig
 from verl.workers.utils.padding import _slice_response_from_unpad_output
-
-
-class Stage(Enum):
-    """Stages for on-policy distillation training."""
-
-    OLD_LOG_PROB = "old_log_prob"
-    REF_LOG_PROB = "ref_log_prob"
-    ACTOR_UPDATE = "actor_update"
 
 
 def get_topk_keys(stage: str | Stage) -> tuple[str, str]:
@@ -74,7 +66,29 @@ def topk_logprobs_from_logits(
             - topk_indices: Indices for the top-k log probabilities, same shape as topk_logprobs.
               Duplicate indices (from merging teacher/student top-k) have their log probs set to -inf.
     """
-    logprobs = F.log_softmax(logits, dim=-1)
+    from megatron.core.parallel_state import (
+        get_tensor_model_parallel_group,
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_world_size,
+    )
+    from megatron.core.tensor_parallel.utils import VocabUtility
+
+
+    partition_vocab_size = logits.shape[-1]
+
+    # Get the partition's vocab indices
+    rank = get_tensor_model_parallel_rank()
+    world_size = get_tensor_model_parallel_world_size()
+    vocab_start_index, vocab_end_index = VocabUtility.vocab_range_from_per_partition_vocab_size(
+        partition_vocab_size, rank, world_size
+    )
+
+    vocab_shards = [None for _ in range(world_size)]
+    local_shard = (vocab_start_index, logits)
+    torch.distributed.all_gather_object(vocab_shards, local_shard, group=get_tensor_model_parallel_group())
+    logits = torch.cat([v for start, v in sorted(vocab_shards)], dim=-1)
+    logprobs = logits.values().log_softmax(dim=-1)
+
     topk_logprobs_ls = []
     topk_logprobs_indices_ls = []
 
@@ -218,27 +232,11 @@ def compute_topk_distillation_inputs(
                     )
         case Stage.ACTOR_UPDATE:
             # 3. Second pass with student model
-            if use_student_topk or use_teacher_topk:
-                _, teacher_topk_indices_key = get_topk_keys(Stage.REF_LOG_PROB)
-                topk_indices = tu.get(batch, teacher_topk_indices_key)
-                if topk_indices is None:
-                    raise ValueError(
-                        f"Expected teacher topk indices for student update stage, got None with {loss_mode=}."
-                    )
-                if use_student_topk and use_teacher_topk:
-                    if topk_indices.shape[-1] != 2 * topk:
-                        raise ValueError(
-                            f"Expected teacher topk indices shape [-1, {2 * topk}], "
-                            f"got {topk_indices.shape} with {loss_mode=}."
-                        )
-                elif topk_indices.shape[-1] != topk:
-                    raise ValueError(
-                        f"Expected teacher topk indices shape [-1, {topk}], got {topk_indices.shape} with {loss_mode=}."
-                    )
+            return {"logits": logits}
         case _:
             raise ValueError(f"Unexpected stage: {stage}")
     topk_logprobs, topk_indices = topk_logprobs_from_logits(
-        logits=logits,
+        logprobs=logits,
         k=topk,
         compute_topk=should_compute_topk,
         topk_indices=topk_indices,
@@ -287,17 +285,12 @@ def prepare_distillation_inputs(
     elif distillation_settings.use_estimator:
         return DistillationLossInputs(student_log_probs=log_prob, teacher_log_probs=data["ref_log_prob"])
     elif distillation_settings.use_topk:
-        teacher_topk_logprobs, teacher_topk_indices = unpad_distillation_logprobs(
-            outputs=data, data=data, stage=Stage.REF_LOG_PROB, distillation_settings=distillation_settings
-        )
-        student_topk_logprobs, student_topk_indices = unpad_distillation_logprobs(
-            outputs=model_output, data=data, stage=Stage.ACTOR_UPDATE, distillation_settings=distillation_settings
-        )
+        target_topk_logprobs_key, target_topk_indices_key = get_topk_keys(Stage.REF_LOG_PROB)
+        target_topk_logprobs, target_topk_indices = data[target_topk_logprobs_key], data[target_topk_indices_key]
         return DistillationLossInputs(
-            student_topk_logprobs=student_topk_logprobs,
-            teacher_topk_logprobs=teacher_topk_logprobs,
-            student_topk_indices=student_topk_indices,
-            teacher_topk_indices=teacher_topk_indices,
+            student_topk_logprobs=model_output["logits"],
+            teacher_topk_logprobs=target_topk_logprobs,
+            teacher_topk_indices=target_topk_indices,
         )
     else:
         raise ValueError

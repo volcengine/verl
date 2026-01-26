@@ -33,7 +33,7 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.trainer.config import CheckpointConfig
-from verl.trainer.distillation import compute_distillation_inputs, is_distillation_enabled
+from verl.trainer.distillation.fsdp.utils import compute_distillation_inputs, is_distillation_enabled
 from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager

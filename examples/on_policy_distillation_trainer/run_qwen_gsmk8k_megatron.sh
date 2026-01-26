@@ -4,7 +4,7 @@ conda activate verlMega
 export PATH=$CONDA_PREFIX/bin:$PATH
 export NCCL_P2P_DISABLE=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=2,5
 export DATA_PATH=$PWD/../verlData
 export HF_HOME=$DATA_PATH
 export VLLM_CACHE_DIR=$DATA_PATH/vllm_cache
@@ -20,8 +20,8 @@ STUDENT_MODEL=Qwen2.5-0.5B
 TEACHER_MODEL=Qwen2.5-0.5B-Instruct
 
 DISTILLATION_LOSS_MODE="reverse_kl_topk+"
-DISTILLATION_LOSS_MODE="jsd_topk"
 DISTILLATION_LOSS_MODE="k3"
+DISTILLATION_LOSS_MODE="jsd_topk"
 
 PROJECT_NAME='verl_on_policy_distillation_example_gsm8k'
 EXP_NAME="${FAMILY}/student-${STUDENT_MODEL}/teacher-${TEACHER_MODEL}/loss-${DISTILLATION_LOSS_MODE}"
@@ -36,8 +36,8 @@ STUDENT_MAX_TOKEN_LEN_PER_GPU=$(( STUDENT_MICRO_BATCH_SIZE * (MAX_PROMPT + MAX_R
 TEACHER_MICRO_BATCH_SIZE=4
 TEACHER_MAX_TOKEN_LEN_PER_GPU=$(( TEACHER_MICRO_BATCH_SIZE * (MAX_PROMPT + MAX_RESPONSE_LENGTH) ))
 
-WORLD_SIZE=1
-TP=1
+WORLD_SIZE=2
+TP=2
 PP=1
 CP=1
 EP=1
@@ -165,7 +165,7 @@ ROLLOUT=(
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$STUDENT_MAX_TOKEN_LEN_PER_GPU
     actor_rollout_ref.rollout.tensor_model_parallel_size=1
     actor_rollout_ref.rollout.name=$ROLLOUT_NAME
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.2
     actor_rollout_ref.rollout.n=1
     actor_rollout_ref.rollout.enforce_eager=True
     actor_rollout_ref.rollout.free_cache_engine=True
@@ -176,7 +176,7 @@ ROLLOUT_DEBUG=(
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$STUDENT_MAX_TOKEN_LEN_PER_GPU
     actor_rollout_ref.rollout.tensor_model_parallel_size=1
     actor_rollout_ref.rollout.name=$ROLLOUT_NAME
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.1
     actor_rollout_ref.rollout.n=1
     actor_rollout_ref.rollout.enforce_eager=True
     actor_rollout_ref.rollout.free_cache_engine=True

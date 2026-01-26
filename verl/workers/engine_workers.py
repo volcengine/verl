@@ -25,7 +25,7 @@ from torch.distributed.device_mesh import init_device_mesh
 
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
-from verl.trainer.distillation import get_distillation_loss_settings
+from verl.trainer.distillation.losses import get_distillation_loss_settings
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments

@@ -16,7 +16,8 @@
 import torch
 from tensordict import TensorDict
 
-from verl.trainer.distillation import get_distillation_loss_fn, prepare_distillation_inputs
+from verl.trainer.distillation.losses import get_distillation_loss_fn
+from verl.trainer.distillation.utils import prepare_distillation_inputs
 from verl.trainer.ppo.core_algos import agg_loss, compute_value_loss, get_policy_loss_fn, kl_penalty
 from verl.utils import tensordict_utils as tu
 from verl.utils.dataset.dataset_utils import DatasetPadMode

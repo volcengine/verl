@@ -23,26 +23,10 @@ import torch.nn.functional as F
 from tensordict import TensorDict
 
 from verl.trainer.distillation.losses import DistillationLossSettings, get_distillation_loss_settings
-from verl.trainer.distillation.types import DistillationLossInputs
+from verl.trainer.distillation.common import DistillationLossInputs, Stage, get_topk_keys, is_distillation_enabled
 from verl.utils import tensordict_utils as tu
 from verl.workers.config import DistillationConfig
 from verl.workers.utils.padding import _slice_response_from_unpad_output
-
-
-class Stage(Enum):
-    """Stages for on-policy distillation training."""
-
-    OLD_LOG_PROB = "old_log_prob"
-    REF_LOG_PROB = "ref_log_prob"
-    ACTOR_UPDATE = "actor_update"
-
-
-def get_topk_keys(stage: str | Stage) -> tuple[str, str]:
-    """Get the TensorDict keys for storing top-k log probabilities and indices for a given stage."""
-    if isinstance(stage, Stage):
-        stage = stage.value
-    return f"{stage}_topk_log_probs", f"{stage}_topk_indices"
-
 
 def topk_logprobs_from_logits(
     logits: torch.Tensor, k: int, compute_topk: bool, topk_indices: Optional[torch.Tensor] = None
@@ -125,13 +109,6 @@ def topk_logprobs_from_logits(
             topk_logprobs[dupe_mask] = -torch.inf
 
     return topk_logprobs, topk_indices
-
-
-def is_distillation_enabled(config: Optional[DistillationConfig]) -> bool:
-    """Check if distillation is enabled based on the provided configuration."""
-    if config is None:
-        return False
-    return config.enabled
 
 
 def compute_distillation_inputs(

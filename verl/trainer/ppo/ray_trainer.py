@@ -41,7 +41,8 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
-from verl.trainer.distillation import Stage, extract_distillation_inputs
+from verl.trainer.distillation.utils import extract_distillation_inputs
+from verl.trainer.distillation.common import Stage
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (

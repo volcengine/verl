@@ -14,7 +14,7 @@
 
 import torch
 
-from verl.trainer.distillation.utils_fsdp import topk_logprobs_from_logits
+from verl.trainer.distillation.fsdp.utils import topk_logprobs_from_logits
 
 
 class TestTopkLogprobsFromLogits:
