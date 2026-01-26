@@ -16,6 +16,7 @@ import logging
 import os
 import socket
 from copy import deepcopy
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -161,6 +162,63 @@ class SubRayResourcePool(RayResourcePool):
     @property
     def world_size(self):
         return self.subgroup_world_size
+
+
+@dataclass
+class ResourcePoolManager:
+    """
+    Define a resource pool specification. Resource pool will be initialized first.
+    """
+
+    resource_pool_spec: dict[str, list[int]]
+    mapping: dict[int, str]
+    resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
+
+    def create_resource_pool(self):
+        """Create Ray resource pools for distributed training.
+
+        Initializes resource pools based on the resource pool specification,
+        with each pool managing GPU resources across multiple nodes.
+        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
+        For Megatron backend, uses max_colocate_count>1 for different models.
+        """
+        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
+            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
+            # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
+            # For Megatron backend, we recommend using max_colocate_count>1
+            # that can utilize different WorkerGroup for differnt models
+            resource_pool = RayResourcePool(
+                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
+            )
+            self.resource_pool_dict[resource_pool_name] = resource_pool
+
+        self._check_resource_available()
+
+    def get_resource_pool(self, role) -> RayResourcePool:
+        """Get the resource pool of the worker_cls"""
+        return self.resource_pool_dict[self.mapping[role]]
+
+    def get_n_gpus(self) -> int:
+        """Get the number of gpus in this cluster."""
+        return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
+
+    def _check_resource_available(self):
+        """Check if the resource pool can be satisfied in this ray cluster."""
+        node_available_resources = ray._private.state.available_resources_per_node()
+        node_available_gpus = {
+            node: node_info.get("GPU", 0) if "GPU" in node_info else node_info.get("NPU", 0)
+            for node, node_info in node_available_resources.items()
+        }
+
+        # check total required gpus can be satisfied
+        total_available_gpus = sum(node_available_gpus.values())
+        total_required_gpus = sum(
+            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
+        )
+        if total_available_gpus < total_required_gpus:
+            raise ValueError(
+                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
+            )
 
 
 def extract_pg_from_exist(

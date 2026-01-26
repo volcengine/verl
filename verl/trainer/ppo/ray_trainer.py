@@ -23,7 +23,6 @@ import os
 import uuid
 from collections import defaultdict
 from copy import deepcopy
-from dataclasses import dataclass, field
 from pprint import pprint
 from typing import Any, Optional
 
@@ -39,7 +38,7 @@ from verl import DataProto
 from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup, ResourcePoolManager
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
@@ -66,63 +65,6 @@ from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
-
-
-@dataclass
-class ResourcePoolManager:
-    """
-    Define a resource pool specification. Resource pool will be initialized first.
-    """
-
-    resource_pool_spec: dict[str, list[int]]
-    mapping: dict[Role, str]
-    resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
-
-    def create_resource_pool(self):
-        """Create Ray resource pools for distributed training.
-
-        Initializes resource pools based on the resource pool specification,
-        with each pool managing GPU resources across multiple nodes.
-        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
-        For Megatron backend, uses max_colocate_count>1 for different models.
-        """
-        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
-            # For Megatron backend, we recommend using max_colocate_count>1
-            # that can utilize different WorkerGroup for differnt models
-            resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
-            )
-            self.resource_pool_dict[resource_pool_name] = resource_pool
-
-        self._check_resource_available()
-
-    def get_resource_pool(self, role: Role) -> RayResourcePool:
-        """Get the resource pool of the worker_cls"""
-        return self.resource_pool_dict[self.mapping[role]]
-
-    def get_n_gpus(self) -> int:
-        """Get the number of gpus in this cluster."""
-        return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
-
-    def _check_resource_available(self):
-        """Check if the resource pool can be satisfied in this ray cluster."""
-        node_available_resources = ray._private.state.available_resources_per_node()
-        node_available_gpus = {
-            node: node_info.get("GPU", 0) if "GPU" in node_info else node_info.get("NPU", 0)
-            for node, node_info in node_available_resources.items()
-        }
-
-        # check total required gpus can be satisfied
-        total_available_gpus = sum(node_available_gpus.values())
-        total_required_gpus = sum(
-            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
-        )
-        if total_available_gpus < total_required_gpus:
-            raise ValueError(
-                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
-            )
 
 
 def apply_kl_penalty(data: DataProto, kl_ctrl: core_algos.AdaptiveKLController, kl_penalty="kl"):
@@ -608,7 +550,7 @@ class RayPPOTrainer:
 
         return gen_batch
 
-    def _validate(self, merged: bool = False):
+    def _validate(self, merged: bool = False, sleep_replicas: bool = True):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 
@@ -664,7 +606,8 @@ class RayPPOTrainer:
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
-                self.checkpoint_manager.sleep_replicas()
+                if sleep_replicas:
+                    self.checkpoint_manager.sleep_replicas()
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -1390,7 +1333,7 @@ class RayPPOTrainer:
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get("val_before_train", True):
-            val_metrics = self._validate()
+            val_metrics = self._validate(sleep_replicas=False)
             assert val_metrics, f"{val_metrics=}"
             pprint(f"Initial validation metrics: {val_metrics}")
             logger.log(data=val_metrics, step=self.global_steps)
@@ -1456,6 +1399,7 @@ class RayPPOTrainer:
                             if curr_step_profile:
                                 self.async_rollout_manager.start_profile()
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                            self.checkpoint_manager.sleep_replicas()
                             if curr_step_profile:
                                 self.async_rollout_manager.stop_profile()
 
@@ -1673,7 +1617,7 @@ class RayPPOTrainer:
                     and (is_last_step or self.global_steps % self.config.trainer.test_freq == 0)
                 ):
                     with marked_timer("testing", timing_raw, color="green"):
-                        val_metrics: dict = self._validate()
+                        val_metrics: dict = self._validate(sleep_replicas=True)
                         if is_last_step:
                             last_val_metrics = val_metrics
                     metrics.update(val_metrics)

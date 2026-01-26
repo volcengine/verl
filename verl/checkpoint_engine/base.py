@@ -205,6 +205,22 @@ class ColocatedCheckpointEngine(CheckpointEngine):
     >>> server_adapter.update_weights(engine.receive_weights())
     """
 
+    def __init__(self, bucket_size: int) -> None:
+        self.bucket_size = bucket_size
+
+    def prepare(self):
+        raise NotImplementedError
+
+    def init_process_group(self, **kwargs):
+        raise NotImplementedError
+
+    def finalize(self):
+        raise NotImplementedError
+
+    @classmethod
+    def build_topology(cls, *args, **kwargs):
+        raise NotImplementedError
+
     def send_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None]):
         """Send the weights of the model.
 

@@ -403,7 +403,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
-        set_expandable_segments(True)
 
         # 1. build reference model
         if "ref" in self.role:
@@ -563,6 +562,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             await self.checkpoint_engine.send_weights(per_tensor_param)
             return
 
+        set_expandable_segments(False)
         # 1. resume weights and update weights
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
@@ -602,6 +602,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
         self.base_sync_done = True
+        set_expandable_segments(True)
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
     def execute_checkpoint_engine(self, method: str, *args, **kwargs):
