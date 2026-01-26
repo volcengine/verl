@@ -1267,9 +1267,6 @@ class RayPPOTrainer:
         else:
             actor_output = self.actor_rollout_wg.update_actor(batch)
 
-        # update weights from trainer to rollout
-        self.checkpoint_manager.update_weights()
-
         return actor_output
 
     def _update_critic(self, batch: DataProto) -> DataProto:
@@ -1600,6 +1597,11 @@ class RayPPOTrainer:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             actor_output = self._update_actor(batch)
+
+                        # update weights from trainer to rollout
+                        with marked_timer("update_weights", timing_raw, color="red"):
+                            self.checkpoint_manager.update_weights()
+
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
 
