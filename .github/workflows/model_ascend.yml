@@ -129,6 +129,9 @@ jobs:
         run: |
           pip install -r requirements-npu.txt
           pip install --no-deps -e .[test]
+      - name: Prepare weights
+        run: |
+          ln -s /root/.cache/models ~/models
       - name: Running FSDP2 rmpad model tests on 8 NPUs
         run: |
           STRATEGY=fsdp2 torchrun --nproc_per_node=8 tests/special_distributed/test_fsdp_ckpt.py

@@ -25,6 +25,7 @@ from pathlib import Path
 # directory or file path must contain keyword ".cuda" or "cuda"
 CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/device.py",
+    "verl/utils/torch_functional.py",  # import flash_attn only on cuda
     "verl/utils/profiler/nvtx_profile.py",  # appear in NsightSystemsProfiler
     "verl/utils/profiler/torch_profile.py",  # appear in TorchProfiler
     "verl/utils/profiler/config.py",  # appear in TorchProfilerToolConfig
