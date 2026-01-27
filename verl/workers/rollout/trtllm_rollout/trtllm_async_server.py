@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ import os
 from typing import Any, Optional
 
 import ray
+import torch
 from omegaconf import DictConfig
 from ray.actor import ActorHandle
 from ray.util import placement_group_table
@@ -24,7 +25,6 @@ from ray.util.placement_group import PlacementGroup
 
 from verl.single_controller.ray import RayClassWithInitArgs, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import is_cuda_available
 from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -42,6 +42,7 @@ class TRTLLMHttpServer:
     Args:
         config (DictConfig): full config.
         model_config (HFModelConfig): model config.
+        is_reward_model (bool): whether this is a reward model.
         rollout_mode (RolloutMode): rollout mode.
         workers (list[ActorHandle]): list of rollout workers.
         replica_rank (int): replica rank, a replica may contain multiple nodes.
@@ -54,6 +55,7 @@ class TRTLLMHttpServer:
         self,
         config: RolloutConfig,
         model_config: HFModelConfig,
+        is_reward_model: bool,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -62,10 +64,11 @@ class TRTLLMHttpServer:
         bundle_indices: list[list[int]] = None,
     ):
         os.environ["TRT_LLM_DISABLE_LOAD_WEIGHTS_IN_PARALLEL"] = "1"
-        assert is_cuda_available, "TRTLLM http server should run on GPU node"
+        assert torch.cuda.is_available(), "TRTLLM http server should run on GPU node"
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        self.is_reward_model = is_reward_model
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
@@ -82,7 +85,7 @@ class TRTLLMHttpServer:
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
 
-        logger.info(f"TRTLLMHttpServer, replica_rank: {self.replica_rank}, ")
+        logger.info(f"TRTLLMHttpServer, replica_rank: {self.replica_rank}")
 
         self.sampling_args = {
             "detokenize": False,
@@ -107,11 +110,6 @@ class TRTLLMHttpServer:
             enable_block_reuse=True,
             free_gpu_memory_fraction=self.config.gpu_memory_utilization,
         )
-        cuda_graph_config = CudaGraphConfig(
-            enable_padding=True,
-            batch_sizes=self.config.cudagraph_capture_sizes,
-            max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
-        )
 
         per_worker_gpu_share = 1.0 / self.max_colocate_count
 
@@ -121,7 +119,6 @@ class TRTLLMHttpServer:
             "orchestrator_type": "ray",
             "ray_worker_extension_cls": "tensorrt_llm.llmapi.rlhf_utils.WorkerExtension",
             "kv_cache_config": kv_cache_config,
-            "cuda_graph_config": cuda_graph_config,
             "max_seq_len": self.config.max_model_len,
             "max_batch_size": self.config.max_num_seqs,
             "max_num_tokens": self.config.max_num_batched_tokens,
@@ -135,6 +132,24 @@ class TRTLLMHttpServer:
             "sampler_type": "TRTLLMSampler",
             **engine_kwargs,
         }
+
+        if self.is_reward_model:
+            llm_kwargs.update(
+                {
+                    "cuda_graph_config": None,
+                    "disable_overlap_scheduler": True,
+                }
+            )
+        else:
+            llm_kwargs.update(
+                {
+                    "cuda_graph_config": CudaGraphConfig(
+                        enable_padding=True,
+                        batch_sizes=self.config.cudagraph_capture_sizes,
+                        max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
+                    )
+                }
+            )
 
         self.llm = await AsyncLLM(**llm_kwargs)
 
@@ -313,6 +328,7 @@ class TRTLLMReplica(RolloutReplica):
         ).remote(
             config=self.config,
             model_config=self.model_config,
+            is_reward_model=self.is_reward_model,
             rollout_mode=self.rollout_mode,
             workers=self.workers,
             replica_rank=self.replica_rank,
