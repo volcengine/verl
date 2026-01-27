@@ -140,4 +140,4 @@ jobs:
       - name: Running GSM8K E2E training tests with multiturn and various configs and compare results
         run: |
           export PYTHONPATH=$PYTHONPATH:/Megatron-LM
-          bash tests/special_e2e/sft/test_sft_engine_all.sh
+          VPP_SIZE=null bash tests/special_e2e/sft/test_sft_engine_all.sh
