@@ -324,6 +324,34 @@ class MegatronEngine(BaseEngine):
         self._build_tf_config()
 
         self.module = self._build_megatron_module()
+        if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
+            # Debug DDP buffer state for offload/load issues.
+            try:
+                ddp_chunks = self.module if isinstance(self.module, list) else [self.module]
+                for idx, chunk in enumerate(ddp_chunks):
+                    ddp_cfg = getattr(chunk, "ddp_config", None)
+                    ddp_use_dist_opt = getattr(ddp_cfg, "use_distributed_optimizer", None)
+                    none_param_buffers = 0
+                    total_buffers = 0
+                    buffers_lists = []
+                    if hasattr(chunk, "buffers"):
+                        buffers_lists.append(getattr(chunk, "buffers", []))
+                    if hasattr(chunk, "expert_parallel_buffers"):
+                        buffers_lists.append(getattr(chunk, "expert_parallel_buffers", []))
+                    for buffers in buffers_lists:
+                        for buffer in buffers:
+                            total_buffers += 1
+                            if getattr(buffer, "param_data", None) is None:
+                                none_param_buffers += 1
+                    logger.warning(
+                        "DDP debug chunk=%s use_distributed_optimizer=%s buffers=%s param_data_none=%s",
+                        idx,
+                        ddp_use_dist_opt,
+                        total_buffers,
+                        none_param_buffers,
+                    )
+            except Exception as exc:
+                logger.warning("DDP debug failed: %s", exc)
 
         # For forward_only, we don't need optimizer, lr_scheduler, checkpoint_mananager
         if self.engine_config.forward_only:
