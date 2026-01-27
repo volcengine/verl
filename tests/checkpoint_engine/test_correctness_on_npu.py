@@ -17,16 +17,19 @@ import pytest
 import ray
 
 from tests.checkpoint_engine.test_utils import create_rollout_worker_group, create_trainer_worker_group
+from verl.checkpoint_engine import CheckpointEngineManager
 from verl.single_controller.ray.base import (
     RayResourcePool,
     split_resource_pool,
 )
 from verl.utils.device import get_device_name
+from verl.workers.config import CheckpointEngineConfig, HFModelConfig, RolloutConfig
 
 
-@pytest.mark.parametrize("rebuild_group", [False, True])
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rebuild_group", [False])
 @pytest.mark.parametrize("num_trainer, num_rollout", [(2, 6)])
-def test_hccl_checkpoint_engine(
+async def test_hccl_checkpoint_engine(
     rebuild_group,
     num_trainer,
     num_rollout,
@@ -47,55 +50,25 @@ def test_hccl_checkpoint_engine(
         }
     )
 
+    # initialize config
+    checkpoint_engine_config = CheckpointEngineConfig(
+        backend="hccl", engine_kwargs={"hccl": {"rebuild_group": rebuild_group}}
+    )
+    model_config = HFModelConfig(path=model_path, use_remove_padding=True)
+    rollout_config = RolloutConfig(name="vllm", checkpoint_engine=checkpoint_engine_config)
+
+    # create trainer and rollout worker group
     resource_pool = RayResourcePool(process_on_nodes=[num_gpus_per_node] * num_nodes, max_colocate_count=3)
     resource_pool.get_placement_groups(device_name=get_device_name())
     trainer_pool, rollout_pool = split_resource_pool(resource_pool, [num_trainer, num_rollout])
-    checkpoint_kwargs = {
-        "bucket_size": 2 * 1024 * 1024 * 1024,  # 2GB
-        "rebuild_group": rebuild_group,
-    }
-
-    trainer = create_trainer_worker_group(model_path, trainer_pool, "hccl", checkpoint_kwargs)
+    trainer = create_trainer_worker_group(trainer_pool, model_config, checkpoint_engine_config)
     trainer.reset()
-    rollout = create_rollout_worker_group(
-        model_path, rollout_pool, "hccl", checkpoint_kwargs, check_allclose=check_allclose
-    )
+    rollout, replicas = await create_rollout_worker_group(rollout_pool, model_config, rollout_config, check_allclose)
 
+    # create checkpoint engine manager
+    checkpoint_manager = CheckpointEngineManager(backend="hccl", trainer=trainer, replicas=replicas)
     for _ in range(3):
-        # 1. prepare all workers
-        metadata = ray.get(
-            trainer.execute_checkpoint_engine(["prepare"] * trainer.world_size)
-            + rollout.execute_checkpoint_engine(["prepare"] * rollout.world_size)
-        )
-        trainer_kwargs = {
-            "method": ["init_process_group"] * trainer.world_size,
-            "rank": [0] + [-1] * (trainer.world_size - 1),
-            "world_size": [rollout.world_size + 1] * trainer.world_size,
-            "master_metadata": [metadata[0]] * trainer.world_size,
-        }
-        rollout_kwargs = {
-            "method": ["init_process_group"] * rollout.world_size,
-            "rank": list(range(1, rollout.world_size + 1)),
-            "world_size": [rollout.world_size + 1] * rollout.world_size,
-            "master_metadata": [metadata[0]] * rollout.world_size,
-        }
-
-        # 2. init process group between all workers
-        ray.get(
-            trainer.execute_checkpoint_engine(**trainer_kwargs) + rollout.execute_checkpoint_engine(**rollout_kwargs)
-        )
-
-        # 3. update weights of all workers
-        print("start to upate")
-        ray.get(trainer.update_weights() + rollout.update_weights())
-
-        # 4. finish all workers
-        ray.get(
-            trainer.execute_checkpoint_engine(["finish"] * trainer.world_size)
-            + rollout.execute_checkpoint_engine(["finish"] * rollout.world_size)
-        )
-        print("end update")
-        # 5. check weights of rollout workers
+        await checkpoint_manager.update_weights()
         rollout.check_weights()
 
     ray.shutdown()

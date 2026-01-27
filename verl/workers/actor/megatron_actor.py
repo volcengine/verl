@@ -819,5 +819,6 @@ class MegatronPPOActor(BasePPOActor):
                 RouterReplay.clear_global_router_replay_action()
                 RouterReplay.clear_global_indices()
 
+        self.actor_optimizer.zero_grad()
         get_torch_device().empty_cache()
         return metrics
