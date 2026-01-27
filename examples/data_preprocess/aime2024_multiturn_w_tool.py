@@ -48,6 +48,7 @@ if __name__ == "__main__":
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
         def process_fn(example, idx):
+            example["agent_name"] = "tool_agent"
             orig_extra_info = example.pop("extra_info")
             extra_info = orig_extra_info.copy()
             extra_info["need_tools_kwargs"] = True
