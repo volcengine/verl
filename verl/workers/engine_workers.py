@@ -39,6 +39,7 @@ from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
+from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -98,6 +99,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.flops_counter = FlopsCounter(self.model_config.hf_config)
 
         self.loss_fn = None
+
+        self.tq_config = self.config.get("transfer_queue")
+        if self.tq_config is not None and self.tq_config["enable"]:
+            self.create_transferqueue_client(config=self.config)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def to(self, device, model=True, optimizer=True, grad=True):
@@ -168,7 +173,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
         final_output = tu.get_tensordict(tensor_dict=model_output, non_tensor_dict={"metrics": final_metrics})
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"),
+        blocking=False,
+        put_data=False,
+        convert_type="TensorDict",
+    )
     def train_mini_batch(self, data: TensorDict) -> TensorDict:
         """Split a batch into N mini-batches run for multiple epochs
 
@@ -178,6 +188,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
         Returns:
 
         """
+        # TODO(TQ): need to remove the pad and unpad processing
+        if self.tq_config is not None and self.tq_config["enable"]:
+            data = left_right_2_no_padding(data)
         maybe_fix_3d_position_ids(data)
         batch_size_per_dp = data.shape[0]
         disable_auto_offload = tu.pop(data, key="disable_auto_offload", default=False)
@@ -250,7 +263,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
                 output = None
         return output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"),
+        blocking=False,
+        put_data=False,
+        convert_type="TensorDict",
+    )
     def train_batch(self, data: TensorDict) -> TensorDict:
         assert self.loss_fn is not None, "loss function can't be None when calling train_batch"
         assert not self.engine_config.forward_only, "Can't run `train_batch` when forward_only is in the engine config."
@@ -300,7 +318,12 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         return final_output
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"),
+        blocking=False,
+        put_data=True,
+        convert_type="TensorDict",
+    )
     def infer_batch(self, data: TensorDict) -> TensorDict:
         # add mfu calculator
         global_token_num = tu.get(data, key="global_token_num")
@@ -390,6 +413,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self, DistProfiler(rank=self.rank, config=profiler_config, tool_config=tool_config)
         )
 
+        # create TranasferQueue client
+        self.tq_config = self.config.get("transfer_queue")
+        if self.tq_config and self.tq_config.get("enable", False):
+            self.create_transferqueue_client(config=self.config)
+
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_loss_fn(self, loss_fn):
         self.actor.set_loss_fn(loss_fn=loss_fn)
@@ -402,6 +430,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        from verl.workers.config.engine import TransferQueueConfig
+
+        if self.tq_config and self.tq_config.get("enable", False):
+            transferqueue_config = TransferQueueConfig.from_dict(self.tq_config)
+        else:
+            transferqueue_config = None
 
         # 1. build reference model
         if "ref" in self.role:
@@ -424,6 +458,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=ref_config.engine,
                 optimizer_config=ref_config.optim,
                 checkpoint_config=ref_config.checkpoint,
+                transfer_queue=transferqueue_config,
             )
 
             # assign engine configs
@@ -449,6 +484,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 engine_config=actor_config.engine,
                 optimizer_config=actor_config.optim,
                 checkpoint_config=actor_config.checkpoint,
+                transfer_queue=transferqueue_config,
             )
 
             assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz
@@ -514,19 +550,47 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.layered_summon = self.config.rollout.get("layered_summon", False)
             self.peft_merge: bool = model_config.lora.get("merge", False)
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"), put_data=True, convert_type="TensorDict"
+    )
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
-        output = self.ref.infer_batch(data=data)
+        # TODO(TQ): need to remove the pad and unpad processing
+        if self.tq_config is not None and self.tq_config["enable"]:
+            data = left_right_2_no_padding(data)
+            output = self.ref.infer_batch(data=data)
+            log_probs = tu.get(output, "log_probs")
+            log_probs = no_padding_2_padding(log_probs, data)
+            output = tu.get_tensordict({"ref_log_prob": log_probs.float()})
+        else:
+            output = self.ref.infer_batch(data=data)
         return output.cpu() if output is not None else None
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"), put_data=True, convert_type="TensorDict"
+    )
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
-        output = self.actor.infer_batch(data)
+        # TODO(TQ): need to remove the pad and unpad processing
+        if self.tq_config is not None and self.tq_config["enable"]:
+            data = left_right_2_no_padding(data)
+            output = self.actor.infer_batch(data)
+            entropy = tu.get(output, "entropy")
+            log_probs = tu.get(output, "log_probs")
+            metrics = tu.get(output, "metrics")
+            entropy = no_padding_2_padding(entropy, data)
+            log_probs = no_padding_2_padding(log_probs, data)
+            output = tu.get_tensordict({"log_probs": log_probs.float(), "entropys": entropy.float()})
+            tu.assign_non_tensor_data(output, key="metrics", val=metrics)
+        else:
+            output = self.actor.infer_batch(data)
         return output.cpu() if output is not None else None
 
-    @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
+    @register(
+        dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"),
+        put_data=False,
+        convert_type="TensorDict",
+    )
     @DistProfiler.annotate(color="red", role="actor_update")
     def update_actor(self, data: TensorDict) -> TensorDict:
         output = self.actor.train_mini_batch(data=data)

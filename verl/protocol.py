@@ -553,6 +553,7 @@ class DataProto:
             meta_info[DataProtoConfig.auto_padding_key] = True
         return cls(batch=tensor_dict, non_tensor_batch=non_tensors, meta_info=meta_info)
 
+
     @classmethod
     def from_tensordict(
         cls,

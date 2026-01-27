@@ -1981,6 +1981,61 @@ def compute_pf_ppo_reweight_data(
     return resampled_data
 
 
+def compute_pf_ppo_reweight_data_tq(
+    token_level_scores: torch.Tensor,
+    reweight_method: str = "pow",
+    weight_pow: float = 2.0,
+):
+    """Reweight the data based on the token_level_scores.
+
+    Args:
+        data: DataProto object, containing batch, non_tensor_batch and meta_info
+        reweight_method: str, choices: "pow", "max_min", "max_random"
+        weight_pow: float, the power of the weight
+
+    Returns:
+
+    """
+
+    @torch.no_grad()
+    def compute_weights(scores: torch.Tensor, reweight_method: str, weight_pow: float) -> torch.Tensor:
+        """Compute importance weights for resampling based on scores.
+
+        Args:
+            scores (torch.Tensor): Tensor of scores to compute weights from.
+            reweight_method (str): Method for computing weights ('pow', 'max_min', 'max_random').
+            weight_pow (float): Power exponent for 'pow' method.
+
+        Returns:
+            torch.Tensor: Computed importance weights.
+
+        Raises:
+            ValueError: If reweight_method is not supported.
+        """
+        if reweight_method == "pow":
+            weights = torch.pow(torch.abs(scores), weight_pow)
+        elif reweight_method == "max_min":
+            max_score = torch.max(scores)
+            min_score = torch.min(scores)
+            weights = torch.where((scores == max_score) | (scores == min_score), 1.0, 0.0)
+        elif reweight_method == "max_random":
+            max_score = torch.max(scores)
+            weights = torch.where(scores == max_score, 0.4, 0.1)
+        else:
+            raise ValueError(f"Unsupported reweight_method: {reweight_method}")
+        return weights
+
+    scores = token_level_scores.sum(dim=-1)
+    weights = compute_weights(scores, reweight_method, weight_pow)
+    weights = torch.clamp(weights + 1e-8, min=1e-8)
+
+    batch_size = scores.shape[0]
+    sample_indices = torch.multinomial(weights, batch_size, replacement=True).tolist()
+    # TQ controller 消费 sampler 可对接，输入自定义
+
+    return sample_indices
+
+
 def compute_policy_loss_reinforce(
     rollout_log_prob: torch.Tensor,
     log_prob: torch.Tensor,
