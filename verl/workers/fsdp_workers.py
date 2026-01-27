@@ -659,18 +659,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
         # Full params
-        if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
-            FSDP.set_state_dict_type(
-                self.actor_module_fsdp,
-                state_dict_type=StateDictType.FULL_STATE_DICT,
-                state_dict_config=FullStateDictConfig(),
-            )
-        elif fsdp_version(self.actor_module_fsdp) == 1:
-            FSDP.set_state_dict_type(
-                self.actor_module_fsdp,
-                state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=ShardedStateDictConfig(),
-            )
+        # Fix for Issue #4229: Check if actor_module_fsdp exists (might not in async mode)
+        if hasattr(self, "actor_module_fsdp") and self.actor_module_fsdp is not None:
+            if torch.distributed.get_world_size() == 1 and fsdp_version(self.actor_module_fsdp) == 1:
+                FSDP.set_state_dict_type(
+                    self.actor_module_fsdp,
+                    state_dict_type=StateDictType.FULL_STATE_DICT,
+                    state_dict_config=FullStateDictConfig(),
+                )
+            elif fsdp_version(self.actor_module_fsdp) == 1:
+                FSDP.set_state_dict_type(
+                    self.actor_module_fsdp,
+                    state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                    state_dict_config=ShardedStateDictConfig(),
+                )
 
         # used for LoRA
         self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
@@ -683,6 +685,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     async def rollout_mode(self):
         """Context switch hybridengine to rollout mode."""
+        # Fix for Issue #4229: In async mode, rollout workers don't have FSDP model
+        # Skip FSDP-related operations if model not loaded
+        if not hasattr(self, "actor_module_fsdp") or self.actor_module_fsdp is None:
+            # Async rollout worker: no FSDP model to manage, just return
+            return
+
         aggressive_empty_cache(force_sync=True)
 
         log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
@@ -766,6 +774,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     async def trainer_mode(self):
         """Context switch hybridengine to trainer mode."""
+        # Fix for Issue #4229: In async mode, rollout workers don't have FSDP model
+        # Skip FSDP-related operations if model not loaded
+        if not hasattr(self, "actor_module_fsdp") or self.actor_module_fsdp is None:
+            # Async rollout worker: no FSDP model to manage, just handle rollout cache
+            if self.config.rollout.free_cache_engine:
+                log_gpu_memory_usage("Before rollout offload", logger=logger)
+                await self.rollout.release()
+                log_gpu_memory_usage("After rollout offload", logger=logger)
+            return
+
         if self.config.rollout.free_cache_engine:
             log_gpu_memory_usage("Before rollout offload", logger=logger)
             await self.rollout.release()
@@ -794,8 +812,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         use_shm = self.config.model.get("use_shm", False)
         use_fused_kernels = self.config.model.get("use_fused_kernels", False)
 
-        if self._is_actor or self._is_rollout:
-            # we need the model for actor and rollout
+        # Fix for Issue #4229: Skip FSDP loading in async mode
+        # In async mode, rollout worker only needs tokenizer/config
+        # Weights are synced from trainer via NCCL broadcast
+        if self._is_actor or (self._is_rollout and self.config.rollout.mode != "async"):
+            # we need the model for actor and rollout (except async rollout)
             if self._is_actor:
                 optim_config = self.config.actor.optim
                 fsdp_config = omega_conf_to_dataclass(self.config.actor.fsdp_config)
@@ -902,18 +923,21 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 checkpoint_config=self.config.actor.checkpoint,
             )
 
+        # Fix for Issue #4229: Only create checkpoint manager if FSDP model exists
+        # In async mode, rollout workers don't load FSDP model, so skip checkpoint manager
         if not self._is_actor and self._is_rollout:
-            # If ActorRolloutRefWorker is initialized as a standalone rollout,
-            # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
+            if hasattr(self, "actor_module_fsdp") and self.actor_module_fsdp is not None:
+                # If ActorRolloutRefWorker is initialized as a standalone rollout,
+                # create a checkpoint manager for FSDP model to allow loading FSDP checkpoints for rollout.
 
-            checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
-            self.checkpoint_manager = FSDPCheckpointManager(
-                model=self.actor_module_fsdp,
-                optimizer=None,
-                lr_scheduler=None,
-                processing_class=self.processor if self.processor is not None else self.tokenizer,
-                checkpoint_config=checkpoint_contents,
-            )
+                checkpoint_contents = OmegaConf.create({"load_contents": ["model"], "save_contents": []})
+                self.checkpoint_manager = FSDPCheckpointManager(
+                    model=self.actor_module_fsdp,
+                    optimizer=None,
+                    lr_scheduler=None,
+                    processing_class=self.processor if self.processor is not None else self.tokenizer,
+                    checkpoint_config=checkpoint_contents,
+                )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="actor"))
     @DistProfiler.annotate(color="red", role="actor_update")
