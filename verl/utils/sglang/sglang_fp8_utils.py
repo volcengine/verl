@@ -121,7 +121,7 @@ def quant_weights_by_name(weights, quant_config, dtype=torch.bfloat16):
             yield (k + "_scale_inv", param_scale)
 
             # Explicitly delete to help GC
-            del v, param_lp, param_scale
+            del param_lp, param_scale
 
         except Exception as e:
             logger.error(f"Failed to quantize {k}: {e}")

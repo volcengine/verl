@@ -1,5 +1,7 @@
 ## NPU Qwen3-32B GSPO Optimization Practice
 
+Last updated: 01/27/2026.
+
 本文章对应脚本地址：[qwen3_32b_gspo_npu](https://github.com/volcengine/verl/blob/main/examples/gspo_trainer/run_qwen3_32b_gspo_npu.sh)
 
 ### 算法适配
