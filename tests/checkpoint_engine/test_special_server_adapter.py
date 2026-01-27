@@ -103,7 +103,7 @@ async def test_server_adapter(init_config):
         backend=checkpoint_engine_config.backend, trainer=trainer, replicas=rollout_replicas
     )
     for i in range(3):
-        checkpoint_manager.update_weights()
+        await checkpoint_manager.update_weights()
 
         server_addresses = rollout_replicas[i % len(rollout_replicas)].server_address
         client = AsyncOpenAI(

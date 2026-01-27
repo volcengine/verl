@@ -61,10 +61,10 @@ async def test_nccl_checkpoint_engine(
     trainer_pool, rollout_pool = split_resource_pool(resource_pool, [num_trainer, num_rollout])
     trainer = create_trainer_worker_group(trainer_pool, model_config, checkpoint_engine_config)
     trainer.reset()
-    rollout = create_rollout_worker_group(rollout_pool, model_config, rollout_config, check_allclose)
+    rollout, replicas = await create_rollout_worker_group(rollout_pool, model_config, rollout_config, check_allclose)
 
     # create checkpoint engine manager
-    checkpoint_manager = CheckpointEngineManager(backend="nccl", trainer=trainer, replicas=[rollout])
+    checkpoint_manager = CheckpointEngineManager(backend="nccl", trainer=trainer, replicas=replicas)
     for _ in range(3):
         await checkpoint_manager.update_weights()
         rollout.check_weights()
@@ -116,10 +116,10 @@ async def test_nixl_checkpoint_engine(
     trainer_pool, rollout_pool = split_resource_pool(resource_pool, [num_trainer, num_rollout])
     trainer = create_trainer_worker_group(trainer_pool, model_config, checkpoint_engine_config)
     trainer.reset()
-    rollout = create_rollout_worker_group(rollout_pool, model_config, rollout_config, check_allclose)
+    rollout, replicas = await create_rollout_worker_group(rollout_pool, model_config, rollout_config, check_allclose)
 
     # create checkpoint engine manager
-    checkpoint_manager = CheckpointEngineManager(backend="nixl", trainer=trainer, replicas=[rollout])
+    checkpoint_manager = CheckpointEngineManager(backend="nixl", trainer=trainer, replicas=replicas)
     for _ in range(3):
         await checkpoint_manager.update_weights()
         rollout.check_weights()

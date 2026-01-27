@@ -22,6 +22,7 @@ from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.utils.distributed import initialize_global_process_group_ray
+from verl.utils.ray_utils import auto_await
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout import BaseRollout, RolloutReplica, get_rollout_class
 
@@ -365,14 +366,16 @@ class CheckpointEngineManager:
         replicas_set = set(replicas)
         self.replicas = [r for r in self.replicas if r not in replicas_set]
 
-    def sleep_replicas(self):
+    @auto_await
+    async def sleep_replicas(self):
         """Sleep all rollout replicas: free weight and kv_cache device memory."""
         # skip sleep replicas for disaggregated rollout
         if self.backend != "naive":
             return
-        self._run_all([r.sleep() for r in self.replicas])
+        await asyncio.gather(*[r.sleep() for r in self.replicas])
 
-    def update_weights(self):
+    @auto_await
+    async def update_weights(self):
         """Update weights from trainer to rollout replicas."""
 
         # 0. update weights for sync training with colocated trainer and rollout
@@ -381,7 +384,7 @@ class CheckpointEngineManager:
             return
 
         # 1. abort and save all unfinished requests for partial rollout
-        self._run_all([r.abort_all_requests() for r in self.replicas])
+        await asyncio.gather(*[r.abort_all_requests() for r in self.replicas])
 
         # 2. create a temporay worker group for all replicas
         workers = []
@@ -403,10 +406,4 @@ class CheckpointEngineManager:
         )
 
         # 6. resume all unfinished requests for partial rollout
-        self._run_all([r.resume_all_requests() for r in self.replicas])
-
-    def _run_all(self, tasks: list[asyncio.Task]):
-        async def run_all():
-            await asyncio.gather(*tasks)
-
-        asyncio.run(run_all())
+        await asyncio.gather(*[r.resume_all_requests() for r in self.replicas])
