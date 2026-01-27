@@ -28,10 +28,7 @@ from ray.actor import ActorHandle
 from vllm import SamplingParams
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.cli.serve import run_headless
-from vllm.entrypoints.openai.api_server import (
-    build_app,
-    init_app_state,
-)
+from vllm.entrypoints.openai.api_server import build_app, init_app_state
 from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
@@ -112,10 +109,16 @@ class vLLMHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = min(
-            get_max_position_embeddings(self.model_config.hf_config),
-            self.config.prompt_length + self.config.response_length,
-        )
+        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = max_position_embeddings
+        else:
+            if self.config.max_model_len > max_position_embeddings:
+                raise ValueError(
+                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
+                    f"max_position_embeddings ({max_position_embeddings})"
+                )
+
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -267,7 +270,6 @@ class vLLMHttpServer:
             "enable_prefix_caching": self.config.enable_prefix_caching,
             "enable_sleep_mode": self.config.enable_sleep_mode,
             "logprobs_mode": self.config.logprobs_mode,
-            "disable_custom_all_reduce": True,
             "enforce_eager": self.config.enforce_eager,
             "gpu_memory_utilization": self.config.gpu_memory_utilization,
             "disable_log_stats": self.config.disable_log_stats,
@@ -333,14 +335,22 @@ class vLLMHttpServer:
             )
 
         # update lora-related args
-        if self.model_config.lora_rank > 0:
-            args.update(
-                {
-                    "enable_lora": True,
-                    "max_loras": 1,
-                    "max_lora_rank": get_vllm_max_lora_rank(self.model_config.lora_rank),
-                }
-            )
+        lora_rank = self.model_config.lora.get("rank", 0)
+        megatron_lora = True
+        if self.model_config.lora.get("merge", False):
+            lora_rank = 0
+        if lora_rank <= 0:
+            megatron_lora = False
+            lora_rank = self.model_config.lora_rank
+        if lora_rank > 0:
+            lora_args = {
+                "enable_lora": True,
+                "max_loras": 1,
+                "max_lora_rank": get_vllm_max_lora_rank(lora_rank),
+            }
+            if megatron_lora:
+                lora_args["fully_sharded_loras"] = True
+            args.update(lora_args)
 
         if self.config.enable_rollout_routing_replay:
             args.update({"enable_return_routed_experts": True})
@@ -476,7 +486,9 @@ class vLLMHttpServer:
 
         # Add lora request
         lora_request = None
-        if self.model_config.lora_rank > 0:
+        if self.model_config.lora_rank > 0 or (
+            self.model_config.lora.get("rank", 0) > 0 and not self.model_config.lora.get("merge", False)
+        ):
             # Make sure we also check that the lora is already loaded in the engine
             lora_loaded = VLLM_LORA_INT_ID in await self.engine.list_loras()
             if lora_loaded:
@@ -530,25 +542,28 @@ class vLLMHttpServer:
         )
 
     async def wake_up(self):
+        if self.node_rank != 0:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            # Call all workers to switch between trainer mode and rollout mode.
-            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
+            # In hybrid mode, rollout is wake up in `update_weights`
+            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
         elif self.rollout_mode == RolloutMode.COLOCATED:
             # Directly call engine to wake up without sync weights.
-            if self.node_rank == 0:
-                await self.engine.wake_up(tags=["kv_cache", "weights"])
+            await self.engine.wake_up(tags=["kv_cache", "weights"])
+            await self.engine.reset_prefix_cache()
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
+        if self.node_rank != 0 or not self.config.free_cache_engine:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            if self.node_rank == 0:
-                await self.engine.reset_prefix_cache()
-            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+            # Don't use engine.sleep(level=2) here
+            await self.engine.collective_rpc("sleep", kwargs={"level": 2})
         elif self.rollout_mode == RolloutMode.COLOCATED:
-            if self.node_rank == 0:
-                await self.engine.reset_prefix_cache()
-                await self.engine.sleep(level=1)
+            await self.engine.sleep(level=1)
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
 

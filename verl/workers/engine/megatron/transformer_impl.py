@@ -34,6 +34,7 @@ from verl.utils.debug import log_gpu_memory_usage
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
+from verl.utils.megatron_peft_utils import add_base_layer_suffix, build_peft_config_for_vllm
 from verl.utils.megatron_utils import (
     get_megatron_module_device,
     load_megatron_model_to_gpu,
@@ -524,14 +525,23 @@ class MegatronEngine(BaseEngine):
         else:
             return {}
 
-    def get_per_tensor_param(self, **kwargs):
+    def get_per_tensor_param(self, base_sync_done=False, **kwargs):
         load_megatron_model_to_gpu(self.module, load_grad=False)
+        peft_config = None
+        non_merge_lora_sync = self.peft_cls is not None and not self.model_config.lora.get("merge", False)
         if self.vanilla_bridge:
             per_tensor_param = self.bridge.export_weights(self.module)
+        elif base_sync_done and non_merge_lora_sync:
+            # Only export adapter weights
+            peft_config = build_peft_config_for_vllm(self.model_config.lora)
+            per_tensor_param = self.bridge.export_adapter_weights(self.module)
         else:
             per_tensor_param = self.bridge.export_hf_weights(self.module)
-        # TODO: support megatron LoRA
-        return per_tensor_param, None
+            if non_merge_lora_sync:
+                per_tensor_param = add_base_layer_suffix(
+                    per_tensor_param, model_type=self.model_config.hf_config.model_type
+                )
+        return per_tensor_param, peft_config
 
     def disable_adapter(self) -> ContextManager:
         return self.peft_cls.disable_adapter(self.module)
