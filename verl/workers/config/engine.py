@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Callable
+from typing import Any, Callable, Literal, Optional
 
 from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
