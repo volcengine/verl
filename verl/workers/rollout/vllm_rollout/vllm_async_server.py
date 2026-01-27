@@ -42,7 +42,8 @@ from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
 from verl.utils.vllm.vllm_fp8_utils import apply_vllm_fp8_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
+from verl.workers.rollout.base import BaseRolloutServer, TokenOutput
+from verl.workers.rollout.replica import RolloutMode, RolloutReplica
 from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 from verl.workers.rollout.vllm_rollout import ServerAdapter
 from verl.workers.rollout.vllm_rollout.utils import (
@@ -75,7 +76,7 @@ logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 
-class vLLMHttpServer:
+class vLLMHttpServer(BaseRolloutServer):
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
     vllm serve --tensor-parallel-size=8 ...
@@ -105,6 +106,7 @@ class vLLMHttpServer:
             nnodes (int): number of nodes.
             cuda_visible_devices (str): cuda visible devices.
         """
+        super().__init__()
         os.environ[get_visible_devices_keyword()] = cuda_visible_devices
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
@@ -607,39 +609,36 @@ class vLLMHttpServer:
                 - aborted_count: Number of requests aborted
                 - request_ids: List of aborted request IDs
         """
-        try:
-            # Take an atomic snapshot to avoid race conditions with the vLLM engine thread
-            request_states_snapshot = list(self.engine.output_processor.request_states.items())
-            request_ids = [req_id for req_id, _ in request_states_snapshot]
+        self.resume_event.clear()
 
-            if not request_ids:
-                return {"aborted_count": 0, "request_ids": []}
+        # Take an atomic snapshot to avoid race conditions with the vLLM engine thread
+        request_states_snapshot = list(self.engine.output_processor.request_states.items())
+        request_ids = [req_id for req_id, _ in request_states_snapshot]
 
-            # For each request, create an abort output and put it to its queue
-            # This allows the generator to receive the aborted result
-            from vllm.v1.engine import FinishReason
+        if not request_ids:
+            return {"aborted_count": 0, "request_ids": []}
 
-            for _, req_state in request_states_snapshot:
-                request_output = req_state.make_request_output(
-                    [], pooling_output=None, finish_reason=FinishReason.ABORT, stop_reason=None
-                )
-                req_state.queue.put(request_output)
+        # For each request, create an abort output and put it to its queue
+        # This allows the generator to receive the aborted result
+        from vllm.v1.engine import FinishReason
 
-            # Abort requests in the output processor and engine core
-            self.engine.output_processor.abort_requests(request_ids)
-            await self.engine.engine_core.abort_requests_async(request_ids)
+        for _, req_state in request_states_snapshot:
+            request_output = req_state.make_request_output(
+                [], pooling_output=None, finish_reason=FinishReason.ABORT, stop_reason=None
+            )
+            req_state.queue.put(request_output)
 
-            # Try to reset prefix cache to ensure clean state
-            if reset_prefix_cache:
-                await self.clear_kv_cache()
-                logger.info("Prefix cache reset after abort")
+        # Abort requests in the output processor and engine core
+        self.engine.output_processor.abort_requests(request_ids)
+        await self.engine.engine_core.abort_requests_async(request_ids)
 
-            logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
-            return {"aborted_count": len(request_ids), "request_ids": request_ids}
+        # Try to reset prefix cache to ensure clean state
+        if reset_prefix_cache:
+            await self.clear_kv_cache()
+            logger.info("Prefix cache reset after abort")
 
-        except Exception as e:
-            logger.error(f"Error aborting requests: {e}")
-            return {"aborted_count": 0, "request_ids": [], "error": str(e)}
+        logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
+        return {"aborted_count": len(request_ids), "request_ids": request_ids}
 
     async def abort_request(self, request_id: str, reset_prefix_cache: bool = True) -> dict[str, Any]:
         """Abort a specific generation request.

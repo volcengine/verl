@@ -48,7 +48,8 @@ from verl.utils.rollout_trace import (
     rollout_trace_op,
 )
 from verl.utils.transferqueue_utils import tqbridge
-from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
+from verl.workers.rollout.base import TokenOutput
+from verl.workers.rollout.replica import get_rollout_replica_class
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

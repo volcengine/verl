@@ -45,7 +45,8 @@ from verl.utils.device import get_visible_devices_keyword
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
+from verl.workers.rollout.base import BaseRolloutServer, TokenOutput
+from verl.workers.rollout.replica import RolloutMode, RolloutReplica
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
 from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
@@ -136,7 +137,7 @@ class SGLangProfilerArgsBuilder:
         }, self.auto_stop_profiling
 
 
-class SGLangHttpServer:
+class SGLangHttpServer(BaseRolloutServer):
     """SGLang http server in single node, this is equivalent to launch server with command line:
     ```
     python -m sglang.launch_server --node-rank 0 --nnode 1 ...
@@ -163,6 +164,7 @@ class SGLangHttpServer:
         cuda_visible_devices: str,
         base_gpu_id: int,
     ):
+        super().__init__()
         print(f"SGLang http server: {rollout_mode=}, {replica_rank=}, {node_rank=}, {nnodes=}, {cuda_visible_devices=}")
         os.environ[visible_devices_keyword] = cuda_visible_devices
 
@@ -497,6 +499,10 @@ class SGLangHttpServer:
             and not self._auto_stop_profiling
         ):
             await self.tokenizer_manager.stop_profile()
+
+    async def abort_all_requests(self):
+        """Abort all requests with partial rollout."""
+        raise NotImplementedError
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

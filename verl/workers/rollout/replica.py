@@ -16,10 +16,9 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Callable
 
 from omegaconf import DictConfig
-from pydantic import BaseModel
 from ray.actor import ActorHandle
 
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, ResourcePoolManager
@@ -27,19 +26,6 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
 logger = logging.getLogger(__file__)
-
-
-class TokenOutput(BaseModel):
-    token_ids: list[int]
-    """response token ids"""
-    log_probs: Optional[list[float]] = None
-    """logprobs of response token ids"""
-    routed_experts: Optional[Any] = None
-    """routed experts of response token ids"""
-    stop_reason: Optional[str] = None
-    """stop reason: 'completed', 'aborted', or None for unknown"""
-    num_preempted: Optional[int] = None
-    """number of preempted times for metric calculation"""
 
 
 class RolloutMode(Enum):
