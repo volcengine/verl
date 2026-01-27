@@ -1288,6 +1288,9 @@ def dynamic_cp_split_batch(
         import math
 
         local_cp_size = math.ceil(max_seq_len / max_seqlen_per_dp_cp_rank)
+        # round up to the nearest power of 2, for [1,2,3,4,5,6,7,8] -> [1,2,4,4,8,8,8,8]
+        local_cp_size = 1 << (local_cp_size - 1).bit_length()
+
         assert local_cp_size <= dp_size, (
             "local_cp_size must be less than or equal to dp_size, try to increase max_seqlen_per_dp_cp_rank"
         )
