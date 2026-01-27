@@ -27,6 +27,7 @@ except ImportError:
     pass
 from megatron.core.transformer.moe.router import TopKRouter
 from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.transformer.transformer_block import TransformerBlock
 
 # https://github.com/THUDM/slime/blob/main/slime/utils/routing_replay.py
 
@@ -330,20 +331,38 @@ def apply_router_replay_patch():
         # Apply the patch
         TransformerConfig.__init__ = patched_tf_config_init
 
-    # Step 2: Patch TopKRouter only once to ensure idempotency.
-    if hasattr(TopKRouter, "_router_replay_patched"):
-        return
+    # Step 2: Patch TopKRouter (idempotent)
+    # Add router_replay instance to each TopKRouter when enable_routing_replay is enabled.
+    if not getattr(TopKRouter, "_router_replay_patched", False):
+        original_router_init = TopKRouter.__init__
 
-    original_init = TopKRouter.__init__
+        def patched_router_init(self, *args, **kwargs):
+            # Call original init first to make sure self.config is ready
+            original_router_init(self, *args, **kwargs)
 
-    # Step 3: Define the new __init__ method
-    def patched_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        self.router_replay = None
-        if self.config.enable_routing_replay:
-            self.router_replay = RouterReplay()
+            self.router_replay = None
+            if self.config.enable_routing_replay:
+                # RouterReplay() will register itself into RouterReplay.router_instances
+                self.router_replay = RouterReplay()
 
-    # Step 4: Apply the patches
-    TopKRouter.__init__ = patched_init
-    TopKRouter.routing = patched_routing
-    TopKRouter._router_replay_patched = True
+        # Apply patches
+        TopKRouter.__init__ = patched_router_init
+        TopKRouter.routing = patched_routing
+        TopKRouter._router_replay_patched = True
+
+    # Step 3: Patch TransformerBlock.__init__ (idempotent)
+    # Clear RouterReplay.router_instances at the beginning of TransformerBlock init to avoid duplication.
+    if not getattr(TransformerBlock, "_router_replay_clear_patched", False):
+        original_tb_init = TransformerBlock.__init__
+
+        def patched_tb_init(self, config, *args, **kwargs):
+            # Must clear BEFORE calling original init, otherwise newly created routers will be cleared.
+            if config.enable_routing_replay:
+                RouterReplay.router_instances.clear()
+            return original_tb_init(self, config, *args, **kwargs)
+
+        # Apply patch
+        TransformerBlock.__init__ = patched_tb_init
+        TransformerBlock._router_replay_clear_patched = True
+
+    print("Router Replay Patch applied successfully.")
