@@ -246,7 +246,7 @@ class RolloutReplica(ABC):
 
     async def start_profile(self, **kwargs):
         """Start profiling on the replica."""
-        await asyncio.gather(*[server.start_profile.remote() for server in self.servers])
+        await asyncio.gather(*[server.start_profile.remote(**kwargs) for server in self.servers])
 
     async def stop_profile(self):
         """Stop profiling on the replica."""

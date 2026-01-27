@@ -92,7 +92,7 @@ env:
 
 jobs:
   setup:
-    if: github.repository_owner == 'volcengine'
+    if: github.repository_owner == 'verl-project'
     runs-on: ubuntu-latest
     outputs:
       runner-label: ${{ steps.create-runner.outputs.runner-label }}
@@ -179,12 +179,7 @@ jobs:
 
   cleanup:
     runs-on: ubuntu-latest
-    needs:
-      [
-        setup,
-        e2e_grpo_trainer_fsdp-qwen2,
-        e2e_grpo_trainer_megatron-qwen2,
-      ]
+    needs: [setup, e2e_grpo_trainer_fsdp-qwen2, e2e_grpo_trainer_megatron-qwen2]
     if: always()
     steps:
       - id: destroy-runner

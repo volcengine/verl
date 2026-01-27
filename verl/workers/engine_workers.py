@@ -37,7 +37,12 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerCon
 from verl.utils.py_functional import append_to_dict
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
-from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
+from verl.workers.config import (
+    ActorConfig,
+    HFModelConfig,
+    RolloutConfig,
+    TrainingWorkerConfig,
+)
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
 
@@ -65,6 +70,18 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.optimizer_config = self.config.optimizer_config
         self.checkpoint_config = self.config.checkpoint_config
         self.device_name = get_device_name()
+
+        if self.engine_config is None:
+            assert self.optimizer_config is None
+            if self.config.auto_select_engine_optim_fn is None:
+                raise ValueError(
+                    "engine_config is not provided and auto_select_engine_optim_fn is not set. "
+                    "Cannot determine engine backend."
+                )
+            # Support automatically select engine backend given model config
+            self.engine_config, self.optimizer_config = self.config.auto_select_engine_optim_fn(
+                self.model_config, self.device_name
+            )
 
         # we use the one defined in model
         self.engine_config.use_remove_padding = self.model_config.use_remove_padding
@@ -515,9 +532,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             backend = checkpoint_engine_config.backend
             bucket_size = checkpoint_engine_config.update_weights_bucket_megabytes << 20
             engine_kwargs = checkpoint_engine_config.engine_kwargs.get(backend, {})
-            if torch.distributed.get_rank() == 0 and backend in ["nccl", "hccl"]:
-                engine_kwargs["is_master"] = True
-            self.checkpoint_engine = CheckpointEngineRegistry.new(backend, bucket_size=bucket_size, **engine_kwargs)
+            self.checkpoint_engine = CheckpointEngineRegistry.new(
+                backend, is_master=(torch.distributed.get_rank() == 0), bucket_size=bucket_size, **engine_kwargs
+            )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")

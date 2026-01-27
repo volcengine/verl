@@ -248,11 +248,13 @@ class NIXLCheckpointEngine(CheckpointEngine):
         bucket_size: int,
         device: str = "cuda",
         rollout_dtype: torch.dtype = torch.bfloat16,
+        is_master: bool = False,
     ):
         self.bucket_size = bucket_size
         self.device = device
         self.rollout_dtype = rollout_dtype
         self.agent = NixlAgent()
+        self.is_master = is_master
 
     def prepare(self) -> NixlAgentMetadata:
         """Prepare send and recv bucket.

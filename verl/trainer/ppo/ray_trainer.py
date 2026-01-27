@@ -1409,7 +1409,7 @@ class RayPPOTrainer:
                             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
                         else:
                             if curr_step_profile:
-                                self.async_rollout_manager.start_profile()
+                                self.async_rollout_manager.start_profile(global_step=self.global_steps)
                             gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
                             self.checkpoint_manager.sleep_replicas()
                             if curr_step_profile:
@@ -1532,6 +1532,14 @@ class RayPPOTrainer:
                             }
                             metrics.update(old_log_prob_metrics)
                             old_log_prob.batch.pop("entropys")
+                            if "routed_experts" in batch.batch and "routed_experts" in old_log_prob.batch:
+                                router_mode = getattr(
+                                    self.config.actor_rollout_ref.actor.router_replay, "mode", "disabled"
+                                )
+                                if router_mode == "R2":
+                                    batch.batch.pop("routed_experts")
+                                else:
+                                    old_log_prob.batch.pop("routed_experts")
                             batch = batch.union(old_log_prob)
                             if "rollout_log_probs" in batch.batch.keys():
                                 # TODO: we may want to add diff of probs too.
