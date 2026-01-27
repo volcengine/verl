@@ -101,7 +101,6 @@ class MegatronEngine(BaseEngine):
                 "max_seqlen_per_dp_cp_rank is required when hybrid_context_parallel is enabled"
             )
             extra_args["hybrid_context_parallel"] = self.engine_config.hybrid_context_parallel
-            extra_args["max_seqlen_per_dp_cp_rank"] = self.engine_config.max_seqlen_per_dp_cp_rank
 
         mpu.initialize_model_parallel(
             tensor_model_parallel_size=self.engine_config.tensor_model_parallel_size,
@@ -134,7 +133,7 @@ class MegatronEngine(BaseEngine):
                 override_transformer_config["max_seqlen_per_dp_cp_rank"] = self.engine_config.max_seqlen_per_dp_cp_rank
                 override_transformer_config["hybrid_context_parallel"] = self.engine_config.hybrid_context_parallel
                 override_transformer_config["sequence_packing"] = True
-                override_transformer_config["sequence_packing_scheduler"] = "default_hybrid_cp"
+                override_transformer_config["sequence_packing_scheduler"] = "external"
             bridge.set_extra_args(**override_transformer_config)
             tf_config = bridge.config
             tf_config.fp16 = self.param_dtype == torch.float16
@@ -419,9 +418,15 @@ class MegatronEngine(BaseEngine):
             raise ValueError(f"Invalid device type: {device}")
 
     def get_data_parallel_rank(self):
+        if self.engine_config.hybrid_context_parallel:
+            # in order to let every dp-cp group has full data to split, we set dp=1
+            return 0
         return mpu.get_data_parallel_rank()
 
     def get_data_parallel_size(self):
+        if self.engine_config.hybrid_context_parallel:
+            # in order to let every dp-cp group has full data to split, we set dp=1
+            return 1
         return mpu.get_data_parallel_world_size()
 
     def get_data_parallel_group(self):
@@ -621,6 +626,18 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
     def forward_step(self, batch_iter: Iterator[TensorDict], model, postprocess_micro_batch_func):
         batch: TensorDict = next(batch_iter)
+
+        if self.engine_config.hybrid_context_parallel:
+            # split the batch and give the sub-batches to each dp-cp group
+            from verl.utils.megatron_utils import dynamic_cp_split_batch
+
+            batch = dynamic_cp_split_batch(
+                batch=batch,
+                engine_config=self.engine_config,
+                dp_size=mpu.get_data_parallel_world_size(),
+                dp_rank=mpu.get_data_parallel_rank(),
+            )
+
         batch = batch.to(get_device_id())
         use_fused_kernels = tu.get_non_tensor_data(batch, key="use_fused_kernels", default=False)
         calculate_entropy = tu.get_non_tensor_data(batch, key="calculate_entropy", default=False)
@@ -629,6 +646,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
+        local_cp_size = tu.get_non_tensor_data(data=batch, key="local_cp_size", default=None)
 
         if not isinstance(temperature, torch.Tensor):
             temperature = torch.tensor([temperature] * input_ids.shape[0], device=input_ids.device)
@@ -685,17 +703,22 @@ class MegatronEngineWithLMHead(MegatronEngine):
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
+            local_cp_size=local_cp_size,
         )
 
-        return output, partial(postprocess_micro_batch_func, data=batch)
+        return output, partial(postprocess_micro_batch_func, data=batch, local_cp_size=local_cp_size)
 
-    def postprocess_micro_batch_func(self, output, data: TensorDict, forward_only: bool, loss_function):
+    def postprocess_micro_batch_func(
+        self, output, data: TensorDict, forward_only: bool, loss_function, local_cp_size=None
+    ):
         # For memory efficiency
         # We move calculation of entropy to compute_log_probs, forward_only == True
         device = data["input_ids"].device
         model_output = self.prepare_model_outputs(output, data)
 
         if loss_function is not None:
+            # TODO(baiyan): How to support hybrid context parallel with dp_group,
+            # now the dp_group is not used, so just leave it as is, but what if we need to use it?
             loss, metrics = loss_function(model_output=model_output, data=data, dp_group=self.get_data_parallel_group())
             # scale loss by num_micro_batch because megatron will scale loss
             # by n_micro_batch inside pp schedule
@@ -705,6 +728,16 @@ class MegatronEngineWithLMHead(MegatronEngine):
             loss = torch.tensor(1.0, device=device)
             scaled_loss = loss
             metrics = {}
+        if local_cp_size is not None:
+            # aggregate model_output by DP-CP groups
+            from verl.utils.megatron_utils import dynamic_cp_merge_output
+
+            model_output = dynamic_cp_merge_output(
+                model_output,
+                dp_size=mpu.get_data_parallel_world_size(),
+                dp_rank=mpu.get_data_parallel_rank(),
+                local_cp_size=local_cp_size,
+            )
 
         output = {
             "model_output": model_output,
