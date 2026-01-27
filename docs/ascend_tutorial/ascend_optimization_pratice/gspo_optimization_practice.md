@@ -1,4 +1,4 @@
-## NPU Qwen3-32B GSPO vllm+FSDP2适配&&调优最佳实践
+## NPU Qwen3-32B GSPO Optimization Practice
 
 本文章对应脚本地址：[qwen3_32b_gspo_npu](https://github.com/volcengine/verl/blob/main/examples/gspo_trainer/run_qwen3_32b_gspo_npu.sh)
 
@@ -6,7 +6,7 @@
 
 GSPO通过将优化颗粒度从**token级**提升到**sequence级**，规避了GRPO会遇到的**方差急剧增大**导致训练不稳定的情况，增加了训练的稳定性，同时该算法也在一定程度上提升了算法的收敛速度。
 
-想要成功在Verl仓库中成功调用到GSPO算法，需要进行如下的必要配置
+想要成功在verl仓库中成功调用到GSPO算法，需要进行如下的必要配置
 
 ~~~python
 # 核心算法配置  
@@ -56,7 +56,7 @@ infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 
 ##### ACLgraph+FULL_DECODE_ONLY
 
-推理算子下发方面的优化，平均能有**15%~20%**左右的性能收益。
+推理算子下发方面的优化，平均能有`15%~20%`左右的性能收益。
 
 先看单开**ACLgraph**，如下：
 
@@ -186,7 +186,7 @@ TASK_QUEUE_ENABLE，下发优化，图模式设置为1（即开启图模式的�
 
 <img src="https://github.com/wucong25/verl-data/blob/main/ascend_prefetch.png" alt="image-20251124173132677" style="zoom:50%;" />
 
-##### Verl框架参数设置
+##### verl框架参数设置
 
 主要是内存方面的一些设置开关（注意，这个里面的优化都或多或少会导致吞吐量有一定程度的劣化）
 

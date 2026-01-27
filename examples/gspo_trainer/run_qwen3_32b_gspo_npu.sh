@@ -2,10 +2,10 @@
 set -xeuo pipefail
 
 # ============================================================================
-# 一、环境设置和常用参数设置
+# 1、Environment settings and common parameter settings
 # ============================================================================
 
-## 基础环境设置
+## Basic Environment Settings
 export RAY_DEDUP_LOGS=0
 export HYDRA_FULL_ERROR=1
 # TASK_QUEUE_ENABLE，下发优化，图模式设置为1，非图模式设置为2
@@ -30,20 +30,22 @@ exp_name='GSPO-Qwen3-32B'
 NNODES=${NNODES:-4}
 NPUS_PER_NODE=${NPUS_PER_NODE:-16}
 
-## 路径配置
+RAY_DATA_HOME=${RAY_DATA_HOME:-"${HOME}/verl"}
+
+## Paths Configuration
 # Model Weights Paths
-MODEL_PATH=./ckpt/Qwen3-32B
-CKPTS_DIR=./ckpt/Qwen3-32B-save
+CKPTS_DIR=${CKPTS_DIR:-"${RAY_DATA_HOME}/ckpts/${project_name}/${exp_name}"}
+MODEL_PATH=$RAY_DATA_HOME/models/Qwen3-32B
 
 # File System Paths
-TRAIN_FILE=./data/dapo-math-17k.parquet
-TEST_FILE=./data/dapo-math-17k.parquet
+TRAIN_FILE=$RAY_DATA_HOME/dataset/dapo-math-17k.parquet
+TEST_FILE=$RAY_DATA_HOME/dataset/aime-2024.parquet
 
 # Ray Configuration
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 
-## 数据长度和批次参数设置
+## Data Length和Training Batch Configuration
 # Data Length Configuration
 max_prompt_length=$((1024 * 16))
 max_response_length=$((1024 * 16))
@@ -54,7 +56,7 @@ gen_prompt_bsz=$((train_prompt_bsz * 1))
 train_prompt_mini_bsz=64
 n_resp_per_prompt=16
 
-## 算法核心参数设置
+## Algorithm Core Configuration
 # Algorithm Configuration
 adv_estimator=grpo
 loss_mode=gspo
@@ -74,7 +76,7 @@ top_p=1.0
 top_k=-1
 val_top_p=0.7
 
-## 性能和内存管理参数设置
+## Performance and Memory Configuration
 # Performance and Memory Management Configuration
 offload=True
 use_dynamic_bsz=True
@@ -82,13 +84,13 @@ sp_size=4
 actor_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 infer_ppo_max_token_len=$(((max_prompt_length + max_response_length) / sp_size))
 
-## FSDP训练后端参数配置
+## FSDP Configuration
 # FSDP Parallelism Configuration
 actor_strategy=fsdp2
 ref_strategy=fsdp2
 fsdp_size=-1
 
-## vLLM推理后端参数配置
+## vLLM Configuration
 # vLLM Generation Configuration
 gen_tp=4
 gpu_memory_utilization=0.90
@@ -96,10 +98,10 @@ max_model_len=$((max_prompt_length + max_response_length))
 max_num_batched_tokens=$((max_prompt_length + max_response_length))
 
 # ============================================================================
-# 二、模块化配置
+# 2、Modular Configuration
 # ============================================================================
 
-## 数据集配置
+## Dataset Configuration
 DATA_CONFIG=(
     # File Paths
     data.train_files="${TRAIN_FILE}"
@@ -115,7 +117,7 @@ DATA_CONFIG=(
     data.truncation='left'
 )
 
-## 模型配置
+## Model Configuration
 MODEL_CONFIG=(
     # Model Path
     actor_rollout_ref.model.path="${MODEL_PATH}"
@@ -124,7 +126,7 @@ MODEL_CONFIG=(
     actor_rollout_ref.model.enable_gradient_checkpointing=True
 )
 
-## 算法配置
+## Algorithm Configuration
 ALGORITHM_CONFIG=(
     # Advantage Estimation
     algorithm.adv_estimator=${adv_estimator}
@@ -133,7 +135,7 @@ ALGORITHM_CONFIG=(
     algorithm.kl_ctrl.kl_coef=${kl_coef}
 )
 
-## Actor策略配置
+## Actor Policy Configuration
 ACTOR_CONFIG=(
     # Core Runtime Settings
     actor_rollout_ref.actor.use_torch_compile=False
@@ -168,7 +170,7 @@ ACTOR_CONFIG=(
     actor_rollout_ref.actor.entropy_from_logits_with_chunking=True
 )
 
-## REF策略配置
+## Ref Strategy Configuration
 REF_CONFIG=(
     # Core Runtime Settings
     actor_rollout_ref.ref.use_torch_compile=False
@@ -186,7 +188,7 @@ REF_CONFIG=(
     actor_rollout_ref.ref.entropy_from_logits_with_chunking=True
 )
 
-## Rollout生成配置
+## Rollout Generates Configuration
 ROLLOUT_CONFIG=(
     # Rollout Engine
     actor_rollout_ref.rollout.name=vllm
@@ -219,7 +221,7 @@ ROLLOUT_CONFIG=(
     actor_rollout_ref.rollout.val_kwargs.top_k=${top_k}
 )
 
-## 训练器配置
+## Trainer Configuration
 TRAINER_CONFIG=(
     # Logger Configuration
     trainer.logger='["console"]'
@@ -242,7 +244,7 @@ TRAINER_CONFIG=(
 )
 
 # ============================================================================
-# 三、启动命令
+# 3、Startup Command
 # ============================================================================
 
 # Main GSPO Training Command
