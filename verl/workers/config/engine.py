@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Callable
 
 from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
@@ -23,7 +23,7 @@ from ...utils.profiler import ProfilerConfig
 from .model import HFModelConfig
 from .optimizer import OptimizerConfig
 
-__all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig", "VeOmniEngineConfig"]
+__all__ = ["FSDPEngineConfig", "McoreEngineConfig", "TrainingWorkerConfig", "VeOmniEngineConfig", "EngineConfig"]
 
 
 @dataclass
@@ -288,3 +288,7 @@ class TrainingWorkerConfig(BaseConfig):
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
     profiler_config: ProfilerConfig = None
+    # automatically select engine and optimizer function.
+    # This function takes model config and the device name as parameter.
+    # Users can pass in a higher-order function to take more parameters
+    auto_select_engine_optim_fn: Callable = None
