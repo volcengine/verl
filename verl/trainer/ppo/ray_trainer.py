@@ -75,6 +75,7 @@ class ResourcePoolManager:
 
     resource_pool_spec: dict[str, list[int]]
     mapping: dict[Role, str]
+    max_colocate_count: int = 3
     resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
 
     def create_resource_pool(self):
@@ -82,16 +83,46 @@ class ResourcePoolManager:
 
         Initializes resource pools based on the resource pool specification,
         with each pool managing GPU resources across multiple nodes.
-        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
-        For Megatron backend, uses max_colocate_count>1 for different models.
+
+        Args:
+            max_colocate_count: Maximum number of placement group bundles per resource pool.
+                Each bundle contains 1 full GPU (not fractional). This controls how many
+                different worker groups can colocate in the same resource pool.
+
+                - 1: Single bundle per pool, all workers merged into one group
+                - 3 (default): Three bundles for Actor, Rollout, and Reward Model workers,
+                  each with dedicated GPU (e.g., Actor on GPU 0, Rollout on GPU 1, RM on GPU 2)
+                - >1: Multiple bundles per pool, recommended for Megatron with colocated models
+
+                Note: This is NOT fractional GPU sharing (num_gpus=0.1). Each process gets
+                a full GPU via placement group bundles. Requires Ray >= 2.39.0 for correct
+                bundle index assignment (PR #48088).
         """
+        # Check Ray version if max_colocate_count > 1
+        if self.max_colocate_count > 1:
+            from packaging.version import parse as parse_version
+            import warnings
+            if parse_version(ray.__version__) < parse_version("2.39.0"):
+                warnings.warn(
+                    f"max_colocate_count > 1 requires Ray >= 2.39.0 for correct "
+                    f"placement_group_bundle_index support, but found Ray {ray.__version__}. "
+                    f"This may cause GPU OOM or incorrect resource allocation if the bug is not fixed. "
+                    f"Consider upgrading: pip install 'ray[default]>=2.39.0'",
+                    UserWarning,
+                    stacklevel=2
+                )
+
         for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, using max_colocate_count=3: actor_critic_ref, rollout, reward model (optional)
-            # For Megatron backend, we recommend using max_colocate_count>1
-            # that can utilize different WorkerGroup for differnt models
+            # max_colocate_count controls placement group bundles per resource pool.
+            # Each bundle has 1 full GPU (NOT fractional sharing).
+            # Default=3: Actor, Rollout, Reward Model each get dedicated GPU.
+            # Set to 1 to merge all workers into single bundle (FSDP backend).
+            # Set >1 for Megatron with colocated models (multiple dedicated GPUs).
             resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=3, name_prefix=resource_pool_name
+                process_on_nodes=process_on_nodes,
+                use_gpu=True,
+                max_colocate_count=self.max_colocate_count,
+                name_prefix=resource_pool_name
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
