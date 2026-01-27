@@ -288,3 +288,4 @@ class TrainingWorkerConfig(BaseConfig):
     optimizer_config: OptimizerConfig = None
     checkpoint_config: CheckpointConfig = None
     profiler_config: ProfilerConfig = None
+    distillation_config: BaseConfig = None

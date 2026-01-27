@@ -27,6 +27,7 @@ from tensordict import TensorDict
 import verl.utils.torch_functional as verl_F
 from verl.models.mcore import get_mcore_weight_converter
 from verl.trainer.config import CheckpointConfig
+from verl.trainer.distillation.megatron.utils import is_distillation_enabled, compute_distillation_inputs
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.megatron_checkpoint_manager import MegatronCheckpointManager
 from verl.utils.dataset.dataset_utils import DatasetPadMode
@@ -44,7 +45,7 @@ from verl.utils.megatron_utils import (
     register_megatron_training_hooks,
 )
 from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
-from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
+from verl.workers.config import DistillationConfig, HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
 from ..utils import postprocess_batch_func, prepare_micro_batches
@@ -61,6 +62,7 @@ class MegatronEngine(BaseEngine):
         engine_config: McoreEngineConfig,
         optimizer_config: McoreOptimizerConfig,
         checkpoint_config: CheckpointConfig,
+        distillation_config: Optional[DistillationConfig],
     ):
         super().__init__()
 
@@ -68,6 +70,9 @@ class MegatronEngine(BaseEngine):
         self.engine_config = engine_config
         self.optimizer_config = optimizer_config
         self.checkpoint_config = checkpoint_config
+        self.distillation_config = distillation_config
+        self.distillation_enabled = is_distillation_enabled(distillation_config)
+
         assert self.engine_config.use_mbridge, "use_mbridge must be True"
         self._init_device_mesh()
 
@@ -607,7 +612,13 @@ class MegatronEngineWithLMHead(MegatronEngine):
         if calculate_entropy:
             entropy = output["entropy"]
             model_output["entropy"] = entropy
-
+        logits = output.get('logits')
+        cu_seqlens = logits.offsets() # TODO
+        model_output.update(
+            compute_distillation_inputs(
+                logits=logits, batch=data, cu_seqlens=cu_seqlens, config=self.distillation_config
+            )
+        )
         return model_output
 
     def forward_step(self, batch_iter: Iterator[TensorDict], model, postprocess_micro_batch_func):
@@ -639,7 +650,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             raise NotImplementedError("Fused kernels are not supported for megatron engine")
 
         forward_fn = get_mcore_forward_no_padding_fn(self.model_config.hf_config)
-
+        needs_logits = True # TODO
         def logits_processor(logits, label, temperature):
             assert logits.shape[:2] == label.shape[:2]
             # avoid non-positive temperature such as padding
@@ -660,7 +671,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 ret["entropy"] = entropy
             else:
                 logits_bak = logits
-
+            if needs_logits:
+                ret['logits'] = logits.clone()
             log_probs = vocab_parallel_log_probs_from_logits(logits_bak, label)
             ret["log_probs"] = log_probs
             return ret
