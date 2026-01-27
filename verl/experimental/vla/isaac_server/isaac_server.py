@@ -256,6 +256,21 @@ class IsaacServer:
 
         # Use simple kwargs initialization (same as IsaacEnv)
         launch_args = {"headless": True, "enable_cameras": True}
+
+        # Optional: Flush NVIDIA driver shader cache to fix rendering noise caused by cache overflow
+        # Set ISAAC_FLUSH_SHADER_CACHE=1 if you see:
+        #   - Noisy/corrupted rendered images
+        #   - Warning: "ShaderCache: 95 percent of the driver's shadercache size limit has been reached"
+        # Note: This makes startup slower (cache rebuild) but fixes render quality
+        # After one flush, you can remove the env var as cache will be clean
+        if os.environ.get("ISAAC_FLUSH_SHADER_CACHE", "0") == "1":
+            logger.info(
+                f"[Stage {self.stage_id} Actor {self.actor_rank}] "
+                "Flushing shader cache (startup will be slower but fixes render quality)"
+            )
+            extra_args = ["--/renderer/shadercache/driverDiskCache/flush=true"]
+            launch_args["extra_args"] = extra_args
+
         app_launcher = AppLauncher(**launch_args)
         self.simulation_app = app_launcher.app
 

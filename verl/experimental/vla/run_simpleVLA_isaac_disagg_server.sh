@@ -49,6 +49,11 @@ ISAAC_SERVER_MODE=True
 # Number of Isaac servers per stage (one per GPU)
 NUM_ISAAC_SERVERS=$NUM_ENV_GPUS_TOTAL
 
+# Flush NVIDIA shader cache to fix rendering noise (slower startup but fixes quality)
+# Set to 1 if you see noisy renders or cache warnings in logs
+# After one run with flush=1, you can set back to 0
+export ISAAC_FLUSH_SHADER_CACHE=${ISAAC_FLUSH_SHADER_CACHE:-1}
+
 # Isaac environment ID
 ISAAC_ENV_ID="Isaac-Libero-Franka-OscPose-Camera-All-Tasks-v0"
 
@@ -95,11 +100,8 @@ fi
 # avoiding warnings
 mkdir -p /root/LIBERO/libero/libero/../datasets
 
-SAVE_VIDEO=False
+SAVE_VIDEO=True
 
-# TODO: Verify if this is necessary - may be needed for deep config nesting in multi-task setups
-# export PYTHONRECURSIONLIMIT=10000
-# uncomment this to see full error messages
 # export HYDRA_FULL_ERROR=1
 
 $PYTHON -m verl.experimental.vla.main_ppo \
@@ -169,7 +171,7 @@ $PYTHON -m verl.experimental.vla.main_ppo \
     trainer.test_freq=-1 \
     trainer.total_epochs=20 \
     trainer.val_only=False \
-    trainer.total_training_steps=1000 \
+    trainer.total_training_steps=30 \
     algorithm.adv_estimator=reinforce_plus_plus \
     trainer.val_before_train=False \
     trainer.resume_mode=disable \

@@ -78,6 +78,8 @@ Important constraints:
 - `BATCH_SIZE` must be divisible by `STAGE_NUM`
 - `NUM_TASKS × GROUP_SIZE = NUM_ROLLOUT_GPUS_PER_NODE × STAGE_NUM × ROLLOUT_N`
 
+*Note: If you see noisy renders, set `ISAAC_FLUSH_SHADER_CACHE=1` to flush NVIDIA shader cache (see script for details).*
+
 **References:**
 *   [https://github.com/PRIME-RL/SimpleVLA-RL](https://github.com/PRIME-RL/SimpleVLA-RL)
 *   [https://github.com/RLinf/RLinf](https://github.com/RLinf/RLinf)
