@@ -255,7 +255,12 @@ class vLLMHttpServer:
 
         if quantization == "fp8":
             hf_overrides["quantization_config"] = fp8_block_quant_kwargs
-
+        compilation_config = engine_kwargs.get("compilation_config", None)
+        if compilation_config is None:
+            compilation_config = json.dumps({"cudagraph_mode": "FULL_DECODE_ONLY"})
+        else:
+            cudagraph_mode = compilation_config.get("cudagraph_mode", "FULL_DECODE_ONLY")
+            compilation_config = json.dumps({"cudagraph_mode": cudagraph_mode})
         args = {
             "dtype": self.config.dtype,
             "load_format": self.config.load_format,
@@ -279,7 +284,7 @@ class vLLMHttpServer:
             "quantization": quantization,
             "hf_overrides": hf_overrides,
             "scheduling_policy": self.config.scheduling_policy,
-            "compilation_config": json.dumps({"cudagraph_mode": "FULL_DECODE_ONLY"}),
+            "compilation_config": compilation_config,
             **engine_kwargs,
         }
 
