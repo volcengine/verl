@@ -35,7 +35,7 @@ MindSpeed          (f2b0977e)
 triton-ascend      3.2.0rc4
 mbridge            latest version
 SGLang             v0.5.8
-sgl-kernel-npu     46b73de
+sgl-kernel-npu     (46b73de)
 ================= ============
 
 
