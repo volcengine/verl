@@ -31,8 +31,6 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
             BatchMeta: Output batch metadata.
         """
 
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.wake_up()
         if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
             self.reward_model_manager.wake_up()
 
@@ -44,8 +42,6 @@ class AgentLoopManager(agent_loop.AgentLoopManager):
             ]
         )
         output = BatchMeta.concat(outputs)
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
         if self.reward_model_manager and self.config.reward_model.rollout.free_cache_engine:
             self.reward_model_manager.sleep()
 

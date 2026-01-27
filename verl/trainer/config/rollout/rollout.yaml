@@ -65,7 +65,7 @@ max_num_batched_tokens: 8192
 max_model_len: null
 
 # max length of sequences
-max_num_seqs: 1024
+max_num_seqs: 256
 
 # may get higher throughput when set to True. When activated, Please increase max_num_batched_tokens or decrease max_model_len.
 enable_chunked_prefill: True
@@ -241,19 +241,31 @@ agent:
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
 
-# Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
-# This parameter controls the maximum payload size for a single weight update request.
-# Reference: https://github.com/volcengine/verl/pull/2418
-# Currently only supported in SGLang rollout implementations
-# Larger values may improve throughput but increase memory overhead
-# Detailed performance comparison:
-# https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/169#issuecomment-3070686720
-# Default value (512MB) is optimized for typical GPU memory configurations
-# For the best performance of `rebuild_cuda_tensor`, it is recommended to:
-# 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
-# 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
-# when using Tensor Parallelism (TP) >= 8.
-update_weights_bucket_megabytes: 512
+# Checkpoint Engine config for update weights from trainer to rollout
+checkpoint_engine:
+
+  # Target class for checkpoint engine config
+  _target_: verl.workers.config.CheckpointEngineConfig
+
+  # Backend for checkpoint engine: naive, nccl, nixl, hccl
+  backend: naive
+
+  # Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
+  # This parameter controls the maximum payload size for a single weight update request.
+  # Reference: https://github.com/volcengine/verl/pull/2418
+  # Currently only supported in SGLang rollout implementations
+  # Larger values may improve throughput but increase memory overhead
+  # Detailed performance comparison:
+  # https://github.com/zhaochenyang20/Awesome-ML-SYS-Tutorial/issues/169#issuecomment-3070686720
+  # Default value (512MB) is optimized for typical GPU memory configurations
+  # For the best performance of `rebuild_cuda_tensor`, it is recommended to:
+  # 1. Enable `RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES`
+  # 2. Manually set `CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7`
+  # when using Tensor Parallelism (TP) >= 8.
+  update_weights_bucket_megabytes: 2048
+
+  # Additional keyword arguments to pass to the checkpoint engine constructor
+  engine_kwargs: {}
 
 # trace rollout data
 trace:

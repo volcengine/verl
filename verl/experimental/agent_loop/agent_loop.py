@@ -791,10 +791,18 @@ class AgentLoopWorker:
             extra_fields[key] = temp_arr
 
         non_tensor_batch.update(extra_fields)
+
+        # Only include reward_extra_keys in meta_info if rm_scores is in batch
+        # This avoids conflicts when reward_tensor is merged later in ray_trainer.py
+        if "rm_scores" in batch.keys():
+            meta_info = {"metrics": metrics, "reward_extra_keys": reward_extra_keys}
+        else:
+            meta_info = {"metrics": metrics}
+
         return DataProto(
             batch=batch,
             non_tensor_batch=non_tensor_batch,
-            meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+            meta_info=meta_info,
         )
 
     def create_transferqueue_client(
@@ -871,10 +879,6 @@ class AgentLoopManager:
         self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
-        # Initially we're in sleep mode.
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-
     def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
@@ -950,9 +954,7 @@ class AgentLoopManager:
             DataProto: Output batch.
         """
 
-        # Fix for Issue #4147: Always call wake_up() to ensure weight sync
-        # The wake_up()/sleep() methods internally check free_cache_engine
-        self.wake_up()
+        # TODO: move reward_model_manager out of agent_loop manager
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
@@ -964,8 +966,6 @@ class AgentLoopManager:
             ]
         )
         output = DataProto.concat(outputs)
-        # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
-        self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
@@ -1003,17 +1003,17 @@ class AgentLoopManager:
 
         return timing
 
-    def wake_up(self):
-        """Wake up all rollout replica instances."""
-        self._run_all([replica.wake_up() for replica in self.rollout_replicas])
-
-    def sleep(self):
-        """Sleep all rollout replica instances."""
-        self._run_all([replica.sleep() for replica in self.rollout_replicas])
-
     def clear_kv_cache(self):
         """Clear all rollout kv cache, but don`t sleep."""
         self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
+
+    def start_profile(self, **kwargs):
+        """Start profiling on all rollout replicas."""
+        self._run_all([replica.start_profile(**kwargs) for replica in self.rollout_replicas])
+
+    def stop_profile(self):
+        """Stop profiling on all rollout replicas."""
+        self._run_all([replica.stop_profile() for replica in self.rollout_replicas])
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():
