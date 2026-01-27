@@ -180,10 +180,6 @@ class MLPSpeculatorAdapter(SpeculatorAdapter):
             hidden_states = torch.nested.to_padded_tensor(hidden_states, padding=0.0)
 
         n_predict = speculator_module.n_predict
-        if os.getenv("VERL_DEBUG_SPECULATOR") == "1":
-            print(
-                f"[debug][spec_logits] input_ids shape={tuple(input_ids.shape)} hidden shape={tuple(hidden_states.shape)}"
-            )
         hidden, seq_ids = self._slice_speculator_inputs(input_ids, hidden_states, n_predict)
         pad_ids = torch.zeros(input_ids.size(0), n_predict, dtype=seq_ids.dtype, device=seq_ids.device)
         spec_inds = torch.cat([seq_ids, pad_ids], dim=1)

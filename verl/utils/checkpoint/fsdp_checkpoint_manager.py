@@ -17,7 +17,7 @@ import logging
 import os
 import warnings
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import torch
 import torch.distributed
@@ -235,24 +235,14 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         self,
         speculator_module: Optional[Any] = None,
         speculator_config_obj: Optional[Any] = None,
-        speculator_builder: Optional[Callable[[], Any]] = None,
     ) -> None:
         if speculator_module is not None:
             self.speculator_module = speculator_module
         if speculator_config_obj is not None:
             self.speculator_config_obj = speculator_config_obj
-        if speculator_builder is not None:
-            self.speculator_builder = speculator_builder
-
-    def _ensure_speculator_module(self) -> Optional[Any]:
-        if self.speculator_module is not None:
-            return self.speculator_module
-        if self.speculator_builder is not None:
-            self.speculator_module = self.speculator_builder()
-        return self.speculator_module
 
     def save_speculator_checkpoint(self, local_path: str) -> None:
-        speculator_module = self._ensure_speculator_module()
+        speculator_module = self.speculator_module
         if speculator_module is None:
             return
         save_speculator_checkpoint(
@@ -263,7 +253,7 @@ class FSDPCheckpointManager(BaseCheckpointManager):
         )
 
     def load_speculator_checkpoint(self, local_path: str, logger) -> None:
-        speculator_module = self._ensure_speculator_module()
+        speculator_module = self.speculator_module
         if speculator_module is None:
             return
         load_speculator_checkpoint(self.model, speculator_module, local_path, logger)

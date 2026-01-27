@@ -248,20 +248,24 @@ class MegatronEngine(BaseEngine):
                     pre_trained = PreTrainedCausalLM.from_pretrained(
                         self.model_config.local_path, trust_remote_code=trust_remote_code
                     )
-                    if not hasattr(pre_trained, "state"):
-                        pre_trained.state = SimpleNamespace()
-                    class _HFSource:
-                        def __init__(self, keys):
-                            self._keys = list(keys)
+                    # Skip speculator params (newly added modules) when loading base HF weights.
+                    from verl.utils.bridge_utils import patch_bridge_adapter_filter
 
-                        def get_all_keys(self):
-                            return self._keys
-                    source = getattr(pre_trained.state, "source", None)
-                    if not hasattr(source, "get_all_keys"):
-                        pre_trained.state.source = _HFSource(pre_trained.state_dict().keys())
-                    self.bridge._model_bridge.load_weights_hf_to_megatron(
-                        pre_trained, module, allowed_mismatched_params=allowed_mismatched_params
+                    model_bridge = self.bridge._model_bridge
+                    has_speculator = (
+                        getattr(self.model_config, "speculator", None) is not None
+                        or getattr(self.model_config, "speculator_adapter", None) is not None
                     )
+                    if has_speculator:
+                        def _is_speculator_param(name: str) -> bool:
+                            return name.startswith("speculator.") or ".speculator." in name
+                    else:
+                        _is_speculator_param = lambda _name: False
+
+                    with patch_bridge_adapter_filter(model_bridge, _is_speculator_param):
+                        model_bridge.load_weights_hf_to_megatron(
+                            pre_trained, module, allowed_mismatched_params=allowed_mismatched_params
+                        )
                 else:
                     self.bridge.load_hf_weights(module, self.model_config.local_path)
 
@@ -279,21 +283,7 @@ class MegatronEngine(BaseEngine):
             use_distributed_optimizer=use_dist_opt,
             fp16=self.param_dtype == torch.float16,
         )
-        if os.getenv("VERL_DEBUG_SPECULATOR") == "1":
-            total_params = 0
-            trainable_params = 0
-            modules = self.module if isinstance(self.module, (list, tuple)) else [self.module]
-            for module in modules:
-                for p in module.parameters():
-                    total_params += p.numel()
-                    if p.requires_grad:
-                        trainable_params += p.numel()
-            print(f"[debug][optimizer] total_params={total_params} trainable_params={trainable_params}")
         optimizer = get_megatron_optimizer(model=self.module, config=optim_config_megatron)
-        if os.getenv("VERL_DEBUG_SPECULATOR") == "1":
-            group_count = len(optimizer.param_groups)
-            group_sizes = [len(g.get("params", [])) for g in optimizer.param_groups]
-            print(f"[debug][optimizer] param_groups={group_count} sizes={group_sizes}")
         register_megatron_training_hooks(self.module, optimizer)
         return optimizer
 
@@ -324,34 +314,6 @@ class MegatronEngine(BaseEngine):
         self._build_tf_config()
 
         self.module = self._build_megatron_module()
-        if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:
-            # Debug DDP buffer state for offload/load issues.
-            try:
-                ddp_chunks = self.module if isinstance(self.module, list) else [self.module]
-                for idx, chunk in enumerate(ddp_chunks):
-                    ddp_cfg = getattr(chunk, "ddp_config", None)
-                    ddp_use_dist_opt = getattr(ddp_cfg, "use_distributed_optimizer", None)
-                    none_param_buffers = 0
-                    total_buffers = 0
-                    buffers_lists = []
-                    if hasattr(chunk, "buffers"):
-                        buffers_lists.append(getattr(chunk, "buffers", []))
-                    if hasattr(chunk, "expert_parallel_buffers"):
-                        buffers_lists.append(getattr(chunk, "expert_parallel_buffers", []))
-                    for buffers in buffers_lists:
-                        for buffer in buffers:
-                            total_buffers += 1
-                            if getattr(buffer, "param_data", None) is None:
-                                none_param_buffers += 1
-                    logger.warning(
-                        "DDP debug chunk=%s use_distributed_optimizer=%s buffers=%s param_data_none=%s",
-                        idx,
-                        ddp_use_dist_opt,
-                        total_buffers,
-                        none_param_buffers,
-                    )
-            except Exception as exc:
-                logger.warning("DDP debug failed: %s", exc)
 
         # For forward_only, we don't need optimizer, lr_scheduler, checkpoint_mananager
         if self.engine_config.forward_only:
@@ -704,15 +666,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
         temperature = batch["temperature"]
         model_inputs = self.prepare_model_inputs(batch)
         input_ids = model_inputs["input_ids"]
-        if os.getenv("VERL_DEBUG_SPECULATOR") == "1" and isinstance(input_ids, torch.Tensor):
-            if getattr(input_ids, "is_nested", False):
-                offsets = input_ids.offsets().diff()
-                print(
-                    f"[debug][engine] input_ids nested len={input_ids.size(0)} "
-                    f"max_len={input_ids.size(1)} offsets_head={offsets[:8].tolist()}"
-                )
-            else:
-                print(f"[debug][engine] input_ids shape={tuple(input_ids.shape)}")
         multi_modal_inputs = model_inputs["multi_modal_inputs"]
 
         if not isinstance(temperature, torch.Tensor):
@@ -821,6 +774,9 @@ class MegatronEngineWithLMHeadAndSpeculator(MegatronEngineWithLMHead):
             return
         if not self.has_speculator:
             return
+        if self.speculator is None:
+            self._init_speculator_adapter()
+            self._attach_speculator()
         speculator_module = self.speculator
         speculator_config_obj = None
         if speculator_module is not None and self.speculator_adapter is not None:
@@ -829,7 +785,6 @@ class MegatronEngineWithLMHeadAndSpeculator(MegatronEngineWithLMHead):
             speculator_module=speculator_module,
             speculator_config_obj=speculator_config_obj,
             speculator_host_model=self.module[-1] if self.module else None,
-            speculator_builder=self._ensure_speculator_for_checkpoint,
         )
 
     def _init_speculator_adapter(self) -> None:
@@ -851,16 +806,9 @@ class MegatronEngineWithLMHeadAndSpeculator(MegatronEngineWithLMHead):
             return
         last_stage = self.module[-1]
         target_stage = last_stage.module if hasattr(last_stage, "module") else last_stage
-        self.speculator = getattr(target_stage, "speculator", None)
+        self.speculator = getattr(target_stage.module, "speculator", None)
         if self.speculator is not None:
             self.speculator_adapter.speculator = self.speculator
-
-    def _ensure_speculator_for_checkpoint(self):
-        if self.speculator_adapter is None:
-            self._init_speculator_adapter()
-        if self.speculator is None:
-            self._attach_speculator()
-        return self.speculator
 
     def _build_optimizer(self):
         if self.has_speculator and self.speculator is None:

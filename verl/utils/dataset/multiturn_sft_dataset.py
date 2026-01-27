@@ -379,10 +379,6 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-            if os.getenv("VERL_DEBUG_SPECULATOR") == "1":
-                print(
-                    f"[debug][dataset] input_ids len={len(input_ids)} loss_mask sum={int(loss_mask.sum())}"
-                )
             if len(multi_modal_inputs) > 0:
                 res["multi_modal_inputs"] = multi_modal_inputs
             return res
