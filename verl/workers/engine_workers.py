@@ -72,9 +72,14 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         if self.engine_config is None:
             assert self.optimizer_config is None
+            if self.config.auto_select_engine_optim_fn is None:
+                raise ValueError(
+                    "engine_config is not provided and auto_select_engine_optim_fn is not set. "
+                    "Cannot determine engine backend."
+                )
             # Support automatically select engine backend given model config
             self.engine_config, self.optimizer_config = self.config.auto_select_engine_optim_fn(
-                self.model_config, get_torch_device().get_device_name()
+                self.model_config, self.device_name
             )
 
         # we use the one defined in model
