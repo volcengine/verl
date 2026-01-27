@@ -168,7 +168,7 @@ def gptmodel_forward_no_padding(
     vision_model=False,
     pad_token_id=None,
     data_format: str = "thd",
-    enable_mtp: bool = True,
+    enable_mtp: bool = False,
 ):
     """Default forward pass for GPT models with optional sequence packing."""
 

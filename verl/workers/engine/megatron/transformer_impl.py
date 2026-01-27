@@ -35,12 +35,14 @@ from verl.utils.device import get_device_id, get_device_name
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.tensor_parallel import vocab_parallel_entropy, vocab_parallel_log_probs_from_logits
 from verl.utils.megatron_utils import (
+    check_mtp_config,
     get_megatron_module_device,
     get_megatron_mtp_loss,
     load_megatron_model_to_gpu,
     load_megatron_optimizer,
     offload_megatron_model_to_cpu,
     offload_megatron_optimizer,
+    patch_engine_mtp,
     register_megatron_training_hooks,
 )
 from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
@@ -105,6 +107,8 @@ class MegatronEngine(BaseEngine):
         from verl.utils.megatron_utils import mapping_string_to_attn_backend
         from verl.utils.torch_dtypes import PrecisionType
 
+        check_mtp_config(self.model_config, self.engine_config)
+
         self.param_dtype = PrecisionType.to_dtype(self.engine_config.dtype)
         self.dtype = PrecisionType.to_dtype(self.param_dtype)
 
@@ -112,6 +116,7 @@ class MegatronEngine(BaseEngine):
 
         self.provider = None
         self.vanilla_bridge = self.engine_config.vanilla_mbridge
+
         if self.vanilla_bridge:
             from verl.models.mcore.mbridge import AutoBridge
 
@@ -263,47 +268,13 @@ class MegatronEngine(BaseEngine):
             and mpu.get_context_parallel_rank() == 0
         )
 
-    def check_mtp_config(self):
-        has_mtp = (
-            self.model_config.hf_config.num_nextn_predict_layers > 0
-            if hasattr(self.model_config.hf_config, "num_nextn_predict_layers")
-            else False
-        )
-        enable_mtp = self.model_config.mtp.enable
-        enable_mtp_train = self.model_config.mtp.enable_train
-
-        if enable_mtp:
-            assert enable_mtp_train, "current not support enable_mtp while not training"
-
-        # Modify the hf_config before initialization, and apply patch after innitialization
-        if enable_mtp and not has_mtp:
-            logger.error("enable mtp while model has no mtp layer, ignore model.mtp.enable")
-            self.model_config.mtp.enable = False
-            self.model_config.mtp.enable_train = False
-        elif has_mtp and not enable_mtp:
-            self.model_config.hf_config.num_nextn_predict_layers = 0
-
-    def patch_engine_mtp(self):
-        if self.model_config.mtp.enable:
-            logger.warning("Applying mtp patch...")
-            from verl.models.mcore.mtp_patch import patch_mtp_layer_get_embeddings, patch_postprocess
-
-            print(self.module)
-            if isinstance(self.module, list):
-                for m in self.module:
-                    patch_postprocess(m)
-                    if self.model_config.mtp.detach_encoder:
-                        patch_mtp_layer_get_embeddings(m)
-            else:
-                patch_postprocess(self.module)
-                if self.model_config.mtp.detach_encoder:
-                    patch_mtp_layer_get_embeddings(self.module)
-
     def initialize(self):
-        self.check_mtp_config()
         self._build_tf_config()
 
         self.module = self._build_megatron_module()
+
+        if self.model_config.mtp.enable:
+            patch_engine_mtp(self.module, self.model_config)
 
         # For forward_only, we don't need optimizer, lr_scheduler, checkpoint_mananager
         if self.engine_config.forward_only:
@@ -346,7 +317,6 @@ class MegatronEngine(BaseEngine):
             optimizer=self._is_offload_optimizer,
             grad=self._is_offload_param,
         )
-        self.patch_engine_mtp()
 
         log_gpu_memory_usage("After offload model/optimizer/grad during init", logger=logger)
 
@@ -713,7 +683,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
             data_format="thd" if self.engine_config.use_remove_padding else "bshd",
-            enable_mtp=self.model_config.mtp.enable,
+            enable_mtp=self.model_config.mtp.enable_train,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
@@ -766,7 +736,7 @@ class MegatronEngineWithValueHead(MegatronEngineWithLMHead):
             value_model=True,
             vision_model=hasattr(self.model_config.hf_config, "vision_config"),
             pad_token_id=self.model_config.tokenizer.pad_token_id,
-            enable_mtp=self.model_config.mtp.enable,
+            enable_mtp=self.model_config.mtp.enable_train,
         )
 
         return output, partial(postprocess_micro_batch_func, data=batch)
