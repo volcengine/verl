@@ -109,14 +109,15 @@ class vLLMHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
+        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
         if self.config.max_model_len is None:
-            self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+            self.config.max_model_len = max_position_embeddings
         else:
-            max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
-            assert self.config.max_model_len <= max_position_embeddings, (
-                f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
-                f"max_position_embeddings ({max_position_embeddings})"
-            )
+            if self.config.max_model_len > max_position_embeddings:
+                raise ValueError(
+                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
+                    f"max_position_embeddings ({max_position_embeddings})"
+                )
 
         self.rollout_mode = rollout_mode
         self.workers = workers
