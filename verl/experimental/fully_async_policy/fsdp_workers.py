@@ -133,9 +133,18 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
             get_torch_device().synchronize()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
+    async def sync_rollout_weights_by_checkpoint(self, sync_group_name="actor_rollout"):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
+        do_prof = True
+        if do_prof:
+            prof = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ]
+            )
+            prof.start()
 
         # Load model to GPU
         load_start_time = time.time()
@@ -143,36 +152,59 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
             load_fsdp_model_to_gpu(self.actor_module_fsdp)
         load_duration = time.time() - load_start_time
 
-        from ray.util.collective import collective
-
         # Cache actor weights to CPU and measure the time taken
         cache_start_time = time.time()
-        self.cache_actor_weights_to_cpu()
+        # self.cache_actor_weights_to_cpu()
         cache_end_time = time.time()
         cache_duration = cache_end_time - cache_start_time
 
         # Register the cached weights into the checkpoint engine
-        self.checkpoint_engine.register_checkpoint(self._weights_info, self.cpu_named_params)
+        # self.checkpoint_engine.register_checkpoint(self._weights_info, self.cpu_named_params)
         register_end_time = time.time()
         register_duration = register_end_time - cache_end_time
         self.cpu_named_params = {}
 
-        collective.barrier(group_name=sync_group_name)
+        # collective.barrier(group_name=sync_group_name)
         update_start_time = time.time()
 
         inference_model = None
         if self._is_rollout:
+            # import asyncio
+            # def async_generator_to_sync(async_gen):
+            #     """
+            #     把异步生成器转换成普通同步生成器
+            #     :param async_gen: 异步生成器对象
+            #     :return: 普通同步生成器
+            #     """
+            #     # 定义内部异步函数：遍历异步生成器并收集元素
+            #     async def consume_async_gen():
+            #         result = []
+            #         async for item in async_gen:  # 异步遍历异步生成器
+            #             result.append(item)
+            #         return result
+
+            #     # 同步生成器逻辑：运行事件循环，逐个yield元素
+            #     for item in asyncio.run(consume_async_gen()):
+            #         yield item
+
             inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
             from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
             patch_vllm_moe_model_weight_loader(inference_model)
 
-        # Update the checkpoint with the inference model and broadcast weights
-        self.checkpoint_engine.update_checkpoint(
-            inference_model=inference_model,
-            group_name=sync_group_name,
-            overlap_broadcast_and_consume=self.config.checkpoint_engine.overlap_broadcast_and_consume,
-        )
+            # inference_model.load_weights(async_generator_to_sync(self.checkpoint_engine.receive_weights()))
+            async for name, weight in self.checkpoint_engine.receive_weights():
+                inference_model.load_weights([(name, weight)])
+        else:
+
+            def actor_params_to_full(actor_params):
+                for key, param in actor_params.items():
+                    if hasattr(param, "full_tensor"):
+                        yield key, param.full_tensor()
+
+            actor_params = self._get_actor_params()
+            # print(f'[debug] actor_params["model.embed_tokens.weight"]: {actor_params["model.embed_tokens.weight"]}')
+            await self.checkpoint_engine.send_weights(actor_params_to_full(actor_params))
 
         update_end_time = time.time()
         update_duration = update_end_time - update_start_time
@@ -194,6 +226,9 @@ class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
                 f"sync_rollout_weights_by_checkpoint load model to gpu cost {load_duration} seconds,"
                 f" offload model to cpu cost {offload_duration} seconds"
             )
+        if do_prof:
+            prof.stop()
+            prof.export_chrome_trace(f"/home/tiger/ckpt_engine_prof_{torch.distributed.get_rank()}.json")
 
 
 class DetachActorWorker(DetachNcclSync):

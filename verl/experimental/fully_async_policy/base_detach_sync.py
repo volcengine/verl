@@ -23,7 +23,7 @@ from omegaconf import DictConfig
 from ray.util.collective import collective
 
 from verl.single_controller.base.decorator import Dispatch, register
-from verl.utils.device import get_torch_device
+from verl.utils.device import get_device_name, get_torch_device
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -120,16 +120,35 @@ class BaseDetachNcclSync:
             self._bg_thread.join(timeout=1.0)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
-        from .checkpoint_engine import CheckpointEngine
+    def init_checkpoint_engine(self):
+        # from .checkpoint_engine import CheckpointEngine
+        from verl.checkpoint_engine import CheckpointEngineRegistry
 
+        backends_candi = {
+            "cuda": "nccl",
+            "npu": "hccl",
+        }
+        checkpoint_backend = backends_candi[get_device_name()]
+        checkpoint_kwargs = {
+            "bucket_size": 2 * 1024 * 1024 * 1024,  # 2GB
+            "rebuild_group": False,
+        }
+        if torch.distributed.get_rank() == 0 and self._is_actor:
+            checkpoint_kwargs["is_master"] = True
+        self.checkpoint_engine = CheckpointEngineRegistry.new(checkpoint_backend, **checkpoint_kwargs)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def prepare(self):
+        metadata = self.checkpoint_engine.prepare()
+        return metadata
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    def init_ckpt_engine_process_group(self, rank_offset: int, world_size: int, master_metadata: dict):
         current_rank = torch.distributed.get_rank() + rank_offset
-        actor_ranks = list(range(actor_num))
-        rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
-        assert rank_offset == 0 or rank_offset == actor_num
-
-        self.checkpoint_engine = CheckpointEngine(
-            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
+        if self._is_actor:
+            current_rank = 0 if current_rank == 0 else -1
+        self.checkpoint_engine.init_process_group(
+            rank=current_rank, world_size=world_size, master_metadata=master_metadata
         )
 
     @staticmethod
