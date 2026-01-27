@@ -1,5 +1,7 @@
 # DAPO 介绍
 
+Last updated: 01/27/2026.
+
 DAPO的论文可以参考：[DAPO](https://arxiv.org/pdf/2503.14476)，其中包含以下几个关键技术。
 
 * ​**Clip-Higher**​: 通过对重要性采样比的上限剪裁促进了系统的多样性并避免了熵坍缩（Entropy Collapse）。
