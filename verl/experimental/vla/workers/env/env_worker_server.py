@@ -296,7 +296,7 @@ class EnvWorkerServer(Worker):
         Uses Ray actor calls for environment interaction.
         """
         chunk_actions = data.non_tensor_batch["actions"]
-        stage_id: int = data.meta_info["stage_id"]
+        stage_id: int = data.meta_info.get("stage_id", 0)
 
         traj_keys = data.non_tensor_batch.get("traj_keys", None)
 
