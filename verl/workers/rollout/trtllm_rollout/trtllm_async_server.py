@@ -29,7 +29,7 @@ from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
-from verl.workers.rollout.utils import run_unvicorn
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -69,7 +69,15 @@ class TRTLLMHttpServer:
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.is_reward_model = is_reward_model
-        self.config.max_model_len = self.config.prompt_length + self.config.response_length
+        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = max_position_embeddings
+        else:
+            if self.config.max_model_len > max_position_embeddings:
+                raise ValueError(
+                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
+                    f"max_position_embeddings ({max_position_embeddings})"
+                )
         self.rollout_mode = rollout_mode
         self.workers = workers
         self.replica_rank = replica_rank
