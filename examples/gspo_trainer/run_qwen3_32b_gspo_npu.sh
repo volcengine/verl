@@ -8,7 +8,8 @@ set -xeuo pipefail
 ## Basic Environment Settings
 export RAY_DEDUP_LOGS=0
 export HYDRA_FULL_ERROR=1
-# TASK_QUEUE_ENABLE，下发优化，图模式设置为1，非图模式设置为2
+# TASK_QUEUE_ENABLE，Operator offload optimization
+# the graph mode is set to 1 and the non-graph mode is set to 2.
 export TASK_QUEUE_ENABLE=1
 export HCCL_ASYNC_ERROR_HANDLING=0
 export HCCL_EXEC_TIMEOUT=3600
