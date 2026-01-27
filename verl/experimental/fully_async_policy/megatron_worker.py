@@ -22,6 +22,7 @@ import torch
 import torch.distributed
 from omegaconf import DictConfig
 
+from verl.experimental.fully_async_policy.base_detach_sync import BaseDetachNcclSync
 from verl.experimental.fully_async_policy.megatron_utils import (
     copy_megatron_model_to_cpu,
     restore_megatron_model_from_cpu,
@@ -32,9 +33,7 @@ from verl.utils.device import (
     get_torch_device,
 )
 from verl.utils.megatron_utils import load_megatron_model_to_gpu, offload_megatron_model_to_cpu, per_tensor_generator
-from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
-
-from .checkpoint_engine import CheckpointEngine
+from verl.workers.megatron_workers import AsyncActorRolloutRefWorker, CriticWorker
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -44,38 +43,11 @@ device_name = get_device_name()
 __all__ = ["DetachActorWorker", "DetachAsyncRolloutWorker", "CriticWorker"]
 
 
-def get_inference_model(rollout):
-    """
-    get models according to different types of inference_engine
-    Args:
-        rollout: rollout object
-    Returns:
-        model: model object
-    """
-    inference_engine = rollout.inference_engine
-    if hasattr(inference_engine, "llm_engine"):
-        inference_model = inference_engine.llm_engine.model_executor.driver_worker.worker.model_runner.model
-    elif hasattr(inference_engine, "worker"):
-        inference_model = inference_engine.worker.model_runner.model
-    else:
-        raise AttributeError(
-            f"Unsupported inference_engine type: {type(inference_engine)}. "
-            f"Expected LLM (with llm_engine attribute) or WorkerWrapperBase (with worker attribute)."
-        )
-    return inference_model
+class DetachNcclSync(BaseDetachNcclSync, AsyncActorRolloutRefWorker):
+    def __init__(self, config: DictConfig, role: str):
+        BaseDetachNcclSync.__init__(self, config, role)
 
-
-class DetachNcclSync(AsyncActorRolloutRefWorker):
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
-    def init_checkpoint_engine(self, rank_offset: int, actor_num: int, rollout_num: int):
-        current_rank = torch.distributed.get_rank() + rank_offset
-        actor_ranks = list(range(actor_num))
-        rollout_ranks = [rank + actor_num for rank in range(rollout_num)]
-        assert rank_offset == 0 or rank_offset == actor_num
-
-        self.checkpoint_engine = CheckpointEngine(
-            current_rank, actor_ranks, rollout_ranks, self.config.checkpoint_engine.device_buffer_size_M
-        )
+        AsyncActorRolloutRefWorker.__init__(self, config, role)
 
     def _get_actor_params(self):
         pass
@@ -85,30 +57,48 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         assert (self._is_actor or self._is_rollout) and not self.config.hybrid_engine
         assert hasattr(self, "_weights_info") and self._weights_info is not None
         if self._is_actor and self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         params_generator = self._get_actor_params_generator() if self._is_actor else None
-        if self._is_rollout:
-            inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+        params = {key: tensor for key, tensor in params_generator} if params_generator is not None else None
 
-            patch_vllm_moe_model_weight_loader(inference_model)
-        for key, shape, dtype in self._weights_info:
-            if self._is_actor:
-                weight_key, weight = next(params_generator)
-                assert key == weight_key
-                assert shape == weight.size()
-                assert dtype == weight.dtype
+        rollout_name = self.config.rollout.name
+        inference_model = None
+        if self._is_rollout and (not self._is_actor):
+            if rollout_name == "vllm":
+                inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            tensor = torch.empty(shape, dtype=dtype, device=get_torch_device().current_device())
-            if self._is_actor and torch.distributed.get_rank() == 0:
-                tensor.copy_(weight)
-            from ray.util.collective import collective
+                patch_vllm_moe_model_weight_loader(inference_model)
+            elif rollout_name == "sglang":
+                inference_model = self.rollout._engine
+                if inference_model is None:
+                    print("[sync_rollout_weights] Initialize server adapter engine")
 
-            collective.broadcast(tensor, src_rank=0, group_name=sync_group_name)
-            if self._is_rollout:
-                inference_model.load_weights([(key, tensor)])
+                    async def init_engine():
+                        if hasattr(self.rollout, "_init_server_adapter"):
+                            await self.rollout._init_server_adapter()
+                        else:
+                            print("[sync_rollout_weights] No _init_server_adapter method found")
+                        return self.rollout._engine
+
+                    inference_model = self._run_async_safely(init_engine())
+                    if inference_model is None:
+                        raise RuntimeError(
+                            f"Failed to initialize rollout engine. "
+                            f"rollout type: {type(self.rollout)}, "
+                            f"has _init_server_adapter: {hasattr(self.rollout, '_init_server_adapter')}"
+                        )
+            else:
+                raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
+
+        if rollout_name == "sglang" and self._is_rollout:
+            self._sync_sglang_weights(inference_model, params, sync_group_name)
+        else:
+            self._sync_vllm_weights(inference_model, params, sync_group_name)
+
         if self._is_actor and self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
+            get_torch_device().empty_cache()
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def save_model_to_cpu(self, n):
@@ -146,7 +136,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         # Load model to GPU
         load_start_time = time.time()
         if self._is_actor and self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         load_duration = time.time() - load_start_time
 
         from ray.util.collective import collective
@@ -166,13 +156,37 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         collective.barrier(group_name=sync_group_name)
         update_start_time = time.time()
 
+        rollout_name = self.config.rollout.name
         inference_model = None
-        if self._is_rollout:
-            inference_model = get_inference_model(self.rollout)
-            from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
+        if self._is_rollout and (not self._is_actor):
+            if rollout_name == "vllm":
+                inference_model = BaseDetachNcclSync.get_inference_model(self.rollout)
+                from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 
-            patch_vllm_moe_model_weight_loader(inference_model)
+                patch_vllm_moe_model_weight_loader(inference_model)
+            elif rollout_name == "sglang":
+                inference_model = self.rollout._engine
+                # For ServerAdapter, _engine might be None and needs async initialization
+                if inference_model is None:
+                    # Initialize the server adapter engine
+                    print("[sync_rollout_weights] Initialize server adapter engine")
 
+                    async def init_engine():
+                        if hasattr(self.rollout, "_init_server_adapter"):
+                            await self.rollout._init_server_adapter()
+                        else:
+                            print("[sync_rollout_weights] No _init_server_adapter method found")
+                        return self.rollout._engine
+
+                    inference_model = self._run_async_safely(init_engine())
+                    if inference_model is None:
+                        raise RuntimeError(
+                            f"Failed to initialize rollout engine. "
+                            f"rollout type: {type(self.rollout)}, "
+                            f"has _init_server_adapter: {hasattr(self.rollout, '_init_server_adapter')}"
+                        )
+            else:
+                raise NotImplementedError(f"Unknown rollout name: {rollout_name}")
         # Update the checkpoint with the inference model and broadcast weights
         self.checkpoint_engine.update_checkpoint(
             inference_model=inference_model,
@@ -183,6 +197,7 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
         update_end_time = time.time()
         update_duration = update_end_time - update_start_time
 
+        collective.barrier(group_name=sync_group_name)
         offload_start_time = time.time()
         if self._is_actor and self._is_offload_param:
             offload_megatron_model_to_cpu(self.actor_module)
@@ -203,6 +218,10 @@ class DetachNcclSync(AsyncActorRolloutRefWorker):
 
 
 class DetachActorWorker(DetachNcclSync):
+    def __init__(self, config: DictConfig, role: str):
+        print("[DetachAsyncRolloutWorker] Initializing via DetachNcclSync...")
+        DetachNcclSync.__init__(self, config, role)
+
     def _get_actor_params_generator(self):
         assert self._is_actor
         if self.bridge is not None:
@@ -224,7 +243,7 @@ class DetachActorWorker(DetachNcclSync):
         if hasattr(self, "_weights_info"):
             return self._weights_info
         if self._is_offload_param:
-            load_megatron_model_to_gpu(self.actor_module)
+            load_megatron_model_to_gpu(self.actor_module, False)
         params_generator = self._get_actor_params_generator()
         ret = []
         for key, tensor in params_generator:
@@ -240,7 +259,7 @@ class DetachActorWorker(DetachNcclSync):
 class DetachAsyncRolloutWorker(DetachNcclSync):
     def __init__(self, config: DictConfig, role: str):
         print(f"[DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
-        ActorRolloutRefWorker.__init__(self, config, role)
+        DetachNcclSync.__init__(self, config, role)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def set_actor_weights_info(self, weights_info):

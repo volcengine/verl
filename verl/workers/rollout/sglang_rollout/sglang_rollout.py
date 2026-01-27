@@ -33,11 +33,11 @@ from sglang.srt.utils import (
 from sglang.srt.weight_sync.utils import update_weights as sgl_update_weights
 from torch.distributed.device_mesh import DeviceMesh
 
+from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
 from verl.workers.rollout.sglang_rollout.utils import get_named_tensor_buckets
-from verl.workers.rollout.utils import is_valid_ipv6_address
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -52,6 +52,8 @@ def _set_envs_and_config(server_args: ServerArgs):
     os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
     os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
     os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+    # Enable faulthandler in subprocesses
+    os.environ["PYTHONFAULTHANDLER"] = "1"
 
     # Set prometheus env vars
     if server_args.enable_metrics:
@@ -136,7 +138,11 @@ class ServerAdapter(BaseRollout):
         )
         host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
+            model_path=self.model_config.local_path,
+            host=host,
+            port=server_port,
+            launch_server=False,
+            trust_remote_code=self.model_config.trust_remote_code,
         )
 
     async def resume(self, tags: list[str]):

@@ -1,6 +1,12 @@
 # Target class for this configuration
 _target_: verl.workers.config.VeOmniEngineConfig
 
+# Whether to offload model parameters to CPU
+param_offload: False
+
+# Whether to offload optimizer state to CPU
+optimizer_offload: False
+
 # fsdp or fsdp2
 data_parallel_mode: fsdp2
 
@@ -50,9 +56,12 @@ enable_fsdp_offload: false
 
 enable_reentrant: false
 
+# support eager, sdpa, flash_attention_2, flash_attention_3, veomni_flash_attention_2_with_sp,
+# veomni_flash_attention_3_with_sp and native-sparse
 attn_implementation: flash_attention_2
 
-moe_implementation: eager
+# eager or fused
+moe_implementation: fused
 
 force_use_huggingface: false
 
