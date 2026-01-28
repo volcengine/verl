@@ -65,6 +65,7 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import tqbridge
+from verl.utils.vllm import TensorLoRARequest
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 from tensordict import TensorDict
@@ -1152,25 +1153,36 @@ class RayPPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
-    def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
+    @tqbridge(put_data=False, convert_type="TensorDict")
+    def _balance_batch(self, batch: DataProto | TensorDict, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
         When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
         the same uid together on the same rank for prefix sharing optimization.
         """
-        attention_mask = batch.batch["attention_mask"]
-        batch_size = attention_mask.shape[0]
-        global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+        if isinstance(batch, DataProto):
+            attention_mask = batch["attention_mask"]
+            batch_size = attention_mask.shape[0]
+            global_seqlen_lst = attention_mask.sum(-1)
+            uid_container = batch.non_tensor_batch
+            is_dataproto = True
+        else:
+            attention_mask = batch.batch["attention_mask"]
+            batch_size = attention_mask.shape[0]
+            global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+            uid_container = deepcopy(batch)
+            is_dataproto = False
+
         workload_lst = calculate_workload(global_seqlen_lst)
         # Get dp_size from dispatch info to correctly balance across data parallel ranks
         # Note: world_size may include tensor/pipeline parallel dimensions, but we only want DP
         dp_size = self._get_dp_size(self.actor_rollout_wg, "actor")
 
         # Use group-level balancing for PrefixGrouper to keep same-uid samples together
-        if getattr(self, "use_prefix_grouper", False) and "uid" in batch.non_tensor_batch:
+        if getattr(self, "use_prefix_grouper", False) and "uid" in uid_container:
             from verl.utils.seqlen_balancing import get_group_balanced_partitions
 
-            uid_list = list(batch.non_tensor_batch["uid"])
+            uid_list = list(uid_container["uid"])
             seqlen_list = global_seqlen_lst.tolist()
 
             # Count number of uid groups
@@ -1215,12 +1227,19 @@ class RayPPOTrainer:
                 global_partition_lst[idx] = ordered_partition
 
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
-        global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
-        batch.reorder(global_idx)
+        if is_dataproto:
+            global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
+            batch.reorder(global_idx)
+        else:
+            global_idx = [j for partition in global_partition_lst for j in partition]
+
         global_balance_stats = log_seqlen_unbalance(
             seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
+
+        if not is_dataproto:
+            return global_idx
 
     def _compute_values(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":
