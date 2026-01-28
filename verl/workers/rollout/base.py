@@ -120,9 +120,9 @@ class TokenOutput(BaseModel):
     """stop reason: 'completed', 'aborted', or None for unknown"""
     num_preempted: Optional[int] = None
     """number of preempted times for metric calculation"""
-    start_model_version: Optional[int] = None
+    start_model_version: Optional[int] = 0
     """model version when the request is started"""
-    finish_model_version: Optional[int] = None
+    finish_model_version: Optional[int] = 0
     """model version when the request is finished"""
 
 
@@ -151,7 +151,6 @@ def resume_on_abort(func):
         final_output = TokenOutput(
             token_ids=[],
             log_probs=[],
-            routed_experts=[],
             num_preempted=0,
             start_model_version=self.model_version,
         )
@@ -177,7 +176,10 @@ def resume_on_abort(func):
             if output.log_probs is not None:
                 final_output.log_probs.extend(output.log_probs)
             if output.routed_experts is not None:
-                final_output.routed_experts.extend(output.routed_experts)
+                if final_output.routed_experts is None:
+                    final_output.routed_experts = output.routed_experts
+                else:
+                    final_output.routed_experts = torch.cat([final_output.routed_experts, output.routed_experts], dim=0)
             if output.num_preempted is not None:
                 final_output.num_preempted += output.num_preempted
             final_output.stop_reason = output.stop_reason

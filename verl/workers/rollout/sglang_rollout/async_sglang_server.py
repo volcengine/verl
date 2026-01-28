@@ -45,7 +45,7 @@ from verl.utils.device import get_visible_devices_keyword
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.base import BaseRolloutServer, TokenOutput
+from verl.workers.rollout.base import BaseRolloutServer, TokenOutput, resume_on_abort
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
 from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
@@ -400,6 +400,7 @@ class SGLangHttpServer(BaseRolloutServer):
         obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache"])
         await self.tokenizer_manager.release_memory_occupation(obj, None)
 
+    @resume_on_abort
     async def generate(
         self,
         prompt_ids: torch.Tensor,

@@ -97,7 +97,7 @@ def test_agent_loop_reward_manager():
     )
     actor_rollout_wg.init_model()
 
-    agent_loop_manager = AgentLoopManager(config, worker_group=actor_rollout_wg)
+    agent_loop_manager = AgentLoopManager.create(config, worker_group=actor_rollout_wg)
     # sleep rollout replicas
     checkpoint_manager = CheckpointEngineManager(
         backend=config.actor_rollout_ref.rollout.checkpoint_engine.backend,

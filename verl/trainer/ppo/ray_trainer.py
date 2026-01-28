@@ -909,7 +909,7 @@ class RayPPOTrainer:
         else:
             rm_resource_pool = None
 
-        self.async_rollout_manager = AgentLoopManager(
+        self.async_rollout_manager = AgentLoopManager.create(
             config=self.config,
             worker_group=self.actor_rollout_wg,
             rollout_resource_pool=actor_rollout_resource_pool,

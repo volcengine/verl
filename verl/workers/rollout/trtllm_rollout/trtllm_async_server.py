@@ -27,7 +27,7 @@ from verl.single_controller.ray import RayClassWithInitArgs, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.base import BaseRolloutServer, TokenOutput
+from verl.workers.rollout.base import BaseRolloutServer, TokenOutput, resume_on_abort
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
 from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
@@ -173,6 +173,7 @@ class TRTLLMHttpServer(BaseRolloutServer):
         app = trtllm_server.app
         self._server_port, self._server_task = await run_unvicorn(app, None, self._server_address)
 
+    @resume_on_abort
     async def generate(
         self,
         prompt_ids: list[int],

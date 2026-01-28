@@ -80,5 +80,9 @@ class SingleTurnAgentLoop(AgentLoopBase):
             multi_modal_data=multi_modal_data,
             num_turns=2,
             metrics=metrics,
+            extra_fields={
+                "start_model_version": output.start_model_version,
+                "finish_model_version": output.finish_model_version,
+            },
         )
         return output
