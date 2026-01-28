@@ -88,7 +88,8 @@ def test_trainer_forward_consistency(trainer: FSDPSFTTrainer, total_steps: int =
 
     if trainer.device_mesh.get_rank() == 0:
         print("\nDebug comparison completed successfully.")
-        
+
+
 def _check_backward_determinism(trainer: FSDPSFTTrainer, micro_batch: TensorDict, mode_label: str):
     if trainer.device_mesh.get_rank() == 0:
         print(f"\nChecking backward determinism ({mode_label})...")
