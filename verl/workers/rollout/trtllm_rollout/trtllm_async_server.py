@@ -1,4 +1,4 @@
-# Copyright 2026 Bytedance Ltd. and/or its affiliates
+# Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,11 +25,13 @@ from ray.util.placement_group import PlacementGroup
 
 from verl.single_controller.ray import RayClassWithInitArgs, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
+from verl.utils.device import is_cuda_available
 from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
-from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
+from verl.workers.rollout.utils import run_unvicorn
+from verl.utils.tokenizer import hf_processor
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -42,7 +44,6 @@ class TRTLLMHttpServer:
     Args:
         config (DictConfig): full config.
         model_config (HFModelConfig): model config.
-        is_reward_model (bool): whether this is a reward model.
         rollout_mode (RolloutMode): rollout mode.
         workers (list[ActorHandle]): list of rollout workers.
         replica_rank (int): replica rank, a replica may contain multiple nodes.
@@ -55,7 +56,6 @@ class TRTLLMHttpServer:
         self,
         config: RolloutConfig,
         model_config: HFModelConfig,
-        is_reward_model: bool,
         rollout_mode: RolloutMode,
         workers: list[ActorHandle],
         replica_rank: int,
@@ -64,20 +64,10 @@ class TRTLLMHttpServer:
         bundle_indices: list[list[int]] = None,
     ):
         os.environ["TRT_LLM_DISABLE_LOAD_WEIGHTS_IN_PARALLEL"] = "1"
-        assert torch.cuda.is_available(), "TRTLLM http server should run on GPU node"
-
+        os.system("nvcc --version")
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.is_reward_model = is_reward_model
-        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
-        if self.config.max_model_len is None:
-            self.config.max_model_len = max_position_embeddings
-        else:
-            if self.config.max_model_len > max_position_embeddings:
-                raise ValueError(
-                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
-                    f"max_position_embeddings ({max_position_embeddings})"
-                )
+        self.config.max_model_len = self.config.prompt_length + self.config.response_length
         self.rollout_mode = rollout_mode
         self.workers = workers
         self.replica_rank = replica_rank
@@ -88,12 +78,15 @@ class TRTLLMHttpServer:
         if self.rollout_mode != RolloutMode.HYBRID and self.config.load_format == "dummy":
             logger.warning(f"rollout mode is {self.rollout_mode}, load_format is dummy, set to auto")
             self.config.load_format = "auto"
-
+        self.is_vlm_model = (
+            self.model_config.hf_config is not None
+            and hasattr(self.model_config.hf_config, "vision_config")
+        )
         # used for http server
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
 
-        logger.info(f"TRTLLMHttpServer, replica_rank: {self.replica_rank}")
+        logger.info(f"TRTLLMHttpServer, replica_rank: {self.replica_rank}, ")
 
         self.sampling_args = {
             "detokenize": False,
@@ -118,8 +111,24 @@ class TRTLLMHttpServer:
             enable_block_reuse=True,
             free_gpu_memory_fraction=self.config.gpu_memory_utilization,
         )
+        cuda_graph_config = CudaGraphConfig(
+            enable_padding=True,
+            batch_sizes=self.config.cudagraph_capture_sizes,
+            max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
+        )
 
         per_worker_gpu_share = 1.0 / self.max_colocate_count
+
+        # 准备 CUDA 环境变量，传递给 Ray workers（包括 RayWorkerWrapper）
+        import os
+        cuda_env_vars = {}
+        cuda_env_var_names = [
+            "CUDA_HOME", "LD_LIBRARY_PATH", "CUDA_LIB_PATH", 
+            "CUDA_VERSION", "CUDA_ROOT", "PATH"
+        ]
+        for env_var in cuda_env_var_names:
+            if env_var in os.environ:
+                cuda_env_vars[env_var] = os.environ[env_var]
 
         llm_kwargs = {
             "model": self.model_config.local_path,
@@ -127,6 +136,7 @@ class TRTLLMHttpServer:
             "orchestrator_type": "ray",
             "ray_worker_extension_cls": "tensorrt_llm.llmapi.rlhf_utils.WorkerExtension",
             "kv_cache_config": kv_cache_config,
+            "cuda_graph_config": cuda_graph_config,
             "max_seq_len": self.config.max_model_len,
             "max_batch_size": self.config.max_num_seqs,
             "max_num_tokens": self.config.max_num_batched_tokens,
@@ -141,26 +151,9 @@ class TRTLLMHttpServer:
             **engine_kwargs,
         }
 
-        if self.is_reward_model:
-            llm_kwargs.update(
-                {
-                    "cuda_graph_config": None,
-                    "disable_overlap_scheduler": True,
-                }
-            )
-        else:
-            llm_kwargs.update(
-                {
-                    "cuda_graph_config": CudaGraphConfig(
-                        enable_padding=True,
-                        batch_sizes=self.config.cudagraph_capture_sizes,
-                        max_batch_size=0 if self.config.cudagraph_capture_sizes else self.config.max_num_seqs,
-                    )
-                }
-            )
-
         self.llm = await AsyncLLM(**llm_kwargs)
-
+        if self.is_vlm_model:
+            self.visual_processor = hf_processor(self.model_config.local_path, trust_remote_code=self.model_config.trust_remote_code)
         trtllm_server = OpenAIServer(
             llm=self.llm,
             model=self.model_config.local_path,
@@ -192,10 +185,39 @@ class TRTLLMHttpServer:
         sampling_params.update(self.sampling_args)
 
         trt_llm_sampling_params = SamplingParams(**sampling_params)
-        outputs = await self.llm.generate_async(
-            inputs=prompt_ids,
-            sampling_params=trt_llm_sampling_params,
-        )
+        if self.is_vlm_model:
+            multi_modal_inputs = self.visual_processor(
+                text=[""],  # 占位符，实际不使用
+                images=image_data if image_data else None,
+                videos=video_data if video_data else None,
+                return_tensors="pt"
+            )
+            
+            # 提取多模态相关的 tensor
+            mm_processor_kwargs = {
+                k: v for k, v in multi_modal_inputs.items() 
+                if k not in ["input_ids", "attention_mask"]
+            }
+            
+            tokens_prompt = {
+                "prompt_token_ids": prompt_ids,  # 使用已有的 prompt_ids
+                "multi_modal_data": {
+                    "mm_processor_kwargs": mm_processor_kwargs,  # 多模态处理后的 tensor
+                },
+            }
+            if image_data:
+                tokens_prompt["multi_modal_data"]["image"] = image_data
+            if video_data:
+                tokens_prompt["multi_modal_data"]["video"] = video_data
+            outputs = await self.llm.generate_async(
+                inputs=tokens_prompt,
+                sampling_params=trt_llm_sampling_params,
+            )
+        else:
+            outputs = await self.llm.generate_async(
+                inputs=prompt_ids,
+                sampling_params=trt_llm_sampling_params,
+            )
 
         token_ids = outputs.outputs[0].token_ids
         log_probs = None
@@ -205,19 +227,16 @@ class TRTLLMHttpServer:
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
-            # In hybrid mode, rollout is wake up in `update_weights`
-            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
-        if self.rollout_mode == RolloutMode.COLOCATED:
+            # Call all workers to switch between trainer mode and rollout mode.
+            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
+        elif self.rollout_mode == RolloutMode.COLOCATED:
             await self.llm.resume(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
-        if not self.config.free_cache_engine:
-            return
-
         if self.rollout_mode == RolloutMode.HYBRID:
-            await self.llm.release(tags=ServerAdapter.get_full_tags())
+            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
             await self.llm.release(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
@@ -329,17 +348,19 @@ class TRTLLMReplica(RolloutReplica):
             else f"trtllm_server_reward_{self.replica_rank}"
         )
 
+        runtime_env_vars = {
+            "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            "TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"
+        }
         server = TRTLLMHttpServer.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=node_id,
                 soft=False,
             ),
-            runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
-            name=name,
+            runtime_env={"env_vars": runtime_env_vars},
         ).remote(
             config=self.config,
             model_config=self.model_config,
-            is_reward_model=self.is_reward_model,
             rollout_mode=self.rollout_mode,
             workers=self.workers,
             replica_rank=self.replica_rank,
