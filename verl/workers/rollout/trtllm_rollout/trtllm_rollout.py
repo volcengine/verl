@@ -386,7 +386,7 @@ class ServerAdapter(BaseRollout):
         if self.is_leader_rank:
             await self._init_server_adapter()
 
-        total_available_bytes = int(self.config.update_weights_bucket_megabytes) * 1024 * 1024
+        total_available_bytes = int(self.config.checkpoint_engine.update_weights_bucket_megabytes) * 1024 * 1024
 
         try:
             device_uuid = get_device_uuid(self.gpu_id)

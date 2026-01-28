@@ -29,7 +29,7 @@ from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
-from verl.workers.rollout.utils import run_unvicorn
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -69,7 +69,19 @@ class TRTLLMHttpServer:
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
         self.is_reward_model = is_reward_model
+<<<<<<< HEAD
         self.config.max_model_len = self.config.prompt_length + self.config.response_length
+=======
+        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = max_position_embeddings
+        else:
+            if self.config.max_model_len > max_position_embeddings:
+                raise ValueError(
+                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
+                    f"max_position_embeddings ({max_position_embeddings})"
+                )
+>>>>>>> origin/main
         self.rollout_mode = rollout_mode
         self.workers = workers
         self.replica_rank = replica_rank
@@ -197,16 +209,30 @@ class TRTLLMHttpServer:
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:
+<<<<<<< HEAD
             # Call all workers to switch between trainer mode and rollout mode.
             await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
         elif self.rollout_mode == RolloutMode.COLOCATED:
+=======
+            # In hybrid mode, rollout is wake up in `update_weights`
+            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
+        if self.rollout_mode == RolloutMode.COLOCATED:
+>>>>>>> origin/main
             await self.llm.resume(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
+<<<<<<< HEAD
         if self.rollout_mode == RolloutMode.HYBRID:
             await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+=======
+        if not self.config.free_cache_engine:
+            return
+
+        if self.rollout_mode == RolloutMode.HYBRID:
+            await self.llm.release(tags=ServerAdapter.get_full_tags())
+>>>>>>> origin/main
         elif self.rollout_mode == RolloutMode.COLOCATED:
             await self.llm.release(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:

@@ -45,6 +45,7 @@ from verl.utils.device import get_device_id, get_device_name, get_torch_device
 from verl.utils.torch_dtypes import PrecisionType
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
+from verl.workers.rollout.utils import ensure_async_iterator
 from verl.workers.rollout.vllm_rollout.utils import TensorMetadata, get_device_uuid
 
 logger = logging.getLogger(__file__)
@@ -152,7 +153,7 @@ class ServerAdapter(BaseRollout):
         )
 
         # build cuda ipc buffer
-        bucket_size_mb = self.config.update_weights_bucket_megabytes
+        bucket_size_mb = self.config.checkpoint_engine.update_weights_bucket_megabytes
         bucket_size = int(bucket_size_mb) << 20
         buffer = torch.empty(bucket_size, dtype=torch.uint8, device=f"{get_device_name()}:0")
         handle = reduce_tensor(buffer)
@@ -165,7 +166,7 @@ class ServerAdapter(BaseRollout):
         offset = 0
         bucket_meta: dict[str, TensorMetadata] = {}
         dtype = PrecisionType.to_dtype(self.config.dtype)
-        for name, weight in weights:
+        async for name, weight in ensure_async_iterator(weights):
             # model parameters are in fp32 full precision
             weight = weight.to(dtype, non_blocking=True)
 
@@ -204,6 +205,10 @@ class ServerAdapter(BaseRollout):
         get_torch_device().empty_cache()
         if future is not None:
             await future
+
+        # reset prefix cache after updating weights
+        if self.rollout_rank == 0:
+            await self.server_handle.clear_kv_cache.remote()
 
         if self.replica_rank == 0 and self.rollout_rank == 0:
             logger.info(f"update_weights done, time cost: {time.time() - start_time:.2f}s")
