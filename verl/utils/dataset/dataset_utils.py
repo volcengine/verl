@@ -14,7 +14,6 @@
 
 
 from enum import Enum
-import os
 
 import torch
 from tensordict.tensorclass import NonTensorData
