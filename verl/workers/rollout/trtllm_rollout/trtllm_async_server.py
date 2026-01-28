@@ -330,7 +330,6 @@ class TRTLLMReplica(RolloutReplica):
         )
 
         runtime_env_vars = {
-            "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
             "TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"
         }
         server = TRTLLMHttpServer.options(
