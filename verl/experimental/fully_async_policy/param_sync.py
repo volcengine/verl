@@ -71,13 +71,32 @@ class ParameterSynchronizer:
     def _init_sync_group(self):
         print("[ParameterSynchronizer] Initializing parameter synchronization group...")
         actor_rollout_workers = self.actor_wg.workers + self.rollout_wg.workers
-        collective.create_collective_group(
-            actor_rollout_workers,
-            len(actor_rollout_workers),
-            list(range(0, len(actor_rollout_workers))),
-            backend=get_nccl_backend(),
-            group_name=self.sync_group_name,
-        )
+        n_workers = len(self.actor_wg.workers + self.rollout_wg.workers)
+        if self.config.trainer.device == "npu":
+            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote()).strip("[]")
+            master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
+            self.actor_wg.create_weight_sync_group(
+                master_address,
+                master_port,
+                0,
+                n_workers,
+            )
+            ray.get(
+                self.rollout_wg.create_weight_sync_group(
+                    master_address,
+                    master_port,
+                    len(self.actor_wg.workers),
+                    n_workers,
+                )
+            )
+        else:
+            collective.create_collective_group(
+                actor_rollout_workers,
+                n_workers,
+                list(range(0, n_workers)),
+                backend=get_nccl_backend(),
+                group_name=self.sync_group_name,
+            )
 
     def _init_actor_rollout_checkpoint_engine(self):
         ray.get(

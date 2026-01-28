@@ -44,7 +44,6 @@ Enable R2 mode via command-line parameters:
 
 ```bash
 actor_rollout_ref.actor.router_replay.mode="R2"
-actor_rollout_ref.rollout.enable_rollout_routing_replay=True
 ```
 
 ### Enabling R3 Mode
