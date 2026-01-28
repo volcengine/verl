@@ -568,8 +568,6 @@ class vLLMHttpServer:
             logger.info("skip sleep in standalone mode")
 
     async def start_profile(self, **kwargs):
-        # TODO: Persist global_step to engine server-created file/path
-        kwargs.pop("global_step")
         if (
             self.profiler_controller.check_enable()
             and self.profiler_controller.check_this_rank()
