@@ -452,6 +452,8 @@ class SGLangHttpServer(BaseRolloutServer):
         generate_request = GenerateReqInput(**request)
 
         output = await self.tokenizer_manager.generate_request(generate_request, None).__anext__()
+        finish_reason = output["meta_info"]["finish_reason"]
+        finish_reason = finish_reason["type"] if finish_reason else None
         if return_logprob:
             output_token_logprobs = output["meta_info"]["output_token_logprobs"]
             log_probs, token_ids = zip(
@@ -479,7 +481,9 @@ class SGLangHttpServer(BaseRolloutServer):
                     -1, hf_config.num_hidden_layers, hf_config.num_experts_per_tok
                 )
 
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts)
+        return TokenOutput(
+            token_ids=token_ids, log_probs=log_probs, routed_experts=routed_experts, stop_reason=finish_reason
+        )
 
     async def start_profile(self, **kwargs):
         if (
@@ -503,7 +507,14 @@ class SGLangHttpServer(BaseRolloutServer):
 
     async def abort_all_requests(self):
         """Abort all requests with partial rollout."""
-        raise NotImplementedError
+        self.resume_event.clear()
+
+        while True:
+            self.tokenizer_manager.abort_request(abort_all=True)
+            is_locked = await self.tokenizer_manager.model_update_lock.is_locked()
+            if not is_locked:
+                break
+            await asyncio.sleep(1.0)
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)

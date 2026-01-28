@@ -625,6 +625,7 @@ class vLLMHttpServer(BaseRolloutServer):
         # Abort requests in the output processor and engine core
         self.engine.output_processor.abort_requests(request_ids)
         await self.engine.engine_core.abort_requests_async(request_ids)
+        await self.engine.wait_for_requests_to_drain()
 
         # Try to reset prefix cache to ensure clean state
         if reset_prefix_cache:

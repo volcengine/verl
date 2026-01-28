@@ -43,7 +43,7 @@ def init_config() -> DictConfig:
 
     config.trainer.n_gpus_per_node = 8
     config.trainer.nnodes = 1
-    config.actor_rollout_ref.model.path = "/mnt/hdfs/wuxibin_wl/model/Qwen3-VL-2B-Instruct"
+    config.actor_rollout_ref.model.path = os.path.expanduser("~/models/Qwen/Qwen3-VL-2B-Instruct")
     config.actor_rollout_ref.rollout.name = os.environ["ROLLOUT_NAME"]
     config.actor_rollout_ref.rollout.response_length = 4096
     config.actor_rollout_ref.rollout.checkpoint_engine.backend = "nccl" if get_device_name() == "cuda" else "hccl"
@@ -117,7 +117,7 @@ async def test_server_adapter(init_config):
 
     # 5. update weights to interrupt generate sequences
     for i in range(3):
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
         await checkpoint_manager.update_weights()
         print(f"update weights {i} done")
 
