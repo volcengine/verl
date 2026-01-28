@@ -1661,7 +1661,7 @@ class RayPPOTrainer:
                         self.checkpoint_manager.sleep_replicas()
                         self._save_checkpoint()
                         # wake replicas to avoid OOM during checkpoint saving
-                        self.checkpoint_manager.update_weights()
+                        self.checkpoint_manager.wake_up_replicas()
 
                 with marked_timer("stop_profile", timing_raw):
                     next_step_profile = (

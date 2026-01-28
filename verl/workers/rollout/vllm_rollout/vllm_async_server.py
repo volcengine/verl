@@ -794,6 +794,12 @@ class vLLMReplica(RolloutReplica):
         await self.servers[0].wait_for_requests_to_drain.remote()
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
+    async def wake_up(self):
+        """Wake up each rollout server."""
+        # Drain DP engines for safe wake up.
+        await self.servers[0].wait_for_requests_to_drain.remote()
+        await asyncio.gather(*[server.wake_up.remote() for server in self.servers])
+
     async def abort_all_requests(self) -> dict[str, Any]:
         """Abort all ongoing generation requests across all servers.
 

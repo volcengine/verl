@@ -376,6 +376,14 @@ class CheckpointEngineManager:
         await asyncio.gather(*[r.sleep() for r in self.replicas])
 
     @auto_await
+    async def wake_up_replicas(self):
+        """Wake up all rollout replicas: resume weights and kv_cache device memory."""
+        # skip sleep replicas for disaggregated rollout
+        if self.backend != "naive":
+            return
+        await asyncio.gather(*[r.wake_up() for r in self.replicas])
+
+    @auto_await
     async def update_weights(self):
         """Update weights from trainer to rollout replicas."""
 
