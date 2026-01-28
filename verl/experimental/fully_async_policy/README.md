@@ -65,7 +65,7 @@ The overall architecture of fully_async_policy is shown in the figure below. ful
 parts: Rollouter, MessageQueue, Trainer, and ParameterSynchronizer.
 
 ![fully_async_policy_structure](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_structure.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_structure.svg?raw=true)
 
 1. Rollouter generates sequences sample by sample and puts the generated samples into the MessageQueue, with the
    production speed controlled by freshness.
@@ -82,7 +82,7 @@ are used),
 but the overlap in their time consumption reduces the end-to-end time consumption.
 
 ![fully_async_policy_revenue](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_revenue.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_revenue.svg?raw=true)
 
 ## Usage
 
@@ -248,7 +248,7 @@ https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_a
     3. As shown in figure d;
 
 ![fully_async_policy_mode](
-https://github.com/ArronHZG/verl-community/blob/recipe/async_policy/docs/fully_async_policy_mode.svg?raw=true)
+https://github.com/ArronHZG/verl-community/blob/main/docs/fully_async_policy_mode.svg?raw=true)
 
 ### Key Metrics
 

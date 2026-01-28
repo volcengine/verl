@@ -21,7 +21,6 @@ import logging
 import os
 import warnings
 from dataclasses import asdict
-from typing import Any, Optional
 
 import numpy as np
 import psutil
@@ -359,6 +358,13 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             "eos_token_id": self.tokenizer.eos_token_id,
             "pad_token_id": self.tokenizer.pad_token_id,
         }
+
+        if self.config.model.get("mtp", {}).get("enable", False):
+            raise NotImplementedError("Right now,  MTP is not supported in FSDP")
+        else:
+            if hasattr(actor_model_config, "num_nextn_predict_layers"):
+                actor_model_config.num_nextn_predict_layers = 0
+
         override_config_kwargs.update(override_model_config)
         update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
         if self.rank == 0:
@@ -638,13 +644,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
             )
 
-        # 3. init trainer and rollout random states
-        self.torch_random_states = get_torch_device().get_rng_state()
-        gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
-        get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
-        self.gen_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.torch_random_states)
-
         # 4. build rollout model
         log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
         self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
@@ -754,27 +753,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
         self.base_sync_done = True
-        # important: need to manually set the random states of each tp to be identical.
-        self.torch_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.gen_random_states)
-
-    async def trainer_mode(self):
-        """Context switch hybridengine to trainer mode."""
-        if self.config.rollout.free_cache_engine:
-            log_gpu_memory_usage("Before rollout offload", logger=logger)
-            await self.rollout.release()
-            log_gpu_memory_usage("After rollout offload", logger=logger)
-
-        self.actor_module_fsdp.train()
-
-        # add empty cache after each compute
-        aggressive_empty_cache(force_sync=True)
-
         set_expandable_segments(True)
-
-        # restore random states
-        self.gen_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.torch_random_states)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -2004,36 +1983,7 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
 # ================================= Async related workers =================================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def wake_up(self):
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    async def update_weights(self):
         await self.rollout_mode()
         return True
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def sleep(self):
-        await self.trainer_mode()
-        return True
-
-    # ============================ vLLM related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    def get_zeromq_address(self):
-        return self.rollout.get_zeromq_address()
-
-    # ============================ SGLang related ============================
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def chat_completion(self, json_request):
-        ret = await self.rollout.chat_completion(json_request)
-        return ret
-
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD, blocking=False)
-    async def generate(
-        self,
-        prompt_ids: list[int],
-        sampling_params: dict[str, Any],
-        request_id: str,
-        image_data: Optional[list[Any]] = None,
-    ) -> list[int]:
-        ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
-        return ret

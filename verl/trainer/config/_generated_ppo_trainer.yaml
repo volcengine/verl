@@ -107,8 +107,8 @@ actor_rollout_ref:
           discrete: false
         torch:
           _target_: verl.utils.profiler.config.TorchProfilerToolConfig
-          step_start: 0
-          step_end: null
+          contents: []
+          discrete: false
         torch_memory:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
@@ -152,8 +152,8 @@ actor_rollout_ref:
           discrete: false
         torch:
           _target_: verl.utils.profiler.config.TorchProfilerToolConfig
-          step_start: 0
-          step_end: null
+          contents: []
+          discrete: false
         torch_memory:
           _target_: verl.utils.profiler.config.TorchMemoryToolConfig
           trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}
@@ -209,7 +209,7 @@ actor_rollout_ref:
     pipeline_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
-    max_num_seqs: 1024
+    max_num_seqs: 256
     enable_chunked_prefill: true
     enable_prefix_caching: true
     logprobs_mode: processed_logprobs
@@ -227,6 +227,7 @@ actor_rollout_ref:
     engine_kwargs:
       vllm: {}
       sglang: {}
+      trtllm: {}
     val_kwargs:
       _target_: verl.workers.config.SamplingConfig
       top_k: -1
@@ -258,7 +259,11 @@ actor_rollout_ref:
         _target_: verl.workers.config.CustomAsyncServerConfig
         path: null
         name: null
-    update_weights_bucket_megabytes: 512
+    checkpoint_engine:
+      _target_: verl.workers.config.CheckpointEngineConfig
+      backend: naive
+      update_weights_bucket_megabytes: 2048
+      engine_kwargs: {}
     trace:
       _target_: verl.workers.config.TraceConfig
       backend: null
@@ -284,6 +289,7 @@ actor_rollout_ref:
       served_model_name: ${oc.select:actor_rollout_ref.model.path,null}
     quantization: null
     quantization_config_file: null
+    mtp: ${oc.select:actor_rollout_ref.model.mtp, null}
     layered_summon: false
   model:
     _target_: verl.workers.config.HFModelConfig
@@ -310,6 +316,19 @@ actor_rollout_ref:
     tiled_mlp:
       enabled: false
       num_shards: 4
+    mtp:
+      _target_: verl.workers.config.MtpConfig
+      enable: false
+      enable_train: false
+      enable_rollout: false
+      detach_encoder: false
+      mtp_loss_scaling_factor: 0.1
+      speculative_algorithm: EAGLE
+      speculative_num_steps: 2
+      speculative_eagle_topk: 2
+      speculative_num_draft_tokens: 4
+      method: mtp
+      num_speculative_tokens: 1
   hybrid_engine: true
   nccl_timeout: 600
 data:
@@ -459,8 +478,8 @@ critic:
         discrete: false
       torch:
         _target_: verl.utils.profiler.config.TorchProfilerToolConfig
-        step_start: 0
-        step_end: null
+        contents: []
+        discrete: false
       torch_memory:
         _target_: verl.utils.profiler.config.TorchMemoryToolConfig
         trace_alloc_max_entries: ${oc.select:global_profiler.global_tool_config.torch_memory.trace_alloc_max_entries,100000}

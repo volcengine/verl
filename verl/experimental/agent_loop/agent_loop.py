@@ -127,6 +127,7 @@ class AgentLoopMetrics(BaseModel):
 
     generate_sequences: float = 0.0
     tool_calls: float = 0.0
+    num_preempted: int = -1  # -1 means not available
 
 
 class AgentLoopOutput(BaseModel):
@@ -199,7 +200,7 @@ class AgentLoopBase(ABC):
         tokenizer: AutoTokenizer,
         processor: AutoProcessor,
         dataset_cls: type[RLHFDataset],
-        dataset_config: DictConfig,
+        dataset_config: DictConfigWrap,
         **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
@@ -210,15 +211,15 @@ class AgentLoopBase(ABC):
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
             dataset_cls (type[Dataset]): Dataset class for creating dataset, Defaults to RLHFDataset.
-            dataset_config (DictConfig): Dataset config.
+            dataset_config (DictConfigWrap): Dataset config.
         """
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
         self.dataset_cls = dataset_cls
-        self.dataset_config = dataset_config
-        self.apply_chat_template_kwargs = dataset_config.get("apply_chat_template_kwargs", {})
+        self.dataset_config = dataset_config.config
+        self.apply_chat_template_kwargs = self.dataset_config.get("apply_chat_template_kwargs", {})
         self.system_prompt = initialize_system_prompt(self.tokenizer, **self.apply_chat_template_kwargs)
         self.loop = get_event_loop()
 
@@ -427,6 +428,7 @@ class AgentLoopWorker:
         sampling_params = dict(
             temperature=config.temperature,
             top_p=config.top_p,
+            top_k=config.top_k,
             repetition_penalty=1.0,
             logprobs=config.calculate_log_probs,
         )
@@ -434,6 +436,7 @@ class AgentLoopWorker:
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
+            sampling_params["top_k"] = config.val_kwargs.top_k
             sampling_params["temperature"] = config.val_kwargs.temperature
 
         # by default, we assume it's a single turn agent
@@ -510,7 +513,7 @@ class AgentLoopWorker:
                 tokenizer=self.tokenizer,
                 processor=self.processor,
                 dataset_cls=self.dataset_cls,
-                dataset_config=self.config.data,
+                dataset_config=DictConfigWrap(self.config.data),
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
             return await self._agent_loop_postprocess(output, **kwargs)
@@ -788,10 +791,18 @@ class AgentLoopWorker:
             extra_fields[key] = temp_arr
 
         non_tensor_batch.update(extra_fields)
+
+        # Only include reward_extra_keys in meta_info if rm_scores is in batch
+        # This avoids conflicts when reward_tensor is merged later in ray_trainer.py
+        if "rm_scores" in batch.keys():
+            meta_info = {"metrics": metrics, "reward_extra_keys": reward_extra_keys}
+        else:
+            meta_info = {"metrics": metrics}
+
         return DataProto(
             batch=batch,
             non_tensor_batch=non_tensor_batch,
-            meta_info={"metrics": metrics, "reward_extra_keys": reward_extra_keys},
+            meta_info=meta_info,
         )
 
     def create_transferqueue_client(
@@ -835,13 +846,18 @@ class AgentLoopManager:
     """Agent loop manager that manages a group of agent loop workers."""
 
     def __init__(
-        self, config: DictConfig, worker_group: RayWorkerGroup = None, rm_resource_pool: RayResourcePool = None
+        self,
+        config: DictConfig,
+        worker_group: RayWorkerGroup = None,
+        rollout_resource_pool: RayResourcePool = None,
+        rm_resource_pool: RayResourcePool = None,
     ):
         """Initialize agent loop manager.
 
         Args:
             config (DictConfig): trainer config.
             worker_group (RayWorkerGroup): ActorRolloutRef worker group for hybrid mode; None for standalone mode.
+            rollout_resource_pool (RayResourcePool): Resource pool for actor rollout (Colocate or Standalone mode).
             rm_resource_pool (RayResourcePool): Resource pool for reward model (Standalone mode).
         """
         self.config = config
@@ -860,14 +876,10 @@ class AgentLoopManager:
         if not hasattr(self, "agent_loop_workers_class"):
             self.agent_loop_workers_class = ray.remote(AgentLoopWorker)
 
-        self._initialize_llm_servers()
+        self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
-        # Initially we're in sleep mode.
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-
-    def _initialize_llm_servers(self):
+    def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
             * self.config.actor_rollout_ref.rollout.data_parallel_size
@@ -891,10 +903,19 @@ class AgentLoopManager:
             )
             for replica_rank in range(num_replicas)
         ]
-        if self.worker_group:
+
+        if self.worker_group and rollout_config.name != "trtllm":
             self._run_all([server.init_hybrid(self.worker_group) for server in self.rollout_replicas])
+        elif self.worker_group and rollout_config.name == "trtllm":
+            self._run_all(
+                [
+                    server.init_hybrid_colocated(self.worker_group, rollout_resource_pool)
+                    for server in self.rollout_replicas
+                ]
+            )
         else:
             self._run_all([server.init_standalone() for server in self.rollout_replicas])
+
         self.server_handles = [server._server_handle for server in self.rollout_replicas]
         self.server_addresses = [server._server_address for server in self.rollout_replicas]
 
@@ -933,9 +954,7 @@ class AgentLoopManager:
             DataProto: Output batch.
         """
 
-        # Fix for Issue #4147: Always call wake_up() to ensure weight sync
-        # The wake_up()/sleep() methods internally check free_cache_engine
-        self.wake_up()
+        # TODO: move reward_model_manager out of agent_loop manager
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
@@ -947,8 +966,6 @@ class AgentLoopManager:
             ]
         )
         output = DataProto.concat(outputs)
-        # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
-        self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
@@ -963,6 +980,10 @@ class AgentLoopManager:
         timing = {}
         t_generate_sequences = np.array([metric["generate_sequences"] for chunk in metrics for metric in chunk])
         t_tool_calls = np.array([metric["tool_calls"] for chunk in metrics for metric in chunk])
+        num_preempted = np.array([metric["num_preempted"] for chunk in metrics for metric in chunk])
+        timing["agent_loop/num_preempted/min"] = num_preempted.min()
+        timing["agent_loop/num_preempted/max"] = num_preempted.max()
+        timing["agent_loop/num_preempted/mean"] = num_preempted.mean()
         timing["agent_loop/generate_sequences/min"] = t_generate_sequences.min()
         timing["agent_loop/generate_sequences/max"] = t_generate_sequences.max()
         timing["agent_loop/generate_sequences/mean"] = t_generate_sequences.mean()
@@ -978,20 +999,21 @@ class AgentLoopManager:
         timing["agent_loop/slowest/tool_calls"] = t_tool_calls[slowest]
         timing["agent_loop/slowest/prompt_length"] = attention_mask[:prompt_length].sum().item()
         timing["agent_loop/slowest/response_length"] = attention_mask[prompt_length:].sum().item()
+        timing["agent_loop/slowest/num_preempted"] = num_preempted[slowest]
 
         return timing
-
-    def wake_up(self):
-        """Wake up all rollout replica instances."""
-        self._run_all([replica.wake_up() for replica in self.rollout_replicas])
-
-    def sleep(self):
-        """Sleep all rollout replica instances."""
-        self._run_all([replica.sleep() for replica in self.rollout_replicas])
 
     def clear_kv_cache(self):
         """Clear all rollout kv cache, but don`t sleep."""
         self._run_all([replica.clear_kv_cache() for replica in self.rollout_replicas])
+
+    def start_profile(self, **kwargs):
+        """Start profiling on all rollout replicas."""
+        self._run_all([replica.start_profile(**kwargs) for replica in self.rollout_replicas])
+
+    def stop_profile(self):
+        """Stop profiling on all rollout replicas."""
+        self._run_all([replica.stop_profile() for replica in self.rollout_replicas])
 
     def _run_all(self, tasks: list[asyncio.Task]):
         async def run_all():

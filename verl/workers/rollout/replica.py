@@ -22,8 +22,7 @@ from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
-from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
@@ -39,6 +38,8 @@ class TokenOutput(BaseModel):
     """routed experts of response token ids"""
     stop_reason: Optional[str] = None
     """stop reason: 'completed', 'aborted', or None for unknown"""
+    num_preempted: Optional[int] = None
+    """number of preempted times for metric calculation"""
 
 
 class RolloutMode(Enum):
@@ -108,6 +109,7 @@ class RolloutReplica(ABC):
         self.rollout_mode: RolloutMode = None
         self.workers: list[ActorHandle] = []
         self.resource_pool: RayResourcePool = None
+        self.bundle_indices: list[int] = []
 
         self.servers: list[ActorHandle] = []
         self._server_address: str = None
@@ -125,6 +127,22 @@ class RolloutReplica(ABC):
         ]
         await self.launch_servers()
 
+    async def init_hybrid_colocated(self, worker_group: RayWorkerGroup, resource_pool: RayResourcePool):
+        """Init hybrid rollout server, rollout engine and training engine(fsdp/megatron) fused in same process.
+
+        Args:
+            worker_group: RayWorkerGroup, fused workers where training engine(fsdp/megatron) have been initialized.
+            resource_pool: RayResourcePool, ray placement group where hybrid engine processes have been launched.
+            bundle_indices: list[int], bundle indices for this rollout replica.
+        """
+        self.rollout_mode = RolloutMode.HYBRID
+        self.workers = worker_group.workers[
+            self.world_size * self.replica_rank : self.world_size * (self.replica_rank + 1)
+        ]
+        self.resource_pool = resource_pool
+        self.bundle_indices = [self.replica_rank * self.world_size + idx for idx in range(self.world_size)]
+        await self.launch_servers()
+
     # TODO(sgm): this should be the default solution, but need to make the RolloutMode more clear.
     async def init_colocated(self, resource_pool: RayResourcePool):
         """Init colocated rollout server, rollout engine and hybrid engine colocated in same ray placement group
@@ -135,6 +153,7 @@ class RolloutReplica(ABC):
         """
         self.rollout_mode = RolloutMode.COLOCATED
         self.resource_pool = resource_pool
+        use_gpu = self.rollout_worker_use_gpu()
 
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
@@ -143,6 +162,7 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_colocate_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_colocate_{self.replica_rank}",
+            use_gpu=use_gpu,
         )
         self.workers = worker_group.workers
         await self.launch_servers()
@@ -164,7 +184,7 @@ class RolloutReplica(ABC):
         self.resource_pool = resource_pool_manager.resource_pool_dict[resource_pool_name]
 
         # create worker group for this rollout
-
+        use_gpu = self.rollout_worker_use_gpu()
         worker_group = RayWorkerGroup(
             resource_pool=self.resource_pool,
             ray_cls_with_init=self.get_ray_class_with_init_args(),
@@ -172,6 +192,7 @@ class RolloutReplica(ABC):
             name_prefix=f"rollout_standalone_{self.replica_rank}"
             if not self.is_reward_model
             else f"rollout_reward_standalone_{self.replica_rank}",
+            use_gpu=use_gpu,
         )
         self.workers = worker_group.workers
         await self.launch_servers()
@@ -196,6 +217,9 @@ class RolloutReplica(ABC):
         """Get rollout server handle for Token-in-token-out generation."""
         return self._server_handle
 
+    def rollout_worker_use_gpu(self) -> bool:
+        return True
+
     async def wake_up(self):
         """Wake up each rollout server."""
         await asyncio.gather(*[server.wake_up.remote() for server in self.servers])
@@ -204,9 +228,29 @@ class RolloutReplica(ABC):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
+    async def abort_all_requests(self):
+        """Partial rollout: abort and save all unfinished requests in each rollout server."""
+        # TODO(wuxibin)
+        # await asyncio.gather(*[server.abort_all_requests.remote() for server in self.servers])
+        print(f"abort all requests in rollout replica {self.replica_rank}")
+
+    async def resume_all_requests(self):
+        """Partial rollout: resume all unfinished requests in each rollout server."""
+        # TODO(wuxibin)
+        # await asyncio.gather(*[server.resume_all_requests.remote() for server in self.servers])
+        print(f"resume all requests in rollout replica {self.replica_rank}")
+
     async def clear_kv_cache(self):
         """reset kv cache in each rollout server."""
         await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
+
+    async def start_profile(self, **kwargs):
+        """Start profiling on the replica."""
+        await asyncio.gather(*[server.start_profile.remote(**kwargs) for server in self.servers])
+
+    async def stop_profile(self):
+        """Stop profiling on the replica."""
+        await asyncio.gather(*[server.stop_profile.remote() for server in self.servers])
 
 
 class RolloutReplicaRegistry:
@@ -278,9 +322,16 @@ def _load_sglang():
     return SGLangReplica
 
 
+def _load_trtllm():
+    from verl.workers.rollout.trtllm_rollout.trtllm_async_server import TRTLLMReplica
+
+    return TRTLLMReplica
+
+
 # Register built-in types
 RolloutReplicaRegistry.register("vllm", _load_vllm)
 RolloutReplicaRegistry.register("sglang", _load_sglang)
+RolloutReplicaRegistry.register("trtllm", _load_trtllm)
 
 
 # Original function for backward compatibility
