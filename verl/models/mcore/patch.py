@@ -333,6 +333,7 @@ def apply_patch():
 
     MultiLatentAttention.forward = patch_forward
 
+
 def apply_patch_mbridge():
     try:
         from megatron.core.utils import get_tensor_model_parallel_group_if_none
