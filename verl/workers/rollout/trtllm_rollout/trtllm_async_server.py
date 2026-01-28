@@ -328,7 +328,7 @@ class TRTLLMReplica(RolloutReplica):
             if not self.is_reward_model
             else f"trtllm_server_reward_{self.replica_rank}"
         )
-        
+
         runtime_env_vars = {"TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"}
         server = TRTLLMHttpServer.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
