@@ -26,7 +26,7 @@ from verl.experimental.dataset.sampler import AbstractSampler
 from verl.trainer.constants_ppo import get_ppo_ray_runtime_env
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
-from verl.trainer.ppo.utils import need_critic, need_reference_policy
+from verl.trainer.ppo.utils import need_critic, need_reference_policy, will_use_reward_loop
 from verl.utils.config import validate_config
 from verl.utils.device import auto_set_device, is_cuda_available
 from verl.utils.import_utils import load_extern_object
@@ -204,7 +204,9 @@ class TaskRunner:
             global_pool_id: [config.trainer.n_gpus_per_node] * config.trainer.nnodes,
         }
         # TODO Here you can use the new registration method to support dynamic registration of roles
-        if config.reward_model.enable_resource_pool:
+        if config.reward_model.enable_resource_pool and not will_use_reward_loop(
+            config
+        ):  # with async rollouts, the reward model pool is created inside the reward loop
             if config.reward_model.n_gpus_per_node <= 0:
                 raise ValueError("config.reward_model.n_gpus_per_node must be greater than 0")
             if config.reward_model.nnodes <= 0:
@@ -220,6 +222,10 @@ class TaskRunner:
 
     def add_reward_model_worker(self, config):
         """Add reward model worker if enabled."""
+        if will_use_reward_loop(config):
+            # The reward loop initialization will handle the reward model workers
+            return
+
         from verl.trainer.ppo.ray_trainer import Role
 
         if config.reward_model.enable:

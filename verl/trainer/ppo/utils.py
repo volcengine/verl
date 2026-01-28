@@ -83,6 +83,15 @@ def need_reward_model(
     return Role.RewardModel in role_worker_mapping
 
 
+def will_use_reward_loop(config: DictConfig) -> bool:
+    """Given a config, will we use the reward loop."""
+    return (
+        config.actor_rollout_ref.rollout.mode == "async"
+        and config.reward_model.enable
+        and config.reward_model.enable_resource_pool
+    )
+
+
 def need_critic(config: DictConfig) -> bool:
     """Given a config, do we need critic."""
     if config.critic.enable is not None:
