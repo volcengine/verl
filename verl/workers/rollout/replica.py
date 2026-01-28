@@ -22,8 +22,7 @@ from omegaconf import DictConfig
 from pydantic import BaseModel
 from ray.actor import ActorHandle
 
-from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
-from verl.trainer.ppo.ray_trainer import RayResourcePool, ResourcePoolManager
+from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup, ResourcePoolManager
 from verl.utils.config import omega_conf_to_dataclass
 from verl.workers.config import HFModelConfig, RolloutConfig
 
@@ -229,13 +228,25 @@ class RolloutReplica(ABC):
         """Sleep each rollout server."""
         await asyncio.gather(*[server.sleep.remote() for server in self.servers])
 
+    async def abort_all_requests(self):
+        """Partial rollout: abort and save all unfinished requests in each rollout server."""
+        # TODO(wuxibin)
+        # await asyncio.gather(*[server.abort_all_requests.remote() for server in self.servers])
+        print(f"abort all requests in rollout replica {self.replica_rank}")
+
+    async def resume_all_requests(self):
+        """Partial rollout: resume all unfinished requests in each rollout server."""
+        # TODO(wuxibin)
+        # await asyncio.gather(*[server.resume_all_requests.remote() for server in self.servers])
+        print(f"resume all requests in rollout replica {self.replica_rank}")
+
     async def clear_kv_cache(self):
         """reset kv cache in each rollout server."""
         await asyncio.gather(*[server.clear_kv_cache.remote() for server in self.servers])
 
     async def start_profile(self, **kwargs):
         """Start profiling on the replica."""
-        await asyncio.gather(*[server.start_profile.remote() for server in self.servers])
+        await asyncio.gather(*[server.start_profile.remote(**kwargs) for server in self.servers])
 
     async def stop_profile(self):
         """Stop profiling on the replica."""

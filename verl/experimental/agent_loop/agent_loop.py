@@ -200,7 +200,7 @@ class AgentLoopBase(ABC):
         tokenizer: AutoTokenizer,
         processor: AutoProcessor,
         dataset_cls: type[RLHFDataset],
-        dataset_config: DictConfig,
+        dataset_config: DictConfigWrap,
         **kwargs,
     ):
         """Initialize agent loop, each sample will have its own loop instance.
@@ -211,15 +211,15 @@ class AgentLoopBase(ABC):
             tokenizer (AutoTokenizer): Tokenizer for tokenize messages.
             processor (AutoProcessor): Processor for process messages.
             dataset_cls (type[Dataset]): Dataset class for creating dataset, Defaults to RLHFDataset.
-            dataset_config (DictConfig): Dataset config.
+            dataset_config (DictConfigWrap): Dataset config.
         """
         self.config = trainer_config.config
         self.server_manager = server_manager
         self.tokenizer = tokenizer
         self.processor = processor
         self.dataset_cls = dataset_cls
-        self.dataset_config = dataset_config
-        self.apply_chat_template_kwargs = dataset_config.get("apply_chat_template_kwargs", {})
+        self.dataset_config = dataset_config.config
+        self.apply_chat_template_kwargs = self.dataset_config.get("apply_chat_template_kwargs", {})
         self.system_prompt = initialize_system_prompt(self.tokenizer, **self.apply_chat_template_kwargs)
         self.loop = get_event_loop()
 
@@ -513,7 +513,7 @@ class AgentLoopWorker:
                 tokenizer=self.tokenizer,
                 processor=self.processor,
                 dataset_cls=self.dataset_cls,
-                dataset_config=self.config.data,
+                dataset_config=DictConfigWrap(self.config.data),
             )
             output: AgentLoopOutput = await agent_loop.run(sampling_params, **kwargs)
             return await self._agent_loop_postprocess(output, **kwargs)
@@ -879,10 +879,6 @@ class AgentLoopManager:
         self._initialize_llm_servers(rollout_resource_pool)
         self._init_agent_loop_workers()
 
-        # Initially we're in sleep mode.
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-
     def _initialize_llm_servers(self, rollout_resource_pool: RayResourcePool):
         rollout_world_size = (
             self.config.actor_rollout_ref.rollout.tensor_model_parallel_size
@@ -958,9 +954,7 @@ class AgentLoopManager:
             DataProto: Output batch.
         """
 
-        # Fix for Issue #4147: Always call wake_up() to ensure weight sync
-        # The wake_up()/sleep() methods internally check free_cache_engine
-        self.wake_up()
+        # TODO: move reward_model_manager out of agent_loop manager
         if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
@@ -972,8 +966,6 @@ class AgentLoopManager:
             ]
         )
         output = DataProto.concat(outputs)
-        # Fix for Issue #4147: Always call sleep() to ensure proper cleanup
-        self.sleep()
         if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
@@ -1010,14 +1002,6 @@ class AgentLoopManager:
         timing["agent_loop/slowest/num_preempted"] = num_preempted[slowest]
 
         return timing
-
-    def wake_up(self):
-        """Wake up all rollout replica instances."""
-        self._run_all([replica.wake_up() for replica in self.rollout_replicas])
-
-    def sleep(self):
-        """Sleep all rollout replica instances."""
-        self._run_all([replica.sleep() for replica in self.rollout_replicas])
 
     def clear_kv_cache(self):
         """Clear all rollout kv cache, but don`t sleep."""

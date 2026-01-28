@@ -41,24 +41,99 @@ from sglang.srt.managers.tokenizer_manager import ServerStatus
 
 from verl.single_controller.ray import RayClassWithInitArgs
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import (
-    get_visible_devices_keyword,
-)
+from verl.utils.device import get_visible_devices_keyword
+from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
 from verl.utils.profiler.profile import DistProfiler
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import ServerAdapter, _set_envs_and_config
-from verl.workers.rollout.utils import (
-    get_free_port,
-    get_max_position_embeddings,
-    is_valid_ipv6_address,
-    run_unvicorn,
-)
+from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
 
 visible_devices_keyword = get_visible_devices_keyword()
+
+
+class SGLangProfilerArgsBuilder:
+    """Builder for SGLang profiling parameters, decoupling profiler parameter logic from the core service class."""
+
+    def __init__(
+        self,
+        profiler_controller: DistProfiler,
+        rollout_config: RolloutConfig,
+        replica_rank: int,
+    ):
+        self.profiler_controller = profiler_controller
+        self.rollout_config = rollout_config
+        self.replica_rank = replica_rank
+        self.auto_stop_profiling = False
+
+    def build_profile_args(self, **kwargs) -> dict[str, Any]:
+        global_step = kwargs.pop("global_step", 0)
+        config = self.profiler_controller.tool_config
+        contents = self.profiler_controller.tool_config.contents
+
+        save_path = os.path.join(
+            self.rollout_config.profiler.save_path,
+            f"rollout_step_{global_step}",
+            f"agent_loop_replica_{self.replica_rank}",
+        )
+        os.makedirs(save_path, exist_ok=True)
+
+        profiler_tool = self.rollout_config.profiler.tool
+        activities: Optional[list[str]] = None
+        if contents and profiler_tool:
+            activities_tmp = []
+            check_map = {
+                "cpu": ("CPU", "torch"),
+                "cuda|gpu": ("GPU", "torch"),
+                "MEM": ("MEM", "torch_memory"),
+            }
+            for key, (act, tool) in check_map.items():
+                if any(k in contents for k in key.split("|")):
+                    activities_tmp.append(act)
+                    if profiler_tool != tool:
+                        raise ValueError(f"{act} profiling requires '{tool}' (got '{profiler_tool}')")
+            for unsupported in ("CUDA_PROFILER", "RPD"):
+                if unsupported in contents:
+                    raise NotImplementedError(f"{unsupported} profiling is not supported")
+            activities = activities_tmp if len(activities_tmp) > 0 else activities
+
+        with_stack = bool(contents) and "stack" in contents
+        record_shapes = bool(contents) and "shapes" in contents
+        # Profiling by stage of Prefill or Decode
+        profile_by_stage = bool(contents) and "profile-by-stage" in contents
+        # Merge profiles from all ranks into a single trace
+        merge_profiles = bool(contents) and "merge-profiles" in contents
+
+        # Rollout start step must be greater than 0 for sglang
+        rollout_start_step = config.step_start if config.step_end is not None else 1
+        rollout_end_step = config.step_end if config.step_end is not None else -1
+        rollout_num_steps = rollout_end_step - rollout_start_step
+        self.auto_stop_profiling = rollout_num_steps > 0
+
+        # num_steps must be greater than 0 or None in SGLang.
+        rollout_num_steps = None if rollout_num_steps <= 0 else rollout_num_steps
+
+        if rollout_num_steps is None and profile_by_stage:
+            raise Exception(
+                "profile_by_stage requires rollout_num_steps to be set (possible limitation in sglang <= 0.5.5)"
+            )
+
+        # start_step must be greater than 0 for sglang
+        rollout_start_step = max(rollout_start_step, 1)
+
+        return {
+            "start_step": rollout_start_step,
+            "num_steps": rollout_num_steps,
+            "activities": activities,
+            "with_stack": with_stack,
+            "record_shapes": record_shapes,
+            "output_dir": save_path,
+            "profile_by_stage": profile_by_stage,
+            "merge_profiles": merge_profiles,
+        }, self.auto_stop_profiling
 
 
 class SGLangHttpServer:
@@ -93,7 +168,15 @@ class SGLangHttpServer:
 
         self.config: RolloutConfig = omega_conf_to_dataclass(config)
         self.model_config: HFModelConfig = omega_conf_to_dataclass(model_config, dataclass_type=HFModelConfig)
-        self.config.max_model_len = get_max_position_embeddings(self.model_config.hf_config)
+        max_position_embeddings = get_max_position_embeddings(self.model_config.hf_config)
+        if self.config.max_model_len is None:
+            self.config.max_model_len = max_position_embeddings
+        else:
+            if self.config.max_model_len > max_position_embeddings:
+                raise ValueError(
+                    f"max_model_len ({self.config.max_model_len}) should be less than or equal to "
+                    f"max_position_embeddings ({max_position_embeddings})"
+                )
         self.rollout_mode = rollout_mode
         self.workers = workers
 
@@ -284,9 +367,12 @@ class SGLangHttpServer:
         self.tokenizer_manager.server_status = ServerStatus.Up
 
     async def wake_up(self):
+        if self.node_rank != 0:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            # Call all workers to switch between trainer mode and rollout mode.
-            await asyncio.gather(*[worker.wake_up.remote() for worker in self.workers])
+            # In hybrid mode, rollout is wake up in `update_weights`
+            raise ValueError(f"wake_up not support rollout_mode {self.rollout_mode}")
         elif self.rollout_mode == RolloutMode.COLOCATED:
             # Directly call engine to wake up without sync weights.
             obj = ResumeMemoryOccupationReqInput(tags=["kv_cache", "weights"])
@@ -296,8 +382,12 @@ class SGLangHttpServer:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
+        if self.node_rank != 0 or not self.config.free_cache_engine:
+            return
+
         if self.rollout_mode == RolloutMode.HYBRID:
-            await asyncio.gather(*[worker.sleep.remote() for worker in self.workers])
+            obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache", "weights"])
+            await self.tokenizer_manager.release_memory_occupation(obj, None)
         elif self.rollout_mode == RolloutMode.COLOCATED:
             obj = ReleaseMemoryOccupationReqInput(tags=["kv_cache", "weights"])
             await self.tokenizer_manager.release_memory_occupation(obj, None)
@@ -394,20 +484,17 @@ class SGLangHttpServer:
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
         ):
-            contents = self.profiler_controller.tool_config.contents
-            save_path = os.path.join(self.config.profiler.save_path, f"agent_loop_replica_{self.replica_rank}")
-            await self.tokenizer_manager.start_profile(
-                output_dir=save_path,
-                with_stack=contents is None or "stack" in contents,
-                record_shapes=contents is None or "shapes" in contents,
-                **kwargs,
-            )
+            profile_args, self._auto_stop_profiling = SGLangProfilerArgsBuilder(
+                profiler_controller=self.profiler_controller, rollout_config=self.config, replica_rank=self.replica_rank
+            ).build_profile_args(**kwargs)
+            await self.tokenizer_manager.start_profile(**profile_args)
 
     async def stop_profile(self):
         if (
             self.profiler_controller.check_enable()
             and self.profiler_controller.check_this_rank()
             and self.profiler_controller.is_discrete_mode()
+            and not self._auto_stop_profiling
         ):
             await self.tokenizer_manager.stop_profile()
 
