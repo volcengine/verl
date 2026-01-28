@@ -50,13 +50,9 @@ kl_loss_coef=0.001
 all_offload=True
 use_dynamic_bsz=False
 
-# FSDP Configuration
-train_tp=4
-train_sp=4
-
 # SGLang Configuration
 gen_tp=4
-gen_sp=4
+gen_sp=1
 gen_dp=1
 gen_ep=1
 gpu_memory_utilization=0.5
@@ -111,7 +107,6 @@ ACTOR_CONFIG=(
     actor_rollout_ref.actor.optim.lr=1e-6
     actor_rollout_ref.actor.fsdp_config.param_offload=${all_offload}
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=${all_offload}
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=${train_sp}
     )
 
 # Reference Model Configuration
@@ -121,7 +116,6 @@ REF_CONFIG=(
     # Log Probability Inference
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1
     actor_rollout_ref.ref.log_prob_use_dynamic_bsz=${use_dynamic_bsz}
-    actor_rollout_ref.ref.ulysses_sequence_parallel_size=${train_sp}
     # Memory Optimization
     actor_rollout_ref.ref.fsdp_config.param_offload=${all_offload}
 )
