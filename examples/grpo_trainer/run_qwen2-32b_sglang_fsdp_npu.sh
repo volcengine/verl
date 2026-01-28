@@ -175,7 +175,7 @@ TRAINER_CONFIG=(
 # Add the reward function processing for the DeepScaler dataset here
 python3 -m verl.trainer.main_ppo \
     --config-path=config \
-    --config-name='ppo_megatron_trainer.yaml' \
+    --config-name='ppo_trainer.yaml' \
     custom_reward_function.path=recipe/r1_ascend/deepscaler.py \
     custom_reward_function.name=compute_score \
     "${DATA_CONFIG[@]}" \
