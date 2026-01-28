@@ -156,7 +156,6 @@ TRAINER_CONFIG=(
     trainer.experiment_name="${exp_name}"
     trainer.nnodes="${NNODES}"
     trainer.n_gpus_per_node="${NPUS_PER_NODE}"
-    trainer.device='npu'
     trainer.total_epochs=5
     trainer.val_before_train=False
     trainer.test_freq=-1
