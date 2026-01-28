@@ -322,9 +322,7 @@ class TRTLLMReplica(RolloutReplica):
         print(f"pgs: {pgs}")
         print(f"bundle_indices: {bundle_indices}")
 
-        runtime_env_vars = {
-            "TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"
-        }
+        runtime_env_vars = {"TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"}
         server = TRTLLMHttpServer.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=node_id,
