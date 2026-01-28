@@ -65,7 +65,6 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import tqbridge
-from verl.utils.vllm import TensorLoRARequest
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 from tensordict import TensorDict
@@ -1161,15 +1160,15 @@ class RayPPOTrainer:
         the same uid together on the same rank for prefix sharing optimization.
         """
         if isinstance(batch, DataProto):
-            attention_mask = batch["attention_mask"]
-            batch_size = attention_mask.shape[0]
-            global_seqlen_lst = attention_mask.sum(-1)
-            uid_container = batch.non_tensor_batch
-            is_dataproto = True
-        else:
             attention_mask = batch.batch["attention_mask"]
             batch_size = attention_mask.shape[0]
             global_seqlen_lst = batch.batch["attention_mask"].view(batch_size, -1).sum(-1)  # (train_batch_size,)
+            uid_container = batch.non_tensor_batch
+            is_dataproto = True
+        else:
+            attention_mask = batch["attention_mask"]
+            batch_size = attention_mask.shape[0]
+            global_seqlen_lst = attention_mask.sum(-1)
             uid_container = deepcopy(batch)
             is_dataproto = False
 
