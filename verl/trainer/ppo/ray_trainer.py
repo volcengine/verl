@@ -34,6 +34,7 @@ from omegaconf import OmegaConf, open_dict
 from torch.utils.data import Dataset, Sampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from tqdm import tqdm
+from tensordict import TensorDict
 
 from verl import DataProto
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
@@ -66,7 +67,7 @@ from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.config import FSDPEngineConfig
 from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
-
+from tensordict import TensorDict
 
 @dataclass
 class ResourcePoolManager:
@@ -537,13 +538,13 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
-    @tqbridge(put_data=False)
+    @tqbridge(put_data=False, convert_type="TensorDict")
     def _compute_or_extract_reward(
-        self,
-        batch: DataProto,
-        reward_fn=None,
-        reward_for_val: bool = False,
-        sum_reward: bool = False,
+            self,
+            batch: TensorDict,
+            reward_fn=None,
+            reward_for_val: bool = False,
+            sum_reward: bool = False,
     ) -> tuple[torch.Tensor, dict[str, Any]] | torch.Tensor:
         """
         Compute or extract reward from batch.
@@ -563,17 +564,18 @@ class RayPPOTrainer:
             Otherwise: tuple of (reward_tensor, reward_extra_infos_dict)
         """
         # When rm_scores already exists, extract it directly (format conversion only)
-        if "rm_scores" in batch.batch.keys():
-            reward_tensor = batch.batch["rm_scores"]
+        if "rm_scores" in batch.keys():
+            reward_tensor = batch["rm_scores"]
             if sum_reward:
                 reward_tensor = reward_tensor.sum(dim=-1)
 
             if not reward_for_val and sum_reward:
                 return reward_tensor
 
-            reward_extra_keys = batch.meta_info.get("reward_extra_keys", [])
+            reward_extra_keys = batch.get("reward_extra_keys", [])
+            print(reward_extra_keys)
             reward_extra_infos_dict = (
-                {key: batch.non_tensor_batch[key] for key in reward_extra_keys} if reward_extra_keys else {}
+                {key: batch[key] for key in reward_extra_keys.data} if reward_extra_keys is not [] else {}
             )
             return reward_tensor, reward_extra_infos_dict
 
@@ -581,6 +583,7 @@ class RayPPOTrainer:
         if reward_fn is None:
             raise ValueError("reward_fn must be provided when rm_scores is not available.")
 
+        # TODO(TQ): shall we wrap the batch into a dataproto for reward_fn and compute_reward?
         if reward_for_val:
             result = reward_fn(batch, return_dict=True)
             reward_tensor = result["reward_tensor"]
@@ -1149,7 +1152,6 @@ class RayPPOTrainer:
             dp_rank_mapping = worker_group._dispatch_info[role]
         return max(dp_rank_mapping) + 1
 
-    @tqbridge(put_data=False)
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
         """Reorder the data on single controller such that each dp rank gets similar total tokens.
 
@@ -1213,14 +1215,12 @@ class RayPPOTrainer:
                 global_partition_lst[idx] = ordered_partition
 
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
-        global_idx = [j for partition in global_partition_lst for j in partition]
-        batch.reorder(torch.tensor(global_idx))  # TODO: Remove once TransferQueue is default dependency.
+        global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
+        batch.reorder(global_idx)
         global_balance_stats = log_seqlen_unbalance(
             seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
         )
         metrics.update(global_balance_stats)
-
-        return global_idx
 
     def _compute_values(self, batch: DataProto) -> DataProto:
         if self.use_legacy_worker_impl == "disable":

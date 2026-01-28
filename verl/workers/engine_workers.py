@@ -44,7 +44,6 @@ from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
-from verl.workers.utils.padding import left_right_2_no_padding, no_padding_2_padding
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -194,8 +193,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
 
         """
         # TODO(TQ): need to remove the pad and unpad processing
-        if self.tq_config is not None and self.tq_config["enable"]:
-            data = left_right_2_no_padding(data)
+        data["loss_mask"] = data["response_mask"]
         maybe_fix_3d_position_ids(data)
         batch_size_per_dp = data.shape[0]
         disable_auto_offload = tu.pop(data, key="disable_auto_offload", default=False)
@@ -563,10 +561,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def compute_ref_log_prob(self, data: TensorDict) -> TensorDict:
         # TODO(TQ): need to remove the pad and unpad processing
         if self.tq_config is not None and self.tq_config["enable"]:
-            data = left_right_2_no_padding(data)
+            data["loss_mask"] = data["response_mask"]
             output = self.ref.infer_batch(data=data)
             log_probs = tu.get(output, "log_probs")
-            log_probs = no_padding_2_padding(log_probs, data)
             output = tu.get_tensordict({"ref_log_prob": log_probs.float()})
         else:
             output = self.ref.infer_batch(data=data)
@@ -579,13 +576,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
         # TODO(TQ): need to remove the pad and unpad processing
         if self.tq_config is not None and self.tq_config["enable"]:
-            data = left_right_2_no_padding(data)
+            data["loss_mask"] = data["response_mask"]
             output = self.actor.infer_batch(data)
             entropy = tu.get(output, "entropy")
             log_probs = tu.get(output, "log_probs")
             metrics = tu.get(output, "metrics")
-            entropy = no_padding_2_padding(entropy, data)
-            log_probs = no_padding_2_padding(log_probs, data)
             output = tu.get_tensordict({"log_probs": log_probs.float(), "entropys": entropy.float()})
             tu.assign_non_tensor_data(output, key="metrics", val=metrics)
         else:

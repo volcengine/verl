@@ -911,7 +911,8 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
 
                     # compute global_valid tokens
                     data = self.tq_client.get_data(batch_meta.select_fields(["attention_mask"]))
-                    batch_meta.extra_info["global_token_num"] = torch.sum(data["attention_mask"], dim=-1).tolist()
+                    tu.nested_tensor_to_jagged(data)
+                    batch_meta.extra_info["global_token_num"] = data["attention_mask"].sum(-1).tolist()
 
                     # get images_seqlens
                     images_seqlens_all = []
@@ -1008,6 +1009,7 @@ class RayPPOTrainerTransferQueue(RayPPOTrainer):
                             old_log_prob_output_meta.field_names.remove("log_probs")
                             old_log_prob_output_meta.field_names.remove("entropys")
 
+                            tu.nested_tensor_to_jagged(data)
                             entropys = data["entropys"]
                             response_masks = data["response_mask"]
                             actor_config = self.config.actor_rollout_ref.actor

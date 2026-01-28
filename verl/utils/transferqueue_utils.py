@@ -172,6 +172,7 @@ async def _async_batchmeta_to_realdata(
             return empty_td
 
     tensordict = await _TRANSFER_QUEUE_CLIENT.async_get_data(batchmeta)
+    tu.nested_tensor_to_jagged(tensordict)
 
     if convert_type == "DataProto":
         if all(not isinstance(val, torch.Tensor) for val in tensordict.values()):

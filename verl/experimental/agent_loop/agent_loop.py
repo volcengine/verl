@@ -734,6 +734,8 @@ class AgentLoopWorker:
         for key in keys_to_pop:
             del data[key]
 
+        # TODO(TQ): we do not need to put everything into TQ, skip the unchanged input variables
+
         return await self.tq_client.async_put(data=data, metadata=batch_meta)
 
     async def _agent_loop_postprocess(self, output: AgentLoopOutput, **kwargs) -> _InternalAgentLoopOutput:

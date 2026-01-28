@@ -143,6 +143,13 @@ def get_non_tensor_keys(td: TensorDict) -> set:
     return set(non_tensor_keys)
 
 
+def nested_tensor_to_jagged(td: TensorDict):
+    for key, val in td.items():
+        if isinstance(val, torch.Tensor):
+            data = td[key].unbind()
+            td[key] = torch.nested.as_nested_tensor(data, layout=torch.jagged)
+
+
 def get_non_tensor_data(data: TensorDict, key: str, default):
     """Retrieve and unwrap non-tensor data from a TensorDict.
 
