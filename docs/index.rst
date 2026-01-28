@@ -90,6 +90,7 @@ verl is fast with:
    workers/fsdp_workers
    workers/megatron_workers
    workers/sglang_worker
+   workers/trtllm_worker
    workers/model_engine
 
 .. toctree::
@@ -103,6 +104,7 @@ verl is fast with:
    perf/device_tuning
    perf/verl_profiler_system.md
    perf/nsight_profiling.md
+   perf/torch_profiling.md
 
 .. toctree::
    :maxdepth: 1
@@ -134,6 +136,7 @@ verl is fast with:
    advance/grafana_prometheus.md
    advance/fp8.md
    advance/async-on-policy-distill
+   advance/mtp.md
 
 .. toctree::
    :maxdepth: 1
@@ -147,6 +150,8 @@ verl is fast with:
    ascend_tutorial/ascend_profiling_en.rst
    ascend_tutorial/dockerfile_build_guidance.rst
    ascend_tutorial/ascend_sglang_quick_start.rst
+   ascend_tutorial/ascend_optimization_pratice/gspo_optimization_practice.md
+   ascend_tutorial/ascend_best_practice/dapo_multi_model_optimization_practice.md
 
 .. toctree::
    :maxdepth: 1
