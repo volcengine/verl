@@ -100,7 +100,7 @@ jobs:
           pip install git+https://github.com/ByteDance-Seed/VeOmni.git@v0.1.4
           pip install pandas==2.3.3
           pip uninstall -y mbridge
-          pip install git+https://github.com/ISEEKYAN/mbridge.git@2334188
+          pip install git+https://github.com/ISEEKYAN/mbridge.git@89eb10
       - name: Check final pip list
         run: |
           pip list
