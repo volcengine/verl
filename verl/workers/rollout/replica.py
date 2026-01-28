@@ -216,15 +216,11 @@ class RolloutReplica(ABC):
 
     async def abort_all_requests(self):
         """Partial rollout: abort and save all unfinished requests in each rollout server."""
-        # TODO(wuxibin)
-        # await asyncio.gather(*[server.abort_all_requests.remote() for server in self.servers])
-        print(f"abort all requests in rollout replica {self.replica_rank}")
+        await asyncio.gather(*[server.abort_all_requests.remote() for server in self.servers])
 
     async def resume_all_requests(self):
         """Partial rollout: resume all unfinished requests in each rollout server."""
-        # TODO(wuxibin)
-        # await asyncio.gather(*[server.resume_all_requests.remote() for server in self.servers])
-        print(f"resume all requests in rollout replica {self.replica_rank}")
+        await asyncio.gather(*[server.resume_all_requests.remote() for server in self.servers])
 
     async def clear_kv_cache(self):
         """reset kv cache in each rollout server."""

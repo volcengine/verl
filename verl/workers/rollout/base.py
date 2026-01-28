@@ -194,7 +194,10 @@ def resume_on_abort(func):
             if output.stop_reason != "abort":
                 break
             retry_count += 1
-            logger.info(f"Resume generation for request {request_id} after abort, retry count: {retry_count}")
+            logger.info(
+                f"Resume generation for request {request_id} after abort, retry count: {retry_count}, "
+                f"output token_ids: {len(output.token_ids)}, final_output token_ids: {len(final_output.token_ids)}"
+            )
 
         final_output.finish_model_version = self.model_version
         return final_output
