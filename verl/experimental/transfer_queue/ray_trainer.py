@@ -24,7 +24,6 @@ import math
 import os
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
 from pprint import pprint
 from typing import Any, Optional
 
@@ -47,8 +46,9 @@ from transfer_queue import (
 )
 
 from verl import DataProto
+from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.dataset.sampler import AbstractCurriculumSampler
-from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup, ResourcePoolManager
 from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
@@ -70,63 +70,6 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
 from verl.utils.transferqueue_utils import create_transferqueue_client, get_transferqueue_client, tqbridge
-
-
-@dataclass
-class ResourcePoolManager:
-    """
-    Define a resource pool specification. Resource pool will be initialized first.
-    """
-
-    resource_pool_spec: dict[str, list[int]]
-    mapping: dict[Role, str]
-    resource_pool_dict: dict[str, RayResourcePool] = field(default_factory=dict)
-
-    def create_resource_pool(self):
-        """Create Ray resource pools for distributed training.
-
-        Initializes resource pools based on the resource pool specification,
-        with each pool managing GPU resources across multiple nodes.
-        For FSDP backend, uses max_colocate_count=1 to merge WorkerGroups.
-        For Megatron backend, uses max_colocate_count>1 for different models.
-        """
-        for resource_pool_name, process_on_nodes in self.resource_pool_spec.items():
-            # max_colocate_count means the number of WorkerGroups (i.e. processes) in each RayResourcePool
-            # For FSDP backend, we recommend using max_colocate_count=1 that merge all WorkerGroups into one.
-            # For Megatron backend, we recommend using max_colocate_count>1
-            # that can utilize different WorkerGroup for differnt models
-            resource_pool = RayResourcePool(
-                process_on_nodes=process_on_nodes, use_gpu=True, max_colocate_count=1, name_prefix=resource_pool_name
-            )
-            self.resource_pool_dict[resource_pool_name] = resource_pool
-
-        self._check_resource_available()
-
-    def get_resource_pool(self, role: Role) -> RayResourcePool:
-        """Get the resource pool of the worker_cls"""
-        return self.resource_pool_dict[self.mapping[role]]
-
-    def get_n_gpus(self) -> int:
-        """Get the number of gpus in this cluster."""
-        return sum([n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes])
-
-    def _check_resource_available(self):
-        """Check if the resource pool can be satisfied in this ray cluster."""
-        node_available_resources = ray._private.state.available_resources_per_node()
-        node_available_gpus = {
-            node: node_info.get("GPU", 0) if "GPU" in node_info else node_info.get("NPU", 0)
-            for node, node_info in node_available_resources.items()
-        }
-
-        # check total required gpus can be satisfied
-        total_available_gpus = sum(node_available_gpus.values())
-        total_required_gpus = sum(
-            [n_gpus for process_on_nodes in self.resource_pool_spec.values() for n_gpus in process_on_nodes]
-        )
-        if total_available_gpus < total_required_gpus:
-            raise ValueError(
-                f"Total available GPUs {total_available_gpus} is less than total desired GPUs {total_required_gpus}"
-            )
 
 
 @tqbridge(put_data=False)
@@ -912,6 +855,15 @@ class RayPPOTrainer:
                 rm_resource_pool=rm_resource_pool,
             )
 
+            self.checkpoint_manager = CheckpointEngineManager(
+                backend=self.config.actor_rollout_ref.rollout.checkpoint_engine.backend,
+                trainer=self.actor_rollout_wg,
+                replicas=self.async_rollout_manager.rollout_replicas,
+            )
+
+            # sleep all replicas to load checkpoint
+            self.checkpoint_manager.sleep_replicas()
+
             # TODO (TQ): initialize tq during worker init when enable TQ switch is stable
             self.async_rollout_manager.create_transferqueue_client_for_workers()
 
@@ -1186,8 +1138,9 @@ class RayPPOTrainer:
 
         self.global_steps = 0
 
-        # load checkpoint before doing anything
+        # load checkpoint and update weights before doing anything
         self._load_checkpoint()
+        self.checkpoint_manager.update_weights()
 
         # perform validation before training
         # currently, we only support validation using the reward_function.
@@ -1258,6 +1211,7 @@ class RayPPOTrainer:
                             gen_output_meta = self.actor_rollout_wg.generate_sequences(gen_meta)
                         else:
                             gen_output_meta = self.async_rollout_manager.generate_sequences(gen_meta)
+                        self.checkpoint_manager.sleep_replicas()
                         timing_raw.update(gen_output_meta.extra_info["timing"])
                         gen_output_meta.extra_info.pop("timing", None)
 
@@ -1561,6 +1515,11 @@ class RayPPOTrainer:
 
                             actor_output_meta = self.actor_rollout_wg.update_actor(update_actor_meta)
                             batch_meta = batch_meta.union(actor_output_meta)
+
+                        # update weights from trainer to rollout
+                        with marked_timer("update_weights", timing_raw, color="red"):
+                            self.checkpoint_manager.update_weights()
+
                         actor_output_metrics = reduce_metrics(actor_output_meta.extra_info["metrics"])
                         metrics.update(actor_output_metrics)
 

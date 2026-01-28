@@ -218,6 +218,23 @@ class RewardLoopWorker:
             }
             output = await self._post_request(payloads, "v1/embeddings")
             rm_score = output["data"][-1]["embedding"][-1]
+        elif engine_name == "trtllm":
+            # TODO: remove this once TRT-LLM switches to TorchSampler
+            raise ValueError("TensorRT-LLM backend does not support reward models currently.")
+
+            payloads = {
+                "model": model_name,
+                "prompt": disrm_prompt,
+                "return_context_logits": True,
+            }
+            output = await self._post_request(payloads, "v1/completions")
+            rm_score = output["choices"][0]["context_logits"]
+            assert isinstance(rm_score, list) and len(rm_score) > 0, (
+                "TensorRT-LLM OpenAI server response for reward score is not in the expected format."
+            )
+
+            rm_score = float(rm_score[0][0])
+            logger.debug(f"rm score: {rm_score}")
         else:
             raise NotImplementedError(f"RewardLoopManager does not support {engine_name}")
 
