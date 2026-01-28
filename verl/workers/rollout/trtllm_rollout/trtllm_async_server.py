@@ -322,6 +322,13 @@ class TRTLLMReplica(RolloutReplica):
         print(f"pgs: {pgs}")
         print(f"bundle_indices: {bundle_indices}")
 
+        # TRTLLMReplica is a 1:1 map from replica to TRTLLMHttpServer.
+        name = (
+            f"trtllm_server_{self.replica_rank}"
+            if not self.is_reward_model
+            else f"trtllm_server_reward_{self.replica_rank}"
+        )
+        
         runtime_env_vars = {"TLLM_NUMA_AWARE_WORKER_AFFINITY": "0"}
         server = TRTLLMHttpServer.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
@@ -329,6 +336,7 @@ class TRTLLMReplica(RolloutReplica):
                 soft=False,
             ),
             runtime_env={"env_vars": runtime_env_vars},
+            name=name,
         ).remote(
             config=self.config,
             model_config=self.model_config,
