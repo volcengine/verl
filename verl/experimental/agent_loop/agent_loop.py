@@ -865,11 +865,6 @@ class AgentLoopManager:
         self.worker_group = worker_group
         self.reward_model_manager = None
         self.reward_router_address = None
-        if self.config.reward_model.enable and self.config.reward_model.enable_resource_pool:
-            from verl.experimental.reward_loop import RewardModelManager
-
-            self.reward_model_manager = RewardModelManager(config.reward_model, rm_resource_pool)
-            self.reward_router_address = self.reward_model_manager.get_router_address()
 
         # for recipe to change
         if not hasattr(self, "rollout_replica_class"):
@@ -889,6 +884,13 @@ class AgentLoopManager:
         """Create agent loop manager."""
 
         instance = cls(config, worker_group, rollout_resource_pool, rm_resource_pool)
+
+        if config.reward_model.enable and config.reward_model.enable_resource_pool:
+            from verl.experimental.reward_loop import RewardModelManager
+
+            instance.reward_model_manager = await RewardModelManager.create(config.reward_model, rm_resource_pool)
+            instance.reward_router_address = instance.reward_model_manager.get_router_address()
+
         await instance._initialize_llm_servers(rollout_resource_pool)
         instance._init_agent_loop_workers()
         return instance

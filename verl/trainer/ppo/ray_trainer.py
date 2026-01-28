@@ -820,7 +820,7 @@ class RayPPOTrainer:
 
                 self.config.reward_model.n_gpus_per_node = self.config.trainer.n_gpus_per_node
                 resource_pool = self.resource_pool_manager.get_resource_pool(Role.RewardModel)
-                self.reward_loop_manager = RewardLoopManager(
+                self.reward_loop_manager = RewardLoopManager.create(
                     config=self.config,
                     rm_resource_pool=resource_pool,
                 )
