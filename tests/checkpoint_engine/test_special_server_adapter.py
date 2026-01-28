@@ -58,7 +58,7 @@ async def test_server_adapter(init_config):
             "env_vars": {
                 "TOKENIZERS_PARALLELISM": "true",
                 "NCCL_DEBUG": "WARN",
-                "VLLM_LOGGING_LEVEL": "INFO",
+                "VLLM_LOGGING_LEVEL": "DEBUG",
                 "VLLM_USE_V1": "1",
                 "VLLM_DISABLE_COMPILE_CACHE": "1",
             }

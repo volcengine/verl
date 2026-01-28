@@ -15,6 +15,7 @@ import asyncio
 import functools
 import importlib
 import logging
+import os
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Generator, Optional
@@ -30,7 +31,7 @@ from verl.workers.config import HFModelConfig, RolloutConfig
 __all__ = ["BaseRollout"]
 
 logger = logging.getLogger(__file__)
-logger.setLevel(logging.INFO)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class BaseRollout(ABC):
@@ -194,7 +195,7 @@ def resume_on_abort(func):
             if output.stop_reason != "abort":
                 break
             retry_count += 1
-            logger.info(
+            logger.debug(
                 f"Resume generation for request {request_id} after abort, retry count: {retry_count}, "
                 f"output token_ids: {len(output.token_ids)}, final_output token_ids: {len(final_output.token_ids)}"
             )
