@@ -33,7 +33,7 @@ RUN sed -i '/nvidia-cudnn-cu12/d' /usr/local/lib/python3.12/dist-packages/torch-
 RUN pip install --no-deps --force-reinstall nvidia-cudnn-cu12==9.16.0.29
 
 # Use prebuilt wheel instead of compiling from source (saves 30-60 minutes)
-RUN pip install vllm==0.12.0 --only-binary=:all:
+RUN pip install vllm==0.12.0
 
 RUN pip install pybind11
 
