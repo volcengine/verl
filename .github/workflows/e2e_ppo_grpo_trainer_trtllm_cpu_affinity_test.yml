@@ -87,6 +87,7 @@ jobs:
           fetch-depth: 0
       - name: Install the current repository
         run: |
+          pip3 install ray==2.41.0
           pip3 install -r requirements-test.txt
           pip3 install --no-deps -e .
       - name: Prepare GSM8K dataset
