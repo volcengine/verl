@@ -112,6 +112,13 @@ common_params=(
 
 )
 
+    # Detect device
+    device_name=$(python3 - <<'EOF'
+from verl.utils.device import get_device_name
+print(get_device_name())
+EOF
+)
+
 if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
     echo "Running with FSDP2 strategy..."
     # FSDP2 specific parameters
@@ -120,6 +127,15 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
     fsdp_size=2
     ref_offload=True
     actor_offload=False
+
+    extra_npu_args=()
+    
+    if [ "$device_name" == "npu" ]; then
+        echo "Detect NPU device, enabling FlashAttention..."
+        extra_npu_args+=(
+            +actor_rollout_ref.rollout.engine_kwargs.vllm.compilation_config.cudagraph_mode="FULL_AND_PIECEWISE"
+        )
+    fi
 
     python3 -m verl.experimental.one_step_off_policy.main_ppo \
         "${common_params[@]}" \
@@ -137,6 +153,7 @@ if [ "${ACTOR_STRATEGY}" == "fsdp2" ]; then
         actor_rollout_ref.rollout.tensor_model_parallel_size=${gen_tp} \
         actor_rollout_ref.ref.fsdp_config.param_offload=${ref_offload} \
         actor_rollout_ref.ref.ulysses_sequence_parallel_size=${sp_size} \
+        "${extra_npu_args[@]}" \
         actor_rollout_ref.actor.fsdp_config.fsdp_size=${fsdp_size} $@
 
 elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
@@ -148,18 +165,14 @@ elif [ "${ACTOR_STRATEGY}" == "megatron" ]; then
     ref_offload=True
     actor_offload=False
 
-    # Detect device
-    device_name=$(python3 - <<'EOF'
-from verl.utils.device import get_device_name
-print(get_device_name())
-EOF
-)
+
 
     extra_flash_args=()
 
     if [ "$device_name" == "npu" ]; then
         echo "Detect NPU device, enabling FlashAttention..."
         extra_flash_args+=(
+            +actor_rollout_ref.rollout.engine_kwargs.vllm.compilation_config.cudagraph_mode="FULL_AND_PIECEWISE" \
             ++actor_rollout_ref.actor.megatron.override_transformer_config.use_flash_attn=True
         )
     fi
