@@ -231,20 +231,20 @@ class SFTTrainer:
         else:
             batch_seqlens: torch.Tensor = data["attention_mask"].sum(dim=-1)
         batch_seqlens = batch_seqlens.to(self.device_name)  # (global_bsz // dp)
+        if self.engine.get_data_parallel_size() > 1:
+            output_tensor = torch.empty(
+                (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
+                dtype=batch_seqlens.dtype,
+                device=self.device_name,
+            )  # (global_bsz,)
 
-        output_tensor = torch.empty(
-            (batch_seqlens.shape[0] * self.engine.get_data_parallel_size(),),
-            dtype=batch_seqlens.dtype,
-            device=self.device_name,
-        )  # (global_bsz,)
+            torch.distributed.all_gather_into_tensor(
+                output_tensor=output_tensor,
+                input_tensor=batch_seqlens,
+                group=self.engine.get_data_parallel_group(),
+            )
 
-        torch.distributed.all_gather_into_tensor(
-            output_tensor=output_tensor,
-            input_tensor=batch_seqlens,
-            group=self.engine.get_data_parallel_group(),
-        )
-
-        batch_seqlens = output_tensor.tolist()
+            batch_seqlens = output_tensor.tolist()
         return batch_seqlens
 
     def fit(self):

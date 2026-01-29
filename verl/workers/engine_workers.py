@@ -237,7 +237,9 @@ class TrainingWorker(Worker, DistProfilerExtension):
                 # add global token num
                 global_token_num = mini_batch_td["input_ids"].offsets().diff().tolist()  # (total_nnz,)
                 # allgather from dp rank
-                global_token_num_output = [None] * self.engine.get_data_parallel_size()
+                global_token_num_output = [None] * torch.distributed.get_world_size(
+                    self.engine.get_data_parallel_group()
+                )
                 torch.distributed.all_gather_object(
                     global_token_num_output, global_token_num, self.engine.get_data_parallel_group()
                 )

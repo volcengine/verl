@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
 import torch
 
 from verl.utils.megatron_utils import unwrap_model
@@ -23,11 +25,11 @@ from .util import (
     postprocess_bshd,
     postprocess_bshd_no_padding,
     postprocess_packed_seqs,
-    postprocess_thd_no_padding,
+    postprocess_thd_engine,
     preprocess_bshd,
     preprocess_bshd_no_padding,
     preprocess_packed_seqs,
-    preprocess_thd_no_padding,
+    preprocess_thd_engine,
 )
 
 
@@ -158,7 +160,7 @@ def model_forward_gen(vision_model: bool = False):
     return model_forward
 
 
-def gptmodel_forward_no_padding(
+def gptmodel_forward_model_engine(
     model,
     input_ids,
     multi_modal_inputs: dict,
@@ -168,6 +170,7 @@ def gptmodel_forward_no_padding(
     vision_model=False,
     pad_token_id=None,
     data_format: str = "thd",
+    local_cp_size: Optional[int] = None,
 ):
     """Default forward pass for GPT models with optional sequence packing."""
 
@@ -187,7 +190,9 @@ def gptmodel_forward_no_padding(
 
     batch_size = input_ids.shape[0]
     if data_format == "thd":
-        input_ids_rmpad, packed_seq_params = preprocess_thd_no_padding(input_ids, pre_process=pre_process)
+        input_ids_rmpad, packed_seq_params = preprocess_thd_engine(
+            input_ids, pre_process=pre_process, local_cp_size=local_cp_size
+        )
         input_ids_rmpad = input_ids_rmpad.contiguous()
 
         # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
@@ -209,17 +214,24 @@ def gptmodel_forward_no_padding(
 
         if post_process and logits_processor is not None:
             args = {
-                k: preprocess_thd_no_padding(v, pre_process=True, need_roll=(k == "label"))[0]
+                k: preprocess_thd_engine(v, pre_process=True, need_roll=(k == "label"), local_cp_size=local_cp_size)[0]
                 for k, v in logits_processor_args.items()
             }
             output_dict = logits_processor(output_orig, **args)
             output = {
-                k: postprocess_thd_no_padding(v, packed_seq_params, input_ids, batch_size, post_process=post_process)
+                k: postprocess_thd_engine(
+                    v, packed_seq_params, input_ids, batch_size, post_process=post_process, local_cp_size=local_cp_size
+                )
                 for k, v in output_dict.items()
             }
         else:
-            output = postprocess_thd_no_padding(
-                output_orig, packed_seq_params, input_ids, batch_size, post_process=post_process
+            output = postprocess_thd_engine(
+                output_orig,
+                packed_seq_params,
+                input_ids,
+                batch_size,
+                post_process=post_process,
+                local_cp_size=local_cp_size,
             )
     else:
         """
@@ -229,6 +241,7 @@ def gptmodel_forward_no_padding(
         When using the bshd format, we have to add paddings to the input_ids to meet the longest sequence length, 
         so it is recommended to disable dynamic batch size and set batch size to 1
         """
+        assert local_cp_size is None, "dynamic_CP is not supported for bshd format"
 
         input_ids_bshd, attention_mask_bshd, position_ids_bshd = preprocess_bshd_no_padding(
             input_ids, pre_process=pre_process
