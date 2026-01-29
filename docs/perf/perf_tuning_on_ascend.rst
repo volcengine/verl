@@ -15,12 +15,13 @@ Author: `Xiaobo Hu <https://github.com/tardis-key>`_, `Haozhe Li <https://github
 
 融合算子的优化原理为，通过数学意义上的等价替换，将多个算子融为一个算子的计算，减少冗余计算，同时减少下发次数，从而提高性能。几个典型的NPU融合算子列举如下，目前均已在 npu_patch.py 中对Qwen2、Qwen3系列模型完成替换。
 
-当前verl中使用的全量融合算子请查阅`npu patch <https://github.com/verl-project/verl/blob/main/verl/models/transformers/npu_patch.py>`_
+当前verl中使用的全量融合算子请查阅`npu patch <https://github.com/verl-project/verl/blob/main/verl/models/transformers/npu_patch.py>`_ 
 
 Matrix Computation-Communication operator fusion (MC2)
 MC2是CANN中一系列计算通信融合算子的统称，这些算子将原本串行的通信和计算操作融合在一起，通过内部的切分和流水线并行执行来优化性能。在 vllm-ascend 中，可以通过指定环境变量VLLM_ASCEND_ENABLE_MATMUL_ALLREDUCE=1 ，在前向计算的RowParallelLinear中使能torch_npu.npu_mm_all_reduce_base，将分离的mat mul和allreduce合并为一个融合算子。
 
 `RotaryMul&RotaryMulGrad <https://www.hiascend.com/document/detail/zh/Pytorch/730/ptmoddevg/trainingmigrguide/performance_tuning_0030.html>`_
+
 torch_npu接口：torch_npu.npu_rotary_mul(x, r1, r2)
 参数说明：
 - x：q，k，shape要求输入为4维，一般为[B, N, S, D]或[B, S, N, D]或[S, B, N, D]。
@@ -28,6 +29,7 @@ torch_npu接口：torch_npu.npu_rotary_mul(x, r1, r2)
 - r2：sin值，shape要求输入为4维，一般为[1, 1, S, D]或[1, S, 1, D]或[S, 1, 1, D]。
 
 `RmsNorm&RmsNormGrad <https://www.hiascend.com/document/detail/zh/Pytorch/730/ptmoddevg/trainingmigrguide/performance_tuning_0031.html>`_
+
 torch_npu接口：torch_npu.npu_rms_norm(self, gamma, epsilon=1e-06) -> (Tensor, Tensor)
 参数说明：
 - self：Tensor类型，shape支持1-8维。
@@ -38,6 +40,7 @@ torch_npu接口：torch_npu.npu_rms_norm(self, gamma, epsilon=1e-06) -> (Tensor,
 - 第2个输出为Tensor，rms_norm的中间结果rstd，用于反向计算。
 
 `Swiglu <https://www.hiascend.com/document/detail/zh/Pytorch/730/ptmoddevg/trainingmigrguide/performance_tuning_0035.html>`_
+
 torch_npu接口：torch_npu.npu_swiglu(Tensor self, int dim=-1) -> (Tensor)
 参数说明：
 - self：Tensor类型，shape支持1-8维。
