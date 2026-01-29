@@ -1,4 +1,4 @@
-name: e2e_ppo_grpo_trainer_trtllm_bug_repro
+name: e2e_ppo_grpo_trainer_trtllm_cpu_affinity_test
 
 on:
   # Trigger the workflow on push or pull request,
@@ -13,7 +13,7 @@ on:
       - "!recipe/**"
       - "!verl/workers/**/*dp_*.py"
       - "verl/workers/rollout/trtllm_rollout/*"
-      - ".github/workflows/e2e_ppo_grpo_trainer_trtllm_bug_repro.yml"
+      - ".github/workflows/e2e_ppo_grpo_trainer_trtllm_cpu_affinity_test.yml"
   pull_request:
     branches:
       - main
@@ -30,7 +30,7 @@ on:
       - "!recipe/**"
       - "!verl/workers/**/*dp_*.py"
       - "verl/workers/rollout/trtllm_rollout/*"
-      - ".github/workflows/e2e_ppo_grpo_trainer_trtllm_bug_repro.yml"
+      - ".github/workflows/e2e_ppo_grpo_trainer_trtllm_cpu_affinity_test.yml"
   workflow_dispatch:  # Allow manual triggering
 
 # Cancel jobs on the same ref if a new one is triggered
@@ -62,7 +62,7 @@ jobs:
           faas-url: "${{ env.DYNAMIC_RUNNER_ENDPOINT }}"
           mlp-image: "${{ env.IMAGE }}"
 
-  e2e_grpo_trainer_trtllm_bug_repro:
+  e2e_grpo_trainer_trtllm_cpu_affinity_test:
     needs: setup
     runs-on: ["${{ needs.setup.outputs.runner-label || 'L20x8' }}"]
     timeout-minutes: 30
@@ -93,7 +93,7 @@ jobs:
       - name: Prepare GSM8K dataset
         run: |
           python3 examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/models/hf_data/gsm8k --local_save_dir ${PWD}/data/gsm8k
-      - name: Running GRPO E2E training test with TensorRT-LLM async rollout (Bug Repro)
+      - name: Running GRPO E2E training test with TensorRT-LLM async rollout (CPU Affinity Test)
         run: |
           ray stop --force
           DATADIR=${HOME}/data \
@@ -143,7 +143,7 @@ jobs:
             trainer.critic_warmup=0 \
             trainer.logger='["console"]' \
             trainer.project_name="verl_grpo_molecular_transformer" \
-            trainer.experiment_name="qwen2.5-0.5b-trtllm-fsdp2-4gpus-bug-repro" \
+            trainer.experiment_name="qwen2.5-0.5b-trtllm-fsdp2-4gpus-cpu-affinity-test" \
             trainer.n_gpus_per_node=4 \
             trainer.nnodes=1 \
             trainer.save_freq=10 \
@@ -156,7 +156,7 @@ jobs:
 
   cleanup:
     runs-on: ubuntu-latest
-    needs: [setup, e2e_grpo_trainer_trtllm_bug_repro]
+    needs: [setup, e2e_grpo_trainer_trtllm_cpu_affinity_test]
     if: always()
     steps:
       - id: destroy-runner
