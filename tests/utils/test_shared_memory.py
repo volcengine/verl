@@ -85,7 +85,7 @@ class TestSharedMemory(unittest.TestCase):
         shm.buf[:size] = test_data.numpy().tobytes()
 
         # Rebuild tensor from shared memory
-        tensor = rebuild_shared_memory(self.test_name, size)
+        tensor, _ = rebuild_shared_memory(self.test_name, size)
 
         # Verify tensor properties
         self.assertEqual(tensor.dtype, torch.uint8)
@@ -108,7 +108,7 @@ class TestSharedMemory(unittest.TestCase):
         shm.buf[:size] = test_data.numpy().tobytes()
 
         # Rebuild tensor with custom dtype
-        tensor = rebuild_shared_memory(self.test_name, size, dtype=torch.float32)
+        tensor, _ = rebuild_shared_memory(self.test_name, size, dtype=torch.float32)
 
         # Verify tensor properties
         self.assertEqual(tensor.dtype, torch.float32)
@@ -133,7 +133,7 @@ class TestSharedMemory(unittest.TestCase):
         shm.buf[:size] = test_data.numpy().tobytes()
 
         # Rebuild tensor
-        tensor = rebuild_shared_memory(self.test_name, size)
+        tensor, _ = rebuild_shared_memory(self.test_name, size)
 
         # Verify data integrity
         reconstructed = torch.frombuffer(shm.buf[:size], dtype=torch.uint8)
@@ -161,7 +161,7 @@ class TestSharedMemory(unittest.TestCase):
             shm.buf[:size] = test_data.numpy().tobytes()
 
             # Rebuild tensor
-            tensor = rebuild_shared_memory(self.test_name, size, dtype=dtype)
+            tensor, _ = rebuild_shared_memory(self.test_name, size, dtype=dtype)
 
             # Verify properties and data
             self.assertEqual(tensor.dtype, dtype)
@@ -181,7 +181,7 @@ class TestSharedMemory(unittest.TestCase):
         test_data1 = torch.arange(size, dtype=torch.uint8)
         shm1 = create_shared_memory(size, self.test_name)
         shm1.buf[:size] = test_data1.numpy().tobytes()
-        tensor1 = rebuild_shared_memory(self.test_name, size)
+        tensor1, _ = rebuild_shared_memory(self.test_name, size)
         reconstructed1 = torch.frombuffer(shm1.buf[:size], dtype=torch.uint8)
         self.assertTrue(torch.equal(test_data1, reconstructed1))
         del tensor1, reconstructed1, shm1
@@ -190,7 +190,7 @@ class TestSharedMemory(unittest.TestCase):
         test_data2 = torch.arange(size, dtype=torch.uint8) * 2
         shm2 = create_shared_memory(size, self.test_name)
         shm2.buf[:size] = test_data2.numpy().tobytes()
-        tensor2 = rebuild_shared_memory(self.test_name, size)
+        tensor2, _ = rebuild_shared_memory(self.test_name, size)
         reconstructed2 = torch.frombuffer(shm2.buf[:size], dtype=torch.uint8)
         self.assertTrue(torch.equal(test_data2, reconstructed2))
         del tensor2, reconstructed2, shm2

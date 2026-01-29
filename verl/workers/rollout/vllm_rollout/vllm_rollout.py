@@ -153,7 +153,7 @@ class ServerAdapter(BaseRollout):
 
     @torch.no_grad()
     async def update_weights(self, weights: Generator[tuple[str, torch.Tensor], None, None], **kwargs):
-        """Update model weights via configurable communication backend to inference workers."""
+        """Update model weights via CUDA IPC (fallback to shared memory if IPC not supported) to inference workers."""
         start_time = time.time()
 
         future = await self._execute_method(
@@ -225,9 +225,10 @@ class ServerAdapter(BaseRollout):
         # clean up
         s.close()
         del buffer
-        if shm:
+        if shm is not None:
             shm.close()
             shm.unlink()
+            del shm
         gc.collect()
         get_torch_device().ipc_collect()
         get_torch_device().empty_cache()

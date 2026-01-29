@@ -124,7 +124,7 @@ def rebuild_shared_memory(name: str, size: int, dtype=torch.uint8):
     shm = shared_memory.SharedMemory(name=name)
     tensor = torch.frombuffer(shm.buf[:size], dtype=dtype)
 
-    return tensor
+    return tensor, shm
 
 
 class TensorMetadata(TypedDict):
@@ -192,7 +192,7 @@ class vLLMColocateWorkerExtension:
         socket.connect(self._get_zmq_handle())
 
         comm_metadata = socket.recv_pyobj()
-        buffer = None
+        buffer, shm = None, None
         if not use_shm:
             handle = comm_metadata
             buffer = rebuild_ipc(handle, self.device.index)
@@ -200,7 +200,7 @@ class vLLMColocateWorkerExtension:
         else:
             shm_name = comm_metadata["name"]
             shm_size = comm_metadata["size"]
-            buffer = rebuild_shared_memory(shm_name, shm_size, dtype=torch.uint8)
+            buffer, shm = rebuild_shared_memory(shm_name, shm_size, dtype=torch.uint8)
         socket.send(b"")
 
         # receive bucket and update weights
@@ -229,6 +229,9 @@ class vLLMColocateWorkerExtension:
         # clean up
         socket.close()
         del buffer
+        if shm is not None:
+            shm.close()
+            del shm
         gc.collect()
         get_torch_device().ipc_collect()
         get_torch_device().empty_cache()
