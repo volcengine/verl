@@ -27,11 +27,12 @@ try:
     from verl.workers.engine.mindspeed.transformer_impl import repatch
 except ImportError:
     repatch = None
+from verl.checkpoint_engine import CheckpointEngineRegistry
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, make_nd_compute_dataproto_dispatch_fn, register
 from verl.utils import tensordict_utils as tu
 from verl.utils.config import omega_conf_to_dataclass
-from verl.utils.device import get_device_name, get_torch_device, set_expandable_segments
+from verl.utils.device import get_device_name, set_expandable_segments
 from verl.utils.distributed import initialize_global_process_group_ray
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.memory_utils import aggressive_empty_cache
@@ -40,7 +41,12 @@ from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerCon
 from verl.utils.py_functional import append_to_dict
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
-from verl.workers.config import ActorConfig, HFModelConfig, RolloutConfig, TrainingWorkerConfig
+from verl.workers.config import (
+    ActorConfig,
+    HFModelConfig,
+    RolloutConfig,
+    TrainingWorkerConfig,
+)
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
 from verl.workers.utils.losses import ppo_loss
 
@@ -68,6 +74,18 @@ class TrainingWorker(Worker, DistProfilerExtension):
         self.optimizer_config = self.config.optimizer_config
         self.checkpoint_config = self.config.checkpoint_config
         self.device_name = get_device_name()
+
+        if self.engine_config is None:
+            assert self.optimizer_config is None
+            if self.config.auto_select_engine_optim_fn is None:
+                raise ValueError(
+                    "engine_config is not provided and auto_select_engine_optim_fn is not set. "
+                    "Cannot determine engine backend."
+                )
+            # Support automatically select engine backend given model config
+            self.engine_config, self.optimizer_config = self.config.auto_select_engine_optim_fn(
+                self.model_config, self.device_name
+            )
 
         # we use the one defined in model
         self.engine_config.use_remove_padding = self.model_config.use_remove_padding
@@ -492,6 +510,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         if "rollout" in self.role:
             rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
 
+            # TODO: move rollout_device_mesh into ServerAdapter
             # 3.1 build rollout device mesh (sglang need only)
             infer_tp = rollout_config.tensor_model_parallel_size * rollout_config.data_parallel_size
             infer_pp = rollout_config.pipeline_model_parallel_size
@@ -504,14 +523,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 get_device_name(), mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
             )
 
-            # 3.2 init trainer and rollout random states
-            self.torch_random_states = get_torch_device().get_rng_state()
-            gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
-            get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
-            self.gen_random_states = get_torch_device().get_rng_state()
-            get_torch_device().set_rng_state(self.torch_random_states)
-
-            # 3.3 initialize rollout engine
+            # 3.2 initialize rollout engine
             rollout_cls: type[BaseRollout] = get_rollout_class(rollout_config.name, rollout_config.mode)
             self.rollout = rollout_cls(
                 config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
@@ -521,6 +533,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.base_sync_done: bool = "dummy" not in self.config.rollout.load_format
             self.layered_summon = self.config.rollout.get("layered_summon", False)
             self.peft_merge: bool = model_config.lora.get("merge", False)
+
+        # 4. build checkpoint engine
+        if "actor" in self.role:
+            checkpoint_engine_config = omega_conf_to_dataclass(self.config.rollout.checkpoint_engine)
+            backend = checkpoint_engine_config.backend
+            bucket_size = checkpoint_engine_config.update_weights_bucket_megabytes << 20
+            engine_kwargs = checkpoint_engine_config.engine_kwargs.get(backend, {})
+            self.checkpoint_engine = CheckpointEngineRegistry.new(
+                backend, is_master=(torch.distributed.get_rank() == 0), bucket_size=bucket_size, **engine_kwargs
+            )
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="ref"))
     @DistProfiler.annotate(color="olive", role="ref_compute_log_prob")
@@ -550,28 +572,24 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         assert "actor" in self.role, "save_checkpoint only support actor role"
         self.actor.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
 
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def sleep(self):
-        """Context switch from rollout mode to trainer mode."""
-        if self.config.rollout.free_cache_engine:
-            log_gpu_memory_usage("Before rollout offload", logger=logger)
-            await self.rollout.release()
-            log_gpu_memory_usage("After rollout offload", logger=logger)
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
+    async def update_weights(self):
+        """Update weights from trainer to rollout.
 
-        # add empty cache after each compute
-        aggressive_empty_cache(force_sync=True)
-        set_expandable_segments(True)
+        1. For sync training with colocated trainer and rollout, update rollout directly from model engine.
+           - before update_weights: rollout should be in sleep mode.
+           - after update_weights: rollout should be in wake_up mode.
+        2. For async training with disaggregated trainer and rollout, send_weights only by checkpoint engine.
+        """
+        assert self.checkpoint_engine is not None
 
-        # restore random states
-        self.gen_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.torch_random_states)
+        # 0. send_weights only for async training with disaggregated trainer and rollout
+        if self.config.rollout.checkpoint_engine.backend != "naive":
+            per_tensor_param, _ = self.engine.get_per_tensor_param()
+            await self.checkpoint_engine.send_weights(per_tensor_param)
+            return
 
-    @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
-    async def wake_up(self):
-        """Context switch trainer mode to rollout mode."""
-        aggressive_empty_cache(force_sync=True)
         set_expandable_segments(False)
-
         # 1. resume weights and update weights
         if self.config.rollout.free_cache_engine:
             await self.rollout.resume(tags=["weights"])
@@ -611,6 +629,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
         self.base_sync_done = True
-        # important: need to manually set the random states of each tp to be identical.
-        self.torch_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.gen_random_states)
+        set_expandable_segments(True)
+
+    @register(dispatch_mode=Dispatch.DP_COMPUTE, blocking=False)
+    def execute_checkpoint_engine(self, method: str, *args, **kwargs):
+        """Execute checkpoint engine method.
+
+        Args:
+            method (str): Checkpoint engine method name.
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
+
+        """
+        return getattr(self.checkpoint_engine, method)(*args, **kwargs)

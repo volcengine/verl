@@ -1,4 +1,4 @@
-# Copyright 2024 Bytedance Ltd. and/or its affiliates
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,21 +46,6 @@ DEFAULT_MAX_CONNECTIONS = 2000
 DEFAULT_MAX_WAIT_TIME = 300.0
 
 
-def device_id_to_physical_device_id(id: int) -> int:
-    """Convert a logical device ID to a physical device ID considering CUDA_VISIBLE_DEVICES."""
-    if "CUDA_VISIBLE_DEVICES" in os.environ:
-        device_ids = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-        try:
-            physical_device_id = int(device_ids[id])
-            return physical_device_id
-        except (ValueError, IndexError) as err:
-            raise RuntimeError(
-                f"Failed to convert logical device ID {id} to physical device ID. Available devices are: {device_ids}."
-            ) from err
-    else:
-        return id
-
-
 @contextlib.contextmanager
 def nvml_context():
     """Context manager for NVML initialization and shutdown.
@@ -95,12 +80,9 @@ def get_device_uuid(id: int) -> str:
             except pynvml.NVMLError as e:
                 raise RuntimeError(f"Failed to initialize NVML: {e}") from e
 
-    # The process has visibility to all GPUs within the TP group
-    global_device_idx = device_id_to_physical_device_id(id)
-
     # Get the device handle and UUID
     try:
-        handle = pynvml.nvmlDeviceGetHandleByIndex(global_device_idx)
+        handle = pynvml.nvmlDeviceGetHandleByIndex(id)
         uuid = pynvml.nvmlDeviceGetUUID(handle)
         # Ensure the UUID is returned as a string, not bytes
         if isinstance(uuid, bytes):
@@ -108,11 +90,9 @@ def get_device_uuid(id: int) -> str:
         elif isinstance(uuid, str):
             return uuid
         else:
-            raise RuntimeError(
-                f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {global_device_idx})"
-            )
+            raise RuntimeError(f"Unexpected UUID type: {type(uuid)} for device {id} (global index: {id})")
     except pynvml.NVMLError as e:
-        raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {global_device_idx}): {e}") from e
+        raise RuntimeError(f"Failed to get device UUID for device {id} (global index: {id}): {e}") from e
 
 
 async def _read_async_response(resp: aiohttp.ClientResponse) -> dict[str, Any]:
@@ -330,8 +310,6 @@ class ServerAdapter(BaseRollout):
         assert self.replica_rank >= 0, "replica_rank is not set"
         assert self.is_leader_rank is not None, "is_leader_rank is not set"
 
-        print(f"ServerAdapter, replica_rank: {self.replica_rank}, is_leader_rank: {self.is_leader_rank}")
-
         self.node_ip = ray.util.get_node_ip_address().strip("[]")
 
     async def _init_server_adapter(self):
@@ -407,13 +385,12 @@ class ServerAdapter(BaseRollout):
         if self.is_leader_rank:
             await self._init_server_adapter()
 
-        total_available_bytes = int(self.config.update_weights_bucket_megabytes) * 1024 * 1024
+        total_available_bytes = int(self.config.checkpoint_engine.update_weights_bucket_megabytes) * 1024 * 1024
 
         try:
             device_uuid = get_device_uuid(self.gpu_id)
         except Exception as e:
-            logger.error(f"Failed to get device UUID: {e}")
-            logger.error("Did you miss to set RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1 before ray start?")
+            logger.error(f"Failed to get device UUID in update_weights(): {e}")
             device_uuid = None
             raise e
 
