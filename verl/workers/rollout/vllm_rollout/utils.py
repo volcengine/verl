@@ -51,14 +51,39 @@ def set_death_signal():
         os.kill(os.getpid(), signal.SIGKILL)
 
 
+def get_ip() -> str:
+    # List of address families to try, in priority order (IPv6 first, then IPv4)
+    import socket
+
+    address_families = [
+        (socket.AF_INET6, "2600::", "IPv6"),
+        (socket.AF_INET, "8.8.8.8", "IPv4"),
+    ]
+
+    for family, addr, name in address_families:
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as s:
+                s.connect((addr, 80))
+                return s.getsockname()[0]
+        except Exception as e:  # noqa: BLE001
+            print(f"Failed to get {name} address: {e}")
+
+    # Final fallback to hostname if all address family attempts fail
+    print("All address family attempts failed, falling back to hostname")
+    return socket.gethostbyname(socket.gethostname())
+
+
 def get_device_uuid(device_id: int) -> str:
     from vllm.platforms import current_platform
 
     # Convert torch.npu.current_device to its corresponding ASCEND_RT_VISIBLE_DEVICES.
     if is_npu_available:
-        npu_visible_devices = os.environ["ASCEND_RT_VISIBLE_DEVICES"].split(",")
-        assert device_id < len(npu_visible_devices), f"device_id {device_id} must less than {npu_visible_devices}"
-        return "NPU-" + npu_visible_devices[device_id]
+        if os.getenv("ASCEND_RT_VISIBLE_DEVICES") is not None:
+            npu_visible_devices = os.environ["ASCEND_RT_VISIBLE_DEVICES"].split(",")
+            assert device_id < len(npu_visible_devices), f"device_id {device_id} must less than {npu_visible_devices}"
+            return "NPU-" + npu_visible_devices[device_id]
+        else:
+            return f"{get_ip()}-{device_id}"
     else:
         return current_platform.get_device_uuid(device_id)
 
