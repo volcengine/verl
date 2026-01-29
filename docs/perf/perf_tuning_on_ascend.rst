@@ -5,7 +5,7 @@ Last updated: 01/29/2026.
 
 Author: `Xiaobo Hu <https://github.com/tardis-key>`_, `Haozhe Li <https://github.com/ZLiao097>`_
 
-`Perf Tuning <https://github.com/verl-project/verl/blob/main/docs/perf/perf_tuning.rst>`_中介绍的性能调优方法在昇腾设备中同样适用。本文重点介绍了昇腾特有的一些调优手段，包括融合算子优化、特定硬件配置和昇腾亲和特性等。
+Perf Tuning ` <https://github.com/verl-project/verl/blob/main/docs/perf/perf_tuning.rst>`_中介绍的性能调优方法在昇腾设备中同样适用。本文重点介绍了昇腾特有的一些调优手段，包括融合算子优化、特定硬件配置和昇腾亲和特性等。
 
 融合算子
 --------------------------
