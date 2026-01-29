@@ -27,7 +27,8 @@ from verl.single_controller.ray import RayClassWithInitArgs, SubRayResourcePool
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.net_utils import is_valid_ipv6_address
 from verl.workers.config import HFModelConfig, RolloutConfig
-from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
+from verl.workers.rollout.base import BaseRolloutServer, TokenOutput, resume_on_abort
+from verl.workers.rollout.replica import RolloutMode, RolloutReplica
 from verl.workers.rollout.trtllm_rollout.trtllm_rollout import ServerAdapter
 from verl.workers.rollout.utils import get_max_position_embeddings, run_unvicorn
 
@@ -36,7 +37,7 @@ logger.setLevel(logging.INFO)
 
 
 @ray.remote
-class TRTLLMHttpServer:
+class TRTLLMHttpServer(BaseRolloutServer):
     """TensorRT LLM HTTP server in single node.
 
     Args:
@@ -63,6 +64,7 @@ class TRTLLMHttpServer:
         pgs: list[PlacementGroup] = None,
         bundle_indices: list[list[int]] = None,
     ):
+        super().__init__()
         os.environ["TRT_LLM_DISABLE_LOAD_WEIGHTS_IN_PARALLEL"] = "1"
         assert torch.cuda.is_available(), "TRTLLM http server should run on GPU node"
 
@@ -171,6 +173,7 @@ class TRTLLMHttpServer:
         app = trtllm_server.app
         self._server_port, self._server_task = await run_unvicorn(app, None, self._server_address)
 
+    @resume_on_abort
     async def generate(
         self,
         prompt_ids: list[int],
@@ -222,6 +225,16 @@ class TRTLLMHttpServer:
             await self.llm.release(tags=ServerAdapter.get_full_tags())
         elif self.rollout_mode == RolloutMode.STANDALONE:
             logger.info("skip sleep in standalone mode")
+
+    async def abort_all_requests(self):
+        """Abort all requests with partial rollout."""
+        raise NotImplementedError
+
+    async def start_profile(self, **kwargs):
+        raise NotImplementedError
+
+    async def stop_profile(self, **kwargs):
+        raise NotImplementedError
 
 
 _rollout_worker_actor_cls = ray.remote(ServerAdapter)
