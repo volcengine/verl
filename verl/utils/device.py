@@ -9,8 +9,12 @@
 # This source code is licensed under the BSD-style license in https://github.com/pytorch/torchtune/blob/main/LICENSE
 
 import logging
+import platform
+import subprocess
+from pathlib import Path
 
 import torch
+from packaging import version
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +182,103 @@ def get_device_capability(device_id: int = 0) -> tuple[int | None, int | None]:
         major, minor = torch.cuda.get_device_capability(device_id)
 
     return major, minor
+
+
+def is_support_ipc() -> bool:
+    """Check if the device supports IPC (Inter-Process Communication).
+
+    For GPU devices, always returns True.
+    For NPU devices, checks the software version and CANN toolkit version
+    to determine if IPC is supported.
+
+    Returns:
+        bool: True if IPC is supported, False otherwise.
+    """
+    # If CUDA is available, it's a GPU device
+    if is_cuda_available:
+        return True
+
+    # For NPU devices, check the software version and CANN toolkit version
+    if is_npu_available:
+        try:
+            # Check npu-smi software version
+            result = subprocess.run(
+                ["npu-smi", "info", "-t", "board", "-i", "1"], capture_output=True, text=True, check=True
+            )
+
+            # Parse software version from output
+            software_version = None
+            for line in result.stdout.split("\n"):
+                if "Software Version" in line:
+                    # Extract version from line like: "Software Version : 25.3.rc1.2"
+                    parts = line.split(":")
+                    if len(parts) > 1:
+                        software_version = parts[1].strip().lower()
+                    break
+
+            if not software_version:
+                raise RuntimeError("Could not find Software Version in npu-smi output")
+
+            # Check CANN toolkit version
+            arch = platform.machine()
+            if arch not in ["aarch64", "x86_64"]:
+                raise RuntimeError(f"Unsupported architecture: {arch}")
+
+            # NOTE: if user install CANN toolkit in custom path, this check may fail
+            cann_path = Path(f"/usr/local/Ascend/ascend-toolkit/latest/{arch}-linux")
+
+            if not cann_path.exists():
+                raise RuntimeError(f"CANN toolkit path does not exist: {cann_path}")
+
+            info_file = cann_path / "ascend_toolkit_install.info"
+            if not info_file.exists():
+                raise RuntimeError(f"CANN toolkit info file does not exist: {info_file}")
+
+            # Parse version from info file
+            cann_version = None
+            with open(info_file) as f:
+                for line in f:
+                    if line.startswith("version="):
+                        cann_version = line.split("=", 1)[1].strip().lower()
+                        break
+
+            if not cann_version:
+                raise RuntimeError("Could not find version in CANN toolkit info file")
+
+            # Compare versions
+            # Software Version should be >= 25.3.rc1
+            # CANN version should be >= 8.3.RC1
+
+            # For software_version like "25.3.rc1.2", we need to extract the base version "25.3.rc1"
+            # Use regex to extract version up to RC level
+            import re
+
+            software_match = re.match(r"(\d+\.\d+\.rc\d+)", software_version)
+            if not software_match:
+                raise RuntimeError(f"Invalid software version format: {software_version}")
+
+            software_base = software_match.group(1)
+
+            cann_match = re.match(r"(\d+\.\d+\.rc\d+)", cann_version)
+            if not cann_match:
+                raise RuntimeError(f"Invalid CANN version format: {cann_version}")
+            else:
+                cann_base = cann_match.group(1)
+
+            if version.parse(software_base) >= version.parse("25.3.rc1"):
+                if version.parse(cann_base) >= version.parse("8.3.rc1"):
+                    return True
+                else:
+                    logger.info(f"CANN version {cann_version} is below 8.3.RC1")
+            else:
+                logger.info(f"Software version {software_version} is below 25.3.rc1")
+
+            return False
+
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to execute npu-smi command: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Error checking IPC support: {e}") from e
+
+    # For other devices (CPU), return False
+    return False
