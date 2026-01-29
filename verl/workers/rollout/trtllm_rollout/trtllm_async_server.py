@@ -328,7 +328,16 @@ class TRTLLMReplica(RolloutReplica):
             if not self.is_reward_model
             else f"trtllm_server_reward_{self.replica_rank}"
         )
-
+        tllm_numa_aware_worker_affinity = os.getenv("TLLM_NUMA_AWARE_WORKER_AFFINITY")
+        if tllm_numa_aware_worker_affinity == "0":
+            runtime_env_vars = {
+                "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                "TLLM_NUMA_AWARE_WORKER_AFFINITY": "0",
+            }
+        else:
+            runtime_env_vars = {
+                "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+            }
         server = TRTLLMHttpServer.options(
             scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                 node_id=node_id,
