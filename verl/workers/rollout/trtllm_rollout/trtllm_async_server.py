@@ -343,7 +343,7 @@ class TRTLLMReplica(RolloutReplica):
                 node_id=node_id,
                 soft=False,
             ),
-            runtime_env={"env_vars": runtime_env_vars},
+            runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}},
             name=name,
         ).remote(
             config=self.config,
