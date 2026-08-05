@@ -17,8 +17,35 @@
 
 import os
 from functools import wraps
+from typing import Optional
 
 from verl.utils.device import is_torch_npu_available
+
+
+def resolve_npu_vllm_patch_variant(vllm_version: str) -> Optional[str]:
+    """Resolve which vLLM-Ascend patch variant applies to ``vllm_version``.
+
+    Returns ``"v013"`` for vLLM >= 0.13, ``"v011"`` for 0.11 <= v < 0.13, and
+    ``None`` for anything older.
+
+    Every release from 0.13 onward shares the same vllm_ascend API shape: a
+    module-level ``select_moe_comm_method`` plus ``AscendDeviceType`` /
+    ``get_ascend_device_type``. The v011 symbols (``AscendSocVersion``,
+    ``get_ascend_soc_version``) no longer exist there, so the variant is an
+    open-ended range rather than a closed interval -- a closed one silently
+    leaves newer releases unpatched.
+
+    This is the single source of truth for vLLM version gating in this module;
+    callers must not re-derive it from ``vllm.__version__`` comparisons.
+    """
+    from packaging import version
+
+    parsed = version.parse(vllm_version)
+    if parsed >= version.parse("0.13.0"):
+        return "v013"
+    if parsed >= version.parse("0.11.0"):
+        return "v011"
+    return None
 
 
 def vllm_ascend_v011_select_moe_comm_method_wrapper(fn):
@@ -105,9 +132,10 @@ def check_vllm_ascend_before_server_launch():
 
         return cur_device_type == AscendDeviceType.A2
 
-    if vllm.__version__ == "0.11.0":
+    _variant = resolve_npu_vllm_patch_variant(vllm.__version__)
+    if _variant == "v011":
         is_A2 = _is_ascend_soc_version_A2_v011_local()
-    elif vllm.__version__ == "0.13.0":
+    elif _variant == "v013":
         is_A2 = _is_ascend_soc_version_A2_v013_local()
     else:
         is_A2 = False
@@ -191,17 +219,11 @@ def patch_vllm013_rotary_emb():
 
 if is_torch_npu_available(check_device=False):
     import vllm
-    from packaging import version
 
-    _VLLM_VERSION = version.parse(vllm.__version__)
-    if _VLLM_VERSION >= version.parse("0.13.0") and _VLLM_VERSION <= version.parse("0.14.0"):
-        # Disable flash_attn in RotaryEmbedding (NPU) when VLLM >= 0.13
-        from vllm.model_executor.layers.fused_moe import FusedMoE
+    _PATCH_VARIANT = resolve_npu_vllm_patch_variant(vllm.__version__)
 
-        patch_vllm013_rotary_emb()
-        FusedMoE.weight_loader = vllm_v013_weight_loader_method_wrapper(FusedMoE.weight_loader)
-    elif _VLLM_VERSION >= version.parse("0.19.0"):
-        # Disable flash_attn in RotaryEmbedding (NPU) when VLLM >= 0.19
+    if _PATCH_VARIANT == "v013":
+        # Disable flash_attn in RotaryEmbedding (NPU) for every vLLM >= 0.13.
         from vllm.model_executor.layers.fused_moe import FusedMoE
 
         patch_vllm013_rotary_emb()
@@ -209,8 +231,7 @@ if is_torch_npu_available(check_device=False):
 
     VERL_NPU_ENABLE_A2_PATCH_VLLM_ASCEND_MC2 = bool(int(os.getenv("VERL_NPU_ENABLE_A2_PATCH_VLLM_ASCEND_MC2", "1")))
     if VERL_NPU_ENABLE_A2_PATCH_VLLM_ASCEND_MC2:
-        # only support vllm 0.13 and 0.11 now.
-        if _VLLM_VERSION >= version.parse("0.13.0") and _VLLM_VERSION <= version.parse("0.14.0"):
+        if _PATCH_VARIANT == "v013":
             from vllm_ascend import ascend_forward_context
             from vllm_ascend.ops.linear_op import SequenceRowParallelOp
 
@@ -221,7 +242,7 @@ if is_torch_npu_available(check_device=False):
                 SequenceRowParallelOp.matmul_and_reduce
             )
 
-        elif _VLLM_VERSION >= version.parse("0.11.0") and _VLLM_VERSION < version.parse("0.13.0"):
+        elif _PATCH_VARIANT == "v011":
             from vllm_ascend.ops.linear_op import SequenceRowParallelOp
             from vllm_ascend.worker.model_runner_v1 import NPUModelRunner
 
