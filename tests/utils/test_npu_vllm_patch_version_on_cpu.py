@@ -24,9 +24,12 @@ patch, the ``FusedMoE.weight_loader`` wrapper and the Ascend A2 MoE
 communication fallback -- exactly the paths a MoE model on A2 depends on.
 """
 
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
-from verl.utils.vllm.npu_vllm_patch import resolve_npu_vllm_patch_variant
+from verl.utils.vllm.npu_vllm_patch import installed_vllm_version, resolve_npu_vllm_patch_variant
 
 
 class TestResolveNpuVllmPatchVariant(unittest.TestCase):
@@ -78,6 +81,40 @@ class TestResolveNpuVllmPatchVariant(unittest.TestCase):
                     resolve_npu_vllm_patch_variant(f"{major_minor}.0"),
                     f"vLLM {major_minor} resolved to no patch variant",
                 )
+
+
+class TestInstalledVllmVersion(unittest.TestCase):
+    """Version lookup must survive a partially-initialised vllm module.
+
+    Importing vllm activates its platform plugins; on Ascend that path can
+    re-enter this module before ``vllm.__version__`` is assigned, so reading
+    the attribute raises AttributeError and takes the whole training job down
+    during container start-up.
+    """
+
+    def test_prefers_the_declared_attribute(self):
+        fake = types.ModuleType("vllm")
+        fake.__version__ = "0.18.0"
+        with patch.dict(sys.modules, {"vllm": fake}):
+            self.assertEqual(installed_vllm_version(), "0.18.0")
+
+    def test_falls_back_to_distribution_metadata(self):
+        """No __version__ yet -> read it from the installed distribution."""
+        fake = types.ModuleType("vllm")  # deliberately has no __version__
+        with patch.dict(sys.modules, {"vllm": fake}):
+            with patch("importlib.metadata.version", return_value="0.18.0+empty"):
+                self.assertEqual(installed_vllm_version(), "0.18.0+empty")
+
+    def test_fallback_value_still_resolves_to_a_variant(self):
+        """The metadata form carries a local segment; gating must still work."""
+        self.assertEqual(resolve_npu_vllm_patch_variant("0.18.0+empty"), "v013")
+
+    def test_empty_attribute_is_treated_as_missing(self):
+        fake = types.ModuleType("vllm")
+        fake.__version__ = ""
+        with patch.dict(sys.modules, {"vllm": fake}):
+            with patch("importlib.metadata.version", return_value="0.18.0+empty"):
+                self.assertEqual(installed_vllm_version(), "0.18.0+empty")
 
 
 if __name__ == "__main__":

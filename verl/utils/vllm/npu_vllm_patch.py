@@ -48,6 +48,26 @@ def resolve_npu_vllm_patch_variant(vllm_version: str) -> Optional[str]:
     return None
 
 
+def installed_vllm_version() -> str:
+    """Return the installed vLLM version string.
+
+    ``vllm.__version__`` is not always set: importing vllm activates its
+    platform plugins, and on Ascend that path can re-enter this module before
+    the attribute is assigned, leaving a partially-initialised module whose
+    ``__version__`` lookup raises ``AttributeError``. Distribution metadata is
+    readable at any point, so use it as the fallback.
+    """
+    import vllm
+
+    declared = getattr(vllm, "__version__", None)
+    if declared:
+        return declared
+
+    from importlib.metadata import version as distribution_version
+
+    return distribution_version("vllm")
+
+
 def vllm_ascend_v011_select_moe_comm_method_wrapper(fn):
     @wraps(fn)
     def wrapper(self, num_tokens, with_prefill):
@@ -100,7 +120,6 @@ def vllm_ascend_v011_matmul_and_reduce_wrapper(fn):
 
 def check_vllm_ascend_before_server_launch():
     import torch_npu
-    import vllm
 
     def _is_ascend_soc_version_A2_v011_local():
         from vllm_ascend.utils import AscendSocVersion
@@ -132,7 +151,7 @@ def check_vllm_ascend_before_server_launch():
 
         return cur_device_type == AscendDeviceType.A2
 
-    _variant = resolve_npu_vllm_patch_variant(vllm.__version__)
+    _variant = resolve_npu_vllm_patch_variant(installed_vllm_version())
     if _variant == "v011":
         is_A2 = _is_ascend_soc_version_A2_v011_local()
     elif _variant == "v013":
@@ -218,9 +237,7 @@ def patch_vllm013_rotary_emb():
 
 
 if is_torch_npu_available(check_device=False):
-    import vllm
-
-    _PATCH_VARIANT = resolve_npu_vllm_patch_variant(vllm.__version__)
+    _PATCH_VARIANT = resolve_npu_vllm_patch_variant(installed_vllm_version())
 
     if _PATCH_VARIANT == "v013":
         # Disable flash_attn in RotaryEmbedding (NPU) for every vLLM >= 0.13.
