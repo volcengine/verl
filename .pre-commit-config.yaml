@@ -40,7 +40,7 @@ repos:
 
       - id: check-device-api-usage
         name: Check device API usage
-        entry: python3 tests/special_sanity/check_device_api_usage.py --directory ./verl
+        entry: python3 tests/special_sanity/check_device_api_usage.py --directory ./verl ./scripts
         language: python
         pass_filenames: false
 

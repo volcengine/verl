@@ -44,7 +44,7 @@ from transformers import AutoConfig
 
 from verl.model_merger.megatron_model_merger import get_dynamic_pipeline_shards
 from verl.models.mcore import hf_to_mcore_config
-from verl.utils.device import get_device_name, get_torch_device
+from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.megatron_utils import get_model
 
 
@@ -485,7 +485,7 @@ def convert_hf_to_mcore(
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "12355"
 
-    torch.distributed.init_process_group("nccl")
+    torch.distributed.init_process_group(get_nccl_backend())
 
     local_rank = os.getenv("LOCAL_RANK", 0)
     world_size = dist.get_world_size()

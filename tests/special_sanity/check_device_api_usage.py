@@ -14,7 +14,7 @@
 
 """
 This CI test is used for checking whether device api usage is irregular, suggest using api in `verl/utils/device.py`.
-Search targets include .py files in verl/recipe and verl/verl.
+Search targets are the directories passed via `--directory`, which accepts one or more paths.
 Some files that must contain ".cuda", "cuda" or "nccl" keyword is pre-defined in whitelist below.
 """
 
@@ -56,6 +56,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/checkpoint_engine",  # checkpoint engine backend are device specific
     "verl/utils/modelopt/megatron_qat_patch.py",  # appear in torch.cuda.empty_cache()
     "verl/models/mcore/patch.py",  # checkpoint patch only on cuda
+    "scripts/diagnose.py",  # env diagnose script intentionally probes torch.cuda to report hardware
 ]
 
 # directory or file path must contain keyword "nccl"
@@ -72,11 +73,10 @@ SEARCH_KEYWORDS = [".cuda", '"cuda"', '"nccl"']
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--directory", "-d", required=True, type=str)
+    parser.add_argument("--directory", "-d", required=True, type=str, nargs="+")
     args = parser.parse_args()
-    directory_in_str = args.directory
 
-    pathlist = Path(directory_in_str).glob("**/*.py")
+    pathlist = [p for directory_in_str in args.directory for p in Path(directory_in_str).glob("**/*.py")]
     for path in pathlist:
         path_in_str = str(path.absolute())
 
