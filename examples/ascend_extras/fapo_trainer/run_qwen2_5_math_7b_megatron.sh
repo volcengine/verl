@@ -106,6 +106,15 @@ export HF_DATASETS_CACHE=${HF_DATASETS_CACHE:-"${HF_HOME}/datasets"}
 # making it fatal would also break config-only dry runs off the shared filesystem.
 mkdir -p "${HF_DATASETS_CACHE}" 2>/dev/null || echo "warning: cannot create ${HF_DATASETS_CACHE}, HF cache will not persist" >&2
 
+# Dataset loading and prompt filtering happen inside a Ray actor. A locally
+# started Ray inherits this shell's environment, but a job submitted to an
+# existing cluster does not, and get_ppo_ray_runtime_env() only forwards a fixed
+# allowlist. Forward the cache location explicitly so both paths behave the same.
+RAY_ENV_ARGS=(
+    +ray_kwargs.ray_init.runtime_env.env_vars.HF_HOME="${HF_HOME}"
+    +ray_kwargs.ray_init.runtime_env.env_vars.HF_DATASETS_CACHE="${HF_DATASETS_CACHE}"
+)
+
 export HCCL_CONNECT_TIMEOUT=${HCCL_CONNECT_TIMEOUT:-1500}
 export HCCL_OP_EXPANSION_MODE=${HCCL_OP_EXPANSION_MODE:-AIV}
 
@@ -218,6 +227,7 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     "${REWARD_ARGS[@]}" \
+    "${RAY_ENV_ARGS[@]}" \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.device="${DEVICE}" \
