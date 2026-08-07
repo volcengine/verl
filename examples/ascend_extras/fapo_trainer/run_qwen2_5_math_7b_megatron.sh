@@ -57,6 +57,22 @@ USE_DYNAMIC_BSZ=${USE_DYNAMIC_BSZ:-True}
 PPO_MAX_TOKEN_LEN=${PPO_MAX_TOKEN_LEN:-$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH) * 2))}
 INFER_MAX_TOKEN_LEN=${INFER_MAX_TOKEN_LEN:-$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH) * 3))}
 
+# Actor and rollout share the same devices, so vLLM only sees what Megatron has
+# left. vLLM checks free memory against this fraction of *total* memory at
+# start-up and refuses to launch if it does not fit, which is why this is well
+# below the 0.8 a dedicated inference node would use.
+ROLLOUT_MEM_UTIL=${ROLLOUT_MEM_UTIL:-0.45}
+
+# Offloading. The three megatron.*_offload flags drive verl's own bookkeeping;
+# they do not move Megatron's distributed optimizer state off the device. Adam
+# keeps two fp32 states per parameter and allocates them lazily inside step(),
+# so without the override_optimizer_config knobs the run survives rollout and
+# backward and only dies at the first optimizer step.
+OPTIMIZER_OFFLOAD_FRACTION=${OPTIMIZER_OFFLOAD_FRACTION:-1}
+# "full" recomputes every layer (max saving, slowest backward), "selective"
+# only the cheap ops, "none" disables it.
+RECOMPUTE=${RECOMPUTE:-selective}
+
 TOTAL_TRAINING_STEPS=${TOTAL_TRAINING_STEPS:-100}
 # Megatron derives lr_decay_steps from total_training_steps when it is unset
 # (verl/utils/megatron/optimizer.py:121-122) and then asserts
@@ -167,6 +183,27 @@ else
     )
 fi
 
+# Activation recomputation. Megatron rejects recompute_method and
+# recompute_num_layers when the granularity is "selective", so the two spellings
+# cannot share one branch.
+RECOMPUTE_ARGS=()
+case "${RECOMPUTE}" in
+    full)
+        RECOMPUTE_ARGS=(
+            +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=full
+            +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_method=uniform
+            +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_num_layers=1
+        )
+        ;;
+    selective)
+        RECOMPUTE_ARGS=(
+            +actor_rollout_ref.actor.megatron.override_transformer_config.recompute_granularity=selective
+        )
+        ;;
+    none) ;;
+    *) echo "RECOMPUTE must be one of: full, selective, none" >&2; exit 1 ;;
+esac
+
 python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     algorithm.adv_estimator="${ADV_ESTIMATOR}" \
     algorithm.use_kl_in_reward=False \
@@ -193,6 +230,13 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     actor_rollout_ref.actor.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.actor.megatron.dist_checkpointing_path="${MCORE_MODEL_PATH}" \
     actor_rollout_ref.actor.megatron.use_distributed_optimizer=True \
+    actor_rollout_ref.actor.megatron.param_offload=True \
+    actor_rollout_ref.actor.megatron.grad_offload=True \
+    actor_rollout_ref.actor.megatron.optimizer_offload=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_cpu_offload=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.optimizer_offload_fraction="${OPTIMIZER_OFFLOAD_FRACTION}" \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.overlap_cpu_optimizer_d2h_h2d=True \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.use_precision_aware_optimizer=True \
     actor_rollout_ref.actor.use_dynamic_bsz="${USE_DYNAMIC_BSZ}" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu="${PPO_MAX_TOKEN_LEN}" \
     actor_rollout_ref.actor.ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE}" \
@@ -213,12 +257,13 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     actor_rollout_ref.ref.megatron.context_parallel_size="${TRAIN_CP}" \
     actor_rollout_ref.ref.megatron.use_dist_checkpointing=True \
     actor_rollout_ref.ref.megatron.dist_checkpointing_path="${MCORE_MODEL_PATH}" \
+    actor_rollout_ref.ref.megatron.param_offload=True \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu="${INFER_MAX_TOKEN_LEN}" \
     actor_rollout_ref.rollout.name="${INFER_BACKEND}" \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.n="${N_RESP_PER_PROMPT}" \
     actor_rollout_ref.rollout.tensor_model_parallel_size="${INFER_TP}" \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.80 \
+    actor_rollout_ref.rollout.gpu_memory_utilization="${ROLLOUT_MEM_UTIL}" \
     actor_rollout_ref.rollout.enable_chunked_prefill=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH)) \
     actor_rollout_ref.rollout.temperature=1.0 \
@@ -232,6 +277,7 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     "${REWARD_ARGS[@]}" \
     "${RAY_ENV_ARGS[@]}" \
+    ${RECOMPUTE_ARGS[@]+"${RECOMPUTE_ARGS[@]}"} \
     trainer.project_name="${project_name}" \
     trainer.experiment_name="${exp_name}" \
     trainer.device="${DEVICE}" \
