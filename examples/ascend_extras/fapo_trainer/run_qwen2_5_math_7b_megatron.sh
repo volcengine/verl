@@ -58,6 +58,10 @@ PPO_MAX_TOKEN_LEN=${PPO_MAX_TOKEN_LEN:-$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENG
 INFER_MAX_TOKEN_LEN=${INFER_MAX_TOKEN_LEN:-$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH) * 3))}
 
 TOTAL_TRAINING_STEPS=${TOTAL_TRAINING_STEPS:-100}
+# Megatron derives lr_decay_steps from total_training_steps when it is unset
+# (verl/utils/megatron/optimizer.py:121-122) and then asserts
+# lr_warmup_steps < lr_decay_steps, so a short run must shrink the warmup too.
+LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-$(( TOTAL_TRAINING_STEPS > 20 ? 10 : (TOTAL_TRAINING_STEPS > 1 ? TOTAL_TRAINING_STEPS / 2 : 0) ))}
 SAVE_FREQ=${SAVE_FREQ:-5}
 TEST_FREQ=${TEST_FREQ:-25}
 VAL_BEFORE_TRAIN=${VAL_BEFORE_TRAIN:-False}
@@ -200,7 +204,7 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.loss_agg_mode="${LOSS_AGG_MODE}" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.optim.lr_warmup_steps=10 \
+    actor_rollout_ref.actor.optim.lr_warmup_steps="${LR_WARMUP_STEPS}" \
     actor_rollout_ref.actor.optim.weight_decay=0.1 \
     actor_rollout_ref.actor.optim.clip_grad="${GRAD_CLIP}" \
     actor_rollout_ref.ref.strategy=megatron \
