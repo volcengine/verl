@@ -40,7 +40,12 @@ MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-3072}
 
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-16}
 N_RESP_PER_PROMPT=${N_RESP_PER_PROMPT:-8}
-PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-8}
+# workers/engine_workers.py:258 asserts (ppo_mini_batch_size * n) % dp == 0 at
+# training time. use_dynamic_bsz only skips the start-up check in
+# utils/config.py:95-113; this second one still applies. With ACTOR_GPUS=6 and
+# TP*PP*CP=2 the data-parallel size is 3, so the mini batch must be a multiple
+# of 3 once multiplied by n.
+PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-6}
 
 # Megatron shape for the actor. TP is bounded by GQA: Qwen2.5-Math-7B has 28
 # heads over 4 KV heads, so TP must divide 4 and also divide ACTOR_GPUS.
