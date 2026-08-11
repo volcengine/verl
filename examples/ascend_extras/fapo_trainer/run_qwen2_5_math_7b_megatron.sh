@@ -119,6 +119,10 @@ GRM_MEM_FRACTION=${GRM_MEM_FRACTION:-0.90}
 GRM_TP=${GRM_TP:-1}
 GRM_MAX_MODEL_LEN=${GRM_MAX_MODEL_LEN:-8192}
 GRM_ENFORCE_EAGER=${GRM_ENFORCE_EAGER:-False}
+# batching ceiling per GenRM vLLM replica (default 1024 when unset). Lowering it
+# from the inherited actor default both shrinks the prefill memory spike inside
+# the 0.90 util budget and reduces decode batching on the 2 reward cards.
+GRM_MAX_NUM_SEQS=${GRM_MAX_NUM_SEQS:-256}
 ROUTER_ADDRESS=${ROUTER_ADDRESS:-""}          # REWARD_MODE=remote only
 ########################### end user-adjustable ###########################
 
@@ -178,6 +182,7 @@ if [ "${REWARD_MODE}" = "colocate" ]; then
         reward.reward_model.rollout.enforce_eager="${GRM_ENFORCE_EAGER}"
         reward.reward_model.rollout.free_cache_engine=False
         reward.reward_model.rollout.max_model_len="${GRM_MAX_MODEL_LEN}"
+        reward.reward_model.rollout.max_num_seqs="${GRM_MAX_NUM_SEQS}"
     )
 else
     REWARD_ARGS+=(
