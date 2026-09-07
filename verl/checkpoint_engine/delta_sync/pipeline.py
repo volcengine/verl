@@ -453,11 +453,12 @@ class DeltaSyncMixin:
         else:
             self._publish_terminal(True)
         self._release_after_round("seed")
+        elapsed = time.time() - t0
         logger.info(
             "delta-sharded FULL-%s v=%s done in %.1fs (flushes=%d elems=%d wire=%.1fGB)",
             "VERIFY" if verify else "SEED",
             global_steps,
-            time.time() - t0,
+            elapsed,
             n_flushes,
             total_elems,
             wire_bytes / (1 << 30),
@@ -469,6 +470,7 @@ class DeltaSyncMixin:
             "checkpoint_engine/changed_elems": float(total_elems),
             "checkpoint_engine/payload_mbytes": wire_bytes / (1 << 20),
             "checkpoint_engine/flushes": float(n_flushes),
+            "checkpoint_engine/elapsed_seconds": elapsed,
         }
 
     async def send_weights(
@@ -499,6 +501,7 @@ class DeltaSyncMixin:
             self._shard_seeded = True
             return metrics
         weights, _ = engine.get_per_tensor_param_delta_shard()
+        t0 = time.time()
         is_r0 = self.is_master
         n_flushes = 0
         changed_elems = 0
@@ -559,7 +562,16 @@ class DeltaSyncMixin:
         if not is_r0:
             return
         self._release_after_round("steady")
-        logger.info("delta-sharded send v=%s delta flushes=%d (streamed)", global_steps, n_flushes)
+        elapsed = time.time() - t0
+        ratio = (changed_elems / total_elems) if total_elems else 0.0
+        logger.info(
+            "delta-sharded send v=%s done in %.1fs (delta flushes=%d changed_ratio=%.4f wire=%.1fMB)",
+            global_steps,
+            elapsed,
+            n_flushes,
+            ratio,
+            wire_bytes / (1 << 20),
+        )
         if not total_elems:
             return None
         return {
@@ -567,4 +579,5 @@ class DeltaSyncMixin:
             "checkpoint_engine/changed_elems": float(changed_elems),
             "checkpoint_engine/payload_mbytes": wire_bytes / (1 << 20),
             "checkpoint_engine/flushes": float(n_flushes),
+            "checkpoint_engine/elapsed_seconds": elapsed,
         }
