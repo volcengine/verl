@@ -21,7 +21,6 @@ checkpoint names, packed weights, and TP slicing.
 from __future__ import annotations
 
 import inspect
-import json
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -135,64 +134,27 @@ class VerlDeltaIPCUpdateInfo(WeightTransferUpdateInfo):
 def decode_delta_payload(
     named_tensors: Iterable[tuple[str, torch.Tensor]],
 ) -> tuple[str, list[CheckpointWeightPatch]]:
-    """Validate and decode one DeltaFlush into vLLM checkpoint patches."""
+    """Validate and decode one DeltaFlush into vLLM checkpoint patches.
 
-    from verl.checkpoint_engine.delta_sync.encode import checksum
+    The wire validation and per-parameter slicing live in the device-agnostic
+    :func:`verl.checkpoint_engine.delta_sync.decode_delta_wire` (shared with the
+    NPU HCCL receiver and the tests); this wrapper only converts the decoded
+    patches into vLLM's ``CheckpointWeightPatch``.
+    """
+    from verl.checkpoint_engine.delta_sync.decode import decode_delta_wire
 
     CheckpointWeightPatch, _ = _checkpoint_patch_api()
-    tensors = dict(named_tensors)
-    try:
-        spec_tensor = tensors["__delta_spec__"]
-        values = tensors["__values__"]
-        spec = json.loads(bytes(spec_tensor.detach().cpu().numpy().tobytes()).decode())
-    except KeyError as exc:
-        raise ValueError(f"DeltaFlush is missing {exc.args[0]}") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("DeltaFlush contains an invalid JSON spec") from exc
-
-    encoding = spec["encoding"]
-    if encoding not in {"dense", "indices"}:
-        raise ValueError(f"Unsupported DeltaFlush encoding: {encoding!r}")
-    positions = tensors.get("__positions__")
-    if positions is None:
-        positions = torch.empty(0, dtype=torch.uint8, device=values.device)
-    if encoding == "dense" and positions.numel():
-        raise ValueError("Dense DeltaFlush must not contain positions")
-    if encoding == "indices" and "__positions__" not in tensors:
-        raise ValueError("Indices DeltaFlush requires __positions__")
-
-    got_checksum = checksum(positions, values)
-    expected_checksum = int(spec["checksum"])
-    if got_checksum != expected_checksum:
-        raise RuntimeError(
-            f"Delta checksum mismatch in vLLM consumer: got {got_checksum}, expected {expected_checksum}"
+    encoding, patches = decode_delta_wire(named_tensors)
+    return encoding, [
+        CheckpointWeightPatch(
+            name=p.name,
+            shape=p.shape,
+            dtype=p.dtype,
+            values=p.values,
+            indices=p.positions,
         )
-
-    patches: list[CheckpointWeightPatch] = []
-    for param_spec in spec["params"]:
-        name = param_spec["name"]
-        dtype = getattr(torch, param_spec["dtype"])
-        patch_values = values[param_spec["val_start"] : param_spec["val_end"]]
-        if encoding == "dense":
-            patch_indices = None
-        else:
-            if param_spec["pos_width"] != 4:
-                raise ValueError(f"{name}: indices encoding requires pos_width=4")
-            pos_bytes = positions[param_spec["pos_start"] : param_spec["pos_end"]]
-            if pos_bytes.numel() != patch_values.numel() * 4:
-                raise ValueError(f"{name}: position and value slices have inconsistent lengths")
-            patch_indices = pos_bytes.view(torch.int32)
-
-        patches.append(
-            CheckpointWeightPatch(
-                name=name,
-                shape=tuple(param_spec["shape"]),
-                dtype=dtype,
-                values=patch_values,
-                indices=patch_indices,
-            )
-        )
-    return encoding, patches
+        for p in patches
+    ]
 
 
 class VerlDeltaIPCWeightTransferEngine(WeightTransferEngine):
@@ -270,34 +232,38 @@ class VerlDeltaIPCWeightTransferEngine(WeightTransferEngine):
             raise callback_error
         return payload
 
+    def _decode_and_apply(self, payload: list[tuple[str, torch.Tensor]]) -> None:
+        """Decode one flush's named tensors into checkpoint patches and apply them."""
+        encoding, patches = decode_delta_payload(payload)
+
+        if self._session_encoding is None:
+            self._session_encoding = encoding
+            if encoding == "dense":
+                from vllm.model_executor.model_loader.reload import (
+                    initialize_layerwise_reload,
+                )
+
+                initialize_layerwise_reload(self.model)
+        elif encoding != self._session_encoding:
+            raise ValueError(
+                "One weight update cannot mix dense and sparse DeltaFlush payloads "
+                f"({self._session_encoding!r} then {encoding!r})"
+            )
+
+        _, load_checkpoint_weight_patches = _checkpoint_patch_api()
+        # The trusted producer emits every changed position at most once;
+        # skip vLLM's sort-based duplicate check on the rollout GPU.
+        load_checkpoint_weight_patches(
+            self.model,
+            patches,
+            validate_unique_indices=False,
+        )
+
     def receive_weights(self, update_info: VerlDeltaIPCUpdateInfo) -> None:
         assert update_info.zmq_handle is not None
         try:
             payload = self._receive_payload(zmq_handle=update_info.zmq_handle)
-            encoding, patches = decode_delta_payload(payload)
-
-            if self._session_encoding is None:
-                self._session_encoding = encoding
-                if encoding == "dense":
-                    from vllm.model_executor.model_loader.reload import (
-                        initialize_layerwise_reload,
-                    )
-
-                    initialize_layerwise_reload(self.model)
-            elif encoding != self._session_encoding:
-                raise ValueError(
-                    "One weight update cannot mix dense and sparse DeltaFlush payloads "
-                    f"({self._session_encoding!r} then {encoding!r})"
-                )
-
-            _, load_checkpoint_weight_patches = _checkpoint_patch_api()
-            # The trusted producer emits every changed position at most once;
-            # skip vLLM's sort-based duplicate check on the rollout GPU.
-            load_checkpoint_weight_patches(
-                self.model,
-                patches,
-                validate_unique_indices=False,
-            )
+            self._decode_and_apply(payload)
         except BaseException:
             # An earlier flush may already have changed runtime weights, so a
             # later update would start from an unknown partial state.
