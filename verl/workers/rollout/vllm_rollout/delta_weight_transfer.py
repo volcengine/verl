@@ -21,6 +21,7 @@ checkpoint names, packed weights, and TP slicing.
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -28,7 +29,9 @@ from typing import TYPE_CHECKING, Any
 import torch
 import vllm
 
-from verl.utils.device import get_device_name, is_cuda_available
+from verl.utils.device import get_device_name
+
+logger = logging.getLogger(__name__)
 
 try:
     from vllm.config.weight_transfer import WeightTransferConfig
@@ -49,7 +52,9 @@ if TYPE_CHECKING:
     )
 
 VERL_DELTA_WEIGHT_TRANSFER_BACKEND = "verl_delta_ipc"
+VERL_DELTA_HCCL_WEIGHT_TRANSFER_BACKEND = "verl_delta_hccl"
 _REGISTERED = False
+_HCCL_REGISTERED = False
 
 
 def _checkpoint_patch_api():
@@ -177,8 +182,8 @@ class VerlDeltaIPCWeightTransferEngine(WeightTransferEngine):
 
     def _validate_configuration(self) -> None:
         require_vllm_delta_support()
-        if not is_cuda_available or self.device.type != get_device_name():
-            raise NotImplementedError("VERL delta weight transfer requires CUDA")
+        if self.device.type != get_device_name():
+            raise NotImplementedError(f"VERL delta weight transfer requires {get_device_name()!r} devices")
         if self.parallel_config.data_parallel_size != 1:
             raise NotImplementedError("VERL delta weight transfer requires data_parallel_size=1")
         if self.parallel_config.pipeline_parallel_size != 1:
@@ -311,3 +316,155 @@ def register_verl_delta_weight_transfer_engine() -> None:
         VerlDeltaIPCWeightTransferEngine,
     )
     _REGISTERED = True
+
+
+@dataclass
+class VerlDeltaHCCLInitInfo(WeightTransferInitInfo):
+    """Rendezvous endpoints of the trainer's HCCL delta broadcast group."""
+
+    dist_ip: str
+    dist_port: int
+    zmq_ip: str
+    zmq_port: int
+    topic: str = "bucket_metadata"
+    world_size: int = 1
+
+
+@dataclass
+class VerlDeltaHCCLUpdateInfo(WeightTransferUpdateInfo):
+    """This worker's rank in the trainer's PyHccl delta broadcast group."""
+
+    group_rank: int
+
+
+class VerlDeltaHCCLWeightTransferEngine(VerlDeltaIPCWeightTransferEngine):
+    """Consume VERL DeltaFlush payloads directly from the trainer's HCCL broadcasts.
+
+    Direct receiver: instead of pulling each flush over the colocated zmq/IPC
+    channel, the vLLM worker process joins the trainer's PyHccl broadcast
+    group itself -- one manifest subscription plus two broadcasts per flush,
+    no payload forwarding hop and no IPC handle negotiation. The zmq SUB is
+    connected before the communicator is built (see
+    :mod:`verl.checkpoint_engine.delta_sync.hccl_receiver`); the trainer
+    additionally waits for every receiver's wire-ready flag before its first
+    publish, so each subscription has the whole group-join duration to reach
+    the PUB before the first manifest. Both the SUB and the communicator are
+    created once and reused across weight-update sessions.
+    """
+
+    init_info_cls = VerlDeltaHCCLInitInfo
+    update_info_cls = VerlDeltaHCCLUpdateInfo
+
+    def __init__(self, config, vllm_config, device, model) -> None:
+        super().__init__(config, vllm_config, device, model)
+        self._rendezvous: VerlDeltaHCCLInitInfo | None = None
+        self._manifest_sub = None
+        self._comm = None
+        self._group_rank: int | None = None
+
+    def _validate_configuration(self) -> None:
+        require_vllm_delta_support()
+        if self.device.type != get_device_name():
+            raise NotImplementedError(f"VERL delta HCCL weight transfer requires {get_device_name()!r} devices")
+        if self.parallel_config.data_parallel_size != 1:
+            raise NotImplementedError("VERL delta HCCL weight transfer requires data_parallel_size=1")
+        if self.parallel_config.pipeline_parallel_size != 1:
+            raise NotImplementedError("VERL delta HCCL weight transfer requires pipeline_parallel_size=1")
+        if self.model_config.dtype != torch.bfloat16:
+            raise NotImplementedError("VERL delta HCCL weight transfer supports only BF16 vLLM models")
+        if getattr(self.vllm_config, "quant_config", None) is not None:
+            raise NotImplementedError("VERL delta HCCL weight transfer does not support quantized vLLM models")
+        if getattr(self.vllm_config, "speculative_config", None) is not None:
+            raise NotImplementedError("VERL delta HCCL weight transfer does not support speculative decoding")
+
+    def init_transfer_engine(self, init_info: VerlDeltaHCCLInitInfo) -> None:
+        self._validate_configuration()
+        self._rendezvous = init_info
+
+    def _ensure_channel(self, group_rank: int):
+        """Create (once) and return the (manifest SUB, PyHccl communicator) pair.
+
+        The SUB is connected BEFORE the communicator joins the group, and the
+        receiver raises its wire-ready flag only after joining (inside
+        :func:`build_delta_hccl_communicator`) -- so the trainer's pre-publish
+        poll of those flags implies every SUB is actively subscribed.
+        """
+        from verl.checkpoint_engine.delta_sync.hccl_receiver import (
+            build_delta_hccl_communicator,
+            connect_delta_manifest_sub,
+        )
+
+        if self._comm is None:
+            assert self._rendezvous is not None, "init_weight_transfer_engine must run first"
+            self._manifest_sub = connect_delta_manifest_sub(
+                self._rendezvous.zmq_ip, self._rendezvous.zmq_port, self._rendezvous.topic
+            )
+            self._comm = build_delta_hccl_communicator(
+                self._rendezvous.dist_ip,
+                self._rendezvous.dist_port,
+                group_rank,
+                self._rendezvous.world_size,
+                self.device,
+            )
+            self._group_rank = group_rank
+        else:
+            assert self._group_rank == group_rank, (
+                f"delta HCCL group rank changed between sessions: {self._group_rank} -> {group_rank}"
+            )
+        return self._manifest_sub, self._comm
+
+    def receive_weights(self, update_info: VerlDeltaHCCLUpdateInfo) -> None:
+        from verl.checkpoint_engine.delta_sync.hccl_receiver import pump_hccl_delta_session
+
+        assert self._rendezvous is not None, "init_weight_transfer_engine must run first"
+        try:
+            sub, comm = self._ensure_channel(update_info.group_rank)
+            pump_hccl_delta_session(
+                sub,
+                comm,
+                self.device,
+                on_flush=self._decode_and_apply,
+                group_rank=update_info.group_rank,
+            )
+        except BaseException:
+            # A dropped receiver would otherwise hang the whole group forever:
+            # vLLM's collective_rpc propagates a worker error only after every
+            # worker returns, and the healthy peers block inside the next HCCL
+            # collective. Destroying this side's communicator tears the HCCL
+            # connections down, so the peers fail fast instead of hanging; the
+            # poisoned-worker contract already requires a full job restart.
+            self._update_failed = True
+            logger.exception(
+                "delta-hccl receiver group_rank=%s: weight-update session FAILED; aborting the communicator "
+                "so peers fail fast (full job restart required)",
+                update_info.group_rank,
+            )
+            self._abort_communicator()
+            raise
+
+    def _abort_communicator(self) -> None:
+        if self._comm is None:
+            return
+        try:
+            self._comm.destroyComm(self._comm.comm)
+        except BaseException:
+            logger.exception(
+                "delta-hccl receiver group_rank=%s: communicator abort failed (best effort)", self._group_rank
+            )
+        finally:
+            self._comm = None
+
+
+def register_verl_delta_hccl_weight_transfer_engine() -> None:
+    """Register the HCCL adapter before vLLM creates its worker-side engine."""
+
+    global _HCCL_REGISTERED
+    if _HCCL_REGISTERED:
+        return
+    from vllm.distributed.weight_transfer import WeightTransferEngineFactory
+
+    WeightTransferEngineFactory.register_engine(
+        VERL_DELTA_HCCL_WEIGHT_TRANSFER_BACKEND,
+        VerlDeltaHCCLWeightTransferEngine,
+    )
+    _HCCL_REGISTERED = True
