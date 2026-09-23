@@ -978,9 +978,9 @@ trainer:
     trainer_mode: sync
     sync: {}
     colocate_async:
-      num_warmup_batches: 1
+      watermark_batches: 2
     separate_async:
-      num_warmup_batches: 1
+      watermark_batches: 2
       parameter_sync_step: 4
       hybrid_rollout:
         _target_: verl.trainer.config.HybridRolloutSwitchConfig

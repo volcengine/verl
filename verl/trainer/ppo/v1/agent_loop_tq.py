@@ -104,6 +104,45 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
             self.background_tasks.add(task)
             task.add_done_callback(self.background_tasks.discard)
 
+    async def _run_session(
+        self,
+        *,
+        uid: str,
+        session_id: int,
+        partition_id: str,
+        sampling_params: dict,
+        trajectory: dict,
+        trace: bool,
+        prompt: dict,
+    ) -> None:
+        await tq.async_kv_put(
+            key=f"{uid}_{session_id}",
+            partition_id=partition_id,
+            tag={"is_session": True, "status": "running", "session_id": session_id},
+        )
+        try:
+            await self._run_agent_loop(
+                sampling_params,
+                trajectory=trajectory,
+                trace=trace,
+                session_id=session_id,
+                **prompt,
+            )
+        except Exception:
+            await tq.async_kv_put(
+                key=f"{uid}_{session_id}",
+                partition_id=partition_id,
+                tag={"is_session": True, "status": "failure", "session_id": session_id},
+            )
+            raise
+        else:
+            # Publish session completion only after all of its trajectory writes have finished.
+            await tq.async_kv_put(
+                key=f"{uid}_{session_id}",
+                partition_id=partition_id,
+                tag={"is_session": True, "status": "finished", "session_id": session_id},
+            )
+
     async def _run_prompt(self, prompt: dict, sampling_params: dict, trajectory: dict, trace: bool = False) -> None:
         """Spawn multiple agent loops in parallel according to rollout.n or rollout.val_kwargs.n."""
         uid, partition_id = prompt["uid"], "train" if not trajectory["validate"] else "val"
@@ -122,8 +161,14 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
             tasks = []
             for i in range(n):
                 task = asyncio.create_task(
-                    self._run_agent_loop(
-                        run_sampling_params, trajectory=trajectory, trace=trace, session_id=i, **prompt
+                    self._run_session(
+                        uid=uid,
+                        session_id=i,
+                        partition_id=partition_id,
+                        sampling_params=run_sampling_params,
+                        trajectory=trajectory,
+                        trace=trace,
+                        prompt=prompt,
                     )
                 )
                 tasks.append(task)

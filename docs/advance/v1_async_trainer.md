@@ -1,6 +1,6 @@
 # V1 Async Trainer
 
-Last updated: 08/20/2026.
+Last updated: 09/17/2026.
 
 The V1 trainer provides two asynchronous PPO training modes under the standard `verl.trainer.main_ppo` entry point:
 
@@ -78,21 +78,62 @@ Monitor both forms of off-policy behavior:
 
 ### Prompt refilling in replay buffer and checkpoint recovery
 
-Both async modes use `ReplayBufferAsync`, which samples prompt groups from the TransferQueue. The refill unit is one prompt group and evicting the group produces exactly one replacement prompt.
+Both async modes use `ReplayBufferAsync` inside `StreamingDataloaderAsync`, which samples prompt groups from the TransferQueue. ReplayBuffer performs one non-blocking metadata/eviction pass at a time; the actor coordinator owns polling and refill. `ReplayBufferAsync` deliberately has no blocking sample/wait loop or refill callback: it exposes `poll_once(global_steps, partition_id, target_count)` and `materialize_sampleable(...)`, and custom async samplers must follow the same coordinator-owned watermark contract.
 
-During sampling, the replay buffer repeatedly synchronizes TransferQueue metadata and classifies terminal groups. A training group is evicted when any of the following applies:
+The coordinator repeatedly asks the replay buffer to synchronize TransferQueue metadata and classify terminal groups. A training group is evicted when any of the following applies:
 
 - Its prompt age exceeds `max_off_policy_threshold` while `max_off_policy_strategy=drop`.
 - It is removed by the configured DAPO group filter.
 - Its rollout finishes with `failure`.
 
-The reasons are unioned before eviction, so a group matching multiple conditions is removed and refilled only once. After evicting `k` groups, the buffer invokes `refill_fn(k)`, which fetches exactly `k` new prompts from the training dataloader, records them as `pending` in the TransferQueue, and dispatches them to the AgentLoop:
+The reasons are unioned before eviction, so a group matching multiple conditions is removed only once. Terminal-group eviction does not create refill credit: its sessions already released their in-flight slots as they completed.
 
-Refill can repeat if replacement groups also fail or are filtered. This keeps the requested training batch size stable without training on groups rejected by the active sampling policy. Refill applies to the training partition; validation does not perform staleness, filtering, or failure refill.
+The coordinator continuously dispatches new prompts as session slots become free. If a completed group is rejected, the pending sample request waits for another terminal group instead of issuing a one-for-one prompt replacement. Session-watermark refill applies to the training partition; validation does not dispatch replacement prompts.
 
-With `max_off_policy_strategy=wait`, stale groups are not evicted or refilled. Instead, sampling blocks when an in-flight prompt reaches the threshold, allowing it to finish and remain trainable. DAPO-filtered and failed groups are still evicted and replaced normally.
+With `max_off_policy_strategy=wait`, stale groups are not evicted. Instead, sampling blocks when an in-flight prompt reaches the threshold, allowing it to finish and remain trainable. DAPO-filtered and failed terminal groups are still evicted normally.
 
 When async trainer saves a checkpoint, pending and running groups have already consumed dataloader entries, so they are reissued from their saved prompts during `load_checkpoint` recovery. Finished groups and their completed trajectories are restored as-is and remain available for sampling; they are not regenerated.
+
+### StreamingDataloader actor
+
+All V1 trainer modes run rollout data iteration and replay sampling in a CPU Ray actor:
+
+```yaml
+trainer:
+  v1:
+    colocate_async:
+      watermark_batches: 1
+    separate_async:
+      watermark_batches: 1
+```
+
+The actor owns the train `StatefulDataLoader`, ReplayBuffer, and `AgentLoopManagerTQ`. `sync` uses `StreamingDataloader` with the synchronous `ReplayBuffer`; both async modes use its `StreamingDataloaderAsync` subclass with `ReplayBufferAsync` and a permanent asyncio coordinator. Trainer code uses only three actor methods:
+
+- `sample` submits a request and blocks on its future until the coordinator can return enough prompt groups.
+- `save_checkpoint` writes a synchronous data-plane snapshot while coordinator execution is paused.
+- `load_checkpoint` synchronously restores data-plane state before normal coordinator operation.
+
+Model and optimizer checkpointing remain in the trainer. The latest-checkpoint marker is updated only after both model and data-plane saves succeed.
+Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. A checkpoint containing only one side of the data-plane state is rejected.
+The actor is hard-affined to the TaskRunner node so local datasets, `data.pt`, and the latest-checkpoint marker share the same filesystem view.
+`skip.rollout_tq.enable` is rejected until submit/sample cache semantics are implemented inside the actor; silently bypassing those hooks would execute real rollout during a skipped step.
+
+Async rollout concurrency is measured in unfinished session slots:
+
+```text
+pending_slots = pending_prompt_count * rollout.n
+running_slots = sum(rollout.n - completed_entries for running prompts)
+watermark_sessions = watermark_batches * train_batch_size * default_rollout.n
+free_slots = max(0, watermark_sessions - pending_slots - running_slots)
+```
+
+Each session creates one metadata-only `{uid}_{session_id}` entry with `status=running`, then updates it after all trajectory writes settle; `finished` and `failure` session statuses both release one slot. Finished and failed prompt groups occupy no rollout slots; ready-backlog capacity is not separately bounded. Async trainers require a fixed train `rollout.n` and `data.gen_batch_size=1` (or null, which resolves to `1`), so refill dispatches `floor(free_slots / rollout.n)` whole prompt groups.
+
+The actor event loop serializes sampling, checkpointing, coordinator state transitions, and watermark refill without a state lock. These operations contain no `await`, so an RPC can run only when the coordinator reaches its wakeup/timeout wait; it cannot interleave with a state transition already in progress. Each coordinator pass synchronizes TransferQueue metadata once and reuses that snapshot for request handling and refill.
+
+`watermark_batches` replaces the old warmup-batch setting: it defines the steady-state in-flight session target rather than a one-time startup submission.
+
+Trajectory tensors remain in TransferQueue and do not cross the actor boundary. Validation keeps its dataloader in the trainer but sends each validation batch through the actor's `sample` method, so the actor remains the sole owner of `AgentLoopManagerTQ`.
 
 ### Separate Async training Granularity and Decoupled PPO
 
@@ -173,7 +214,7 @@ Add the following overrides to an existing V1 PPO launch:
 ```bash
 trainer.use_v1=True \
 trainer.v1.trainer_mode=colocate_async \
-trainer.v1.colocate_async.num_warmup_batches=1
+trainer.v1.colocate_async.watermark_batches=1
 ```
 
 The warmup batch starts generation before the first training step, reducing the initial empty-buffer wait.
@@ -193,7 +234,7 @@ actor_rollout_ref.rollout.checkpoint_engine.backend=nccl \
 data.train_batch_size=64 \
 actor_rollout_ref.actor.ppo_mini_batch_size=16 \
 trainer.v1.separate_async.parameter_sync_step=4 \
-trainer.v1.separate_async.num_warmup_batches=1
+trainer.v1.separate_async.watermark_batches=1
 ```
 
 `separate_async` requires a non-`naive` checkpoint-engine backend such as `nccl`, `nixl`, or `mooncake` for standalone rollout weight synchronization.
@@ -238,7 +279,7 @@ Practical tuning order:
 
 When the installed TransferQueue supports checkpointing, V1 async checkpoints persist its state alongside model and dataloader state. Finished samples are restored directly. Pending and running prompts are cleared and reissued after resume so prompts already fetched from the dataloader are not lost.
 
-Validation shares the same AgentLoop and rollout server pool with unfinished training trajectories. Those partial trajectories continue running alongside validation requests, so `timing_s/testing` includes the contention and rollout capacity they consume rather than measuring validation generation in isolation.
+Validation shares the same AgentLoop and rollout server pool with unfinished training trajectories. Existing partial trajectories continue running, but the coordinator pauses train polling and refill from the first validation request until the next train request. `timing_s/testing` therefore still includes contention from pre-existing train trajectories without dispatching additional train prompts.
 
 In `separate_async`, validation makes hybrid replicas available for rollout if they are currently in trainer mode.
 

@@ -42,6 +42,7 @@ max_response_length: 512
 train_batch_size: 1024
 
 # Number of prompts fetched from the dataloader per fetch.
+# V1 async trainers require null or 1; null resolves to 1.
 gen_batch_size: null
 
 # Batch size used during validation. Can be null.

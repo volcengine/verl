@@ -21,7 +21,6 @@ enough, with the remaining mini-batches served by the standalone pool alone.
 """
 
 from contextlib import contextmanager
-from types import SimpleNamespace
 
 import pytest
 from omegaconf import OmegaConf
@@ -59,7 +58,7 @@ class _RecordingCheckpointManager:
         self.sleep_calls += 1
 
 
-class _RecordingReplayBuffer:
+class _RecordingSampleSource:
     poll_interval = 1.0
 
     def __init__(self, eviction_metrics: dict | None = None, sampleable_count: int = 0):
@@ -68,15 +67,15 @@ class _RecordingReplayBuffer:
         self.eviction_metrics = eviction_metrics or {}
         self.sampleable_count = sampleable_count
 
-    def wait_for_sampleable(self, global_steps: int, partition_id: str, target_count: int) -> tuple[set[str], dict]:
-        del global_steps, partition_id
-        self.wait_calls.append(target_count)
-        return set(), dict(self.eviction_metrics)
-
-    def get_sampleable_count(self, global_steps: int, partition_id: str) -> int:
-        del global_steps, partition_id
+    def sample(self, *, global_steps, partition_id, batch_size, min_sampleable=None, consume=True, **_kwargs):
+        del global_steps, partition_id, batch_size
+        if consume:
+            raise AssertionError("This hook test does not consume replay data")
+        if min_sampleable is not None:
+            self.wait_calls.append(min_sampleable)
+            return None, dict(self.eviction_metrics), self.sampleable_count
         self.count_calls += 1
-        return self.sampleable_count
+        return None, {}, self.sampleable_count
 
 
 def _trainer(
@@ -110,7 +109,9 @@ def _trainer(
     trainer.total_training_steps = total_training_steps
     trainer.timing_raw = {}
     trainer.current_mode = HybridEngineMode.ROLLOUT
-    trainer.replay_buffer = _RecordingReplayBuffer(eviction_metrics, sampleable_count)
+    trainer.sample_source = _RecordingSampleSource(eviction_metrics, sampleable_count)
+    trainer.replay_poll_interval = trainer.sample_source.poll_interval
+    trainer._sample_replay = trainer.sample_source.sample
     trainer.events: list[str] = []
     trainer.checkpoint_manager = _RecordingCheckpointManager("hybrid", trainer.events)
     trainer.standalone_checkpoint_manager = _RecordingCheckpointManager("standalone", trainer.events)
@@ -146,7 +147,12 @@ def _trainer(
     return trainer
 
 
-def _construct_trainer(monkeypatch, *, replay_buffer, enable_switch: bool = True, disaggregation: bool = False):
+def _construct_trainer(
+    monkeypatch,
+    *,
+    enable_switch: bool = True,
+    disaggregation: bool = False,
+):
     config = OmegaConf.create(
         {
             "data": {"train_batch_size": 64},
@@ -178,7 +184,6 @@ def _construct_trainer(monkeypatch, *, replay_buffer, enable_switch: bool = True
 
     def mock_base_init(trainer, trainer_config):
         trainer.config = trainer_config
-        trainer.replay_buffer = replay_buffer
 
     monkeypatch.setattr(trainer_module.PPOTrainer, "__init__", mock_base_init)
     return PPOTrainerSeparateAsync(config)
@@ -234,7 +239,7 @@ def test_step_lends_the_engine_out_and_reclaims_it_exactly_once():
     trainer.on_step_begin()
     trainer._wait_for_sampleable_and_switch()
     assert trainer.current_mode == HybridEngineMode.TRAINER
-    assert trainer.replay_buffer.wait_calls == [16]
+    assert trainer.sample_source.wait_calls == [16]
     assert trainer.checkpoint_manager.abort_calls == 1
     assert trainer.checkpoint_manager.sleep_calls == 1
     assert trainer.balancer_calls == ["add", "clear", "remove"]
@@ -271,8 +276,8 @@ def test_step_begin_reclaims_hybrid_before_submission_when_inventory_is_ready():
     trainer.on_step_begin()
 
     assert trainer.current_mode == HybridEngineMode.TRAINER
-    assert trainer.replay_buffer.count_calls == 1
-    assert trainer.replay_buffer.wait_calls == []
+    assert trainer.sample_source.count_calls == 1
+    assert trainer.sample_source.wait_calls == []
     assert trainer.checkpoint_manager.abort_calls == 1
     assert trainer.checkpoint_manager.sleep_calls == 1
     assert trainer.timing_raw["switch_wait"] == 0.0
@@ -285,7 +290,7 @@ def test_wait_for_sampleable_is_a_noop_once_the_engine_is_training():
     trainer.current_mode = HybridEngineMode.TRAINER
 
     assert trainer._wait_for_sampleable_and_switch() == {}
-    assert trainer.replay_buffer.wait_calls == []
+    assert trainer.sample_source.wait_calls == []
     assert trainer.balancer_calls == []
 
 
@@ -304,7 +309,7 @@ def test_disabled_switching_reclaims_the_engine_without_waiting():
     trainer.on_step_begin()
     assert trainer._wait_for_sampleable_and_switch() == {}
     assert trainer.current_mode == HybridEngineMode.TRAINER
-    assert trainer.replay_buffer.wait_calls == []
+    assert trainer.sample_source.wait_calls == []
     assert trainer.checkpoint_manager.sleep_calls == 1
 
     trainer.on_step_end()
@@ -402,20 +407,15 @@ def test_switching_rejects_a_ratio_outside_the_unit_interval(ratio):
         _trainer(switch_threshold_ratio=ratio)
 
 
-def test_switching_rejects_a_replay_buffer_that_cannot_report_depth(monkeypatch):
-    with pytest.raises(TypeError, match="wait_for_sampleable"):
-        _construct_trainer(monkeypatch, replay_buffer=SimpleNamespace())
+def test_switching_does_not_require_a_local_replay_buffer(monkeypatch):
+    trainer = _construct_trainer(monkeypatch)
+
+    assert trainer.hybrid_rollout_config.enable_switch is True
 
 
 def test_switching_rejects_rollout_disaggregation(monkeypatch):
     with pytest.raises(ValueError, match="does not support rollout disaggregation"):
-        _construct_trainer(monkeypatch, replay_buffer=_RecordingReplayBuffer(), disaggregation=True)
-
-
-def test_disabled_switching_skips_custom_replay_buffer_validation(monkeypatch):
-    trainer = _construct_trainer(monkeypatch, replay_buffer=SimpleNamespace(), enable_switch=False)
-
-    assert trainer.hybrid_rollout_config.enable_switch is False
+        _construct_trainer(monkeypatch, disaggregation=True)
 
 
 def test_adaptive_threshold_increases_after_trainer_idle():
