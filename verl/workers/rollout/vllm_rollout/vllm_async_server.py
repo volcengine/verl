@@ -1172,7 +1172,8 @@ class vLLMHttpServer:
             # Snapshot request IDs before pausing for reporting
             request_ids = list(self.engine.output_processor.request_states.keys())
 
-            # pause_generation with wait_for_inflight_requests=False will:
+            # The legacy wait_for_inflight_requests=False and new
+            # pause_generation(mode="abort") APIs both:
             # 1. Set engine to paused state (new requests are accepted but not scheduled)
             # 2. Abort all in-flight requests
             # 3. Wait for requests to drain
@@ -1182,10 +1183,17 @@ class vLLMHttpServer:
             #    MooncakeStoreConnector) is invalidated along with the
             #    local prefix cache — RL-correct hard-reset at every
             #    weight update boundary, no extra kwargs needed.
-            await self.engine.pause_generation(
-                wait_for_inflight_requests=False,
-                clear_cache=reset_prefix_cache,
-            )
+            pause_generation = self.engine.pause_generation
+            try:
+                pause_parameters = inspect.signature(pause_generation).parameters
+            except (TypeError, ValueError):
+                pause_parameters = {}
+            pause_kwargs: dict[str, Any] = {"clear_cache": reset_prefix_cache}
+            if "wait_for_inflight_requests" in pause_parameters:
+                pause_kwargs["wait_for_inflight_requests"] = False
+            else:
+                pause_kwargs["mode"] = "abort"
+            await pause_generation(**pause_kwargs)
 
             logger.info(f"Aborted {len(request_ids)} requests: {request_ids}")
             return {"aborted_count": len(request_ids), "request_ids": request_ids}
