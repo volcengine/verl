@@ -337,20 +337,8 @@ class PPOTrainer(ABC):
         partition_id: str,
         batch_size: int,
         prompts: TensorDict | None = None,
-        min_sampleable: int | None = None,
-        consume: bool = True,
     ):
-        batch, metrics, count = ray.get(
-            self.streaming_dataloader.sample.remote(
-                global_steps,
-                batch_size,
-                partition_id,
-                prompts,
-                min_sampleable,
-                consume,
-            )
-        )
-        return batch, metrics, count
+        return ray.get(self.streaming_dataloader.sample.remote(global_steps, batch_size, partition_id, prompts))
 
     def fit(self, streaming_dataloader):
         """Fit the trainer with the rollout data actor.

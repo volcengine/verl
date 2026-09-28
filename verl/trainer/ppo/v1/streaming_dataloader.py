@@ -19,6 +19,7 @@ import time
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 import numpy as np
@@ -85,14 +86,23 @@ def _accumulate_eviction_metrics(acc: dict, new: dict) -> None:
             acc[key] = acc.get(key, 0) + value
 
 
+class _RequestKind(Enum):
+    # Consume ``batch_size`` groups.
+    SAMPLE = "sample"
+    # Report how many groups are sampleable now without consuming them.
+    COUNT = "count"
+    # Block until ``target_count`` groups are sampleable without consuming them.
+    WAIT = "wait"
+
+
 @dataclass
 class _SampleRequest:
+    kind: _RequestKind
     global_steps: int
-    batch_size: int
     partition_id: str
-    min_sampleable: int | None
-    consume: bool
     future: asyncio.Future
+    batch_size: int = 0
+    target_count: int = 0
     # Sync-only state carried across coordinator passes of one request.
     metrics: dict = field(default_factory=dict)
     refill_credit: int = 0
@@ -308,32 +318,43 @@ class StreamingDataloader:
         batch_size: int,
         partition_id: str = "train",
         prompts: TensorDict | None = None,
-        min_sampleable: int | None = None,
-        consume: bool = True,
     ) -> tuple[Any, dict, int]:
-        """Submit one sample request and wait until the coordinator fulfills it."""
-        self._check_sample_request(partition_id, min_sampleable, consume)
+        """Consume ``batch_size`` prompt groups, returning ``(batch, eviction_metrics, len(batch))``.
+
+        ``prompts`` are dispatched before waiting, e.g. for a validation batch.
+        """
+        return await self._submit_request(
+            _RequestKind.SAMPLE, global_steps, partition_id, batch_size=batch_size, prompts=prompts
+        )
+
+    async def _submit_request(
+        self,
+        kind: _RequestKind,
+        global_steps: int,
+        partition_id: str,
+        *,
+        batch_size: int = 0,
+        target_count: int = 0,
+        prompts: TensorDict | None = None,
+    ) -> tuple[Any, dict, int]:
+        """Register one request and wait until the coordinator fulfills it."""
         self._ensure_coordinator()
         if self._pending_sample is not None:
-            raise RuntimeError("Concurrent sample calls are not supported")
+            raise RuntimeError("Concurrent sample requests are not supported")
         self.global_steps = global_steps
         SkipManager.set_step(global_steps)
         self._on_sample_request(batch_size, partition_id, prompts)
         future = asyncio.get_running_loop().create_future()
         self._pending_sample = _SampleRequest(
+            kind=kind,
             global_steps=global_steps,
-            batch_size=batch_size,
             partition_id=partition_id,
-            min_sampleable=min_sampleable,
-            consume=consume,
             future=future,
+            batch_size=batch_size,
+            target_count=target_count,
         )
         self._wakeup.set()
         return await future
-
-    def _check_sample_request(self, partition_id: str, min_sampleable: int | None, consume: bool) -> None:
-        if not consume or min_sampleable is not None:
-            raise ValueError("count/wait sample operations are only supported by async trainers")
 
     def _on_sample_request(self, batch_size: int, partition_id: str, prompts: TensorDict | None) -> None:
         if prompts is not None:
@@ -837,8 +858,18 @@ class StreamingDataloaderAsync(StreamingDataloader):
     # Trainer-facing RPCs
     # ------------------------------------------------------------------ #
 
-    def _check_sample_request(self, partition_id: str, min_sampleable: int | None, consume: bool) -> None:
-        pass
+    async def count_sampleable(self, global_steps: int) -> int:
+        """Return how many train groups are sampleable after this pass's evictions, consuming none."""
+        _, _, count = await self._submit_request(_RequestKind.COUNT, global_steps, "train")
+        return count
+
+    async def wait_sampleable(self, global_steps: int, target_count: int) -> dict:
+        """Block until ``target_count`` train groups are sampleable, consuming none.
+
+        Returns the eviction metrics accrued since the previous metrics-draining request.
+        """
+        _, metrics, _ = await self._submit_request(_RequestKind.WAIT, global_steps, "train", target_count=target_count)
+        return metrics
 
     def _on_sample_request(self, batch_size: int, partition_id: str, prompts: TensorDict | None) -> None:
         self._validation_active = partition_id == "val"
@@ -894,11 +925,11 @@ class StreamingDataloaderAsync(StreamingDataloader):
         else:
             global_steps = request.global_steps
             partition_id = request.partition_id
-            target_count = (
-                max(request.batch_size, request.min_sampleable or 0)
-                if request.consume
-                else (request.min_sampleable or 0)
-            )
+            target_count = {
+                _RequestKind.SAMPLE: request.batch_size,
+                _RequestKind.WAIT: request.target_count,
+                _RequestKind.COUNT: 0,
+            }[request.kind]
 
         sampleable, metrics, ready, evicted_count = self.poll_once(global_steps, partition_id, target_count)
         if partition_id == "train":
@@ -907,13 +938,13 @@ class StreamingDataloaderAsync(StreamingDataloader):
                 return
         if request is None:
             return
-        if not request.consume and request.min_sampleable is None:
+        if request.kind is _RequestKind.COUNT:
             ready = True
         if not ready:
             return
 
         try:
-            if request.consume:
+            if request.kind is _RequestKind.SAMPLE:
                 batch = self.materialize_sampleable(
                     request.global_steps,
                     request.partition_id,
@@ -924,7 +955,10 @@ class StreamingDataloaderAsync(StreamingDataloader):
             else:
                 batch = None
                 result_count = len(sampleable)
-            if request.partition_id == "train":
+            if request.kind is _RequestKind.COUNT:
+                # Counts carry no metrics, so keep accrued evictions for the next sample/wait request.
+                result_metrics = {}
+            elif request.partition_id == "train":
                 result_metrics = dict(self._pending_metrics)
                 self._pending_metrics.clear()
             else:

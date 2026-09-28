@@ -191,23 +191,10 @@ class PPOTrainerSeparateAsync(PPOTrainer):
             self.switch_to_rollout()
 
     def _get_sampleable_count(self, global_steps: int) -> int:
-        _, _, count = self._sample_replay(
-            global_steps=global_steps,
-            partition_id="train",
-            batch_size=0,
-            consume=False,
-        )
-        return count
+        return ray.get(self.streaming_dataloader.count_sampleable.remote(global_steps))
 
     def _wait_for_sampleable(self, global_steps: int, target_count: int) -> dict:
-        _, metrics, _ = self._sample_replay(
-            global_steps=global_steps,
-            partition_id="train",
-            batch_size=0,
-            min_sampleable=target_count,
-            consume=False,
-        )
-        return metrics
+        return ray.get(self.streaming_dataloader.wait_sampleable.remote(global_steps, target_count))
 
     def on_step_begin(self):
         self._step_sample_wait_seconds = 0.0

@@ -147,11 +147,10 @@ def test_sync_sample_submits_batch_then_waits_for_coordinator():
     asyncio.run(run())
 
 
-def test_sync_sample_rejects_async_only_requests():
-    actor = _sync_coordinator_stub()
-
-    with pytest.raises(ValueError, match="only supported by async trainers"):
-        asyncio.run(actor.sample(global_steps=1, batch_size=0, consume=False))
+def test_inventory_queries_exist_only_on_async_dataloader():
+    for method in ("count_sampleable", "wait_sampleable"):
+        assert not hasattr(StreamingDataloader, method)
+        assert inspect.iscoroutinefunction(getattr(StreamingDataloaderAsync, method))
 
 
 def test_sync_coordinator_idles_without_pending_request():
@@ -216,11 +215,10 @@ def test_coordinator_failure_fails_pending_sample_and_terminates_actor(monkeypat
         actor = _async_stub()
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=1,
             batch_size=1,
             partition_id="train",
-            min_sampleable=None,
-            consume=True,
             future=future,
         )
         actor._coordinator_task = None
@@ -266,11 +264,10 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
         actor._refill_to_watermark = lambda: refills.append("after") or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=3,
             batch_size=2,
             partition_id="train",
-            min_sampleable=1,
-            consume=True,
             future=future,
         )
 
@@ -305,11 +302,10 @@ def test_train_eviction_refills_without_fulfilling_request():
         actor._refill_to_watermark = lambda: refills.append(True) or 1
         future = asyncio.get_running_loop().create_future()
         request = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=3,
             batch_size=1,
             partition_id="train",
-            min_sampleable=None,
-            consume=True,
             future=future,
         )
         actor._pending_sample = request
@@ -346,11 +342,10 @@ def test_validation_request_pauses_train_inventory_maintenance():
         actor._refill_to_watermark = lambda: refills.append(True) or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=5,
             batch_size=1,
             partition_id="val",
-            min_sampleable=None,
-            consume=True,
             future=future,
         )
 
@@ -397,11 +392,10 @@ def test_validation_before_load_does_not_maintain_train_inventory():
         actor._refill_to_watermark = lambda: pytest.fail("train refill must remain gated before load")
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=0,
             batch_size=1,
             partition_id="val",
-            min_sampleable=None,
-            consume=True,
             future=future,
         )
 
@@ -427,11 +421,10 @@ def test_materialize_failure_completes_sample_future_with_exception():
         actor._refill_to_watermark = lambda: 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
             global_steps=1,
             batch_size=1,
             partition_id="train",
-            min_sampleable=None,
-            consume=True,
             future=future,
         )
 
@@ -440,41 +433,6 @@ def test_materialize_failure_completes_sample_future_with_exception():
         with pytest.raises(RuntimeError, match="materialize failed"):
             await future
         assert actor._pending_sample is None
-
-    asyncio.run(run())
-
-
-def test_consuming_sample_never_uses_minimum_below_batch_size():
-    async def run():
-        actor = _async_stub()
-        actor._pending_sample = None
-        actor._pending_metrics = {}
-        actor._train_state_ready = True
-        targets = []
-        refills = []
-
-        def poll_once(_step, _partition, target, **_kwargs):
-            targets.append(target)
-            return {"uid"}, {}, False, 0
-
-        _stub_methods(actor, poll_once=poll_once)
-        actor._refill_to_watermark = lambda: refills.append(True) or 0
-        future = asyncio.get_running_loop().create_future()
-        actor._pending_sample = streaming_module._SampleRequest(
-            global_steps=1,
-            batch_size=4,
-            partition_id="train",
-            min_sampleable=1,
-            consume=True,
-            future=future,
-        )
-
-        await _advance_and_maintain_watermark(actor)
-
-        assert targets == [4]
-        assert refills == [True]
-        assert not future.done()
-        future.cancel()
 
     asyncio.run(run())
 
@@ -495,11 +453,10 @@ def test_non_consuming_count_request_uses_watermark_coordinator():
         actor._refill_to_watermark = lambda: refills.append("after") or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.COUNT,
             global_steps=1,
             batch_size=0,
             partition_id="train",
-            min_sampleable=None,
-            consume=False,
             future=future,
         )
 
@@ -528,11 +485,10 @@ def test_non_consuming_wait_request_refills_while_below_target():
         actor._refill_to_watermark = lambda: refills.append(True) or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.WAIT,
             global_steps=1,
-            batch_size=0,
+            target_count=2,
             partition_id="train",
-            min_sampleable=2,
-            consume=False,
             future=future,
         )
 
@@ -542,6 +498,53 @@ def test_non_consuming_wait_request_refills_while_below_target():
         assert refills == [True]
         assert not future.done()
         future.cancel()
+
+    asyncio.run(run())
+
+
+def _async_rpc_stub(poll_once):
+    actor = _async_stub()
+    actor.global_steps = 0
+    actor._pending_sample = None
+    actor._coordinator_task = None
+    # Keep idle coordinator passes from consuming scripted polls between requests.
+    actor._train_state_ready = False
+    actor._pending_metrics = {}
+    actor.poll_interval = 0.01
+    actor.poll_once = poll_once
+    actor._refill_to_watermark = lambda: 0
+    return actor
+
+
+def test_count_sampleable_keeps_eviction_metrics_for_next_request():
+    async def run():
+        eviction = {"training/rollout_failure/evicted_samples": 1}
+        polls = iter([({"uid-0"}, eviction, True, 0), ({"uid-0", "uid-1"}, {}, True, 0)])
+        actor = _async_rpc_stub(lambda *_args: next(polls))
+
+        assert await asyncio.wait_for(actor.count_sampleable(3), timeout=1) == 1
+        assert actor._pending_metrics == eviction
+        assert await asyncio.wait_for(actor.wait_sampleable(3, target_count=2), timeout=1) == eviction
+        assert actor._pending_metrics == {}
+        actor._coordinator_task.cancel()
+
+    asyncio.run(run())
+
+
+def test_wait_sampleable_targets_train_partition_without_consuming():
+    async def run():
+        polls = []
+
+        def poll_once(global_steps, partition_id, target_count):
+            polls.append((global_steps, partition_id, target_count))
+            return {"uid-0", "uid-1"}, {}, True, 0
+
+        actor = _async_rpc_stub(poll_once)
+        actor.materialize_sampleable = lambda *_args: pytest.fail("wait must not consume groups")
+
+        assert await asyncio.wait_for(actor.wait_sampleable(5, target_count=2), timeout=1) == {}
+        assert polls == [(5, "train", 2)]
+        actor._coordinator_task.cancel()
 
     asyncio.run(run())
 
@@ -639,4 +642,4 @@ def test_trainer_sample_delegates_to_dataloader_actor(monkeypatch):
     )
 
     assert result == ("batch", {"metric": 1}, 2)
-    assert calls == [(4, 2, "train", None, None, True)]
+    assert calls == [(4, 2, "train", None)]

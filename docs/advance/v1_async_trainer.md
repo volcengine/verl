@@ -107,11 +107,12 @@ trainer:
       watermark_batches: 1
 ```
 
-The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses only three actor methods:
+The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses these actor methods:
 
 - `sample` submits a request and blocks on its future until the coordinator can return enough prompt groups.
 - `save_checkpoint` writes a synchronous data-plane snapshot while coordinator execution is paused.
 - `load_checkpoint` synchronously restores data-plane state before normal coordinator operation.
+- Async only: `count_sampleable` and `wait_sampleable` report or wait for sampleable train groups without consuming them. `separate_async` uses them to decide when lent Hybrid GPUs return to training. Each is served by a regular coordinator pass, so it also applies that pass's evictions; `count_sampleable` leaves accrued eviction metrics for the next `sample` or `wait_sampleable`.
 
 Model and optimizer checkpointing remain in the trainer. The latest-checkpoint marker is updated only after both model and data-plane saves succeed.
 Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. `data.pt` is required; when the installed TransferQueue lacks checkpoint APIs or the snapshot is missing, only the dataloader cursor is restored and in-flight rollout state is dropped with a warning.

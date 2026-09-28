@@ -67,15 +67,15 @@ class _RecordingSampleSource:
         self.eviction_metrics = eviction_metrics or {}
         self.sampleable_count = sampleable_count
 
-    def sample(self, *, global_steps, partition_id, batch_size, min_sampleable=None, consume=True, **_kwargs):
-        del global_steps, partition_id, batch_size
-        if consume:
-            raise AssertionError("This hook test does not consume replay data")
-        if min_sampleable is not None:
-            self.wait_calls.append(min_sampleable)
-            return None, dict(self.eviction_metrics), self.sampleable_count
+    def count_sampleable(self, global_steps):
+        del global_steps
         self.count_calls += 1
-        return None, {}, self.sampleable_count
+        return self.sampleable_count
+
+    def wait_sampleable(self, global_steps, target_count):
+        del global_steps
+        self.wait_calls.append(target_count)
+        return dict(self.eviction_metrics)
 
 
 def _trainer(
@@ -111,7 +111,8 @@ def _trainer(
     trainer.current_mode = HybridEngineMode.ROLLOUT
     trainer.sample_source = _RecordingSampleSource(eviction_metrics, sampleable_count)
     trainer.replay_poll_interval = trainer.sample_source.poll_interval
-    trainer._sample_replay = trainer.sample_source.sample
+    trainer._get_sampleable_count = trainer.sample_source.count_sampleable
+    trainer._wait_for_sampleable = trainer.sample_source.wait_sampleable
     trainer.events: list[str] = []
     trainer.checkpoint_manager = _RecordingCheckpointManager("hybrid", trainer.events)
     trainer.standalone_checkpoint_manager = _RecordingCheckpointManager("standalone", trainer.events)
