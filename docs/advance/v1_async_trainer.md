@@ -76,11 +76,11 @@ Monitor both forms of off-policy behavior:
 - `training/off_policy/trajectory_staleness/*`: gap between the newest version used by a trajectory and the current training version.
 - `training/off_policy/trajectory_staleness_worst/*`: gap between the oldest version used by a trajectory and the current training version.
 
-### Prompt refilling in replay buffer and checkpoint recovery
+### Prompt refilling and checkpoint recovery
 
-Both async modes use `ReplayBufferAsync` inside `StreamingDataloaderAsync`, which samples prompt groups from the TransferQueue. ReplayBuffer performs one non-blocking metadata/eviction pass at a time; the actor coordinator owns polling and refill. `ReplayBufferAsync` deliberately has no blocking sample/wait loop or refill callback: it exposes `poll_once(global_steps, partition_id, target_count)` and `materialize_sampleable(...)`, and custom async samplers must follow the same coordinator-owned watermark contract.
+TransferQueue is the replay storage, and `StreamingDataloaderAsync` owns its control plane: it registers submitted prompts, polls prompt/session metadata, evicts terminal groups, reissues in-flight prompts on restore, and checkpoints TransferQueue state. The key and tag protocol shared with AgentLoop workers and the trainer lives in `verl/trainer/ppo/v1/tq_schema.py`. Each coordinator pass runs one non-blocking `poll_once(global_steps, partition_id, target_count)` and, once a request is ready, `materialize_sampleable(...)`. Custom samplers subclass `StreamingDataloaderAsync` and override only these sampling hooks, keeping the coordinator-owned watermark contract.
 
-The coordinator repeatedly asks the replay buffer to synchronize TransferQueue metadata and classify terminal groups. A training group is evicted when any of the following applies:
+On each pass the coordinator synchronizes TransferQueue metadata and classifies terminal groups. A training group is evicted when any of the following applies:
 
 - Its prompt age exceeds `max_off_policy_threshold` while `max_off_policy_strategy=drop`.
 - It is removed by the configured DAPO group filter.
@@ -107,14 +107,14 @@ trainer:
       watermark_batches: 1
 ```
 
-The actor owns the train `StatefulDataLoader`, ReplayBuffer, and `AgentLoopManagerTQ`. `sync` uses `StreamingDataloader` with the synchronous `ReplayBuffer`; both async modes use its `StreamingDataloaderAsync` subclass with `ReplayBufferAsync` and a permanent asyncio coordinator. Trainer code uses only three actor methods:
+The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses only three actor methods:
 
 - `sample` submits a request and blocks on its future until the coordinator can return enough prompt groups.
 - `save_checkpoint` writes a synchronous data-plane snapshot while coordinator execution is paused.
 - `load_checkpoint` synchronously restores data-plane state before normal coordinator operation.
 
 Model and optimizer checkpointing remain in the trainer. The latest-checkpoint marker is updated only after both model and data-plane saves succeed.
-Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. A checkpoint containing only one side of the data-plane state is rejected.
+Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. `data.pt` is required; when the installed TransferQueue lacks checkpoint APIs or the snapshot is missing, only the dataloader cursor is restored and in-flight rollout state is dropped with a warning.
 The actor is hard-affined to the TaskRunner node so local datasets, `data.pt`, and the latest-checkpoint marker share the same filesystem view.
 `skip.rollout_tq.enable` is rejected until submit/sample cache semantics are implemented inside the actor; silently bypassing those hooks would execute real rollout during a skipped step.
 

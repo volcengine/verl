@@ -121,7 +121,7 @@ def test_builtin_filter_groups_warns_when_total_generation_limit_is_configured()
         assert trainer._resolve_filter_groups_metric() == "acc"
 
     warning.assert_called_once_with(
-        "algorithm.filter_groups.max_num_gen_batches=%s is ignored by the built-in V1 ReplayBuffer; "
+        "algorithm.filter_groups.max_num_gen_batches=%s is ignored by the built-in V1 dataloader; "
         "use max_inflight_gen_batches to bound concurrent Sync DAPO generation.",
         10,
     )

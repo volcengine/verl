@@ -110,11 +110,9 @@ class TaskRunnerV1:
 
     def init_streaming_dataloader(self):
         """Create the actor that owns async train data, replay, and rollout dispatch."""
-        from verl.trainer.ppo.v1 import StreamingDataloaderActor, StreamingDataloaderAsyncActor
+        from verl.trainer.ppo.v1.streaming_dataloader import create_streaming_dataloader_actor_cls
 
-        dataloader_cls = (
-            StreamingDataloaderActor if self.config.trainer.v1.trainer_mode == "sync" else StreamingDataloaderAsyncActor
-        )
+        dataloader_cls = create_streaming_dataloader_actor_cls(self.config)
         self.streaming_dataloader = dataloader_cls.options(
             scheduling_strategy=NodeAffinitySchedulingStrategy(
                 node_id=ray.get_runtime_context().get_node_id(),

@@ -24,13 +24,17 @@ from omegaconf import OmegaConf
 
 import verl.trainer.ppo.v1.streaming_dataloader as streaming_module
 import verl.trainer.ppo.v1.trainer_base as trainer_module
-from verl.trainer.ppo.v1.replay_buffer import ReplayBuffer, ReplayBufferAsync
 from verl.trainer.ppo.v1.streaming_dataloader import StreamingDataloader, StreamingDataloaderAsync
 from verl.trainer.ppo.v1.trainer_base import PPOTrainer
 
 
 def _sync_stub():
     return object.__new__(StreamingDataloader)
+
+
+def _stub_methods(actor, **methods):
+    for name, value in methods.items():
+        setattr(actor, name, value)
 
 
 def _async_stub():
@@ -62,82 +66,40 @@ def test_async_dataloader_inherits_sync_dataloader():
     assert issubclass(StreamingDataloaderAsync, StreamingDataloader)
 
 
-def test_dataloader_subclasses_build_matching_replay_buffers():
-    config = OmegaConf.create(
-        {
-            "data": {"train_batch_size": 8},
-            "algorithm": {"filter_groups": {"enable": False}},
-            "trainer": {
-                "v1": {
-                    "sync": {},
-                    "colocate_async": {},
-                    "sampler": {
-                        "custom_sampler": None,
-                        "max_off_policy_threshold": 8,
-                        "max_off_policy_strategy": "drop",
-                        "sampler_kwargs": {},
-                        "sync_refill_failed_groups": False,
-                    },
-                }
-            },
-        }
+def _sampler_config(trainer_mode, custom_sampler=None):
+    return OmegaConf.create(
+        {"trainer": {"v1": {"trainer_mode": trainer_mode, "sampler": {"custom_sampler": custom_sampler}}}}
     )
-    sync_actor = _sync_stub()
-    sync_actor.config = config
-    sync_actor.trainer_mode = "sync"
-    sync_actor.filter_groups_metric = None
-    sync_actor.gen_batch_size = 8
-    async_actor = _async_stub()
-    async_actor.config = config
-    async_actor.trainer_mode = "colocate_async"
-    async_actor.filter_groups_metric = None
-
-    assert type(sync_actor._build_replay_buffer()) is ReplayBuffer
-    assert type(async_actor._build_replay_buffer()) is ReplayBufferAsync
 
 
-def test_async_custom_sampler_receives_no_refill_callback(monkeypatch):
-    received_kwargs = {}
+@pytest.mark.parametrize(
+    ("trainer_mode", "expected_cls"),
+    [("sync", StreamingDataloader), ("colocate_async", StreamingDataloaderAsync)],
+)
+def test_default_dataloader_class_matches_trainer_mode(trainer_mode, expected_cls):
+    assert streaming_module.resolve_streaming_dataloader_cls(_sampler_config(trainer_mode)) is expected_cls
 
-    class CustomAsyncSampler:
-        def __init__(self, **kwargs):
-            received_kwargs.update(kwargs)
 
-        def poll_once(self, global_steps, partition_id, target_count):
-            del global_steps, partition_id, target_count
+def test_custom_sampler_subclasses_mode_dataloader(monkeypatch):
+    class CustomAsyncDataloader(StreamingDataloaderAsync):
+        pass
 
-        def materialize_sampleable(self, global_steps, partition_id, sampleable_keys, batch_size):
-            del global_steps, partition_id, sampleable_keys, batch_size
+    monkeypatch.setattr(streaming_module, "load_extern_type", lambda *_args: CustomAsyncDataloader)
+    config = _sampler_config("separate_async", {"path": "custom.py", "name": "CustomAsyncDataloader"})
 
-        def unfinished_session_count(self, partition_id, default_rollout_n):
-            del partition_id, default_rollout_n
-            return 0
+    assert streaming_module.resolve_streaming_dataloader_cls(config) is CustomAsyncDataloader
 
-    config = OmegaConf.create(
-        {
-            "trainer": {
-                "v1": {
-                    "colocate_async": {},
-                    "sampler": {
-                        "custom_sampler": {"path": "custom.py", "name": "CustomAsyncSampler"},
-                        "max_off_policy_threshold": 8,
-                        "max_off_policy_strategy": "drop",
-                        "sampler_kwargs": {},
-                    },
-                }
-            }
-        }
-    )
-    actor = _async_stub()
-    actor.config = config
-    actor.trainer_mode = "colocate_async"
-    actor.filter_groups_metric = None
-    monkeypatch.setattr(streaming_module, "load_extern_type", lambda *_args: CustomAsyncSampler)
 
-    replay_buffer = actor._build_replay_buffer()
+@pytest.mark.parametrize(
+    ("trainer_mode", "custom_cls"),
+    [("sync", StreamingDataloaderAsync), ("colocate_async", StreamingDataloader), ("sync", object)],
+)
+def test_custom_sampler_rejects_classes_for_other_modes(monkeypatch, trainer_mode, custom_cls):
+    monkeypatch.setattr(streaming_module, "load_extern_type", lambda *_args: custom_cls)
+    config = _sampler_config(trainer_mode, {"path": "custom.py", "name": "Custom"})
 
-    assert isinstance(replay_buffer, CustomAsyncSampler)
-    assert "refill_fn" not in received_kwargs
+    with pytest.raises(TypeError, match="must subclass"):
+        streaming_module.resolve_streaming_dataloader_cls(config)
 
 
 def test_session_watermark_refills_complete_prompt_groups():
@@ -145,7 +107,7 @@ def test_session_watermark_refills_complete_prompt_groups():
     actor.watermark_sessions = 5
     actor.default_rollout_n = 2
     actor.gen_batch_size = 1
-    actor.replay_buffer = SimpleNamespace(unfinished_session_count=lambda *_args: 1)
+    _stub_methods(actor, unfinished_session_count=lambda *_args: 1)
     requested = []
     actor._refill_exact = lambda count: requested.append(count) or count
 
@@ -154,16 +116,69 @@ def test_session_watermark_refills_complete_prompt_groups():
     assert requested == [2]
 
 
-def test_sync_sample_submits_batch_before_blocking_replay():
+def _sync_coordinator_stub():
     actor = _sync_stub()
     actor.global_steps = 0
-    actor._refill_exact = lambda count: count
-    actor.replay_buffer = SimpleNamespace(
-        sample=lambda global_steps, partition_id, batch_size: (["a", "b"], {"sample": 1})
+    actor._init_replay_state(
+        max_off_policy_threshold=8, max_off_policy_strategy="drop", sampler_kwargs={}, poll_interval=0.01
     )
-    result = actor.sample(global_steps=3, batch_size=2)
+    return actor
 
-    assert result == (["a", "b"], {"sample": 1}, 2)
+
+def test_sync_sample_submits_batch_then_waits_for_coordinator():
+    async def run():
+        actor = _sync_coordinator_stub()
+        events = []
+        actor._refill_exact = lambda count: events.append(("refill", count)) or count
+
+        def advance(request):
+            events.append(("poll", request.global_steps, request.batch_size))
+            return ["a", "b"], {"sample": 1}, 2
+
+        actor._advance_request = advance
+
+        result = await asyncio.wait_for(actor.sample(global_steps=3, batch_size=2), timeout=1)
+
+        assert result == (["a", "b"], {"sample": 1}, 2)
+        assert events == [("refill", 2), ("poll", 3, 2)]
+        assert actor._pending_sample is None
+        actor._coordinator_task.cancel()
+
+    asyncio.run(run())
+
+
+def test_sync_sample_rejects_async_only_requests():
+    actor = _sync_coordinator_stub()
+
+    with pytest.raises(ValueError, match="only supported by async trainers"):
+        asyncio.run(actor.sample(global_steps=1, batch_size=0, consume=False))
+
+
+def test_sync_coordinator_idles_without_pending_request():
+    actor = _sync_coordinator_stub()
+    actor._advance_request = lambda _request: pytest.fail("sync must not poll or refill between requests")
+
+    actor._coordinator_step()
+
+
+def test_sync_request_failure_keeps_coordinator_serving():
+    async def run():
+        actor = _sync_coordinator_stub()
+        actor._refill_exact = lambda count: count
+
+        def fail(_request):
+            raise RuntimeError("no materializable trajectories")
+
+        actor._advance_request = fail
+        with pytest.raises(RuntimeError, match="no materializable"):
+            await asyncio.wait_for(actor.sample(global_steps=1, batch_size=1), timeout=1)
+        assert not actor._coordinator_task.done()
+
+        actor._advance_request = lambda _request: (["retry"], {}, 1)
+        assert await asyncio.wait_for(actor.sample(global_steps=2, batch_size=1), timeout=1) == (["retry"], {}, 1)
+        actor._coordinator_task.cancel()
+
+    asyncio.run(run())
 
 
 def test_async_sample_waits_for_coordinator_and_refills_after_delivery():
@@ -171,7 +186,8 @@ def test_async_sample_waits_for_coordinator_and_refills_after_delivery():
         actor = _async_stub()
         actor.global_steps = 0
         actor.config = SimpleNamespace(data=SimpleNamespace(train_batch_size=2))
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_interval=0.01,
             poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True, 0),
             materialize_sampleable=lambda *_args: ["trajectory"],
@@ -242,7 +258,8 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
             polls.append((global_steps, partition_id, target_count))
             return {"uid-0", "uid-1"}, {}, True, 0
 
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_once=poll_once,
             materialize_sampleable=lambda *_args: ["trajectory-0", "trajectory-1"],
         )
@@ -280,7 +297,8 @@ def test_train_eviction_refills_without_fulfilling_request():
             polls.append((global_steps, partition_id, target_count))
             return {"uid-0"}, {}, False, 1
 
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_once=poll_once,
             materialize_sampleable=lambda *_args: pytest.fail("eviction pass must not materialize"),
         )
@@ -320,7 +338,8 @@ def test_validation_request_pauses_train_inventory_maintenance():
             polls.append((global_steps, partition_id, target_count))
             return ({"val-uid"} if partition_id == "val" else set()), {}, True, 0
 
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_once=poll_once,
             materialize_sampleable=lambda *_args: ["validation-trajectory"],
         )
@@ -350,9 +369,7 @@ def test_validation_mode_pauses_periodic_train_maintenance_between_requests():
         actor._pending_sample = None
         actor._train_state_ready = True
         actor._validation_active = True
-        actor.replay_buffer = SimpleNamespace(
-            poll_once=lambda *_args: pytest.fail("train poll must remain paused during validation")
-        )
+        _stub_methods(actor, poll_once=lambda *_args: pytest.fail("train poll must remain paused during validation"))
         actor._refill_to_watermark = lambda: pytest.fail("train refill must remain paused during validation")
 
         await _advance_and_maintain_watermark(actor)
@@ -372,7 +389,8 @@ def test_validation_before_load_does_not_maintain_train_inventory():
             polls.append((global_steps, partition_id, target_count))
             return {"val-uid"}, {}, True, 0
 
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_once=poll_once,
             materialize_sampleable=lambda *_args: ["validation-trajectory"],
         )
@@ -401,7 +419,8 @@ def test_materialize_failure_completes_sample_future_with_exception():
         actor._pending_sample = None
         actor._pending_metrics = {}
         actor._train_state_ready = True
-        actor.replay_buffer = SimpleNamespace(
+        _stub_methods(
+            actor,
             poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True, 0),
             materialize_sampleable=lambda *_args: (_ for _ in ()).throw(RuntimeError("materialize failed")),
         )
@@ -438,7 +457,7 @@ def test_consuming_sample_never_uses_minimum_below_batch_size():
             targets.append(target)
             return {"uid"}, {}, False, 0
 
-        actor.replay_buffer = SimpleNamespace(poll_once=poll_once)
+        _stub_methods(actor, poll_once=poll_once)
         actor._refill_to_watermark = lambda: refills.append(True) or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
@@ -472,7 +491,7 @@ def test_non_consuming_count_request_uses_watermark_coordinator():
             targets.append(target)
             return {"uid-0", "uid-1"}, {}, False, 0
 
-        actor.replay_buffer = SimpleNamespace(poll_once=poll_once)
+        _stub_methods(actor, poll_once=poll_once)
         actor._refill_to_watermark = lambda: refills.append("after") or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
@@ -505,7 +524,7 @@ def test_non_consuming_wait_request_refills_while_below_target():
             targets.append(target)
             return {"uid-0"}, {}, False, 0
 
-        actor.replay_buffer = SimpleNamespace(poll_once=poll_once)
+        _stub_methods(actor, poll_once=poll_once)
         actor._refill_to_watermark = lambda: refills.append(True) or 0
         future = asyncio.get_running_loop().create_future()
         actor._pending_sample = streaming_module._SampleRequest(
@@ -549,55 +568,56 @@ def test_sync_checkpoint_contains_only_dataloader(monkeypatch, tmp_path):
     assert tq_saves == []
 
 
-def test_async_checkpoint_contains_dataloader_and_transfer_queue(monkeypatch, tmp_path):
+def test_async_checkpoint_saves_dataloader_and_delegates_transfer_queue(tmp_path):
     actor = _async_stub()
     actor.train_dataloader = SimpleNamespace(state_dict=lambda: {"cursor": 7})
     tq_saves = []
-    monkeypatch.setattr(
-        streaming_module.tq,
-        "save_checkpoint",
-        lambda path, metadata: tq_saves.append((path, metadata)),
-        raising=False,
-    )
-    monkeypatch.setattr(streaming_module.tq, "load_checkpoint", lambda _path: None, raising=False)
-    monkeypatch.setattr(streaming_module.tq, "__version__", "0.1.9")
+    actor._save_tq_checkpoint = lambda path, global_steps: tq_saves.append((path, global_steps))
 
     actor.save_checkpoint(str(tmp_path), global_steps=7)
 
     assert torch.load(tmp_path / "data.pt", weights_only=False) == {"cursor": 7}
-    assert tq_saves == [(str(tmp_path / "transfer_queue"), {"global_steps": 7})]
+    assert tq_saves == [(str(tmp_path / "transfer_queue"), 7)]
 
 
-def test_async_checkpoint_preserves_dataloader_without_tq_support(monkeypatch, tmp_path):
-    actor = _async_stub()
-    actor.train_dataloader = SimpleNamespace(state_dict=lambda: {"cursor": 7})
-    monkeypatch.setattr(streaming_module.tq, "save_checkpoint", None, raising=False)
-    monkeypatch.setattr(streaming_module.tq, "load_checkpoint", None, raising=False)
-
-    actor.save_checkpoint(str(tmp_path), global_steps=7)
-
-    assert torch.load(tmp_path / "data.pt", weights_only=False) == {"cursor": 7}
-    assert not (tmp_path / "transfer_queue").exists()
-
-
-def test_async_restore_preserves_dataloader_without_tq_support(monkeypatch, tmp_path):
+def test_async_restore_loads_dataloader_and_delegates_transfer_queue(tmp_path):
     actor = _async_stub()
     loaded_states = []
+    tq_loads = []
     actor.train_dataloader = SimpleNamespace(load_state_dict=loaded_states.append)
+    actor._load_tq_checkpoint = lambda path: tq_loads.append(path) or False
     actor._reissue_inflight_prompts = lambda: 0
     actor._refill_to_watermark = lambda: pytest.fail("restore must leave watermark refill to the coordinator")
     actor._ensure_coordinator = lambda: None
     actor._wakeup = SimpleNamespace(set=lambda: None)
     torch.save({"cursor": 5}, tmp_path / "data.pt")
-    monkeypatch.setattr(streaming_module.tq, "save_checkpoint", None, raising=False)
-    monkeypatch.setattr(streaming_module.tq, "load_checkpoint", None, raising=False)
 
     metrics = actor.load_checkpoint(str(tmp_path), global_steps=5)
 
     assert loaded_states == [{"cursor": 5}]
+    assert tq_loads == [str(tmp_path / "transfer_queue")]
     assert actor.global_steps == 5
     assert actor._train_state_ready is True
     assert metrics == {"streaming_dataloader/reissued_groups": 0.0}
+
+
+def test_async_restore_requires_dataloader_state(tmp_path):
+    actor = _async_stub()
+    actor._load_tq_checkpoint = lambda _path: pytest.fail("must not restore TQ alone")
+
+    with pytest.raises(RuntimeError, match="data.pt"):
+        actor.load_checkpoint(str(tmp_path), global_steps=5)
+
+
+def test_submission_registers_prompts_before_dispatch():
+    actor = _sync_stub()
+    actor.global_steps = 4
+    events = []
+    actor._register_prompts = lambda batch, partition_id: events.append(("register", partition_id))
+    actor.agent_loop_manager = SimpleNamespace(generate_sequences=lambda batch: events.append(("dispatch",)))
+
+    assert actor._submit_batch_to_rollout(["prompt-a", "prompt-b"], "val") == 2
+    assert events == [("register", "val"), ("dispatch",)]
 
 
 def test_trainer_sample_delegates_to_dataloader_actor(monkeypatch):

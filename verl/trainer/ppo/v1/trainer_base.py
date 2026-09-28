@@ -68,7 +68,8 @@ from verl.trainer.ppo.utils import (
     need_reference_policy,
     need_teacher_policy,
 )
-from verl.trainer.ppo.v1.replay_buffer import DAPO_FILTERED_REWARD_COUNTS_KEY
+from verl.trainer.ppo.v1 import tq_schema
+from verl.trainer.ppo.v1.streaming_dataloader import DAPO_FILTERED_REWARD_COUNTS_KEY
 from verl.trainer.ppo.v1.utils import MetricsAggregator, compute_advantage_for_multi_trajectories
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
@@ -148,12 +149,12 @@ class PPOTrainer(ABC):
         assert streaming_reward_path, (
             "algorithm.filter_groups requires the reward metric at sampling time: use rule-based reward or "
             "reward.reward_model.enable_resource_pool=True. A colocated reward model computes rewards only "
-            "after replay-buffer sampling."
+            "after sampling."
         )
         max_num_gen_batches = filter_groups.get("max_num_gen_batches", 0)
         if max_num_gen_batches > 0:
             logger.warning(
-                "algorithm.filter_groups.max_num_gen_batches=%s is ignored by the built-in V1 ReplayBuffer; "
+                "algorithm.filter_groups.max_num_gen_batches=%s is ignored by the built-in V1 dataloader; "
                 "use max_inflight_gen_batches to bound concurrent Sync DAPO generation.",
                 max_num_gen_batches,
             )
@@ -910,13 +911,13 @@ class PPOTrainer(ABC):
 
             # 4. collect necessary data for logging
             # For multi-output agent loops, only use the final output per session for metrics.
-            # Keys have format {uid}_{session_id}_{index}; keep only the highest index per session.
+            # Keep only the highest trajectory index per session.
             session_max: dict[str, tuple[int, int]] = {}  # session_key -> (max_index, position)
             for pos, key in enumerate(batch.keys):
-                parts = key.rsplit("_", 2)
-                if len(parts) == 3:
-                    session_key = f"{parts[0]}_{parts[1]}"
-                    index = int(parts[2])
+                parsed = tq_schema.parse_trajectory_key(key)
+                if parsed is not None:
+                    uid, session_id, index = parsed
+                    session_key = tq_schema.session_key(uid, session_id)
                     if session_key not in session_max or index > session_max[session_key][0]:
                         session_max[session_key] = (index, pos)
                 else:
@@ -990,10 +991,7 @@ class PPOTrainer(ABC):
         val_data_dir = self.config.trainer.get("validation_data_dir", None)
         if val_data_dir:
             # Sort according to uid (so that generations in the same rollout are together)
-            sort_keys = []
-            for key in dump_all_keys:
-                parts = key.rsplit("_", 2)
-                sort_keys.append((parts[0], int(parts[1]), int(parts[2])) if len(parts) == 3 else (key, 0, 0))
+            sort_keys = [tq_schema.parse_trajectory_key(key) or (key, 0, 0) for key in dump_all_keys]
             sorted_indices = sorted(range(len(dump_all_keys)), key=lambda i: sort_keys[i])
             dump_all_inputs = [dump_all_inputs[i] for i in sorted_indices]
             dump_all_outputs = [dump_all_outputs[i] for i in sorted_indices]
@@ -1002,9 +1000,9 @@ class PPOTrainer(ABC):
             # For ground truths, scores and reward extra infos, find the values in the
             # lists for the final samples of each session
             dump_all_sessions = [
-                f"{parts[0]}_{parts[1]}" if len(parts) == 3 else key
+                tq_schema.session_key(parsed[0], parsed[1]) if parsed is not None else key
                 for key in dump_all_keys
-                for parts in [key.rsplit("_", 2)]
+                for parsed in [tq_schema.parse_trajectory_key(key)]
             ]
             session_final_indices = [session_to_sample_idx[session] for session in dump_all_sessions]
             self._dump_generations(
@@ -1132,14 +1130,7 @@ class PPOTrainer(ABC):
             else:
                 gts = [None] * len(uids)
 
-            # Sort by uid key ({sample}_{rollout}_{output})
-            sort_keys = []
-            for key in batch.keys:
-                parts = key.rsplit("_", 2)
-                if len(parts) == 3:
-                    sort_keys.append((parts[0], int(parts[1]), int(parts[2])))
-                else:
-                    sort_keys.append((key, 0, 0))
+            sort_keys = [tq_schema.parse_trajectory_key(key) or (key, 0, 0) for key in batch.keys]
             sorted_indices = sorted(range(len(sort_keys)), key=lambda i: sort_keys[i])
 
             inputs = [inputs[i] for i in sorted_indices]

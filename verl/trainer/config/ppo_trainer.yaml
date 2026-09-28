@@ -292,16 +292,16 @@ trainer:
       # Whether sync trainers replace failed groups that have no trajectories
       sync_refill_failed_groups: False
 
-      # Custom sampler config
+      # Custom sampler config: a StreamingDataloader (sync) or StreamingDataloaderAsync (async) subclass
       custom_sampler:
 
-        # Path to the custom sampler class
+        # Path to the file defining the custom dataloader class
         path: null
 
-        # Name of the custom sampler class
+        # Name of the custom dataloader class
         name: null
 
-      # Additional kwargs for the custom sampler
+      # Additional kwargs for the custom sampler, available as self.sampler_kwargs
       sampler_kwargs: {}
 
 # profiler configs

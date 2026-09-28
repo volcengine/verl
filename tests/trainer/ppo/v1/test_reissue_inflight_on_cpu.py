@@ -14,7 +14,7 @@
 """Unit tests for StreamingDataloader inflight-prompt checkpoint recovery.
 
 These run against a real (CPU-only) TransferQueue, mirroring
-``test_replay_buffer_on_cpu.py``. They exercise checkpoint resume for async
+``test_streaming_dataloader_sampling_on_cpu.py``. They exercise checkpoint resume for async
 trainers: after ``tq.load_checkpoint`` restores the queue, prompts that were
 still generating (``pending``/``running``) must be re-submitted from the prompt
 data persisted at submit time, while finished trajectories are left untouched.
@@ -23,16 +23,14 @@ Because half-generated tokens are not durable, a re-issued prompt restarts
 generation from scratch. Existing session trajectories under an in-flight prompt
 are removed, and the prompt is re-stamped with the resumed training step.
 
-The method is bound to a lightweight stub ``self`` exposing
-``agent_loop_manager``, ``trainer_mode``, and ``global_steps``, avoiding the need
-to build a full trainer.
+The method is bound to a lightweight stub ``self`` exposing a fake
+``agent_loop_manager`` and ``global_steps``, avoiding the need to build a full
+trainer.
 
 A second group of tests covers the ``tq.save_checkpoint``/``tq.load_checkpoint``
-round-trip that backs checkpoint consistency (matching ``_save_checkpoint``/
-``_load_checkpoint``). These call the real checkpoint APIs, so they skip on
-builds that lack them (the same ``_tq_supports_checkpoint`` gate the trainer uses
-to decide whether to save/load); one test additionally asserts the trainer
-short-circuits re-issue when the gate reports the feature unsupported.
+round-trip that backs checkpoint consistency. These call the real checkpoint APIs,
+so they skip on builds that lack them (the same ``_tq_supports_checkpoint`` gate the
+dataloader uses to decide whether to save/load).
 """
 
 import uuid
@@ -46,8 +44,7 @@ import verl.trainer.ppo.v1.streaming_dataloader as streaming_module
 from verl.trainer.ppo.v1.streaming_dataloader import StreamingDataloaderAsync
 from verl.utils import tensordict_utils as tu
 
-# Capture the real compatibility guard before the autouse fixture patches it. The save/load round-trip
-# tests call the real APIs, so they must skip on builds that do not provide them.
+# The save/load round-trip tests call the real APIs, so they must skip on builds that do not provide them.
 _REAL_TQ_SUPPORTS_CHECKPOINT = streaming_module._tq_supports_checkpoint
 requires_tq_checkpoint = pytest.mark.skipif(
     not _REAL_TQ_SUPPORTS_CHECKPOINT(),
