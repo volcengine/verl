@@ -1406,19 +1406,22 @@ class vLLMHttpServer:
         )
 
     def _apply_quantization(self) -> dict:
-        """hf_overrides for a rollout quantization set in the rollout config.
+        """``engine_kwargs.vllm.hf_overrides`` plus any rollout quantization set in the rollout config.
 
         Models shipping their own ``quantization_config`` need nothing here; either way the
         workers install the refit patches from the resulting vLLM ``quant_config``.
         """
         quantization = self.config.quantization
+        vllm_engine_kwargs = self.config.get("engine_kwargs", {}).get("vllm", {}) or {}
+        hf_overrides = dict(vllm_engine_kwargs.get("hf_overrides", {}) or {})
         if not quantization.enabled:
-            return {}
+            return hf_overrides
 
         # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
         quantization_config = quantization.build_quantization_config(self.model_config.local_path)
         logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
-        return {"quantization_config": quantization_config}
+        hf_overrides["quantization_config"] = quantization_config
+        return hf_overrides
 
     def _get_worker_extension_cls(self) -> str:
         """Return the fully-qualified colocate worker extension class name."""
