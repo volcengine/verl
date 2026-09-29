@@ -188,7 +188,7 @@ def test_async_sample_waits_for_coordinator_and_refills_after_delivery():
         _stub_methods(
             actor,
             poll_interval=0.01,
-            poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True, 0),
+            poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True),
             materialize_sampleable=lambda *_args: ["trajectory"],
         )
         actor._pending_sample = None
@@ -254,7 +254,7 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
 
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return {"uid-0", "uid-1"}, {}, True, 0
+            return {"uid-0", "uid-1"}, {}, True
 
         _stub_methods(
             actor,
@@ -281,7 +281,48 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
     asyncio.run(run())
 
 
-def test_train_eviction_refills_without_fulfilling_request():
+def test_train_eviction_pass_fulfills_request_from_remaining_groups():
+    async def run():
+        actor = _async_stub()
+        actor.global_steps = 3
+        actor._pending_metrics = {}
+        actor._train_state_ready = True
+        eviction = {"training/filter_groups/evicted_samples": 1}
+        polls = []
+        refills = []
+
+        def poll_once(global_steps, partition_id, target_count):
+            polls.append((global_steps, partition_id, target_count))
+            return {"uid-0"}, eviction, True
+
+        _stub_methods(
+            actor,
+            poll_once=poll_once,
+            materialize_sampleable=lambda *_args: ["trajectory-0"],
+        )
+        actor._refill_to_watermark = lambda: refills.append(True) or 1
+        future = asyncio.get_running_loop().create_future()
+        actor._pending_sample = streaming_module._SampleRequest(
+            kind=streaming_module._RequestKind.SAMPLE,
+            global_steps=3,
+            batch_size=1,
+            partition_id="train",
+            future=future,
+        )
+
+        await _advance_and_maintain_watermark(actor)
+
+        assert polls == [(3, "train", 1)]
+        assert future.done()
+        assert future.result() == (["trajectory-0"], eviction, 1)
+        assert refills == [True]
+        assert actor._pending_sample is None
+        assert actor._pending_metrics == {}
+
+    asyncio.run(run())
+
+
+def test_train_eviction_refills_without_fulfilling_unready_request():
     async def run():
         actor = _async_stub()
         actor.global_steps = 3
@@ -292,12 +333,12 @@ def test_train_eviction_refills_without_fulfilling_request():
 
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return {"uid-0"}, {}, False, 1
+            return {"uid-0"}, {"training/filter_groups/evicted_samples": 1}, False
 
         _stub_methods(
             actor,
             poll_once=poll_once,
-            materialize_sampleable=lambda *_args: pytest.fail("eviction pass must not materialize"),
+            materialize_sampleable=lambda *_args: pytest.fail("unready pass must not materialize"),
         )
         actor._refill_to_watermark = lambda: refills.append(True) or 1
         future = asyncio.get_running_loop().create_future()
@@ -316,6 +357,7 @@ def test_train_eviction_refills_without_fulfilling_request():
         assert refills == [True]
         assert actor._pending_sample is request
         assert not future.done()
+        assert actor._pending_metrics == {"training/filter_groups/evicted_samples": 1}
         future.cancel()
 
     asyncio.run(run())
@@ -332,7 +374,7 @@ def test_validation_request_pauses_train_inventory_maintenance():
 
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return ({"val-uid"} if partition_id == "val" else set()), {}, True, 0
+            return ({"val-uid"} if partition_id == "val" else set()), {}, True
 
         _stub_methods(
             actor,
@@ -382,7 +424,7 @@ def test_validation_before_load_does_not_maintain_train_inventory():
 
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return {"val-uid"}, {}, True, 0
+            return {"val-uid"}, {}, True
 
         _stub_methods(
             actor,
@@ -415,7 +457,7 @@ def test_materialize_failure_completes_sample_future_with_exception():
         actor._train_state_ready = True
         _stub_methods(
             actor,
-            poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True, 0),
+            poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True),
             materialize_sampleable=lambda *_args: (_ for _ in ()).throw(RuntimeError("materialize failed")),
         )
         actor._refill_to_watermark = lambda: 0
@@ -447,7 +489,7 @@ def test_non_consuming_count_request_uses_watermark_coordinator():
 
         def poll_once(_step, _partition, target):
             targets.append(target)
-            return {"uid-0", "uid-1"}, {}, False, 0
+            return {"uid-0", "uid-1"}, {}, False
 
         _stub_methods(actor, poll_once=poll_once)
         actor._refill_to_watermark = lambda: refills.append("after") or 0
@@ -479,7 +521,7 @@ def test_non_consuming_wait_request_refills_while_below_target():
 
         def poll_once(_step, _partition, target):
             targets.append(target)
-            return {"uid-0"}, {}, False, 0
+            return {"uid-0"}, {}, False
 
         _stub_methods(actor, poll_once=poll_once)
         actor._refill_to_watermark = lambda: refills.append(True) or 0
@@ -519,7 +561,7 @@ def _async_rpc_stub(poll_once):
 def test_count_sampleable_keeps_eviction_metrics_for_next_request():
     async def run():
         eviction = {"training/rollout_failure/evicted_samples": 1}
-        polls = iter([({"uid-0"}, eviction, True, 0), ({"uid-0", "uid-1"}, {}, True, 0)])
+        polls = iter([({"uid-0"}, eviction, True), ({"uid-0", "uid-1"}, {}, True)])
         actor = _async_rpc_stub(lambda *_args: next(polls))
 
         assert await asyncio.wait_for(actor.count_sampleable(3), timeout=1) == 1
@@ -537,7 +579,7 @@ def test_wait_sampleable_targets_train_partition_without_consuming():
 
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return {"uid-0", "uid-1"}, {}, True, 0
+            return {"uid-0", "uid-1"}, {}, True
 
         actor = _async_rpc_stub(poll_once)
         actor.materialize_sampleable = lambda *_args: pytest.fail("wait must not consume groups")

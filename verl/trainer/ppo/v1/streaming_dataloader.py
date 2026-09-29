@@ -931,11 +931,9 @@ class StreamingDataloaderAsync(StreamingDataloader):
                 _RequestKind.COUNT: 0,
             }[request.kind]
 
-        sampleable, metrics, ready, evicted_count = self.poll_once(global_steps, partition_id, target_count)
+        sampleable, metrics, ready = self.poll_once(global_steps, partition_id, target_count)
         if partition_id == "train":
             _accumulate_eviction_metrics(self._pending_metrics, metrics)
-            if evicted_count:
-                return
         if request is None:
             return
         if request.kind is _RequestKind.COUNT:
@@ -979,16 +977,16 @@ class StreamingDataloaderAsync(StreamingDataloader):
         global_steps: int,
         partition_id: str,
         target_count: int,
-    ) -> tuple[set[str], dict, bool, int]:
+    ) -> tuple[set[str], dict, bool]:
         """Run one metadata/eviction/readiness pass without sleeping."""
         self._sync_metadata_from_transfer_queue()
         eviction_reasons = self._terminal_eviction_reasons(global_steps, partition_id)
-        evicted_uids, _stale_count, _dapo_count, metrics = self._evict_terminal_groups(
+        _evicted_uids, _stale_count, _dapo_count, metrics = self._evict_terminal_groups(
             global_steps, partition_id, eviction_reasons
         )
         sampleable_keys = self._sampleable_terminal_keys(partition_id, eviction_reasons)
-        ready = not evicted_uids and self._has_enough_samples(global_steps, partition_id, target_count, sampleable_keys)
-        return sampleable_keys, metrics, ready, len(evicted_uids)
+        ready = self._has_enough_samples(global_steps, partition_id, target_count, sampleable_keys)
+        return sampleable_keys, metrics, ready
 
     def materialize_sampleable(
         self,

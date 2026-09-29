@@ -274,14 +274,13 @@ def test_async_poll_once_and_materialize_are_nonblocking_primitives(tq_init, par
     rb = _make_rb(trainer_mode="separate_async")
 
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(
+        sampleable, metrics, ready = rb.poll_once(
             global_steps=0,
             partition_id=partition_id,
             target_count=1,
         )
         assert ready is True
         assert metrics == {}
-        assert evicted_count == 0
         batch = rb.materialize_sampleable(0, partition_id, sampleable, 1)
         assert _uids_of(batch.keys) == {finished.uid}
     finally:
@@ -441,7 +440,7 @@ def test_sampling_consumes_session_markers_with_prompt(tq_init, partition_id, tr
         if trainer_mode == "sync":
             batch = _sample(rb, partition_id, batch_size=1)
         else:
-            sampleable, _metrics, ready, _evicted = rb.poll_once(0, partition_id, 1)
+            sampleable, _metrics, ready = rb.poll_once(0, partition_id, 1)
             assert ready
             batch = rb.materialize_sampleable(0, partition_id, sampleable, 1)
 
@@ -679,7 +678,7 @@ def test_drop_poll_evicts_stale_groups_and_reports_metrics(tq_init, partition_id
         max_off_policy_threshold=2,
     )
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(
+        sampleable, metrics, ready = rb.poll_once(
             global_steps=5,
             partition_id=partition_id,
             target_count=3,
@@ -687,7 +686,6 @@ def test_drop_poll_evicts_stale_groups_and_reports_metrics(tq_init, partition_id
 
         assert sampleable == {boundary.uid, fresh.uid}
         assert ready is False
-        assert evicted_count == 1
 
         # The dropped group's prompt and trajectory keys are gone from TransferQueue.
         remaining = tq.kv_list(partition_id=partition_id).get(partition_id, {})
@@ -715,17 +713,15 @@ def test_drop_uses_one_snapshot_per_poll_iteration(tq_init, partition_id):
         max_off_policy_threshold=1,
     )
     try:
-        sampleable, first_metrics, ready, evicted_count = rb.poll_once(5, partition_id, 1)
+        sampleable, first_metrics, ready = rb.poll_once(5, partition_id, 1)
         assert sampleable == set()
         assert ready is False
-        assert evicted_count == 1
         assert first_metrics["validation/off_policy/evicted_samples"] == 1
 
         _set_prompt_status(partition_id, stale_running.uid, "finished", global_steps=0)
-        sampleable, second_metrics, ready, evicted_count = rb.poll_once(5, partition_id, 1)
+        sampleable, second_metrics, ready = rb.poll_once(5, partition_id, 1)
         assert sampleable == set()
         assert ready is False
-        assert evicted_count == 1
         assert second_metrics["validation/off_policy/evicted_samples"] == 1
     finally:
         _clear_partition(partition_id)
@@ -746,16 +742,15 @@ def test_wait_poll_is_not_ready_until_stale_inflight_finishes(tq_init, partition
 
     rb = _make_rb(trainer_mode="colocate_async", max_off_policy_strategy="wait", max_off_policy_threshold=threshold)
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(g, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(g, partition_id, 2)
         assert len(sampleable) == 2
         assert metrics == {}
         assert ready is False
-        assert evicted_count == 0
 
         _set_prompt_status(partition_id, stale.uid, "finished", global_steps=0)
-        sampleable, metrics, ready, evicted_count = rb.poll_once(g, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(g, partition_id, 2)
         assert ready is True
-        assert evicted_count == 0
+        assert metrics == {}
         batch = rb.materialize_sampleable(g, partition_id, sampleable, 2)
         assert len(_uids_of(batch.keys)) == 2
     finally:
@@ -772,9 +767,9 @@ def test_wait_keeps_stale_terminal_trajectories(tq_init, partition_id):
 
     rb = _make_rb(trainer_mode="colocate_async", max_off_policy_strategy="wait", max_off_policy_threshold=2)
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(100, partition_id, 1)
+        sampleable, metrics, ready = rb.poll_once(100, partition_id, 1)
         assert ready is True
-        assert evicted_count == 0
+        assert metrics == {}
         batch = rb.materialize_sampleable(100, partition_id, sampleable, 1)
 
         assert set(batch.keys) == set(stale.trajectory_keys)
@@ -794,9 +789,9 @@ def test_wait_does_not_block_when_inflight_is_fresh(tq_init, partition_id):
 
     rb = _make_rb(trainer_mode="colocate_async", max_off_policy_strategy="wait", max_off_policy_threshold=threshold)
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(g, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(g, partition_id, 2)
         assert ready is True
-        assert evicted_count == 0
+        assert metrics == {}
         batch = rb.materialize_sampleable(g, partition_id, sampleable, 2)
 
         assert _uids_of(batch.keys) == {spec.uid for spec in finished}
@@ -829,9 +824,9 @@ def test_validation_never_drops_terminal_groups(tq_init):
         filter_groups_metric="acc",
     )
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(5, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(5, partition_id, 2)
         assert ready is True
-        assert evicted_count == 0
+        assert metrics == {}
         batch = rb.materialize_sampleable(5, partition_id, sampleable, 2)
         assert _uids_of(batch.keys) == {stale_dapo.uid, stale_failure.uid}
         assert metrics == {}
@@ -880,10 +875,9 @@ def test_async_failure_poll_evicts_without_refilling(tq_init, partition_id):
 
     rb = _make_rb(trainer_mode="colocate_async")
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(1, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(1, partition_id, 2)
         assert sampleable == {finished.uid}
         assert ready is False
-        assert evicted_count == 1
         assert metrics["validation/rollout_failure/evicted_samples"] == 1
     finally:
         _clear_partition(partition_id)
@@ -978,10 +972,44 @@ def test_async_dapo_poll_evicts_without_refilling(tq_init, partition_id):
         filter_groups_metric="acc",
     )
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(1, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(1, partition_id, 2)
         assert sampleable == {mixed.uid}
         assert ready is False
-        assert evicted_count == 1
+        assert metrics["validation/filter_groups/evicted_samples"] == 1
+    finally:
+        _clear_partition(partition_id)
+
+
+def test_async_request_is_served_while_every_poll_evicts(tq_init, partition_id):
+    mixed = [PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 1.0]) for _ in range(2)]
+    _produce(partition_id, mixed).join_and_check()
+
+    rb = _make_rb(trainer_mode="colocate_async", filter_groups_metric="acc")
+    rb._train_state_ready = True
+    rb._refill_to_watermark = lambda: 0
+    poll_once = rb.poll_once
+    evictions_per_poll = []
+
+    def poll_after_new_uniform_group(global_steps, poll_partition_id, target_count):
+        # A continuously running rollout finishes a fresh no-signal group before every pass.
+        uniform = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 0.0])
+        _produce(partition_id, [uniform]).join_and_check()
+        result = poll_once(global_steps, poll_partition_id, target_count)
+        evictions_per_poll.append(result[1].get("validation/filter_groups/evicted_samples", 0))
+        return result
+
+    rb.poll_once = poll_after_new_uniform_group
+
+    async def run():
+        try:
+            return await asyncio.wait_for(rb.sample(1, 2, partition_id), timeout=5)
+        finally:
+            rb._coordinator_task.cancel()
+
+    try:
+        batch, metrics, _count = asyncio.run(run())
+        assert _uids_of(batch.keys) == {spec.uid for spec in mixed}
+        assert evictions_per_poll == [1]
         assert metrics["validation/filter_groups/evicted_samples"] == 1
     finally:
         _clear_partition(partition_id)
@@ -1111,10 +1139,9 @@ def test_dapo_reports_filtered_reward_value_breakdown(tq_init, partition_id):
 
     rb = _make_rb(trainer_mode="colocate_async", filter_groups_metric="acc")
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(1, partition_id, 1)
+        sampleable, metrics, ready = rb.poll_once(1, partition_id, 1)
         assert sampleable == {mixed.uid}
-        assert ready is False
-        assert evicted_count == 3
+        assert ready is True
         assert metrics["validation/filter_groups/evicted_samples"] == 3
         assert metrics[DAPO_FILTERED_REWARD_COUNTS_KEY] == {0.0: 2, 1.0: 1}
     finally:
@@ -1278,10 +1305,9 @@ def test_overlapping_async_eviction_reasons_evict_once(tq_init, partition_id):
         filter_groups_metric="acc",
     )
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(5, partition_id, 1)
+        sampleable, metrics, ready = rb.poll_once(5, partition_id, 1)
         assert sampleable == set()
         assert ready is False
-        assert evicted_count == 1
         assert metrics["validation/off_policy/evicted_samples"] == 1
         assert metrics["validation/filter_groups/evicted_samples"] == 1
     finally:
@@ -1304,10 +1330,9 @@ def test_count_poll_evicts_stale_groups_without_consuming_fresh_groups(tq_init, 
         max_off_policy_threshold=1,
     )
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(5, partition_id, 0)
+        sampleable, metrics, ready = rb.poll_once(5, partition_id, 0)
         assert sampleable == {fresh.uid}
-        assert ready is False
-        assert evicted_count == 1
+        assert ready is True
         assert metrics["validation/off_policy/evicted_samples"] == 1
         remaining = tq.kv_list(partition_id=partition_id)[partition_id]
         assert fresh.uid in remaining
@@ -1322,13 +1347,12 @@ def test_non_consuming_poll_leaves_groups_for_materialization(tq_init, partition
 
     rb = _make_rb(trainer_mode="colocate_async")
     try:
-        sampleable, metrics, ready, evicted_count = rb.poll_once(0, partition_id, 2)
+        sampleable, metrics, ready = rb.poll_once(0, partition_id, 2)
         assert metrics == {}
         assert ready is True
-        assert evicted_count == 0
         assert sampleable == {spec.uid for spec in specs}
 
-        sampleable, _, ready, _ = rb.poll_once(0, partition_id, 2)
+        sampleable, _, ready = rb.poll_once(0, partition_id, 2)
         assert ready is True
         batch = rb.materialize_sampleable(0, partition_id, sampleable, 2)
         assert _uids_of(batch.keys) == {spec.uid for spec in specs}
@@ -1343,17 +1367,15 @@ def test_non_consuming_poll_reports_not_ready_below_target(tq_init, partition_id
 
     rb = _make_rb(trainer_mode="colocate_async")
     try:
-        sampleable, metrics, is_ready, evicted_count = rb.poll_once(0, partition_id, 2)
+        sampleable, metrics, is_ready = rb.poll_once(0, partition_id, 2)
         assert sampleable == {ready.uid}
         assert metrics == {}
         assert is_ready is False
-        assert evicted_count == 0
         _set_prompt_status(partition_id, pending.uid, "finished", global_steps=0)
-        sampleable, metrics, is_ready, evicted_count = rb.poll_once(0, partition_id, 2)
+        sampleable, metrics, is_ready = rb.poll_once(0, partition_id, 2)
         assert sampleable == {ready.uid, pending.uid}
         assert metrics == {}
         assert is_ready is True
-        assert evicted_count == 0
     finally:
         _clear_partition(partition_id)
 
