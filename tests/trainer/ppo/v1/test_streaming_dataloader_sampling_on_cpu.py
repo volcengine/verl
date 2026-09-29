@@ -810,6 +810,11 @@ def test_init_rejects_batched_sync_failure_refill():
         _make_rb(sync_refill_failed_groups=True, refill_fn=lambda _n: None, gen_batch_size=2)
 
 
+def test_init_rejects_sync_gen_batch_size_between_one_and_train_batch():
+    with pytest.raises(ValueError, match="gen_batch_size to be 1 or train_batch_size"):
+        _make_rb(refill_fn=lambda _n: None, train_batch_size=4, gen_batch_size=2)
+
+
 def test_validation_never_drops_terminal_groups(tq_init):
     partition_id = "val"
     _clear_partition(partition_id)
@@ -1259,6 +1264,29 @@ def test_sync_dapo_streams_refill_credit_with_bounded_inflight(tq_init, partitio
         assert consumer.metrics is not None
         assert consumer.metrics["validation/filter_groups/evicted_samples"] == 1
         assert consumer.metrics["validation/filter_groups/discarded_surplus_samples"] == 1
+    finally:
+        _clear_partition(partition_id)
+
+
+def test_sync_dapo_refills_a_whole_gen_batch_when_credit_is_smaller(tq_init, partition_id):
+    all_same = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[1.0, 1.0])
+    mixed = [PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 1.0]) for _ in range(3)]
+    _produce(partition_id, [all_same, *mixed]).join_and_check()
+
+    refiller = FakeRefiller(partition_id, global_steps=1, sessions=2, rewards=[0.0, 1.0])
+    rb = _make_rb(refill_fn=refiller, filter_groups_metric="acc", train_batch_size=4, gen_batch_size=4)
+    consumer = SampleConsumer(rb, partition_id, batch_size=4, global_steps=1)
+    try:
+        consumer.start()
+        batch = consumer.result_or_raise(timeout=5)
+
+        # One eviction earns 2 credits, which still dispatches one whole gen batch of 4.
+        assert refiller.calls == [4]
+        assert len(_uids_of(batch.keys)) == 4
+        assert all_same.uid not in _uids_of(batch.keys)
+        assert consumer.metrics is not None
+        assert consumer.metrics["validation/filter_groups/evicted_samples"] == 1
+        assert consumer.metrics["validation/filter_groups/discarded_surplus_samples"] == 3
     finally:
         _clear_partition(partition_id)
 

@@ -415,6 +415,14 @@ class PPOTrainer(ABC):
                 batch = self.step(metrics, self.timing_raw)
                 self._stop_profiling()
 
+                # Read everything later stages need, then release the trained batch so checkpoints of the
+                # TransferQueue only hold untrained data.
+                metric_data = self._fetch_metric_data(batch)
+                rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
+                if rollout_data_dir:
+                    self._log_rollout_data(batch, self.timing_raw, rollout_data_dir)
+                tq.kv_clear(keys=batch.keys, partition_id=batch.partition_id)
+
                 # 2. save checkpoint
                 if self.config.trainer.save_freq > 0 and (
                     is_last_step or self.global_steps % self.config.trainer.save_freq == 0
@@ -438,15 +446,9 @@ class PPOTrainer(ABC):
                 metrics.update(val_metrics)
 
             # 5. record metrics
-            self._compute_metrics(batch, metrics, self.timing_raw, global_steps=self.global_steps, epoch=current_epoch)
-
-            # 6. dump rollout generations if enabled
-            rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)
-            if rollout_data_dir:
-                self._log_rollout_data(batch, self.timing_raw, rollout_data_dir)
-
-            # 7. cleanup transfer queue
-            tq.kv_clear(keys=batch.keys, partition_id=batch.partition_id)
+            self._compute_metrics(
+                batch, metric_data, metrics, self.timing_raw, global_steps=self.global_steps, epoch=current_epoch
+            )
 
             dapo_filtered_reward_counts = metrics.pop(DAPO_FILTERED_REWARD_COUNTS_KEY, None)
             self.logger.log(data=metrics, step=self.global_steps)
@@ -1587,9 +1589,8 @@ class PPOTrainer(ABC):
 
         return batch
 
-    def _compute_metrics(self, batch: KVBatchMeta, metrics, timing_raw, global_steps, epoch):
-        # 1. collect necessary fields from TransferQueue for computing metrics
-        non_padding_mask = np.array([not tag.get("is_padding", False) for tag in batch.tags], dtype=bool)
+    def _fetch_metric_data(self, batch: KVBatchMeta) -> dict:
+        """Collect the TransferQueue fields ``_compute_metrics`` needs, before the batch is cleared."""
         fields = [
             "prompts",
             "responses",
@@ -1607,17 +1608,10 @@ class PPOTrainer(ABC):
             partition_id=batch.partition_id,
             fields=fields,
             moe_lb_metrics_interval=moe_lb_metrics_interval,
-            global_steps=global_steps,
+            global_steps=self.global_steps,
             accumulator=self._rollout_moe_lb_metrics_accumulator,
             kv_batch_get=tq.kv_batch_get,
         )
-
-        num_turns = np.array(data.pop("num_turns").tolist())
-        prompt_length = data["prompts"].offsets().diff()
-        response_length = data["responses"].offsets().diff()
-        global_token_num = (prompt_length + response_length).tolist()
-        min_global_steps = np.array([tag["min_global_steps"] for tag in batch.tags], dtype=int)[non_padding_mask]
-        max_global_steps = np.array([tag["max_global_steps"] for tag in batch.tags], dtype=int)[non_padding_mask]
 
         # Only fetch speculative decoding stats when rollout writes them.
         spec_drafts = spec_accepts = spec_verifies = None
@@ -1637,6 +1631,20 @@ class PPOTrainer(ABC):
                 spec_drafts = [extra_field["spec_num_draft_tokens"] for extra_field in extra_fields]
                 spec_accepts = [extra_field["spec_num_accepted_tokens"] for extra_field in extra_fields]
                 spec_verifies = [extra_field["spec_num_verify_steps"] for extra_field in extra_fields]
+        return {"data": data, "spec_decode": (spec_drafts, spec_accepts, spec_verifies)}
+
+    def _compute_metrics(self, batch: KVBatchMeta, metric_data: dict, metrics, timing_raw, global_steps, epoch):
+        non_padding_mask = np.array([not tag.get("is_padding", False) for tag in batch.tags], dtype=bool)
+        moe_lb_metrics_interval = self.config.actor_rollout_ref.rollout.get("moe_load_balance_metrics_interval", 0)
+        data = metric_data["data"]
+        spec_drafts, spec_accepts, spec_verifies = metric_data["spec_decode"]
+
+        num_turns = np.array(data.pop("num_turns").tolist())
+        prompt_length = data["prompts"].offsets().diff()
+        response_length = data["responses"].offsets().diff()
+        global_token_num = (prompt_length + response_length).tolist()
+        min_global_steps = np.array([tag["min_global_steps"] for tag in batch.tags], dtype=int)[non_padding_mask]
+        max_global_steps = np.array([tag["max_global_steps"] for tag in batch.tags], dtype=int)[non_padding_mask]
 
         data = data.to_padded_tensor()
         data["token_level_scores"] = data["rm_scores"]
