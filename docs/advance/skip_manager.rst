@@ -231,9 +231,13 @@ cache-miss it runs generation and dumps the result.
 4. Trainer V1 quick start (``rollout_tq`` role)
 ---------------------------------------------------
 
-Use skip.rollout_tq when training with main_ppo.py and trainer.use_v1=True
-(V1 PPOTrainer + TransferQueue). This covers all V1 trainer modes: sync,
-colocate_async, and separate_async.
+.. warning::
+
+   ``skip.rollout_tq`` is currently unsupported by every V1 trainer mode. Setting
+   ``skip.rollout_tq.enable=True`` fails during trainer initialization. Streaming
+   dataloader actors may have other groups in flight, so injecting cached trajectories
+   does not guarantee that the same groups form the sampled batch. The material below
+   documents the legacy design retained for a future strict-replay implementation.
 
 .. important::
 

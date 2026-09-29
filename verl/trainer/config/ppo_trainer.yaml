@@ -459,10 +459,10 @@ skip:
   # Action to take when rollout is skipped, refer to verl.utils.skip.base_skip.SkipAction
     action: cache
 
-  # configs for RolloutTqSkip (V1 TransferQueue-based trainer)
+  # Reserved configs for RolloutTqSkip. V1 streaming dataloader actors currently reject enable=True.
   rollout_tq:
 
-    # Whether to enable RolloutTqSkip
+    # Whether to enable RolloutTqSkip (currently unsupported by all V1 trainer modes)
     enable: False
 
     # Directory to save rollout data

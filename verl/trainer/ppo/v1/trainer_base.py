@@ -122,7 +122,10 @@ class PPOTrainer(ABC):
             custom_sampler is not None and custom_sampler.get("path") and custom_sampler.get("name")
         )
         if OmegaConf.select(self.config, "skip.rollout_tq.enable", default=False):
-            raise ValueError("V1 dataloader actors do not yet support skip.rollout_tq.enable")
+            raise ValueError(
+                "skip.rollout_tq is currently unsupported by all V1 trainer modes: "
+                "streaming dataloader actors cannot guarantee that injected cache groups match the sampled batch"
+            )
         self.filter_groups_metric = None if has_custom_sampler else self._resolve_filter_groups_metric()
         self.streaming_dataloader = None
         self._resume_checkpoint_dir = None
