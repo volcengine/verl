@@ -200,15 +200,20 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    For Megatron, enable both ``use_fused_kernels`` and ``use_liger`` to select
    Liger's public tensor-parallel output-head operator instead of Verl's Triton
    implementation. Verl passes the full token tensor to the public API without
-   exposing chunking or padding controls. When LCK is installed, Verl sizes its
-   immutable workspace once from the existing actor/reference maximum-token
-   limits; Liger remains responsible for selecting the native implementation or
-   its fallback.
+   exposing chunking or padding controls. Verl delegates native setup to
+   ``liger_kernel.ops.configure.configure`` using the existing actor/reference
+   maximum-token limits. Every pipeline stage participates, including stages
+   without output weights. The runtime bootstraps on WORLD and registers the
+   tensor-parallel partition separately; Verl does not initialize NVSHMEM or
+   own native workspace/context caches.
 
    Configure the same maximum-token limits for colocated actor/reference
-   engines and on every rank. The workspace capacity is
+   engines and on every rank for initial setup. The workspace capacity is
    ``max(max_token_len_per_gpu, infer_max_token_len_per_gpu) * context_parallel_size``
-   and cannot change after initialization. With fixed-size microbatches these
+   and cannot grow after initialization. Repeated setup and additional TP
+   partitions within the original capacity are managed by Liger. Execution
+   across native contexts must remain serialized per process.
+   With fixed-size microbatches these
    token settings do not limit the batch itself: choose them to cover the
    largest packed output-head input, including Megatron's alignment padding.
    Verl does not resize the workspace from observed microbatch shapes.
@@ -216,7 +221,8 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    .. code-block:: bash
 
       uv sync --extra megatron --extra vllm  # replace vllm with the selected rollout backend
-      uv pip install /path/to/liger_cute_kernels-0.8.3-<platform>.whl
+      uv pip install /path/to/liger_kernel-<version>-py3-none-any.whl
+      uv pip install /path/to/liger_cute_kernels-<version>-<platform>.whl
 
    .. code-block:: yaml
 
@@ -230,6 +236,13 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    supports the current GPU and CUDA runtime. Backend selection remains inside
    Liger; Verl calls the same public API whether Liger selects the native
    implementation or its fallback.
+
+   The Megatron integration requires the public configuration API merged in
+   Liger mainline commit ``0043f43309144bb3054518d28efed25fc314edaf``.
+   Use matching Python/native wheels containing that change, or build that
+   revision locally. A version number alone is not sufficient for an older
+   wheel built before this merge. Missing optional LCK retains Liger's
+   fallback; errors from an installed native runtime are not suppressed.
 
 Forward prefetch in FSDP training backend
 ----------------------

@@ -16,7 +16,6 @@ import builtins
 import importlib.util
 import sys
 import types
-from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -102,7 +101,7 @@ def test_liger_tp_delegates_full_tensor_to_public_frontend(monkeypatch):
         0.7,
         "none",
         process_group,
-        impl_backend="liger_tp",
+        impl_backend="liger",
     )
 
     assert len(calls) == 1
@@ -189,7 +188,7 @@ def test_liger_tp_propagates_public_frontend_gradients(monkeypatch):
         weight,
         labels,
         dist_process_group=process_group,
-        impl_backend="liger_tp",
+        impl_backend="liger",
     )
     torch.autograd.backward((log_probs, entropy), (grad_log_probs, grad_entropy))
 
@@ -220,123 +219,99 @@ def test_liger_tp_runtime_uses_public_ops_frontend(monkeypatch):
     assert lce._require_liger_tp_runtime() is public_function
 
 
-def test_liger_tp_configuration_skips_when_lck_is_not_installed(monkeypatch):
-    monkeypatch.setattr(lce, "_LIGER_TP_CONFIGURATION", None)
-    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: None)
+@pytest.fixture
+def public_configuration(monkeypatch):
+    calls = []
+    module = types.ModuleType("liger_kernel.ops.configure")
+    module.FusedLinearCrossEntropyConfig = types.SimpleNamespace
+    module.configure = lambda **kwargs: calls.append(kwargs) or True
+    monkeypatch.setitem(sys.modules, "liger_kernel.ops.configure", module)
     monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda device: (9, 0))
-    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 1)
-    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 0)
+    monkeypatch.setattr(lce.dist, "get_world_size", lambda group=None: 4)
+    monkeypatch.setattr(lce.dist, "get_process_group_ranks", lambda group: group)
+    monkeypatch.setattr(
+        lce.dist,
+        "all_gather_object",
+        lambda output, ranks: output.__setitem__(slice(None), [(0, 1)] * 2 + [(2, 3)] * 2),
+    )
+    return module, calls
 
-    assert (
-        lce.configure_liger_tp_flsce(
-            max_tokens=4096,
-            hidden_size=2048,
-            local_vocab_size=151936,
-            process_group=object(),
-            device=torch.device("cuda:0"),
-        )
-        is False
+
+def _configure(group=(0, 1), max_tokens=4096):
+    return lce.configure_liger_tp_flsce(
+        max_tokens=max_tokens,
+        hidden_size=5120,
+        local_vocab_size=62080,
+        process_group=group,
+        device=torch.device("cuda:0"),
     )
 
 
-@pytest.mark.parametrize("missing_module", ["liger_cute_kernels", "tvm_ffi"])
-def test_load_lck_runtime_only_skips_missing_optional_package(monkeypatch, missing_module):
+def test_configuration_delegates_repeated_calls_and_capacity_to_liger(public_configuration):
+    _, calls = public_configuration
+    for tokens in (4096, 4096, 2048):
+        assert _configure(max_tokens=tokens) is True
+    assert len(calls) == 3
+    assert [call["flsce"].max_tokens for call in calls] == [4096, 4096, 2048]
+    for call in calls:
+        name = call["flsce"].group
+        assert call["process_groups"] == {name: (0, 1)}
+        assert call["bootstrap_group"] is lce.dist.group.WORLD
+        assert call["device"] == torch.device("cuda:0")
+        assert call["flsce"].hidden_size == 5120
+        assert call["flsce"].local_vocab_size == 62080
+    assert calls[0]["flsce"].group == calls[1]["flsce"].group
+
+
+def test_configuration_names_identify_global_partition(monkeypatch, public_configuration):
+    _, calls = public_configuration
+    _configure((0, 1))
+    _configure((2, 3))
+    assert calls[0]["flsce"].group == calls[1]["flsce"].group
+    monkeypatch.setattr(
+        lce.dist, "all_gather_object", lambda output, ranks: output.__setitem__(slice(None), [(0, 2), (1, 3)] * 2)
+    )
+    _configure((0, 2))
+    assert calls[2]["flsce"].group != calls[0]["flsce"].group
+
+
+def test_configuration_preserves_optional_native_fallback(public_configuration):
+    module, _ = public_configuration
+    module.configure = lambda **kwargs: False
+    assert _configure() is False
+
+
+def test_configuration_propagates_installed_runtime_errors(public_configuration):
+    module, _ = public_configuration
+
+    def fail(**kwargs):
+        raise RuntimeError("capacity cannot grow")
+
+    module.configure = fail
+    with pytest.raises(RuntimeError, match="capacity cannot grow"):
+        _configure()
+
+
+def test_configuration_requires_public_api(monkeypatch, public_configuration):
     original_import = builtins.__import__
 
-    def import_without_dependency(name, *args, **kwargs):
-        if name == "liger_cute_kernels":
-            raise ModuleNotFoundError(f"No module named '{missing_module}'", name=missing_module)
+    def import_without_api(name, *args, **kwargs):
+        if name == "liger_kernel.ops.configure":
+            raise ModuleNotFoundError(name=name)
         return original_import(name, *args, **kwargs)
 
-    monkeypatch.setattr(builtins, "__import__", import_without_dependency)
-    if missing_module == "liger_cute_kernels":
-        assert lce._load_lck_runtime() is None
-    else:
-        with pytest.raises(ModuleNotFoundError, match=missing_module):
-            lce._load_lck_runtime()
+    monkeypatch.setattr(builtins, "__import__", import_without_api)
+    with pytest.raises(RuntimeError, match="public configure API"):
+        _configure()
 
 
-def test_liger_tp_configuration_uses_existing_maximum(monkeypatch):
-    process_group = object()
-    device = torch.device("cuda:2")
-    calls = []
-
-    class FakeNvshmem:
-        @staticmethod
-        def init_from_pg(group):
-            calls.append(("init", group))
-
-        @staticmethod
-        def resolve_team(group):
-            calls.append(("team", group))
-            return 17
-
-    class FakeTvmFfi:
-        @staticmethod
-        def fused_linear_scaled_cross_entropy_configure_backward(*args):
-            calls.append(("backward", args))
-
-        @staticmethod
-        def fused_linear_scaled_cross_entropy_configure_forward(*args):
-            calls.append(("forward", args))
-
-    monkeypatch.setattr(lce, "_LIGER_TP_CONFIGURATION", None)
-    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: (FakeNvshmem, FakeTvmFfi))
-    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda actual: (10, 3))
-    monkeypatch.setattr(lce.torch.cuda, "device", lambda actual: nullcontext())
-    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 2)
-    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 4 + rank)
-
-    kwargs = {
-        "max_tokens": 4096,
-        "hidden_size": 5120,
-        "local_vocab_size": 62080,
-        "process_group": process_group,
-        "device": device,
-    }
-    assert lce.configure_liger_tp_flsce(**kwargs) is True
-    assert lce.configure_liger_tp_flsce(**kwargs) is True
-    assert calls == [
-        ("init", process_group),
-        ("team", process_group),
-        ("backward", (4096, 5120, 62080, 1, 17)),
-        ("forward", (4096, 62080)),
-    ]
-
-
-@pytest.mark.parametrize("max_tokens", [2048, 8192])
-def test_liger_tp_configuration_rejects_capacity_changes(monkeypatch, max_tokens):
-    process_group = object()
-    device = torch.device("cuda:0")
-
-    monkeypatch.setattr(
-        lce,
-        "_LIGER_TP_CONFIGURATION",
-        ((0,), 4096, 5120, 62080, device),
-    )
-    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: pytest.fail("workspace must not be reconfigured"))
-    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda actual: (10, 3))
-    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 1)
-    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 0)
-
-    with pytest.raises(RuntimeError, match="already configured"):
-        lce.configure_liger_tp_flsce(
-            max_tokens=max_tokens,
-            hidden_size=5120,
-            local_vocab_size=62080,
-            process_group=process_group,
-            device=device,
-        )
-
-
-def test_linear_cross_entropy_rejects_unknown_backend():
+@pytest.mark.parametrize("backend", ["unknown", "torch", "liger_tp"])
+def test_linear_cross_entropy_rejects_unknown_backend(backend):
     with pytest.raises(ValueError, match="Unsupported linear cross entropy backend"):
         lce.linear_cross_entropy(
             torch.randn(2, 3),
             torch.randn(5, 3),
             torch.randint(5, (2,)),
-            impl_backend="unknown",
+            impl_backend=backend,
         )

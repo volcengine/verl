@@ -29,13 +29,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import typing
 
 import torch
 import torch.distributed as dist
 
 _LIGER_TP_FUNCTION = None
-_LIGER_TP_CONFIGURATION: tuple[tuple[int, ...], int, int, int, torch.device] | None = None
 
 
 def _require_liger_tp_runtime():
@@ -53,16 +53,6 @@ def _require_liger_tp_runtime():
     return _LIGER_TP_FUNCTION
 
 
-def _load_lck_runtime():
-    try:
-        from liger_cute_kernels import nvshmem, tvm_ffi
-    except ModuleNotFoundError as exc:
-        if exc.name == "liger_cute_kernels":
-            return None
-        raise
-    return nvshmem, tvm_ffi
-
-
 def configure_liger_tp_flsce(
     *,
     max_tokens: int,
@@ -71,8 +61,7 @@ def configure_liger_tp_flsce(
     process_group: dist.ProcessGroup,
     device: torch.device,
 ) -> bool:
-    global _LIGER_TP_CONFIGURATION
-
+    """Configure through Liger collectively on WORLD, including non-output PP stages."""
     if not all(
         isinstance(value, int) and not isinstance(value, bool) and value > 0
         for value in (max_tokens, hidden_size, local_vocab_size)
@@ -86,35 +75,31 @@ def configure_liger_tp_flsce(
     if (major, minor) != (9, 0) and major != 10:
         return False
 
-    global_ranks = tuple(
-        dist.get_global_rank(process_group, group_rank) for group_rank in range(dist.get_world_size(process_group))
+    try:
+        from liger_kernel.ops.configure import FusedLinearCrossEntropyConfig, configure
+    except ImportError as exc:
+        raise RuntimeError(
+            "Megatron's Liger backend requires a liger-kernel build with the public configure API "
+            "(Liger mainline 0043f433 or a release containing it)."
+        ) from exc
+
+    # Names must agree across WORLD but must not be reused for a different
+    # partition, even when a later engine uses the same TP size.
+    partitions = [None] * dist.get_world_size()
+    dist.all_gather_object(partitions, tuple(dist.get_process_group_ranks(process_group)))
+    partition_id = hashlib.sha256(repr(partitions).encode("ascii")).hexdigest()
+    group_name = f"verl_tp_{partition_id}"
+    return configure(
+        process_groups={group_name: process_group},
+        bootstrap_group=dist.group.WORLD,
+        device=device,
+        flsce=FusedLinearCrossEntropyConfig(
+            max_tokens=max_tokens,
+            hidden_size=hidden_size,
+            local_vocab_size=local_vocab_size,
+            group=group_name,
+        ),
     )
-    configuration = (global_ranks, max_tokens, hidden_size, local_vocab_size, device)
-    if _LIGER_TP_CONFIGURATION is not None:
-        if _LIGER_TP_CONFIGURATION != configuration:
-            raise RuntimeError(
-                "Liger TP-FLSCE was already configured with different process-group, shape, or device limits"
-            )
-        return True
-
-    runtime = _load_lck_runtime()
-    if runtime is None:
-        return False
-    nvshmem, tvm_ffi = runtime
-
-    with torch.cuda.device(device):
-        nvshmem.init_from_pg(process_group)
-        team_handle = nvshmem.resolve_team(process_group)
-        tvm_ffi.fused_linear_scaled_cross_entropy_configure_backward(
-            max_tokens,
-            hidden_size,
-            local_vocab_size,
-            1,
-            team_handle,
-        )
-        tvm_ffi.fused_linear_scaled_cross_entropy_configure_forward(max_tokens, local_vocab_size)
-    _LIGER_TP_CONFIGURATION = configuration
-    return True
 
 
 def _linear_cross_entropy_liger_tp(
@@ -262,7 +247,7 @@ def linear_cross_entropy(
         temperature = 1.0
     if reduction is None:
         reduction = "none"
-    if impl_backend in ("torch", "triton"):
+    if impl_backend == "triton":
         if hidden.device.type == "npu":
             from verl.utils.kernel.npu.cann_linear_ce import CannLinearCrossEntropy, should_use_cann_linear_ce
 
@@ -278,10 +263,8 @@ def linear_cross_entropy(
                 "a torch_npu build that provides the fused linear-CE ops."
             )
 
-        return LinearCrossEntropy.apply(
-            hidden, weight, labels, float(temperature), str(reduction), dist_process_group
-        )
-    if impl_backend in ("liger", "liger_tp"):
+        return LinearCrossEntropy.apply(hidden, weight, labels, float(temperature), str(reduction), dist_process_group)
+    if impl_backend == "liger":
         return _linear_cross_entropy_liger_tp(
             hidden,
             weight,
@@ -290,4 +273,4 @@ def linear_cross_entropy(
             reduction,
             dist_process_group,
         )
-    raise ValueError(f"Unsupported linear cross entropy backend {impl_backend!r}; choose 'triton' or 'liger_tp'")
+    raise ValueError(f"Unsupported linear cross entropy backend {impl_backend!r}; choose 'triton' or 'liger'")

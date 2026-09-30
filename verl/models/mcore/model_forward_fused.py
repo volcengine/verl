@@ -74,7 +74,7 @@ def _use_output_processor_hook(model: torch.nn.Module) -> bool:
     return _get_fused_forward_mode(model) == _HOOK_MODE
 
 
-def _get_fused_impl_backend(model: torch.nn.Module) -> str:
+def get_fused_impl_backend(model: torch.nn.Module) -> str:
     model = unwrap_model(model)
     if hasattr(model, "language_model"):
         model = model.language_model
@@ -87,7 +87,7 @@ def _gather_fused_hidden_states(hidden_states: Tensor, sequence_parallel: bool, 
 
     # Liger TP-FLSCE already reduces dHidden across vocabulary shards. Its
     # sequence-parallel gather must only split that gradient in backward.
-    tensor_parallel_output_grad = impl_backend.lower() not in ("liger", "liger_tp")
+    tensor_parallel_output_grad = impl_backend.lower() != "liger"
     return gather_from_sequence_parallel_region(
         hidden_states,
         tensor_parallel_output_grad=tensor_parallel_output_grad,
@@ -167,14 +167,46 @@ def _get_patching_model(model: torch.nn.Module):
     return model.language_model
 
 
+def _configure_liger_tp_runtime(model: GPTModel, engine_config) -> bool:
+    from verl.utils.kernel.linear_cross_entropy import configure_liger_tp_flsce
+
+    token_limits = [
+        value
+        for value in (engine_config.max_token_len_per_gpu, engine_config.infer_max_token_len_per_gpu)
+        if value is not None
+    ]
+    if not token_limits:
+        raise RuntimeError("Liger TP-FLSCE requires an existing max-token limit in the Megatron engine config")
+
+    process_group = parallel_state.get_tensor_model_parallel_group()
+    tp_size = torch.distributed.get_world_size(process_group)
+    # GPTModel keeps the padded vocabulary and hidden dimensions on every PP
+    # stage, including virtual chunks without an embedding or output weight.
+    if model.vocab_size % tp_size:
+        raise ValueError("Liger TP-FLSCE requires the model vocabulary to be divisible by TP size")
+    return configure_liger_tp_flsce(
+        max_tokens=max(token_limits) * engine_config.context_parallel_size,
+        hidden_size=model.config.hidden_size,
+        local_vocab_size=model.vocab_size // tp_size,
+        process_group=process_group,
+        device=next(model.parameters()).device,
+    )
+
+
 def patch_fused_forward(
     model: torch.nn.Module,
+    model_config=None,
     *,
+    engine_config=None,
     impl_backend: str = "triton",
 ):
     model = _get_patching_model(model)
     if model is None:
         return
+    if model_config is not None:
+        impl_backend = "liger" if model_config.use_liger else "triton"
+    if impl_backend == "liger" and engine_config is not None and model.config.params_dtype == torch.bfloat16:
+        _configure_liger_tp_runtime(model, engine_config)
     setattr(model, _FUSED_IMPL_BACKEND_ATTR, impl_backend)
 
     mode = getattr(model, _FUSED_FORWARD_MODE_ATTR, None)
@@ -277,7 +309,7 @@ def fused_forward_model_engine(vision_model: bool = False):
             **model_kwargs,
         )
         if _use_output_processor_hook(model):
-            impl_backend = _get_fused_impl_backend(model)
+            impl_backend = get_fused_impl_backend(model)
             output_orig: CausalLMOutputForPPO = model(
                 **forward_kwargs,
                 output_processor=fused_output_processor,
@@ -287,7 +319,7 @@ def fused_forward_model_engine(vision_model: bool = False):
                 ),
             )
         else:
-            impl_backend = _get_fused_impl_backend(model)
+            impl_backend = get_fused_impl_backend(model)
             output_orig: CausalLMOutputForPPO = model(
                 temperature=temperature,
                 impl_backend=impl_backend,
