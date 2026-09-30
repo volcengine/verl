@@ -251,23 +251,13 @@ Actor/Rollout/Reference Policy
 
   - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
     implementation backend for fused kernels. Options: "triton", "torch",
-    "liger", or "liger_tp". The "torch" backend always uses verl's native
+    or "liger". The "torch" backend always uses verl's native
     output-head implementation; select "liger" explicitly to use Liger's fused
     output-head kernel. Default is "torch".
-    Megatron maps "torch" to its existing "triton" implementation and also
-    supports "liger_tp" (or the "liger" alias) for Liger's native
-    tensor-parallel fused linear scaled cross entropy on BF16 Hopper and
-    Blackwell GPUs. The native backend fails rather than falling back when LCK
-    or NVSHMEM is unavailable.
-
-  - ``actor_rollout_ref.model.fused_kernel_options.chunk_size``: Maximum
-    tokens per Megatron ``liger_tp`` call and native workspace. Verl pads a
-    short final chunk with ignored labels so the immutable workspace is always
-    configured to this capacity. Default is 512.
-
-  - ``actor_rollout_ref.model.fused_kernel_options.tiles_per_reduce``:
-    Reduction grouping for Megatron ``liger_tp``. Supported values are 1, 2,
-    and 4. Default is 1.
+    Megatron does not use this option. With Megatron fused kernels enabled,
+    ``actor_rollout_ref.model.use_liger=False`` keeps Verl's Triton
+    tensor-parallel output head, while ``use_liger=True`` calls Liger's public
+    tensor-parallel fused scaled cross entropy operator.
 
 - ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
   padding in the model. If set to True, the model will remove padding
@@ -768,4 +758,7 @@ Most parameters for Model are similar to Reward Model.
   default to ``all-linear``. See `peft docs <https://huggingface.co/docs/peft/v0.15.0/en/package_reference/lora#peft.LoraConfig.target_modules>`_ for detail.
 
 - ``use_liger``: Whether to enable Liger kernel, default to False. If True,
-  we apply Liger kernel to the model (depends on ``liger-kernel>=0.8.2``).
+  we apply Liger kernel to the model (depends on ``liger-kernel>=0.8.3``).
+  With Megatron fused kernels enabled, this also selects Liger's public
+  tensor-parallel output-head operator. Installing a compatible
+  ``liger-cute-kernels`` wheel lets Liger select its native implementation.

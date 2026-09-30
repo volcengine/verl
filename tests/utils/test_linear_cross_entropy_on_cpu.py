@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import builtins
 import importlib.util
+import sys
+import types
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -55,45 +59,37 @@ def test_triton_backend_preserves_existing_autograd_dispatch(monkeypatch):
     assert calls == [(hidden, weight, labels, 0.8, "none", group)]
 
 
-def test_liger_tp_uses_fixed_size_padded_chunks(monkeypatch):
+def test_liger_tp_delegates_full_tensor_to_public_frontend(monkeypatch):
     calls = []
 
-    class FakeNativeFunction:
+    class FakeTPFunction:
         @staticmethod
         def apply(
             hidden,
             weight,
             labels,
-            vocab_start,
-            temperature,
-            ignore_index,
-            tiles_per_reduce,
-            return_entropy,
             process_group,
+            temperature=1.0,
+            ignore_index=-100,
+            return_entropy=False,
         ):
-            call_index = len(calls)
             calls.append(
                 {
                     "hidden": hidden,
                     "weight": weight,
                     "labels": labels,
-                    "vocab_start": vocab_start,
+                    "process_group": process_group,
                     "temperature": temperature,
                     "ignore_index": ignore_index,
-                    "tiles_per_reduce": tiles_per_reduce,
                     "return_entropy": return_entropy,
-                    "process_group": process_group,
                 }
             )
-            offset = call_index * 10
-            nll = torch.arange(hidden.shape[0], dtype=torch.float32) + offset
-            entropy = torch.arange(hidden.shape[0], dtype=torch.float32) + 100 + offset
+            nll = torch.arange(hidden.shape[0], dtype=torch.float32)
+            entropy = torch.arange(hidden.shape[0], dtype=torch.float32) + 100
             return nll, entropy
 
-    monkeypatch.setattr(lce, "_validate_liger_tp_device", lambda: None)
-    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: (FakeNativeFunction, object()))
+    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: FakeTPFunction)
     process_group = object()
-    monkeypatch.setattr(lce.dist, "get_rank", lambda group: 2 if group is process_group else -1)
 
     hidden = torch.arange(35, dtype=torch.float32).reshape(1, 7, 5)
     weight = torch.randn(11, 5)
@@ -107,41 +103,34 @@ def test_liger_tp_uses_fixed_size_padded_chunks(monkeypatch):
         "none",
         process_group,
         impl_backend="liger_tp",
-        chunk_size=3,
-        tiles_per_reduce=2,
     )
 
-    assert len(calls) == 3
-    assert [tuple(call["hidden"].shape) for call in calls] == [(3, 5), (3, 5), (3, 5)]
-    assert calls[-1]["labels"].tolist() == [6, -100, -100]
-    torch.testing.assert_close(calls[-1]["hidden"][1:], torch.zeros(2, 5))
-    assert all(call["labels"].dtype == torch.int64 for call in calls)
-    assert all(call["vocab_start"] == 22 for call in calls)
-    assert all(call["temperature"] == 0.7 for call in calls)
-    assert all(call["ignore_index"] == -100 for call in calls)
-    assert all(call["tiles_per_reduce"] == 2 for call in calls)
-    assert all(call["return_entropy"] is True for call in calls)
-    assert all(call["process_group"] is process_group for call in calls)
-    torch.testing.assert_close(log_probs, -torch.tensor([0.0, 1.0, 2.0, 10.0, 11.0, 12.0, 20.0]))
-    torch.testing.assert_close(entropy, torch.tensor([100.0, 101.0, 102.0, 110.0, 111.0, 112.0, 120.0]))
+    assert len(calls) == 1
+    assert tuple(calls[0]["hidden"].shape) == (7, 5)
+    assert calls[0]["labels"].tolist() == list(range(7))
+    assert calls[0]["labels"].dtype == torch.int64
+    assert calls[0]["temperature"] == 0.7
+    assert calls[0]["ignore_index"] == -100
+    assert calls[0]["return_entropy"] is True
+    assert calls[0]["process_group"] is process_group
+    torch.testing.assert_close(log_probs, -torch.arange(7, dtype=torch.float32))
+    torch.testing.assert_close(entropy, torch.arange(7, dtype=torch.float32) + 100)
 
 
-def test_liger_tp_accumulates_gradients_across_padded_chunks(monkeypatch):
-    class FakeNativeFunction(torch.autograd.Function):
+def test_liger_tp_propagates_public_frontend_gradients(monkeypatch):
+    class FakeTPAutogradFunction(torch.autograd.Function):
         @staticmethod
         def forward(
             ctx,
             hidden,
             weight,
             labels,
-            vocab_start,
-            temperature,
-            ignore_index,
-            tiles_per_reduce,
-            return_entropy,
             process_group,
+            temperature=1.0,
+            ignore_index=-100,
+            return_entropy=False,
         ):
-            del labels, vocab_start, temperature, ignore_index, tiles_per_reduce, return_entropy, process_group
+            del labels, process_group, temperature, ignore_index, return_entropy
             ctx.save_for_backward(hidden, weight)
             nll = (hidden * weight[0]).sum(dim=-1)
             entropy = (hidden * weight[1]).sum(dim=-1)
@@ -157,11 +146,30 @@ def test_liger_tp_accumulates_gradients_across_padded_chunks(monkeypatch):
                     (grad_entropy[:, None] * hidden).sum(dim=0),
                 )
             )
-            return grad_hidden, grad_weight, None, None, None, None, None, None, None
+            return grad_hidden, grad_weight, None, None, None, None, None
 
-    monkeypatch.setattr(lce, "_validate_liger_tp_device", lambda: None)
-    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: (FakeNativeFunction, object()))
-    monkeypatch.setattr(lce.dist, "get_rank", lambda _group: 0)
+    class FakeTPFunction:
+        @staticmethod
+        def apply(
+            hidden,
+            weight,
+            labels,
+            process_group,
+            temperature=1.0,
+            ignore_index=-100,
+            return_entropy=False,
+        ):
+            return FakeTPAutogradFunction.apply(
+                hidden,
+                weight,
+                labels,
+                process_group,
+                temperature,
+                ignore_index,
+                return_entropy,
+            )
+
+    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: FakeTPFunction)
 
     hidden = torch.arange(20, dtype=torch.float32).reshape(5, 4).requires_grad_(True)
     weight = torch.tensor(
@@ -182,7 +190,6 @@ def test_liger_tp_accumulates_gradients_across_padded_chunks(monkeypatch):
         labels,
         dist_process_group=process_group,
         impl_backend="liger_tp",
-        chunk_size=3,
     )
     torch.autograd.backward((log_probs, entropy), (grad_log_probs, grad_entropy))
 
@@ -198,48 +205,131 @@ def test_liger_tp_accumulates_gradients_across_padded_chunks(monkeypatch):
     torch.testing.assert_close(weight.grad, expected_weight_grad)
 
 
-def test_liger_tp_initialization_is_idempotent_for_same_tp_membership(monkeypatch):
-    class FakeNvshmem:
-        def __init__(self):
-            self.init_calls = []
-            self.resolve_calls = []
+def test_liger_tp_runtime_uses_public_ops_frontend(monkeypatch):
+    public_function = object()
+    liger_module = types.ModuleType("liger_kernel")
+    liger_module.__path__ = []
+    ops_module = types.ModuleType("liger_kernel.ops")
+    ops_module.LigerFusedLinearScaledCrossEntropyTPFunction = public_function
+    liger_module.ops = ops_module
 
-        def init_from_pg(self, process_group):
-            self.init_calls.append(process_group)
+    monkeypatch.setattr(lce, "_LIGER_TP_FUNCTION", None)
+    monkeypatch.setitem(sys.modules, "liger_kernel", liger_module)
+    monkeypatch.setitem(sys.modules, "liger_kernel.ops", ops_module)
 
-        def resolve_team(self, process_group):
-            self.resolve_calls.append(process_group)
+    assert lce._require_liger_tp_runtime() is public_function
 
-    nvshmem = FakeNvshmem()
-    group = object()
-    equivalent_group = object()
-    other_group = object()
-    memberships = {
-        group: (4, 6),
-        equivalent_group: (4, 6),
-        other_group: (5, 7),
-    }
 
-    monkeypatch.setattr(lce, "_LIGER_TP_BOOTSTRAP_GLOBAL_RANKS", None)
-    monkeypatch.setattr(lce, "_validate_liger_tp_device", lambda: None)
-    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: (object(), nvshmem))
-    monkeypatch.setattr(lce.dist, "is_available", lambda: True)
-    monkeypatch.setattr(lce.dist, "is_initialized", lambda: True)
-    monkeypatch.setattr(lce.dist, "get_world_size", lambda process_group: len(memberships[process_group]))
-    monkeypatch.setattr(
-        lce.dist,
-        "get_global_rank",
-        lambda process_group, group_rank: memberships[process_group][group_rank],
+def test_liger_tp_configuration_skips_when_lck_is_not_installed(monkeypatch):
+    monkeypatch.setattr(lce, "_LIGER_TP_CONFIGURATION", None)
+    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: None)
+    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda device: (9, 0))
+    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 1)
+    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 0)
+
+    assert (
+        lce.configure_liger_tp_flsce(
+            max_tokens=4096,
+            hidden_size=2048,
+            local_vocab_size=151936,
+            process_group=object(),
+            device=torch.device("cuda:0"),
+        )
+        is False
     )
 
-    lce.initialize_liger_tp_flsce(group)
-    lce.initialize_liger_tp_flsce(equivalent_group)
 
-    assert nvshmem.init_calls == [group]
-    assert nvshmem.resolve_calls == [group, equivalent_group]
+@pytest.mark.parametrize("missing_module", ["liger_cute_kernels", "tvm_ffi"])
+def test_load_lck_runtime_only_skips_missing_optional_package(monkeypatch, missing_module):
+    original_import = builtins.__import__
 
-    with pytest.raises(RuntimeError, match="already initialized"):
-        lce.initialize_liger_tp_flsce(other_group)
+    def import_without_dependency(name, *args, **kwargs):
+        if name == "liger_cute_kernels":
+            raise ModuleNotFoundError(f"No module named '{missing_module}'", name=missing_module)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_dependency)
+    if missing_module == "liger_cute_kernels":
+        assert lce._load_lck_runtime() is None
+    else:
+        with pytest.raises(ModuleNotFoundError, match=missing_module):
+            lce._load_lck_runtime()
+
+
+def test_liger_tp_configuration_uses_existing_maximum(monkeypatch):
+    process_group = object()
+    device = torch.device("cuda:2")
+    calls = []
+
+    class FakeNvshmem:
+        @staticmethod
+        def init_from_pg(group):
+            calls.append(("init", group))
+
+        @staticmethod
+        def resolve_team(group):
+            calls.append(("team", group))
+            return 17
+
+    class FakeTvmFfi:
+        @staticmethod
+        def fused_linear_scaled_cross_entropy_configure_backward(*args):
+            calls.append(("backward", args))
+
+        @staticmethod
+        def fused_linear_scaled_cross_entropy_configure_forward(*args):
+            calls.append(("forward", args))
+
+    monkeypatch.setattr(lce, "_LIGER_TP_CONFIGURATION", None)
+    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: (FakeNvshmem, FakeTvmFfi))
+    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda actual: (10, 3))
+    monkeypatch.setattr(lce.torch.cuda, "device", lambda actual: nullcontext())
+    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 2)
+    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 4 + rank)
+
+    kwargs = {
+        "max_tokens": 4096,
+        "hidden_size": 5120,
+        "local_vocab_size": 62080,
+        "process_group": process_group,
+        "device": device,
+    }
+    assert lce.configure_liger_tp_flsce(**kwargs) is True
+    assert lce.configure_liger_tp_flsce(**kwargs) is True
+    assert calls == [
+        ("init", process_group),
+        ("team", process_group),
+        ("backward", (4096, 5120, 62080, 1, 17)),
+        ("forward", (4096, 62080)),
+    ]
+
+
+@pytest.mark.parametrize("max_tokens", [2048, 8192])
+def test_liger_tp_configuration_rejects_capacity_changes(monkeypatch, max_tokens):
+    process_group = object()
+    device = torch.device("cuda:0")
+
+    monkeypatch.setattr(
+        lce,
+        "_LIGER_TP_CONFIGURATION",
+        ((0,), 4096, 5120, 62080, device),
+    )
+    monkeypatch.setattr(lce, "_load_lck_runtime", lambda: pytest.fail("workspace must not be reconfigured"))
+    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda actual: (10, 3))
+    monkeypatch.setattr(lce.dist, "get_world_size", lambda group: 1)
+    monkeypatch.setattr(lce.dist, "get_global_rank", lambda group, rank: 0)
+
+    with pytest.raises(RuntimeError, match="already configured"):
+        lce.configure_liger_tp_flsce(
+            max_tokens=max_tokens,
+            hidden_size=5120,
+            local_vocab_size=62080,
+            process_group=process_group,
+            device=device,
+        )
 
 
 def test_linear_cross_entropy_rejects_unknown_backend():

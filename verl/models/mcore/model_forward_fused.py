@@ -40,8 +40,6 @@ from .util import postprocess_thd_engine
 
 _FUSED_FORWARD_MODE_ATTR = "_verl_fused_forward_mode"
 _FUSED_IMPL_BACKEND_ATTR = "_verl_fused_impl_backend"
-_FUSED_CHUNK_SIZE_ATTR = "_verl_fused_chunk_size"
-_FUSED_TILES_PER_REDUCE_ATTR = "_verl_fused_tiles_per_reduce"
 _HOOK_MODE = "hook"
 _LEGACY_MODE = "legacy"
 
@@ -76,15 +74,11 @@ def _use_output_processor_hook(model: torch.nn.Module) -> bool:
     return _get_fused_forward_mode(model) == _HOOK_MODE
 
 
-def _get_fused_kernel_options(model: torch.nn.Module) -> tuple[str, int, int]:
+def _get_fused_impl_backend(model: torch.nn.Module) -> str:
     model = unwrap_model(model)
     if hasattr(model, "language_model"):
         model = model.language_model
-    return (
-        getattr(model, _FUSED_IMPL_BACKEND_ATTR, "triton"),
-        getattr(model, _FUSED_CHUNK_SIZE_ATTR, 512),
-        getattr(model, _FUSED_TILES_PER_REDUCE_ATTR, 1),
-    )
+    return getattr(model, _FUSED_IMPL_BACKEND_ATTR, "triton")
 
 
 def _gather_fused_hidden_states(hidden_states: Tensor, sequence_parallel: bool, impl_backend: str) -> Tensor:
@@ -106,8 +100,6 @@ class FusedOutputProcessorContext:
 
     temperature: float
     impl_backend: str = "triton"
-    chunk_size: int = 512
-    tiles_per_reduce: int = 1
 
 
 def fused_output_processor(
@@ -143,8 +135,6 @@ def fused_output_processor(
         "none",
         parallel_state.get_tensor_model_parallel_group(),
         impl_backend=context.impl_backend,
-        chunk_size=context.chunk_size,
-        tiles_per_reduce=context.tiles_per_reduce,
     )
 
     if has_config_logger_enabled(config):
@@ -181,16 +171,11 @@ def patch_fused_forward(
     model: torch.nn.Module,
     *,
     impl_backend: str = "triton",
-    chunk_size: int = 512,
-    tiles_per_reduce: int = 1,
 ):
     model = _get_patching_model(model)
     if model is None:
         return
-
     setattr(model, _FUSED_IMPL_BACKEND_ATTR, impl_backend)
-    setattr(model, _FUSED_CHUNK_SIZE_ATTR, chunk_size)
-    setattr(model, _FUSED_TILES_PER_REDUCE_ATTR, tiles_per_reduce)
 
     mode = getattr(model, _FUSED_FORWARD_MODE_ATTR, None)
     if mode is None:
@@ -292,24 +277,20 @@ def fused_forward_model_engine(vision_model: bool = False):
             **model_kwargs,
         )
         if _use_output_processor_hook(model):
-            impl_backend, chunk_size, tiles_per_reduce = _get_fused_kernel_options(model)
+            impl_backend = _get_fused_impl_backend(model)
             output_orig: CausalLMOutputForPPO = model(
                 **forward_kwargs,
                 output_processor=fused_output_processor,
                 output_processor_context=FusedOutputProcessorContext(
                     temperature=temperature,
                     impl_backend=impl_backend,
-                    chunk_size=chunk_size,
-                    tiles_per_reduce=tiles_per_reduce,
                 ),
             )
         else:
-            impl_backend, chunk_size, tiles_per_reduce = _get_fused_kernel_options(model)
+            impl_backend = _get_fused_impl_backend(model)
             output_orig: CausalLMOutputForPPO = model(
                 temperature=temperature,
                 impl_backend=impl_backend,
-                chunk_size=chunk_size,
-                tiles_per_reduce=tiles_per_reduce,
                 **forward_kwargs,
             )
 
@@ -367,8 +348,6 @@ def _fused_GPTModel_forward(
     loss_mask: Optional[Tensor] = None,
     temperature: float = 1.0,
     impl_backend: str = "triton",
-    chunk_size: int = 512,
-    tiles_per_reduce: int = 1,
     padding_mask: Tensor | None = None,
     **kwargs,
 ) -> CausalLMOutputForPPO:
@@ -448,8 +427,6 @@ def _fused_GPTModel_forward(
         "none",
         parallel_state.get_tensor_model_parallel_group(),
         impl_backend=impl_backend,
-        chunk_size=chunk_size,
-        tiles_per_reduce=tiles_per_reduce,
     )
 
     if has_config_logger_enabled(model.config):
