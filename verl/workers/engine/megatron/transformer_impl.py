@@ -99,6 +99,33 @@ def _resolve_fused_temperature(temperature: float | torch.Tensor) -> float:
     return max(float(values[0].item()), 1e-8)
 
 
+def _resolve_megatron_fused_kernel_options(model_config: HFModelConfig) -> tuple[str, int, int]:
+    options = model_config.fused_kernel_options or {}
+    impl_backend = options.get("impl_backend", "triton")
+    if impl_backend is None:
+        impl_backend = "triton"
+    if not isinstance(impl_backend, str):
+        raise TypeError(f"fused_kernel_options.impl_backend must be a string, got {type(impl_backend)}")
+
+    impl_backend = impl_backend.lower()
+    if impl_backend in ("torch", "triton"):
+        impl_backend = "triton"
+    elif impl_backend in ("liger", "liger_tp"):
+        impl_backend = "liger_tp"
+    else:
+        raise ValueError(f"Megatron fused kernels support impl_backend='triton' or 'liger_tp', got {impl_backend!r}")
+
+    chunk_size = options.get("chunk_size", 512)
+    if not isinstance(chunk_size, int) or isinstance(chunk_size, bool) or chunk_size <= 0:
+        raise ValueError(f"fused_kernel_options.chunk_size must be a positive integer, got {chunk_size!r}")
+
+    tiles_per_reduce = options.get("tiles_per_reduce", 1)
+    if not isinstance(tiles_per_reduce, int) or isinstance(tiles_per_reduce, bool) or tiles_per_reduce not in (1, 2, 4):
+        raise ValueError(f"fused_kernel_options.tiles_per_reduce must be one of 1, 2, or 4, got {tiles_per_reduce!r}")
+
+    return impl_backend, chunk_size, tiles_per_reduce
+
+
 def _validate_dcp_world_size(dpcp_size: int) -> None:
     """Validate the topology accepted by Megatron-Core's dynamic group builder."""
     if dpcp_size < 2 or dpcp_size % 2 != 0:
@@ -479,10 +506,27 @@ class MegatronEngine(BaseEngine):
             self.engine_config.use_fused_kernels = False
             return
 
+        impl_backend, chunk_size, tiles_per_reduce = _resolve_megatron_fused_kernel_options(self.model_config)
+        has_output_head = any(getattr(unwrap_model(model), "post_process", False) for model in self.module)
+        if impl_backend == "liger_tp":
+            if self.param_dtype != torch.bfloat16:
+                raise ValueError(
+                    f"The Liger TP-FLSCE backend requires Megatron model dtype bfloat16, got {self.param_dtype}"
+                )
+            if has_output_head:
+                from verl.utils.kernel.linear_cross_entropy import initialize_liger_tp_flsce
+
+                initialize_liger_tp_flsce(mpu.get_tensor_model_parallel_group())
+
         from verl.models.mcore.model_forward_fused import patch_fused_forward
 
         for model in self.module:
-            patch_fused_forward(model)
+            patch_fused_forward(
+                model,
+                impl_backend=impl_backend,
+                chunk_size=chunk_size,
+                tiles_per_reduce=tiles_per_reduce,
+            )
 
     def _build_optimizer(self):
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config

@@ -116,6 +116,9 @@ def test_engine_hook_context_and_current_thd_arguments(monkeypatch):
             return SimpleNamespace(log_probs=torch.tensor([1.0]), entropy=torch.tensor([2.0]))
 
     hook_model = Model(mff._HOOK_MODE)
+    setattr(hook_model, mff._FUSED_IMPL_BACKEND_ATTR, "liger_tp")
+    setattr(hook_model, mff._FUSED_CHUNK_SIZE_ATTR, 256)
+    setattr(hook_model, mff._FUSED_TILES_PER_REDUCE_ATTR, 2)
     output = mff.fused_forward_model_engine()(hook_model, input_ids, labels, {}, 0.7, True, 0, "dualpipev")
 
     hook_kwargs = hook_model.calls[-1]
@@ -123,6 +126,9 @@ def test_engine_hook_context_and_current_thd_arguments(monkeypatch):
     assert "temperature" not in hook_kwargs
     assert hook_kwargs["output_processor"] is mff.fused_output_processor
     assert hook_kwargs["output_processor_context"].temperature == pytest.approx(0.7)
+    assert hook_kwargs["output_processor_context"].impl_backend == "liger_tp"
+    assert hook_kwargs["output_processor_context"].chunk_size == 256
+    assert hook_kwargs["output_processor_context"].tiles_per_reduce == 2
     assert preprocess_calls == [
         {
             "pre_process": True,
@@ -144,9 +150,15 @@ def test_engine_hook_context_and_current_thd_arguments(monkeypatch):
     ]
 
     legacy_model = Model(mff._LEGACY_MODE)
+    setattr(legacy_model, mff._FUSED_IMPL_BACKEND_ATTR, "liger_tp")
+    setattr(legacy_model, mff._FUSED_CHUNK_SIZE_ATTR, 1024)
+    setattr(legacy_model, mff._FUSED_TILES_PER_REDUCE_ATTR, 4)
     mff.fused_forward_model_engine()(legacy_model, input_ids, labels, {}, 0.5, True, 0)
     legacy_kwargs = legacy_model.calls[-1]
     assert legacy_kwargs["temperature"] == pytest.approx(0.5)
+    assert legacy_kwargs["impl_backend"] == "liger_tp"
+    assert legacy_kwargs["chunk_size"] == 1024
+    assert legacy_kwargs["tiles_per_reduce"] == 4
     assert "output_processor" not in legacy_kwargs
     assert "output_processor_context" not in legacy_kwargs
 
@@ -199,7 +211,7 @@ def test_megatron_bridge_wrapper_chain_reaches_native_hook(monkeypatch):
 
     seen = {}
 
-    def fake_linear_cross_entropy(hidden, weight, labels, temperature, reduction, group):
+    def fake_linear_cross_entropy(hidden, weight, labels, temperature, reduction, group, **options):
         seen.update(
             hidden=hidden,
             weight=weight,
@@ -207,6 +219,7 @@ def test_megatron_bridge_wrapper_chain_reaches_native_hook(monkeypatch):
             temperature=temperature,
             reduction=reduction,
             group=group,
+            options=options,
         )
         return torch.ones(2), torch.ones(2) * 2
 
@@ -221,7 +234,12 @@ def test_megatron_bridge_wrapper_chain_reaches_native_hook(monkeypatch):
         attention_mask=None,
         labels=torch.tensor([1, 2]),
         output_processor=mff.fused_output_processor,
-        output_processor_context=mff.FusedOutputProcessorContext(temperature=0.7),
+        output_processor_context=mff.FusedOutputProcessorContext(
+            temperature=0.7,
+            impl_backend="liger_tp",
+            chunk_size=256,
+            tiles_per_reduce=2,
+        ),
         fp32_output=False,
     )
 
@@ -231,6 +249,11 @@ def test_megatron_bridge_wrapper_chain_reaches_native_hook(monkeypatch):
     assert output.entropy.tolist() == [2.0, 2.0]
     assert seen["temperature"] == pytest.approx(0.7)
     assert seen["weight"] is model.output_layer.weight
+    assert seen["options"] == {
+        "impl_backend": "liger_tp",
+        "chunk_size": 256,
+        "tiles_per_reduce": 2,
+    }
 
 
 def test_output_processor_preserves_config_logger_payload(monkeypatch):
@@ -286,10 +309,20 @@ def test_output_processor_preserves_config_logger_payload(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("sequence_parallel", "use_tied_weight"),
-    [(True, True), (False, False)],
+    ("sequence_parallel", "use_tied_weight", "impl_backend", "tensor_parallel_output_grad"),
+    [
+        (True, True, "liger_tp", False),
+        (True, False, "triton", True),
+        (False, False, "liger_tp", None),
+    ],
 )
-def test_output_processor_gathers_before_kernel_and_resolves_weight(monkeypatch, sequence_parallel, use_tied_weight):
+def test_output_processor_gathers_before_kernel_and_resolves_weight(
+    monkeypatch,
+    sequence_parallel,
+    use_tied_weight,
+    impl_backend,
+    tensor_parallel_output_grad,
+):
     hidden_states = torch.tensor([[1.0]])
     gathered_hidden_states = torch.tensor([[3.0]])
     tied_weight = torch.tensor([[5.0]])
@@ -298,14 +331,21 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(monkeypatch,
     events = []
     seen = {}
 
-    def fake_gather(value):
+    def fake_gather(value, **kwargs):
         events.append("gather")
         assert value is hidden_states
+        assert kwargs == {"tensor_parallel_output_grad": tensor_parallel_output_grad}
         return gathered_hidden_states
 
-    def fake_linear_cross_entropy(hidden, weight, labels_arg, temperature, reduction, group):
+    def fake_linear_cross_entropy(hidden, weight, labels_arg, temperature, reduction, group, **options):
         events.append("linear_cross_entropy")
-        seen.update(hidden=hidden, weight=weight, labels=labels_arg, temperature=temperature)
+        seen.update(
+            hidden=hidden,
+            weight=weight,
+            labels=labels_arg,
+            temperature=temperature,
+            options=options,
+        )
         return torch.tensor([11.0]), torch.tensor([13.0])
 
     monkeypatch.setattr(mff, "gather_from_sequence_parallel_region", fake_gather)
@@ -318,7 +358,12 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(monkeypatch,
         output_layer=SimpleNamespace(weight=output_layer_weight),
         output_weight=output_weight,
         labels=labels,
-        context=mff.FusedOutputProcessorContext(temperature=0.9),
+        context=mff.FusedOutputProcessorContext(
+            temperature=0.9,
+            impl_backend=impl_backend,
+            chunk_size=512,
+            tiles_per_reduce=4,
+        ),
         config=SimpleNamespace(sequence_parallel=sequence_parallel),
     )
 
@@ -329,5 +374,10 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(monkeypatch,
     assert seen["weight"] is expected_weight
     assert seen["labels"] is labels
     assert seen["temperature"] == pytest.approx(0.9)
+    assert seen["options"] == {
+        "impl_backend": impl_backend,
+        "chunk_size": 512,
+        "tiles_per_reduce": 4,
+    }
     assert output.log_probs.tolist() == [11.0]
     assert output.entropy.tolist() == [13.0]

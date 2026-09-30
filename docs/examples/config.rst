@@ -250,12 +250,24 @@ Actor/Rollout/Reference Policy
   used.
 
   - ``actor_rollout_ref.model.fused_kernel_options.impl_backend``: The
-    implementation backend for fused kernels. Options: "triton", "torch", or
-    "liger". The "torch" backend always uses verl's native output-head implementation;
-    select "liger" explicitly to use Liger's fused output-head kernel.
-    Default is "torch".
-    While in megatron, we only support "triton" as the
-    implementation backend, so there is no need for this option.
+    implementation backend for fused kernels. Options: "triton", "torch",
+    "liger", or "liger_tp". The "torch" backend always uses verl's native
+    output-head implementation; select "liger" explicitly to use Liger's fused
+    output-head kernel. Default is "torch".
+    Megatron maps "torch" to its existing "triton" implementation and also
+    supports "liger_tp" (or the "liger" alias) for Liger's native
+    tensor-parallel fused linear scaled cross entropy on BF16 Hopper and
+    Blackwell GPUs. The native backend fails rather than falling back when LCK
+    or NVSHMEM is unavailable.
+
+  - ``actor_rollout_ref.model.fused_kernel_options.chunk_size``: Maximum
+    tokens per Megatron ``liger_tp`` call and native workspace. Verl pads a
+    short final chunk with ignored labels so the immutable workspace is always
+    configured to this capacity. Default is 512.
+
+  - ``actor_rollout_ref.model.fused_kernel_options.tiles_per_reduce``:
+    Reduction grouping for Megatron ``liger_tp``. Supported values are 1, 2,
+    and 4. Default is 1.
 
 - ``actor_rollout_ref.model.use_remove_padding``: Whether to use remove
   padding in the model. If set to True, the model will remove padding

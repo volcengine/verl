@@ -39,6 +39,9 @@ from verl.utils.model import CausalLMOutputForPPO
 from .util import postprocess_thd_engine
 
 _FUSED_FORWARD_MODE_ATTR = "_verl_fused_forward_mode"
+_FUSED_IMPL_BACKEND_ATTR = "_verl_fused_impl_backend"
+_FUSED_CHUNK_SIZE_ATTR = "_verl_fused_chunk_size"
+_FUSED_TILES_PER_REDUCE_ATTR = "_verl_fused_tiles_per_reduce"
 _HOOK_MODE = "hook"
 _LEGACY_MODE = "legacy"
 
@@ -73,11 +76,38 @@ def _use_output_processor_hook(model: torch.nn.Module) -> bool:
     return _get_fused_forward_mode(model) == _HOOK_MODE
 
 
+def _get_fused_kernel_options(model: torch.nn.Module) -> tuple[str, int, int]:
+    model = unwrap_model(model)
+    if hasattr(model, "language_model"):
+        model = model.language_model
+    return (
+        getattr(model, _FUSED_IMPL_BACKEND_ATTR, "triton"),
+        getattr(model, _FUSED_CHUNK_SIZE_ATTR, 512),
+        getattr(model, _FUSED_TILES_PER_REDUCE_ATTR, 1),
+    )
+
+
+def _gather_fused_hidden_states(hidden_states: Tensor, sequence_parallel: bool, impl_backend: str) -> Tensor:
+    if not sequence_parallel:
+        return hidden_states
+
+    # Liger TP-FLSCE already reduces dHidden across vocabulary shards. Its
+    # sequence-parallel gather must only split that gradient in backward.
+    tensor_parallel_output_grad = impl_backend.lower() not in ("liger", "liger_tp")
+    return gather_from_sequence_parallel_region(
+        hidden_states,
+        tensor_parallel_output_grad=tensor_parallel_output_grad,
+    )
+
+
 @dataclass
 class FusedOutputProcessorContext:
     """Context passed through Megatron's native output-processor hook."""
 
     temperature: float
+    impl_backend: str = "triton"
+    chunk_size: int = 512
+    tiles_per_reduce: int = 1
 
 
 def fused_output_processor(
@@ -99,14 +129,12 @@ def fused_output_processor(
         attentions=None,
     )
 
-    if config.sequence_parallel:
-        hidden_states = gather_from_sequence_parallel_region(hidden_states)
-
     # Megatron passes the shared embedding as output_weight for tied models. For
     # untied models the weight lives on output_layer.
     weight = output_weight if output_weight is not None else output_layer.weight
 
     temperature = context.temperature
+    hidden_states = _gather_fused_hidden_states(hidden_states, config.sequence_parallel, context.impl_backend)
     logprobs, entropy = linear_cross_entropy(
         hidden_states,
         weight,
@@ -114,6 +142,9 @@ def fused_output_processor(
         temperature,
         "none",
         parallel_state.get_tensor_model_parallel_group(),
+        impl_backend=context.impl_backend,
+        chunk_size=context.chunk_size,
+        tiles_per_reduce=context.tiles_per_reduce,
     )
 
     if has_config_logger_enabled(config):
@@ -146,10 +177,20 @@ def _get_patching_model(model: torch.nn.Module):
     return model.language_model
 
 
-def patch_fused_forward(model: torch.nn.Module):
+def patch_fused_forward(
+    model: torch.nn.Module,
+    *,
+    impl_backend: str = "triton",
+    chunk_size: int = 512,
+    tiles_per_reduce: int = 1,
+):
     model = _get_patching_model(model)
     if model is None:
         return
+
+    setattr(model, _FUSED_IMPL_BACKEND_ATTR, impl_backend)
+    setattr(model, _FUSED_CHUNK_SIZE_ATTR, chunk_size)
+    setattr(model, _FUSED_TILES_PER_REDUCE_ATTR, tiles_per_reduce)
 
     mode = getattr(model, _FUSED_FORWARD_MODE_ATTR, None)
     if mode is None:
@@ -251,13 +292,26 @@ def fused_forward_model_engine(vision_model: bool = False):
             **model_kwargs,
         )
         if _use_output_processor_hook(model):
+            impl_backend, chunk_size, tiles_per_reduce = _get_fused_kernel_options(model)
             output_orig: CausalLMOutputForPPO = model(
                 **forward_kwargs,
                 output_processor=fused_output_processor,
-                output_processor_context=FusedOutputProcessorContext(temperature=temperature),
+                output_processor_context=FusedOutputProcessorContext(
+                    temperature=temperature,
+                    impl_backend=impl_backend,
+                    chunk_size=chunk_size,
+                    tiles_per_reduce=tiles_per_reduce,
+                ),
             )
         else:
-            output_orig: CausalLMOutputForPPO = model(temperature=temperature, **forward_kwargs)
+            impl_backend, chunk_size, tiles_per_reduce = _get_fused_kernel_options(model)
+            output_orig: CausalLMOutputForPPO = model(
+                temperature=temperature,
+                impl_backend=impl_backend,
+                chunk_size=chunk_size,
+                tiles_per_reduce=tiles_per_reduce,
+                **forward_kwargs,
+            )
 
         if not post_process:
             return output_orig
@@ -312,6 +366,9 @@ def _fused_GPTModel_forward(
     inference_params: Optional[BaseInferenceContext] = None,
     loss_mask: Optional[Tensor] = None,
     temperature: float = 1.0,
+    impl_backend: str = "triton",
+    chunk_size: int = 512,
+    tiles_per_reduce: int = 1,
     padding_mask: Tensor | None = None,
     **kwargs,
 ) -> CausalLMOutputForPPO:
@@ -374,8 +431,7 @@ def _fused_GPTModel_forward(
         attentions=None,
     )
 
-    if model.config.sequence_parallel:
-        hidden_states = gather_from_sequence_parallel_region(hidden_states)
+    hidden_states = _gather_fused_hidden_states(hidden_states, model.config.sequence_parallel, impl_backend)
 
     # Get the output weight - use embedding weight if output_layer is None or weight is shared
     if hasattr(model, "output_layer") and model.output_layer is not None and model.output_layer.weight is not None:
@@ -391,6 +447,9 @@ def _fused_GPTModel_forward(
         temperature,
         "none",
         parallel_state.get_tensor_model_parallel_group(),
+        impl_backend=impl_backend,
+        chunk_size=chunk_size,
+        tiles_per_reduce=tiles_per_reduce,
     )
 
     if has_config_logger_enabled(model.config):

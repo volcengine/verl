@@ -63,9 +63,15 @@ use_fused_kernels: False
 # fused kernel options.
 fused_kernel_options:
 
-  # the implementation backend for fused kernels: torch, triton, or liger.
-  # Megatron only supports triton.
+  # the implementation backend for fused kernels: torch, triton, liger, or liger_tp.
+  # Megatron maps torch to triton and supports triton or liger_tp.
   impl_backend: torch
+
+  # maximum tokens per Liger TP-FLSCE call and native workspace.
+  chunk_size: 512
+
+  # reduction grouping for Liger TP-FLSCE. Supported values are 1, 2, and 4.
+  tiles_per_reduce: 1
 
 # TiledMLP configuration for memory-efficient MLP computation.
 # Reduces peak memory by processing MLP forward/backward in tiles.

@@ -197,6 +197,46 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
 
 3. ``use_liger`` is compatible with ``use_fused_kernels``. The former controls model-internal kernels, while the latter controls the output head. Set ``fused_kernel_options.impl_backend`` to ``liger`` to use Liger's fused scaled cross entropy, or keep the default ``torch`` backend to use verl's native chunked ``FusedLinearForPPOFunction``. The ``liger`` backend falls back to the native implementation when Liger is not installed.
 
+   For Megatron, use ``impl_backend=liger_tp`` to select Liger's native
+   tensor-parallel implementation instead of Verl's Triton implementation.
+   This path requires BF16 Hopper or Blackwell GPUs and
+   ``liger-kernel[lck]>=0.8.3``. With the uv project environment, install the
+   Megatron environment first, then install Liger with its own ``lck`` extra.
+   It initializes NVSHMEM from each output-stage Megatron TP process group and
+   fails closed if the native runtime is unavailable. Use
+   ``fused_kernel_options.chunk_size`` to bound the per-call workspace; 512 is
+   the default. Colocated Megatron engines in one process must use identical TP
+   rank membership because the process-wide NVSHMEM runtime cannot be
+   reinitialized for a different bootstrap group.
+
+   .. code-block:: bash
+
+      uv sync --extra megatron --extra vllm  # replace vllm with the selected rollout backend
+      uv pip install "liger-kernel[lck]>=0.8.3"
+
+   Install the LCK extra after syncing the selected rollout backend. LCK does
+   not require a specific Apache TVM FFI release, so the environment can retain
+   the version selected by vLLM or other native-kernel packages.
+
+   The published LCK 0.8.3 wheel is linked against CUDA 12.9. CUDA 13-only
+   processes that cannot load CUDA 12 and CUDA 13 runtime libraries together
+   need an LCK wheel built against CUDA 13; otherwise select a CUDA 12 runtime
+   environment for the Megatron workers.
+
+   Configure NVSHMEM for the deployment fabric before launching workers. For
+   an NVLink/NVSwitch single-node run that should not probe remote InfiniBand
+   transports, one suitable configuration is:
+
+   .. code-block:: bash
+
+      export NVSHMEM_DISABLE_NCCL=1
+      export NVSHMEM_DISABLE_NVLS=0
+      export NVSHMEM_REMOTE_TRANSPORT=none
+      export NVSHMEM_SYMMETRIC_SIZE=3G
+
+   Multi-node runs must instead select the NVSHMEM transport and NIC mapping
+   appropriate for the cluster.
+
 Forward prefetch in FSDP training backend
 ----------------------
 
