@@ -762,7 +762,7 @@ Most parameters for Model are similar to Reward Model.
   With Megatron fused kernels enabled, this also selects Liger's public
   tensor-parallel output-head operator. Installing a compatible
   ``liger-cute-kernels`` wheel lets Liger select its native implementation.
-  Megatron's native setup requires matching Liger Python/native builds
+  Liger Kernel is pinned to ``0.8.4``. Megatron's native setup requires matching Liger Python/native builds
   containing the public configuration API from mainline commit
   ``0043f43309144bb3054518d28efed25fc314edaf`` and the configuration fallback
   follow-up merged as ``8866e4ee7945bc3cac0e40062e7bde26ecc09f65``

@@ -47,7 +47,7 @@ def _require_liger_runtime():
     try:
         from liger_kernel.ops import LigerFusedLinearScaledCrossEntropyTPFunction
     except ImportError as exc:
-        raise RuntimeError("The Liger TP-FLSCE backend requires `liger-kernel>=0.8.3`") from exc
+        raise RuntimeError("The Liger TP-FLSCE backend requires `liger-kernel==0.8.4`") from exc
 
     _LIGER_FUNCTION = LigerFusedLinearScaledCrossEntropyTPFunction
     return _LIGER_FUNCTION
@@ -73,8 +73,7 @@ def configure_liger_flsce(
         from liger_kernel.ops.configure import FusedLinearCrossEntropyConfig, configure
     except ImportError as exc:
         raise RuntimeError(
-            "Megatron's Liger backend requires a liger-kernel build with the public configure API "
-            "(Liger mainline 0043f433 or a release containing it)."
+            "Megatron's Liger backend requires `liger-kernel==0.8.4` with the public configure API."
         ) from exc
 
     # Names must agree across WORLD but must not be reused for a different

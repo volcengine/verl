@@ -186,7 +186,7 @@ LigerKernel for training performance
 
 LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can improve training throughput. It works with both SFT and RL (PPO/GRPO) training, including vision-language models.
 
-1. Install Liger Kernel 0.8.2 or newer via ``pip3 install "liger-kernel>=0.8.2"``. Set ``use_liger`` in your configuration:
+1. Install Liger Kernel 0.8.4 via ``uv pip install "liger-kernel==0.8.4"``. Set ``use_liger`` in your configuration:
 
    .. code-block:: yaml
 
@@ -225,7 +225,7 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    .. code-block:: bash
 
       uv sync --extra megatron --extra vllm  # replace vllm with the selected rollout backend
-      uv pip install /path/to/liger_kernel-<version>-py3-none-any.whl
+      uv pip install /path/to/liger_kernel-0.8.4-py3-none-any.whl
       uv pip install /path/to/liger_cute_kernels-<version>-<platform>.whl
 
    .. code-block:: yaml
@@ -246,14 +246,15 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    plus the configuration fallback change in
    `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_
    (merged mainline commit ``8866e4ee7945bc3cac0e40062e7bde26ecc09f65``).
-   Use matching Python/native wheels containing both changes, or build those
-   sources locally. A version number alone is not sufficient for an older
-   wheel. Missing optional LCK or unsupported native hardware causes Liger
+   Liger Kernel is pinned to ``0.8.4``, the planned release containing both
+   changes. Install matching Python/native wheels when that release is
+   published, or build those sources locally. Missing optional LCK or
+   unsupported native hardware causes Liger
    to warn and skip native setup; genuine native configuration errors are
    not suppressed.
 
-   The general Liger dependency floor remains unchanged for other backends.
-   Opting into the Megatron path requires the newer public API at runtime.
+   Requirements, legacy GPU dependencies, and FSDP/Megatron extras use the
+   same ``liger-kernel==0.8.4`` pin.
    VeRL does not inspect GPU capabilities or select a hardware fallback.
    Liger owns both native eligibility and operator dispatch.
    LCK remains CUDA-only and raises ``UnsupportedDeviceError`` on unsupported
