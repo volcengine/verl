@@ -207,10 +207,14 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    tensor-parallel partition separately; Verl does not initialize NVSHMEM or
    own native workspace/context caches.
 
-   Configure the same maximum-token limits for colocated actor/reference
-   engines and on every rank for initial setup. The workspace capacity is
+   Before the reference engine initializes, colocated Megatron actor/reference
+   workers reserve the maximum across the actor training, actor log-probability,
+   and reference limits, accounting for each engine's context parallelism.
+   They also reserve the local vocabulary required by the smallest configured
+   TP size. This does not change either engine's batching settings or add a
+   user-facing capacity knob. Standalone engines reserve
    ``max(max_token_len_per_gpu, infer_max_token_len_per_gpu) * context_parallel_size``
-   and cannot grow after initialization. Repeated setup and additional TP
+   tokens. Capacity cannot grow after initialization. Repeated setup and additional TP
    partitions within the original capacity are managed by Liger. Execution
    across native contexts must remain serialized per process.
    With fixed-size microbatches these
@@ -238,11 +242,39 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    implementation or its fallback.
 
    The Megatron integration requires the public configuration API merged in
-   Liger mainline commit ``0043f43309144bb3054518d28efed25fc314edaf``.
-   Use matching Python/native wheels containing that change, or build that
-   revision locally. A version number alone is not sufficient for an older
-   wheel built before this merge. Missing optional LCK retains Liger's
-   fallback; errors from an installed native runtime are not suppressed.
+   Liger mainline commit ``0043f43309144bb3054518d28efed25fc314edaf``,
+   plus the configuration fallback change in
+   `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_
+   (commit ``c348f1b8f3a0605bdd6ed497c212e3928c0cd293``).
+   Use matching Python/native wheels containing both changes, or build those
+   sources locally. A version number alone is not sufficient for an older
+   wheel. Missing optional LCK or unsupported native hardware causes Liger
+   to warn and skip native setup; genuine native configuration errors are
+   not suppressed.
+
+   The general Liger dependency floor remains unchanged for other backends.
+   Opting into the Megatron path requires the newer public API at runtime.
+   VeRL does not inspect GPU capabilities or select a hardware fallback.
+   Liger owns both native eligibility and operator dispatch.
+
+   **DeepEP and memory lifetime:** Native Liger must not share a process with
+   DeepEP V1 RDMA (cross-node EP). Liger rejects an external NVSHMEM runtime
+   initialized first. VeRL also checks the legacy DeepEP dispatch/combine RDMA
+   buffer-size hints before its lazy buffer can initialize after Liger, and
+   rejects that combination. Use ``alltoall``, a Megatron-supported DeepEP V2
+   dispatcher without NVSHMEM, or disable the Liger fused output head.
+   Intra-node DeepEP V1 buffers with zero RDMA allocation are not rejected.
+   The safety gate has unit coverage; cross-node DeepEP training is unsupported
+   and is not part of the dense training smoke.
+
+   NVSHMEM environment settings must be established before initialization.
+   Its symmetric heap and native workspaces remain resident through parameter
+   and optimizer offload and colocated inference-engine sleep/wake; budget
+   this memory separately from model weights and KV cache. Do not initialize
+   or finalize another NVSHMEM owner while Liger is active. Finalization is
+   only safe after every native operation, backward pass and captured graph
+   has finished, and the loaded NVSHMEM host runtime must be compatible with
+   the device library used to build the native wheel.
 
 Forward prefetch in FSDP training backend
 ----------------------

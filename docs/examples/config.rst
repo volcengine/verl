@@ -758,11 +758,13 @@ Most parameters for Model are similar to Reward Model.
   default to ``all-linear``. See `peft docs <https://huggingface.co/docs/peft/v0.15.0/en/package_reference/lora#peft.LoraConfig.target_modules>`_ for detail.
 
 - ``use_liger``: Whether to enable Liger kernel, default to False. If True,
-  we apply Liger kernel to the model (depends on ``liger-kernel>=0.8.3``).
+  we apply Liger kernel to the model (depends on ``liger-kernel>=0.8.2``).
   With Megatron fused kernels enabled, this also selects Liger's public
   tensor-parallel output-head operator. Installing a compatible
   ``liger-cute-kernels`` wheel lets Liger select its native implementation.
   Megatron's native setup requires matching Liger Python/native builds
   containing the public configuration API from mainline commit
-  ``0043f43309144bb3054518d28efed25fc314edaf``; see the Liger section of
+  ``0043f43309144bb3054518d28efed25fc314edaf`` and the configuration fallback
+  follow-up in `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_;
+  see the Liger section of
   :doc:`../perf/perf_tuning` for collective setup and capacity requirements.

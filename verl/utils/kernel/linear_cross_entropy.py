@@ -35,25 +35,25 @@ import typing
 import torch
 import torch.distributed as dist
 
-_LIGER_TP_FUNCTION = None
+_LIGER_FUNCTION = None
 
 
-def _require_liger_tp_runtime():
-    global _LIGER_TP_FUNCTION
+def _require_liger_runtime():
+    global _LIGER_FUNCTION
 
-    if _LIGER_TP_FUNCTION is not None:
-        return _LIGER_TP_FUNCTION
+    if _LIGER_FUNCTION is not None:
+        return _LIGER_FUNCTION
 
     try:
         from liger_kernel.ops import LigerFusedLinearScaledCrossEntropyTPFunction
     except ImportError as exc:
         raise RuntimeError("The Liger TP-FLSCE backend requires `liger-kernel>=0.8.3`") from exc
 
-    _LIGER_TP_FUNCTION = LigerFusedLinearScaledCrossEntropyTPFunction
-    return _LIGER_TP_FUNCTION
+    _LIGER_FUNCTION = LigerFusedLinearScaledCrossEntropyTPFunction
+    return _LIGER_FUNCTION
 
 
-def configure_liger_tp_flsce(
+def configure_liger_flsce(
     *,
     max_tokens: int,
     hidden_size: int,
@@ -69,12 +69,6 @@ def configure_liger_tp_flsce(
         raise ValueError("Liger TP-FLSCE workspace dimensions must be positive integers")
     if process_group is None:
         raise ValueError("A tensor-parallel process group is required to configure Liger TP-FLSCE")
-    if device.type != "cuda" or not torch.cuda.is_available() or torch.version.hip is not None:
-        return False
-    major, minor = torch.cuda.get_device_capability(device)
-    if (major, minor) != (9, 0) and major != 10:
-        return False
-
     try:
         from liger_kernel.ops.configure import FusedLinearCrossEntropyConfig, configure
     except ImportError as exc:
@@ -102,7 +96,7 @@ def configure_liger_tp_flsce(
     )
 
 
-def _linear_cross_entropy_liger_tp(
+def _linear_cross_entropy_liger(
     hidden: torch.Tensor,
     weight: torch.Tensor,
     labels: torch.Tensor,
@@ -121,7 +115,7 @@ def _linear_cross_entropy_liger_tp(
     if weight.ndim != 2:
         raise ValueError(f"weight must be 2D, got shape {tuple(weight.shape)}")
 
-    tp_function = _require_liger_tp_runtime()
+    tp_function = _require_liger_runtime()
 
     hidden = hidden.reshape(-1, hidden.shape[-1])
     labels = labels.reshape(-1).to(torch.int64)
@@ -265,7 +259,7 @@ def linear_cross_entropy(
 
         return LinearCrossEntropy.apply(hidden, weight, labels, float(temperature), str(reduction), dist_process_group)
     if impl_backend == "liger":
-        return _linear_cross_entropy_liger_tp(
+        return _linear_cross_entropy_liger(
             hidden,
             weight,
             labels,

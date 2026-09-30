@@ -167,15 +167,43 @@ def _get_patching_model(model: torch.nn.Module):
     return model.language_model
 
 
-def _configure_liger_tp_runtime(model: GPTModel, engine_config) -> bool:
-    from verl.utils.kernel.linear_cross_entropy import configure_liger_tp_flsce
+def _validate_liger_moe_runtime(model: GPTModel) -> None:
+    config = model.config
+    if not getattr(config, "num_moe_experts", None):
+        return
+    legacy_deepep = getattr(config, "moe_enable_deepep", False) or (
+        getattr(config, "moe_token_dispatcher_type", None) == "flex"
+        and getattr(config, "moe_flex_dispatcher_backend", None) == "deepep"
+    )
+    if not legacy_deepep:
+        return
+
+    from deep_ep import Buffer
+
+    group = parallel_state.get_expert_tensor_and_model_parallel_group()
+    size = torch.distributed.get_world_size(group)
+    # Match the legacy dispatcher's public buffer-size hints without creating
+    # its lazy NVSHMEM-owning buffer after Liger has initialized the runtime.
+    hidden_bytes = config.hidden_size * 2
+    for options in (Buffer.get_dispatch_config(size), Buffer.get_combine_config(size)):
+        if options.get_rdma_buffer_size_hint(hidden_bytes, size) > 0:
+            raise RuntimeError(
+                "Native Liger and DeepEP V1 RDMA cannot share NVSHMEM in one process. "
+                "Use the alltoall dispatcher, a supported DeepEP V2 dispatcher, "
+                "or disable the Liger fused output head."
+            )
+
+
+def _configure_liger_runtime(model: GPTModel, engine_config) -> bool:
+    from verl.utils.kernel.linear_cross_entropy import configure_liger_flsce
 
     token_limits = [
         value
         for value in (engine_config.max_token_len_per_gpu, engine_config.infer_max_token_len_per_gpu)
         if value is not None
     ]
-    if not token_limits:
+    reservation = getattr(engine_config, "_liger_flsce_capacity", None)
+    if not token_limits and reservation is None:
         raise RuntimeError("Liger TP-FLSCE requires an existing max-token limit in the Megatron engine config")
 
     process_group = parallel_state.get_tensor_model_parallel_group()
@@ -184,13 +212,21 @@ def _configure_liger_tp_runtime(model: GPTModel, engine_config) -> bool:
     # stage, including virtual chunks without an embedding or output weight.
     if model.vocab_size % tp_size:
         raise ValueError("Liger TP-FLSCE requires the model vocabulary to be divisible by TP size")
-    return configure_liger_tp_flsce(
-        max_tokens=max(token_limits) * engine_config.context_parallel_size,
+    max_tokens = max(token_limits, default=0) * engine_config.context_parallel_size
+    min_tp_size = tp_size
+    if reservation is not None:
+        max_tokens = max(max_tokens, reservation[0])
+        min_tp_size = min(min_tp_size, reservation[1])
+    configured = configure_liger_flsce(
+        max_tokens=max_tokens,
         hidden_size=model.config.hidden_size,
-        local_vocab_size=model.vocab_size // tp_size,
+        local_vocab_size=(model.vocab_size + min_tp_size - 1) // min_tp_size,
         process_group=process_group,
         device=next(model.parameters()).device,
     )
+    if configured:
+        _validate_liger_moe_runtime(model)
+    return configured
 
 
 def patch_fused_forward(
@@ -206,7 +242,7 @@ def patch_fused_forward(
     if model_config is not None:
         impl_backend = "liger" if model_config.use_liger else "triton"
     if impl_backend == "liger" and engine_config is not None and model.config.params_dtype == torch.bfloat16:
-        _configure_liger_tp_runtime(model, engine_config)
+        _configure_liger_runtime(model, engine_config)
     setattr(model, _FUSED_IMPL_BACKEND_ATTR, impl_backend)
 
     mode = getattr(model, _FUSED_FORWARD_MODE_ATTR, None)

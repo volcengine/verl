@@ -58,7 +58,7 @@ def test_triton_backend_preserves_existing_autograd_dispatch(monkeypatch):
     assert calls == [(hidden, weight, labels, 0.8, "none", group)]
 
 
-def test_liger_tp_delegates_full_tensor_to_public_frontend(monkeypatch):
+def test_liger_delegates_full_tensor_to_public_frontend(monkeypatch):
     calls = []
 
     class FakeTPFunction:
@@ -87,7 +87,7 @@ def test_liger_tp_delegates_full_tensor_to_public_frontend(monkeypatch):
             entropy = torch.arange(hidden.shape[0], dtype=torch.float32) + 100
             return nll, entropy
 
-    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: FakeTPFunction)
+    monkeypatch.setattr(lce, "_require_liger_runtime", lambda: FakeTPFunction)
     process_group = object()
 
     hidden = torch.arange(35, dtype=torch.float32).reshape(1, 7, 5)
@@ -116,7 +116,7 @@ def test_liger_tp_delegates_full_tensor_to_public_frontend(monkeypatch):
     torch.testing.assert_close(entropy, torch.arange(7, dtype=torch.float32) + 100)
 
 
-def test_liger_tp_propagates_public_frontend_gradients(monkeypatch):
+def test_liger_propagates_public_frontend_gradients(monkeypatch):
     class FakeTPAutogradFunction(torch.autograd.Function):
         @staticmethod
         def forward(
@@ -168,7 +168,7 @@ def test_liger_tp_propagates_public_frontend_gradients(monkeypatch):
                 return_entropy,
             )
 
-    monkeypatch.setattr(lce, "_require_liger_tp_runtime", lambda: FakeTPFunction)
+    monkeypatch.setattr(lce, "_require_liger_runtime", lambda: FakeTPFunction)
 
     hidden = torch.arange(20, dtype=torch.float32).reshape(5, 4).requires_grad_(True)
     weight = torch.tensor(
@@ -204,7 +204,7 @@ def test_liger_tp_propagates_public_frontend_gradients(monkeypatch):
     torch.testing.assert_close(weight.grad, expected_weight_grad)
 
 
-def test_liger_tp_runtime_uses_public_ops_frontend(monkeypatch):
+def test_liger_runtime_uses_public_ops_frontend(monkeypatch):
     public_function = object()
     liger_module = types.ModuleType("liger_kernel")
     liger_module.__path__ = []
@@ -212,11 +212,11 @@ def test_liger_tp_runtime_uses_public_ops_frontend(monkeypatch):
     ops_module.LigerFusedLinearScaledCrossEntropyTPFunction = public_function
     liger_module.ops = ops_module
 
-    monkeypatch.setattr(lce, "_LIGER_TP_FUNCTION", None)
+    monkeypatch.setattr(lce, "_LIGER_FUNCTION", None)
     monkeypatch.setitem(sys.modules, "liger_kernel", liger_module)
     monkeypatch.setitem(sys.modules, "liger_kernel.ops", ops_module)
 
-    assert lce._require_liger_tp_runtime() is public_function
+    assert lce._require_liger_runtime() is public_function
 
 
 @pytest.fixture
@@ -226,8 +226,6 @@ def public_configuration(monkeypatch):
     module.FusedLinearCrossEntropyConfig = types.SimpleNamespace
     module.configure = lambda **kwargs: calls.append(kwargs) or True
     monkeypatch.setitem(sys.modules, "liger_kernel.ops.configure", module)
-    monkeypatch.setattr(lce.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", lambda device: (9, 0))
     monkeypatch.setattr(lce.dist, "get_world_size", lambda group=None: 4)
     monkeypatch.setattr(lce.dist, "get_process_group_ranks", lambda group: group)
     monkeypatch.setattr(
@@ -238,13 +236,13 @@ def public_configuration(monkeypatch):
     return module, calls
 
 
-def _configure(group=(0, 1), max_tokens=4096):
-    return lce.configure_liger_tp_flsce(
+def _configure(group=(0, 1), max_tokens=4096, device="cuda:0"):
+    return lce.configure_liger_flsce(
         max_tokens=max_tokens,
         hidden_size=5120,
         local_vocab_size=62080,
         process_group=group,
-        device=torch.device("cuda:0"),
+        device=torch.device(device),
     )
 
 
@@ -282,6 +280,21 @@ def test_configuration_preserves_optional_native_fallback(public_configuration):
     assert _configure() is False
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda:0", "xpu:0"])
+@pytest.mark.parametrize("configured", [True, False])
+def test_configuration_leaves_device_support_to_liger(monkeypatch, public_configuration, device, configured):
+    module, calls = public_configuration
+
+    def hardware_probe(*args, **kwargs):
+        pytest.fail("VeRL must not inspect hardware to configure Liger")
+
+    monkeypatch.setattr(lce.torch.cuda, "is_available", hardware_probe)
+    monkeypatch.setattr(lce.torch.cuda, "get_device_capability", hardware_probe)
+    monkeypatch.setattr(module, "configure", lambda **kwargs: calls.append(kwargs) or configured)
+    assert _configure(device=device) is configured
+    assert calls[0]["device"] == torch.device(device)
+
+
 def test_configuration_propagates_installed_runtime_errors(public_configuration):
     module, _ = public_configuration
 
@@ -306,7 +319,7 @@ def test_configuration_requires_public_api(monkeypatch, public_configuration):
         _configure()
 
 
-@pytest.mark.parametrize("backend", ["unknown", "torch", "liger_tp"])
+@pytest.mark.parametrize("backend", ["unknown", "torch"])
 def test_linear_cross_entropy_rejects_unknown_backend(backend):
     with pytest.raises(ValueError, match="Unsupported linear cross entropy backend"):
         lce.linear_cross_entropy(

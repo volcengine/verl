@@ -5527,7 +5527,7 @@ requires-dist = [
     { name = "hydra-core" },
     { name = "hydra-core", marker = "extra == 'verl-core'" },
     { name = "liger-kernel", marker = "extra == 'fsdp'", specifier = ">=0.8.2" },
-    { name = "liger-kernel", marker = "extra == 'megatron'", specifier = ">=0.8.3" },
+    { name = "liger-kernel", marker = "extra == 'megatron'", specifier = ">=0.8.2" },
     { name = "math-verify", marker = "extra == 'math'" },
     { name = "mathruler", marker = "extra == 'verl-core'" },
     { name = "matplotlib", marker = "extra == 'megatron'" },
