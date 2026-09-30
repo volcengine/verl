@@ -245,7 +245,7 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    Liger mainline commit ``0043f43309144bb3054518d28efed25fc314edaf``,
    plus the configuration fallback change in
    `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_
-   (commit ``c348f1b8f3a0605bdd6ed497c212e3928c0cd293``).
+   (merged mainline commit ``8866e4ee7945bc3cac0e40062e7bde26ecc09f65``).
    Use matching Python/native wheels containing both changes, or build those
    sources locally. A version number alone is not sufficient for an older
    wheel. Missing optional LCK or unsupported native hardware causes Liger
@@ -256,6 +256,9 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    Opting into the Megatron path requires the newer public API at runtime.
    VeRL does not inspect GPU capabilities or select a hardware fallback.
    Liger owns both native eligibility and operator dispatch.
+   LCK remains CUDA-only and raises ``UnsupportedDeviceError`` on unsupported
+   devices. Liger-Kernel's public ``configure`` catches that specific error,
+   warns, and returns ``False`` without native setup.
 
    **DeepEP and memory lifetime:** Native Liger must not share a process with
    DeepEP V1 RDMA (cross-node EP). Liger rejects an external NVSHMEM runtime

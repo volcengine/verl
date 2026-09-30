@@ -765,6 +765,7 @@ Most parameters for Model are similar to Reward Model.
   Megatron's native setup requires matching Liger Python/native builds
   containing the public configuration API from mainline commit
   ``0043f43309144bb3054518d28efed25fc314edaf`` and the configuration fallback
-  follow-up in `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_;
+  follow-up merged as ``8866e4ee7945bc3cac0e40062e7bde26ecc09f65``
+  (`Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_);
   see the Liger section of
   :doc:`../perf/perf_tuning` for collective setup and capacity requirements.
