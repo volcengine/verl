@@ -1,7 +1,7 @@
 Performance Tuning Guide
 ==============================
 
-Last updated: 07/17/2025.
+Last updated: 10/01/2026.
 
 Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
@@ -246,9 +246,10 @@ LigerKernel provides fused Triton kernels (RMSNorm, SwiGLU, RoPE) that can impro
    plus the configuration fallback change in
    `Liger-Kernel PR #1502 <https://github.com/linkedin/Liger-Kernel/pull/1502>`_
    (merged mainline commit ``8866e4ee7945bc3cac0e40062e7bde26ecc09f65``).
-   Liger Kernel is pinned to ``0.8.4``, the planned release containing both
-   changes. Install matching Python/native wheels when that release is
-   published, or build those sources locally. Missing optional LCK or
+   Liger Kernel is pinned to the published ``0.8.4`` release containing both
+   changes. For native execution, install matching ``liger-kernel==0.8.4``
+   and ``liger-cute-kernels==0.8.4`` wheels, or build those sources locally.
+   Missing optional LCK or
    unsupported native hardware causes Liger
    to warn and skip native setup; genuine native configuration errors are
    not suppressed.

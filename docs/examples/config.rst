@@ -3,7 +3,7 @@
 Config Explanation
 ===================
 
-Last updated: 08/24/2026.
+Last updated: 10/01/2026.
 
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
@@ -758,7 +758,7 @@ Most parameters for Model are similar to Reward Model.
   default to ``all-linear``. See `peft docs <https://huggingface.co/docs/peft/v0.15.0/en/package_reference/lora#peft.LoraConfig.target_modules>`_ for detail.
 
 - ``use_liger``: Whether to enable Liger kernel, default to False. If True,
-  we apply Liger kernel to the model (depends on ``liger-kernel>=0.8.2``).
+  we apply Liger kernel to the model (pinned to ``liger-kernel==0.8.4``).
   With Megatron fused kernels enabled, this also selects Liger's public
   tensor-parallel output-head operator. Installing a compatible
   ``liger-cute-kernels`` wheel lets Liger select its native implementation.
