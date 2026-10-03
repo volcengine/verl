@@ -1232,6 +1232,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 raise RuntimeError("Dynamic CP micro-batch is missing its router padding mask")
             router_padding_mask = router_padding_mask.to(input_ids.device, non_blocking=True).unsqueeze(0)
         loss_mask = model_inputs["loss_mask"]
+        data_format = "thd" if self.engine_config.use_remove_padding else "bshd"
 
         unwrapped_model = unwrap_model(model)
         cp_layout = self._get_context_parallel_layout(unwrapped_model)
@@ -1266,6 +1267,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 replay_mask=replay_mask,
                 local_cp_size=local_cp_size,
                 model=unwrapped_model,
+                data_format=data_format,
+                forced_max_seqlen=tu.get_non_tensor_data(batch, key="forced_max_seqlen", default=None),
             )
 
         if pad_mode == DatasetPadMode.NO_PADDING:
@@ -1304,7 +1307,6 @@ class MegatronEngineWithLMHead(MegatronEngine):
             from verl.models.mcore import get_mcore_engine_forward_fn
 
             forward_fn = get_mcore_engine_forward_fn(self.model_config.hf_config)
-            data_format = "thd" if self.engine_config.use_remove_padding else "bshd"
 
             logits_processor = partial(
                 self._lm_head_logits_processor,
@@ -1367,6 +1369,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 vp_rank,
                 local_cp_size=local_cp_size,
                 model=unwrapped_model,
+                data_format=data_format,
+                forced_max_seqlen=tu.get_non_tensor_data(batch, key="forced_max_seqlen", default=None),
             )
 
         # Router replay: switch to backward replay mode for next backward pass

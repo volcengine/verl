@@ -26,6 +26,30 @@ router_replay:
   replay_file: null   # Path for replaying recorded decisions
 ```
 
+
+## Megatron BSHD layout
+
+For the V1 Megatron engine, `use_remove_padding=False` keeps model inputs in
+BSHD layout. Router replay converts routes and the R3 replay mask to the same
+sequence-major token order as the model before sequence-parallel scatter. R2
+recording reverses that order before restoring per-sample routes. Both paths
+use the model's TP/CP/FP8 alignment and `forced_max_seqlen` padding target.
+
+Stored routes remain `int16`; collective transport uses a bit-identical
+`uint8` view because NCCL does not support `int16`. The default THD layout and
+legacy dense-input packing keep their existing behavior. This does not change
+BSHD aux/z-loss restrictions or add dynamic CP support for BSHD.
+
+CPU layout and replay coverage, including four-process Gloo TP/CP collectives:
+
+```bash
+PYTHONPATH=. python -m pytest tests/utils/megatron/test_bshd_router_replay_on_cpu.py -q
+```
+
+These tests exercise the layout helpers and RouterReplay state machine with
+stubbed Megatron import surfaces and parallel-state queries. GPU model forward,
+NCCL, optimizer updates, and rollout-captured R3 routes need separate validation.
+
 ## Quick Start Guide
 
 The config path differs by engine: `actor.megatron.router_replay.mode` for the
