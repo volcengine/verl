@@ -42,6 +42,7 @@ from verl.utils.dynamic_cp_scheduler import (
     get_megatron_dynamic_cp_scheduler_cls,
     postprocess_dynamic_cp_batch,
 )
+from verl.utils.megatron.moe_loss import validate_bshd_moe_router_loss_compatibility
 from verl.utils.megatron.pipeline_parallel import make_batch_generator
 from verl.utils.megatron.router_replay_patch import RouterReplay, RouterReplayAction, apply_router_replay_patch
 from verl.utils.megatron.router_replay_utils import (
@@ -1415,13 +1416,7 @@ class MegatronEngineWithLMHead(MegatronEngine):
             # The static BSHD path does not pass a router padding mask, so the MoE router
             # normalizes aux/z loss by B*S while gradients are divided by real tokens.
             if not self.engine_config.use_remove_padding:
-                raise ValueError(
-                    "calculate_per_token_loss=True requires use_remove_padding=True. "
-                    "verl does not pass a padding_mask to the MoE router, so in BSHD it "
-                    "normalizes the aux/z loss by the padding-inclusive token count (B*S) "
-                    "while gradients are divided by the real token count. Use THD "
-                    "(use_remove_padding=True) or disable CP."
-                )
+                validate_bshd_moe_router_loss_compatibility(self.tf_config)
             if self.engine_config.dynamic_context_parallel:
                 local_num_tokens = tu.get_non_tensor_data(data, key=DCP_LOCAL_NUM_TOKENS, default=None)
                 if local_num_tokens is None:
