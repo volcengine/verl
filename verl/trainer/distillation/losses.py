@@ -277,6 +277,8 @@ def distillation_loss(
         if response_mask.is_nested:
             response_mask = response_mask.to_padded_tensor(False)
         rollout_is_weights = data.get("rollout_is_weights", None)
+        if rollout_is_weights is not None and rollout_is_weights.is_nested:
+            rollout_is_weights = rollout_is_weights.to_padded_tensor(0.0)
         distillation_loss, pg_metrics = policy_loss_fn(
             old_log_prob=old_log_prob,
             log_prob=log_prob,
