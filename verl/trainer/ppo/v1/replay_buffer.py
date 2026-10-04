@@ -32,6 +32,11 @@ DAPO_FILTERED_REWARD_COUNTS_KEY = "_dapo_filtered_reward_counts"
 FILTER_GROUPS_REWARD_METRIC = "reward"
 
 
+def _trajectory_uid(key: str) -> str:
+    """Extract an opaque UID from ``{uid}_{session_id}_{index}``."""
+    return key.rsplit("_", 2)[0]
+
+
 def _accumulate_eviction_metrics(acc: dict, new: dict, stale_count: int) -> None:
     """Merge one poll iteration's eviction metrics into ``acc`` in place.
 
@@ -68,7 +73,7 @@ class ReplayBuffer:
 
     ### [Trajectories storage format]
     The key format is `{uid}_{session_id}_{index}`, where:
-    - uid: Auto generated unique id when prompt is sampled from dataset.
+    - uid: Unique prompt id, which may contain underscores (the default trainer generates UUIDs).
     - session_id: Session id for GRPO group sampling: [0, n).
     - index: Index of output trajectory in a session.
 
@@ -243,7 +248,7 @@ class ReplayBuffer:
         if not uids:
             return
 
-        trajectory_keys = {key for key in self.partitions[partition_id] if key.split("_")[0] in uids}
+        trajectory_keys = {key for key in self.partitions[partition_id] if _trajectory_uid(key) in uids}
         tq.kv_clear(
             partition_id=partition_id,
             keys=[*uids, *trajectory_keys],
@@ -274,10 +279,10 @@ class ReplayBuffer:
             del classification_cache[uid]
 
         new_finished_uids = finished_uids - classification_cache.keys()
-        trajectory_keys = [key for key in self.partitions[partition_id] if key.split("_")[0] in new_finished_uids]
+        trajectory_keys = [key for key in self.partitions[partition_id] if _trajectory_uid(key) in new_finished_uids]
         use_canonical_reward = self.filter_groups_metric == FILTER_GROUPS_REWARD_METRIC
         metrics_by_uid: dict[str, list[float]] = defaultdict(list)
-        missing_metric_uids = new_finished_uids - {key.split("_")[0] for key in trajectory_keys}
+        missing_metric_uids = new_finished_uids - {_trajectory_uid(key) for key in trajectory_keys}
 
         if trajectory_keys:
             data = tq.kv_batch_get(
@@ -290,7 +295,7 @@ class ReplayBuffer:
             metric_data = []
 
         for key, value in zip(trajectory_keys, metric_data, strict=True):
-            uid = key.split("_")[0]
+            uid = _trajectory_uid(key)
             if use_canonical_reward:
                 metrics_by_uid[uid].append(float(value.sum().item()))
             else:
@@ -329,7 +334,7 @@ class ReplayBuffer:
         dapo_uids, dapo_counts = self._dapo_filtered_keys(partition_id)
         failed_uids = set()
         if self.sync_refill_failed_groups:
-            materializable_uids = {key.split("_")[0] for key in self.partitions[partition_id]}
+            materializable_uids = {_trajectory_uid(key) for key in self.partitions[partition_id]}
             failed_uids = self.failure_keys[partition_id] - materializable_uids
         return set(), dapo_uids, failed_uids, dapo_counts
 
@@ -399,7 +404,7 @@ class ReplayBuffer:
         keys, tags = [], []
         selected = set(selected_prompt_uids)
         for key, tag in partition_snapshot.items():
-            uid = key.split("_")[0]
+            uid = _trajectory_uid(key)
             if uid in selected:
                 keys.append(key)
                 tags.append(tag)
@@ -503,7 +508,7 @@ class ReplayBuffer:
             last_debug_time = self._wait_for_next_poll(partition_id, last_debug_time)
 
         selected_uids = set(selected_prompt_uids)
-        if partition_id != "val" and not any(key.split("_")[0] in selected_uids for key in partition_snapshot):
+        if partition_id != "val" and not any(_trajectory_uid(key) in selected_uids for key in partition_snapshot):
             message = "Sync replay buffer selected terminal groups with no materializable trajectories."
             if not self.sync_refill_failed_groups:
                 message += " Enable trainer.v1.sampler.sync_refill_failed_groups to replace failed groups."

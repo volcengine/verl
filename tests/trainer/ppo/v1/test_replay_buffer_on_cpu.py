@@ -116,7 +116,6 @@ def _sample(rb: ReplayBuffer, partition_id: str, batch_size: int, global_steps: 
 
 
 def _uid() -> str:
-    # uid must not contain "_" because ReplayBuffer derives it via key.split("_")[0].
     return uuid.uuid4().hex
 
 
@@ -347,9 +346,12 @@ def test_sync_metadata_unknown_status_raises(tq_init, partition_id):
         _clear_partition(partition_id)
 
 
-def test_clear_groups_updates_active_snapshot(monkeypatch):
+@pytest.mark.parametrize(
+    "dropped_uid,kept_uid", [("drop", "keep"), ("customer", "customer_a"), ("customer_a", "customer_a_7")]
+)
+def test_clear_groups_updates_active_snapshot(monkeypatch: pytest.MonkeyPatch, dropped_uid: str, kept_uid: str) -> None:
     rb = _make_rb()
-    pid, dropped_uid, kept_uid = "p", "drop", "keep"
+    pid = "p"
     dropped_trajectory = _trajectory_key(dropped_uid)
     kept_trajectory = _trajectory_key(kept_uid)
     rb.partitions[pid] = {dropped_trajectory: {}, kept_trajectory: {}}
@@ -376,13 +378,14 @@ def test_clear_groups_updates_active_snapshot(monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-def test_sample_returns_finished_and_failure_trajectories(tq_init, partition_id):
+@pytest.mark.parametrize("prefix", ["", "customer_a_"])
+def test_sample_returns_finished_and_failure_trajectories(tq_init: None, partition_id: str, prefix: str) -> None:
     """sample picks trajectories belonging to finished/failure prompts and clears
     the sampled prompt keys from TransferQueue."""
-    finished = PromptSpec(uid=_uid(), status="finished", sessions=2)
-    failure = PromptSpec(uid=_uid(), status="failure", sessions=1)
+    finished = PromptSpec(uid=prefix + _uid(), status="finished", sessions=2)
+    failure = PromptSpec(uid=prefix + _uid(), status="failure", sessions=1)
     # Running prompt's trajectory must NOT be sampled.
-    running = PromptSpec(uid=_uid(), status="running", sessions=1)
+    running = PromptSpec(uid=prefix + _uid(), status="running", sessions=1)
 
     _produce(partition_id, [finished, failure, running]).join_and_check()
     expected_keys = set(finished.trajectory_keys) | set(failure.trajectory_keys)
@@ -943,16 +946,17 @@ def test_dapo_classification_cache_fetches_only_new_finished_groups(tq_init, par
         _clear_partition(partition_id)
 
 
-def test_dapo_reward_metric_uses_canonical_rm_scores(tq_init, partition_id):
+@pytest.mark.parametrize("uids", [("plain1", "plain2"), ("customer", "customer_a"), ("customer_a", "customer_a_7")])
+def test_dapo_reward_metric_uses_canonical_rm_scores(tq_init: None, partition_id: str, uids: tuple[str, str]) -> None:
     same_reward = PromptSpec(
-        uid=_uid(),
+        uid=uids[0],
         status="finished",
         sessions=2,
         rewards=[0.0, 1.0],
         canonical_rewards=[[0.25, 0.75], [1.0]],
     )
     different_reward = PromptSpec(
-        uid=_uid(),
+        uid=uids[1],
         status="finished",
         sessions=2,
         rewards=[1.0, 1.0],
@@ -1286,3 +1290,30 @@ def test_wait_for_sampleable_replaces_groups_sample_would_have_evicted(tq_init, 
         assert _uids_of(batch.keys) == {refiller.produced_uids[0]}
     finally:
         _clear_partition(partition_id)
+
+
+@pytest.mark.parametrize("trainer_mode", ["sync", "colocate_async"])
+def test_materialize_keeps_complete_uid_and_all_trajectory_indices(
+    trainer_mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rb = _make_rb(trainer_mode=trainer_mode)
+    snapshot = {
+        "customer_0_0": {"seq_len": 1},
+        "customer_a_7_0": {"seq_len": 2},
+        "customer_a_7_12": {"seq_len": 3},
+        "customer_a_7_0_0": {"seq_len": 4},
+    }
+    cleared: list[str] = []
+    monkeypatch.setattr(tq, "kv_clear", lambda *, keys, partition_id: cleared.extend(keys))
+    batch = rb._materialize_batch("train", ["customer_a"], snapshot)
+    assert batch.keys == ["customer_a_7_0", "customer_a_7_12"]
+    assert batch.tags == [{"seq_len": 2}, {"seq_len": 3}]
+    assert cleared == ["customer_a"]
+
+
+def test_failure_refill_preserves_materializable_uid_with_underscores() -> None:
+    rb = _make_rb(sync_refill_failed_groups=True, refill_fn=lambda _n: None)
+    rb.failure_keys["train"] = {"customer", "customer_a", "customer_a_7"}
+    rb.partitions["train"] = {"customer_a_7_12": {}}
+    _, _, failed_uids, _ = rb._terminal_eviction_reasons(0, "train")
+    assert failed_uids == {"customer", "customer_a_7"}
