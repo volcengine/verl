@@ -168,15 +168,19 @@ def test_builtin_filter_groups_warns_when_total_generation_limit_is_configured()
 
 
 @pytest.mark.parametrize("score_centering", [True, False])
-def test_update_actor_passes_score_centering_flag(score_centering):
+@pytest.mark.parametrize("entropy_coeff,calculate_entropy", [(0.0, False), (0.01, False), (0.0, True)])
+def test_update_actor_passes_score_centering_flag(
+    score_centering: bool, entropy_coeff: float, calculate_entropy: bool
+) -> None:
     trainer = _StubTrainer.__new__(_StubTrainer)
     trainer.config = OmegaConf.create(
         {
             "actor_rollout_ref": {
                 "actor": {
                     "ppo_mini_batch_size": 2,
-                    "calculate_entropy": False,
-                    "entropy_coeff": 0.0,
+                    "calculate_entropy": calculate_entropy,
+                    "entropy_coeff": entropy_coeff,
+                    "calculate_old_log_prob_entropy": False,
                     "ppo_epochs": 1,
                     "data_loader_seed": 1,
                     "shuffle": False,
@@ -193,3 +197,4 @@ def test_update_actor_passes_score_centering_flag(score_centering):
     trainer._update_actor(batch, {})
 
     assert batch.extra_info["score_centering"] is score_centering
+    assert batch.extra_info["calculate_entropy"] is (calculate_entropy or entropy_coeff != 0.0)

@@ -3,7 +3,7 @@
 Config Explanation
 ===================
 
-Last updated: 08/24/2026.
+Last updated: 10/04/2026.
 
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
@@ -298,6 +298,13 @@ Actor/Rollout/Reference Policy
 
 - ``actor_rollout_ref.actor.entropy_coeff``: The weight of entropy when
   calculating PPO loss. The default value is changed to 0.0 since v0.3.x
+
+- ``actor_rollout_ref.actor.calculate_old_log_prob_entropy``: Whether to compute
+  entropy diagnostics during old-log-prob recomputation in the PPO and V1 trainers.
+  Defaults to ``true``. Set to ``false`` to skip this calculation and omit the
+  ``actor/entropy`` metric from this stage. Actor-update entropy remains controlled
+  by ``calculate_entropy`` and ``entropy_coeff``; entropy regularization is unaffected.
+  Bypass mode skips recomputation regardless of this setting.
 
 - ``actor_rollout_ref.actor.ppo_epochs``: Number of epochs for PPO
   updates on one set of sampled data

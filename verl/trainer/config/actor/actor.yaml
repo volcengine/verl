@@ -95,6 +95,9 @@ entropy_coeff: 0
 # When true, the actor forward will request entropy from the model
 calculate_entropy: false
 
+# Compute actor/entropy while recomputing old log probabilities (independent of actor update entropy).
+calculate_old_log_prob_entropy: true
+
 # This computes Σπ² needed for the Logit-Gradient Norm proxy W(τ) = Σ_t[1 - 2π_t + Σπ²]
 # c.f. https://yingru.notion.site/The-Optimal-Token-Baseline-399211a558b782cfa936014c0d42dfb8
 calculate_sum_pi_squared: false
