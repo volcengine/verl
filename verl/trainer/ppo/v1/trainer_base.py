@@ -127,6 +127,7 @@ class PPOTrainer(ABC):
                 "streaming dataloader actors cannot guarantee that injected cache groups match the sampled batch"
             )
         self.filter_groups_metric = None if has_custom_sampler else self._resolve_filter_groups_metric()
+        # replay_buffer is now integrated into streaming_dataloader
         self.streaming_dataloader = None
         self._resume_checkpoint_dir = None
         self.replay_poll_interval = 2.0

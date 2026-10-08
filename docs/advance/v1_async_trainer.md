@@ -1,13 +1,13 @@
 # V1 Async Trainer
 
-Last updated: 09/17/2026.
+Last updated: 10/08/2026.
 
 The V1 trainer provides two asynchronous PPO training modes under the standard `verl.trainer.main_ppo` entry point:
 
 - `colocate_async` runs generation and training on the same GPU pool.
 - `separate_async` runs generation continuously on standalone rollout GPUs and trains on a hybrid GPU pool. It can optionally lend idle hybrid trainer GPUs to generation.
 
-Both modes use the V1 `TransferQueue`, asynchronous replay buffer, and partial rollout client. This guide explains their execution model, configuration, and tuning.
+Both modes use the V1 `TransferQueue`, the streaming dataloader actor, and the partial rollout client. This guide explains their execution model, configuration, and tuning.
 
 ## Choose a Trainer Mode
 
@@ -17,7 +17,7 @@ Set the mode with `trainer.v1.trainer_mode`.
 | Mode                         | Rollout resources                                                  | Typical use                                                                                   |
 | ---------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
 | `sync`                       | Hybrid rollout replicas colocated with the trainer                 | Baseline PPO and workloads where strict synchronization is preferred                          |
-| `colocate_async`             | Hybrid rollout replicas colocated with the trainer                 | Use warmup batches + partial rollout to accelerate.                                           |
+| `colocate_async`             | Hybrid rollout replicas colocated with the trainer                 | Use watermark refill + partial rollout to accelerate.                                         |
 | `separate_async`             | Dedicated standalone rollout replicas plus hybrid trainer replicas | Separate resources without switch and offload costs. More compact and efficient rollout pool. |
 | `separate_async` with switch | Same as `separate_async`                                           | Reduce trainer idle time when it's hard to set a perfect rollouter-trainer ratio.             |
 
@@ -38,7 +38,7 @@ mini-batches per PPO epoch
 
 The modes differ in where this split happens. `sync` and `colocate_async` sample the full training batch in one controller round, then the actor worker divides it into PPO mini-batches. `separate_async` streams one PPO mini-batch through the controller at a time, overlapping rollout with mini-batch training.
 
-The following invariant makes that value equal to the number of PPO mini-batches in `separate_async`:
+The following invariant makes `parameter_sync_step` equal to the number of PPO mini-batches in `separate_async`:
 
 ```text
 data.train_batch_size
@@ -54,7 +54,7 @@ Partial rollout is part of the V1 async client behavior rather than a V1 configu
 
 1. Tokens and log probabilities produced before the abort are retained.
 2. The client retries the unfinished trajectory through the load balancer.
-3. The resumed request run with a newer model version.
+3. The resumed request may run with a newer model version.
 4. The KV cache is reconstructed for the retained prefix before decoding continues.
 
 This avoids dropping long-running trajectories during rollout/trainer transitions, at the cost of extra prefill work and within-trajectory policy-version changes.
@@ -66,8 +66,8 @@ The V1 sampler controls staleness in model-version units:
 
 | Parameter                                     | Default | Meaning                                                                                                                                                                      |
 | --------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `trainer.v1.sampler.max_off_policy_threshold` | `8`     | Maximum model versions from first generation to being trained before staleness handling is triggered                                                                         |
-| `trainer.v1.sampler.max_off_policy_strategy`  | `drop`  | `drop` evicts stale prompt groups (for GRPO, one stale trajectory, the whole sample dropped); `wait` blocks for threshold-reaching in-flight groups instead of dropping them |
+| `trainer.v1.sampler.max_off_policy_threshold` | `8`     | Maximum model versions from prompt dispatch to being trained before staleness handling is triggered                                                                          |
+| `trainer.v1.sampler.max_off_policy_strategy`  | `drop`  | `drop` evicts stale finished prompt groups as a whole; `wait` blocks for threshold-reaching in-flight groups instead of dropping them                                        |
 
 
 Monitor both forms of off-policy behavior:
@@ -78,7 +78,7 @@ Monitor both forms of off-policy behavior:
 
 ### Prompt refilling and checkpoint recovery
 
-TransferQueue is the replay storage, and `StreamingDataloaderAsync` owns its control plane: it registers submitted prompts, polls prompt/session metadata, evicts terminal groups, reissues in-flight prompts on restore, and checkpoints TransferQueue state. The key and tag protocol shared with AgentLoop workers and the trainer lives in `verl/trainer/ppo/v1/tq_schema.py`. Each coordinator pass runs one non-blocking `poll_once(global_steps, partition_id, target_count)` and, once a request is ready, `materialize_sampleable(...)`. Custom samplers subclass `StreamingDataloaderAsync` and override only these sampling hooks, keeping the coordinator-owned watermark contract.
+TransferQueue is the replay storage, and `StreamingDataloaderAsync` owns its control plane: it registers submitted prompts, polls prompt/session metadata, evicts terminal groups, reissues in-flight prompts on restore, and checkpoints TransferQueue state. The key and tag protocol shared with AgentLoop workers and the trainer lives in `verl/trainer/ppo/v1/tq_schema.py`. Each coordinator pass runs one non-blocking `poll_once(global_steps, partition_id, target_count)` and, once a request is ready, `materialize_sampleable(...)`. Custom samplers (`trainer.v1.sampler.custom_sampler`) subclass `StreamingDataloader` for `sync` or `StreamingDataloaderAsync` for async modes. They override sampling hooks such as `_terminal_eviction_reasons` and `_select_prompt_uids` (async subclasses may also override `poll_once` and `materialize_sampleable`), keeping the coordinator-owned watermark contract.
 
 On each pass the coordinator synchronizes TransferQueue metadata and classifies terminal groups. A training group is evicted when any of the following applies:
 
@@ -102,9 +102,9 @@ All V1 trainer modes run rollout data iteration and replay sampling in a CPU Ray
 trainer:
   v1:
     colocate_async:
-      watermark_batches: 1
+      watermark_batches: 2
     separate_async:
-      watermark_batches: 1
+      watermark_batches: 2
 ```
 
 The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses these actor methods:
@@ -115,7 +115,7 @@ The actor owns the train `StatefulDataLoader`, the TransferQueue replay control 
 - Async only: `count_sampleable` and `wait_sampleable` report or wait for sampleable train groups without consuming them. `separate_async` uses them to decide when lent Hybrid GPUs return to training. Each is served by a regular coordinator pass, so it also applies that pass's evictions; `count_sampleable` leaves accrued eviction metrics for the next `sample` or `wait_sampleable`.
 
 Model and optimizer checkpointing remain in the trainer. The latest-checkpoint marker is updated only after both model and data-plane saves succeed.
-Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. `data.pt` is required; when the installed TransferQueue lacks checkpoint APIs or the snapshot is missing, only the dataloader cursor is restored and in-flight rollout state is dropped with a warning.
+Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. Async restore requires `data.pt` (sync only warns if it is missing); when the installed TransferQueue lacks checkpoint APIs or the snapshot is missing, only the dataloader cursor is restored and in-flight rollout state is dropped with a warning.
 The actor is hard-affined to the TaskRunner node so local datasets, `data.pt`, and the latest-checkpoint marker share the same filesystem view.
 `skip.rollout_tq.enable` is rejected until submit/sample cache semantics are implemented inside the actor; silently bypassing those hooks would execute real rollout during a skipped step.
 
@@ -181,16 +181,16 @@ threshold = clamp(target, one_mini_batch, train_batch_size)
 
 Since the sample-length distribution can evolve throughout RL training, the resource balance required by rollout and training can shift over time. The switch threshold therefore adapts to observed trainer idle time instead of assuming a fixed optimal resource split.
 
-With `adaptive_switch_threshold=True`, the threshold ratio reacts to observed sample wait:
+With `adaptive_switch_threshold=True`, the threshold ratio reacts to observed sample wait. A step is idle when its total sample wait exceeds the streaming dataloader poll interval (2 s):
 
-- After `switch_threshold_release_steps` consecutive idle steps, increase the ratio by `switch_threshold_step_up`.
-- After `switch_threshold_release_steps` consecutive non-idle steps, decrease the ratio by `switch_threshold_step_down`.
+- After `switch_threshold_release_steps` consecutive idle steps, increase the ratio by `switch_threshold_step_up`, capped at `1.0`.
+- After `switch_threshold_release_steps` consecutive non-idle steps, decrease the ratio by `switch_threshold_step_down`, floored at `1 / parameter_sync_step`.
 
 The release interval applies in both directions and prevents noisy steps from changing the threshold.
 
 ### Switch configuration
 
-All settings under `trainer.v1.separate_async.hybrid_rollout` are ignored unless `enable_switch=True`.
+All settings under `trainer.v1.separate_async.hybrid_rollout` are ignored unless `enable_switch=True`, but `switch_threshold_ratio` and `switch_cost_window_size` are always validated.
 
 
 | Parameter                        | Default | Description                                                                          |
@@ -215,10 +215,10 @@ Add the following overrides to an existing V1 PPO launch:
 ```bash
 trainer.use_v1=True \
 trainer.v1.trainer_mode=colocate_async \
-trainer.v1.colocate_async.watermark_batches=1
+trainer.v1.colocate_async.watermark_batches=2
 ```
 
-The warmup batch starts generation before the first training step, reducing the initial empty-buffer wait.
+Watermark refill starts generation before the first training step, reducing the initial empty-buffer wait.
 
 ### Separate async
 
@@ -235,7 +235,7 @@ actor_rollout_ref.rollout.checkpoint_engine.backend=nccl \
 data.train_batch_size=64 \
 actor_rollout_ref.actor.ppo_mini_batch_size=16 \
 trainer.v1.separate_async.parameter_sync_step=4 \
-trainer.v1.separate_async.watermark_batches=1
+trainer.v1.separate_async.watermark_batches=2
 ```
 
 `separate_async` requires a non-`naive` checkpoint-engine backend such as `nccl`, `nixl`, or `mooncake` for standalone rollout weight synchronization.
@@ -251,9 +251,9 @@ trainer.v1.separate_async.hybrid_rollout.adaptive_switch_threshold=True
 
 Start with the following timing metrics:
 
-- `timing_s/gen`: trainer time spent waiting for the next trainable train-batch. (Also means idle time for separate_async's hybrid gpus)
+- `timing_s/gen`: trainer time spent sampling trainable mini-batches, summed over the step. (Also means idle time for separate_async's hybrid gpus; in `colocate_async` it also includes aborting and sleeping rollout replicas.)
 - `timing_s/update_actor`: actor update time.
-- `timing_s/update_weights`: standalone weight synchronization time in `separate_async`.
+- `timing_s/update_weights`: weight synchronization time; in `separate_async` it covers the standalone rollout replicas.
 - `timing_s/switch_wait`: time during which lent hybrid replicas help fill the switch-to-trainer threshold. (It is not idle.)
 - `timing_s/switch_to_rollout`: trainer-to-rollout transition time, including load-balancer registration, sticky-cache clearing, hybrid weight update, and generation resume.
 - `timing_s/switch_to_trainer`: rollout-to-trainer transition time, including load-balancer removal, request abort, and hybrid replica sleep.
@@ -261,11 +261,11 @@ Start with the following timing metrics:
 When switching is enabled, inspect:
 
 - `separate_async/switch/threshold_ratio`
-- `separate_async/switch/sample_wait_seconds`
+- `separate_async/switch/wait_samples`
 - `separate_async/switch/idle`
 - `separate_async/decision/sampleable_count`
 - `separate_async/decision/remaining`
-- `separate_async/decision/benefit_seconds`
+- `separate_async/decision/per_sample_time_seconds`
 - `separate_async/decision/effective_switch_cost_seconds`
 - `separate_async/decision/should_switch_to_rollout`
 

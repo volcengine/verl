@@ -193,6 +193,7 @@ class StreamingDataloader:
         teacher_client=None,
         reward_loop_worker_handles=None,
         filter_groups_metric: str | None = None,
+        poll_interval: float = 2.0,
     ):
         tq.init()
         SkipManager.init(config)
@@ -242,6 +243,7 @@ class StreamingDataloader:
             max_off_policy_strategy=sampler_config.max_off_policy_strategy,
             sampler_kwargs=sampler_config.sampler_kwargs,
             filter_groups_metric=filter_groups_metric,
+            poll_interval=poll_interval,
         )
         self._init_refill_policy()
 
@@ -422,7 +424,7 @@ class StreamingDataloader:
             self._coordinator_step()
             try:
                 await asyncio.wait_for(self._wakeup.wait(), timeout=self.poll_interval)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 pass
 
     def _coordinator_step(self) -> None:
