@@ -43,6 +43,7 @@ train_batch_size: 1024
 
 # Number of prompts fetched from the dataloader per fetch.
 # V1 async trainers require null or 1; null resolves to 1.
+# V1 sync trainers require null, 1, or train_batch_size; null resolves to train_batch_size.
 gen_batch_size: null
 
 # Batch size used during validation. Can be null.

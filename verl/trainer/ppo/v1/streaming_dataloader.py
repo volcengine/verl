@@ -14,6 +14,7 @@
 
 import asyncio
 import logging
+import math
 import os
 import time
 import uuid
@@ -167,7 +168,8 @@ class StreamingDataloader:
     |      async       |                      Auto-fill to the target watermark                      |
 
     In sync mode, DAPO is opt-in and trades generation time for training stability. Each ``k`` evictions add
-    ``2k`` logical refill credits, but prompts are fetched only as bounded pending/running slots become available.
+    ``2k`` logical refill credits, but prompts are fetched only as bounded pending/running slots become available,
+    rounded up to whole ``gen_batch_size`` batches (``gen_batch_size`` is 1 or ``train_batch_size``).
     Terminal groups are filtered while other requests remain in flight. Once enough groups are sampleable, inflight
     requests are drained and discarded. By default, failed groups remain sampleable and missing trajectories are
     padded downstream. Setting ``sync_refill_failed_groups=True`` allows refilling failed samples.
@@ -301,6 +303,11 @@ class StreamingDataloader:
         self.train_batch_size = train_batch_size
         self.max_inflight_gen_batches = max_inflight_gen_batches
         self.sync_refill_failed_groups = sync_refill_failed_groups
+        if self.gen_batch_size not in (1, train_batch_size):
+            raise ValueError(
+                f"Sync trainers require data.gen_batch_size to be 1 or train_batch_size ({train_batch_size}), "
+                f"got {self.gen_batch_size}"
+            )
         if self.filter_groups_metric is not None:
             if not isinstance(self.max_inflight_gen_batches, int) or self.max_inflight_gen_batches <= 0:
                 raise ValueError("max_inflight_gen_batches must be a positive integer")
@@ -473,8 +480,11 @@ class StreamingDataloader:
             if not request.draining and request.refill_credit > 0:
                 max_inflight_prompts = self.max_inflight_gen_batches * self.train_batch_size
                 available_slots = max(0, max_inflight_prompts - inflight_count)
-                dispatch_count = min(request.refill_credit, available_slots)
-                dispatch_count -= dispatch_count % self.gen_batch_size
+                # Round up: rounding credit down stalls when credit < gen_batch_size and nothing is in flight.
+                dispatch_count = min(
+                    math.ceil(request.refill_credit / self.gen_batch_size) * self.gen_batch_size,
+                    available_slots - available_slots % self.gen_batch_size,
+                )
                 if dispatch_count > 0:
                     self._refill_exact(dispatch_count)
                     request.refill_credit -= dispatch_count
@@ -931,11 +941,9 @@ class StreamingDataloaderAsync(StreamingDataloader):
                 _RequestKind.COUNT: 0,
             }[request.kind]
 
-        sampleable, metrics, ready, evicted_count = self.poll_once(global_steps, partition_id, target_count)
+        sampleable, metrics, ready = self.poll_once(global_steps, partition_id, target_count)
         if partition_id == "train":
             _accumulate_eviction_metrics(self._pending_metrics, metrics)
-            if evicted_count:
-                return
         if request is None:
             return
         if request.kind is _RequestKind.COUNT:
@@ -979,16 +987,16 @@ class StreamingDataloaderAsync(StreamingDataloader):
         global_steps: int,
         partition_id: str,
         target_count: int,
-    ) -> tuple[set[str], dict, bool, int]:
+    ) -> tuple[set[str], dict, bool]:
         """Run one metadata/eviction/readiness pass without sleeping."""
         self._sync_metadata_from_transfer_queue()
         eviction_reasons = self._terminal_eviction_reasons(global_steps, partition_id)
-        evicted_uids, _stale_count, _dapo_count, metrics = self._evict_terminal_groups(
+        _evicted_uids, _stale_count, _dapo_count, metrics = self._evict_terminal_groups(
             global_steps, partition_id, eviction_reasons
         )
         sampleable_keys = self._sampleable_terminal_keys(partition_id, eviction_reasons)
-        ready = not evicted_uids and self._has_enough_samples(global_steps, partition_id, target_count, sampleable_keys)
-        return sampleable_keys, metrics, ready, len(evicted_uids)
+        ready = self._has_enough_samples(global_steps, partition_id, target_count, sampleable_keys)
+        return sampleable_keys, metrics, ready
 
     def materialize_sampleable(
         self,
