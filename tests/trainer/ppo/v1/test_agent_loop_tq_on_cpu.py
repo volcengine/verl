@@ -13,11 +13,35 @@
 # limitations under the License.
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
+import torch
+from tensordict import TensorDict
 
 import verl.trainer.ppo.v1.agent_loop_tq as agent_loop_tq
-from verl.trainer.ppo.v1.agent_loop_tq import AgentLoopWorkerTQ, _settle_session_tasks
+from verl.trainer.ppo.v1.agent_loop_tq import AgentLoopManagerTQ, AgentLoopWorkerTQ, _settle_session_tasks
+
+
+def _recording_worker(worker_id, dispatched):
+    def remote(chunk):
+        dispatched.append((worker_id, chunk["index"].tolist()))
+
+    return SimpleNamespace(generate_sequences=SimpleNamespace(remote=remote))
+
+
+def test_manager_rotates_workers_across_small_refills(monkeypatch):
+    dispatched = []
+    manager = object.__new__(AgentLoopManagerTQ)
+    manager.agent_loop_workers = [_recording_worker(i, dispatched) for i in range(3)]
+    manager._next_worker = 0
+    monkeypatch.setattr(agent_loop_tq.ray, "get", lambda refs: refs)
+
+    for start in range(4):
+        manager.generate_sequences(TensorDict({"index": torch.tensor([start])}, batch_size=[1]))
+    manager.generate_sequences(TensorDict({"index": torch.tensor([10, 11, 12])}, batch_size=[3]))
+
+    assert dispatched == [(0, [0]), (1, [1]), (2, [2]), (0, [3]), (1, [10]), (2, [11]), (0, [12])]
 
 
 def test_settle_session_tasks_waits_for_siblings_after_failure():

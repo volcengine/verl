@@ -277,6 +277,8 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
 class AgentLoopManagerTQ(AgentLoopManager):
     def __init__(self, *args, **kwargs):
         self.agent_loop_workers_class = AgentLoopWorkerTQ
+        # Streaming refills dispatch a few prompts at a time, so rotate the first worker across calls.
+        self._next_worker = 0
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -295,10 +297,13 @@ class AgentLoopManagerTQ(AgentLoopManager):
         Args:
             prompts (TensorDict): Input batch from train or validation dataset.
         """
-        chunkes = prompts.chunk(len(self.agent_loop_workers))
+        num_workers = len(self.agent_loop_workers)
+        chunks = prompts.chunk(num_workers)
+        start = self._next_worker
+        self._next_worker = (start + len(chunks)) % num_workers
         ray.get(
             [
-                worker.generate_sequences.remote(chunk)
-                for worker, chunk in zip(self.agent_loop_workers, chunkes, strict=False)
+                self.agent_loop_workers[(start + i) % num_workers].generate_sequences.remote(chunk)
+                for i, chunk in enumerate(chunks)
             ]
         )
