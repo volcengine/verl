@@ -292,6 +292,10 @@ trainer:
       # Whether sync trainers replace failed groups that have no trajectories
       sync_refill_failed_groups: False
 
+      # Seconds between TransferQueue polls while waiting for rollouts; separate_async counts a step as idle
+      # when its sample wait exceeds one poll interval
+      poll_interval: 2.0
+
       # Custom sampler config: a StreamingDataloader (sync) or StreamingDataloaderAsync (async) subclass
       custom_sampler:
 

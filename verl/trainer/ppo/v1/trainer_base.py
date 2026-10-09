@@ -130,7 +130,7 @@ class PPOTrainer(ABC):
         # replay_buffer is now integrated into streaming_dataloader
         self.streaming_dataloader = None
         self._resume_checkpoint_dir = None
-        self.replay_poll_interval = 2.0
+        self.replay_poll_interval = self.config.trainer.v1.sampler.poll_interval
         self._rollout_moe_lb_metrics_accumulator = RolloutMoELoadBalanceMetricsAccumulator(
             model_config=self.config.actor_rollout_ref.model
         )

@@ -116,6 +116,21 @@ def test_session_watermark_refills_complete_prompt_groups():
     assert requested == [2]
 
 
+def test_session_watermark_rejects_positive_value_that_rounds_to_zero():
+    actor = _async_stub()
+    actor.trainer_mode = "colocate_async"
+    actor.config = OmegaConf.create(
+        {
+            "trainer": {"v1": {"colocate_async": {"watermark_batches": 0.5}}},
+            "data": {"train_batch_size": 1},
+            "actor_rollout_ref": {"rollout": {"n": 1}},
+        }
+    )
+
+    with pytest.raises(ValueError, match="resolves to zero"):
+        actor._init_refill_policy()
+
+
 def _sync_coordinator_stub():
     actor = _sync_stub()
     actor.global_steps = 0

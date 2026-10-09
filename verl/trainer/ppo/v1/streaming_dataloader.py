@@ -193,7 +193,6 @@ class StreamingDataloader:
         teacher_client=None,
         reward_loop_worker_handles=None,
         filter_groups_metric: str | None = None,
-        poll_interval: float = 2.0,
     ):
         tq.init()
         SkipManager.init(config)
@@ -243,7 +242,7 @@ class StreamingDataloader:
             max_off_policy_strategy=sampler_config.max_off_policy_strategy,
             sampler_kwargs=sampler_config.sampler_kwargs,
             filter_groups_metric=filter_groups_metric,
-            poll_interval=poll_interval,
+            poll_interval=sampler_config.poll_interval,
         )
         self._init_refill_policy()
 
@@ -253,8 +252,8 @@ class StreamingDataloader:
         max_off_policy_threshold: int,
         max_off_policy_strategy: str,
         sampler_kwargs,
+        poll_interval: float,
         filter_groups_metric: str | None = None,
-        poll_interval: float = 2.0,
     ) -> None:
         self.max_off_policy_threshold = max_off_policy_threshold
         self.max_off_policy_strategy = max_off_policy_strategy
@@ -865,6 +864,11 @@ class StreamingDataloaderAsync(StreamingDataloader):
             raise ValueError(f"watermark_batches must be positive, got {watermark_batches}")
         self.default_rollout_n = self._default_rollout_n("train")
         self.watermark_sessions = round(watermark_batches * self.config.data.train_batch_size * self.default_rollout_n)
+        if self.watermark_sessions <= 0:
+            raise ValueError(
+                "watermark_batches resolves to zero in-flight sessions; increase it for the configured "
+                f"train_batch_size={self.config.data.train_batch_size} and rollout.n={self.default_rollout_n}"
+            )
 
     # ------------------------------------------------------------------ #
     # Trainer-facing RPCs

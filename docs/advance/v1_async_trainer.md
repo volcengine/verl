@@ -181,7 +181,7 @@ threshold = clamp(target, one_mini_batch, train_batch_size)
 
 Since the sample-length distribution can evolve throughout RL training, the resource balance required by rollout and training can shift over time. The switch threshold therefore adapts to observed trainer idle time instead of assuming a fixed optimal resource split.
 
-With `adaptive_switch_threshold=True`, the threshold ratio reacts to observed sample wait. A step is idle when its total sample wait exceeds the streaming dataloader poll interval (2 s):
+With `adaptive_switch_threshold=True`, the threshold ratio reacts to observed sample wait. A step is idle when its total sample wait exceeds `trainer.v1.sampler.poll_interval` (default 2 s), the streaming dataloader's TransferQueue poll period:
 
 - After `switch_threshold_release_steps` consecutive idle steps, increase the ratio by `switch_threshold_step_up`, capped at `1.0`.
 - After `switch_threshold_release_steps` consecutive non-idle steps, decrease the ratio by `switch_threshold_step_down`, floored at `1 / parameter_sync_step`.

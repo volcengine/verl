@@ -126,7 +126,6 @@ class TaskRunnerV1:
             teacher_client=self.trainer.get_teacher_client(),
             reward_loop_worker_handles=self.trainer.get_reward_handles(),
             filter_groups_metric=self.trainer.filter_groups_metric,
-            poll_interval=self.trainer.replay_poll_interval,
         )
 
     def run(self, config: DictConfig):
