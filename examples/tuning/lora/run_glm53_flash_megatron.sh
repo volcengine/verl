@@ -39,8 +39,8 @@ fi
 LORA_MERGE=${LORA_MERGE:-False}
 LORA_DTYPE=${LORA_DTYPE:-bf16}
 
-TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-16}
-PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-16}
+TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-32}
+PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-32}
 ROLLOUT_N=${ROLLOUT_N:-8}
 ACTOR_PPO_MICRO_BATCH_SIZE_PER_GPU=${ACTOR_PPO_MICRO_BATCH_SIZE_PER_GPU:-1}
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-2048}
@@ -130,7 +130,7 @@ DATA=(
     data.train_batch_size=${TRAIN_BATCH_SIZE}
     data.max_prompt_length=${MAX_PROMPT_LENGTH}
     data.max_response_length=${MAX_RESPONSE_LENGTH}
-    +data.apply_chat_template_kwargs.enable_thinking=False
+    +data.apply_chat_template_kwargs.enable_thinking=${ENABLE_THINKING:-False} \
 )
 
 MODEL=(
