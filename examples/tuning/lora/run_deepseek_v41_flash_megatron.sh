@@ -35,9 +35,9 @@ loss_agg_mode="token-mean"
 
 # Keep the trajectory batch divisible by the training data-parallel size and
 # by ppo_mini_batch_size * rollout.n.
-train_prompt_bsz=${TRAIN_BATCH_SIZE:-48}
+train_prompt_bsz=${TRAIN_BATCH_SIZE:-64}
 n_resp_per_prompt=${ROLLOUT_N:-8}
-train_prompt_mini_bsz=${PPO_MINI_BATCH_SIZE:-48}
+train_prompt_mini_bsz=${PPO_MINI_BATCH_SIZE:-64}
 
 rollout_is="token"
 rollout_is_threshold="0.5_5.0"
