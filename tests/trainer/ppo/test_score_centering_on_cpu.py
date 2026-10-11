@@ -16,10 +16,13 @@
 import math
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 from omegaconf import OmegaConf
 from tensordict import TensorDict
 
@@ -143,6 +146,7 @@ _TRUNCATED = {"actor_rollout_ref.rollout.top_p": 0.9, "actor_rollout_ref.rollout
 
 def test_score_centering_config_accepts_consistent_settings():
     _validate_score_centering_config(_config())
+    _validate_score_centering_config(_config(**{"actor_rollout_ref.actor.strategy": "megatron"}))
     _validate_score_centering_config(_config(algorithm_rc=_SUPPORT, actor_rc=_SUPPORT, **_TRUNCATED))
 
 
@@ -160,7 +164,7 @@ def test_score_centering_config_skips_checks_when_off():
         (dict(actor_rc={"rollout_is": "sequence"}), "score_centering"),
         (dict(actor_rc={"rollout_is_threshold": 3.0}), "match"),
         ({"trainer.use_v1": False}, "use_v1"),
-        ({"actor_rollout_ref.actor.strategy": "megatron"}, "strategy"),
+        ({"actor_rollout_ref.actor.strategy": "veomni"}, "strategy"),
         ({"actor_rollout_ref.rollout.name": "sglang"}, "vllm"),
         ({"actor_rollout_ref.rollout.topk_log_probs": 0}, "topk_log_probs"),
         ({"distillation.enabled": True}, "distillation"),
@@ -193,6 +197,39 @@ def test_topk_log_probs_match_log_softmax_gather_with_gradient():
     logits.grad = None
     (ref * weight).sum().backward()
     torch.testing.assert_close(grad_chunked.float(), logits.grad.float(), atol=1e-2, rtol=1e-2)
+
+
+def _vocab_parallel_topk_worker(rank, world_size, rendezvous_file, out_dir):
+    dist.init_process_group(backend="gloo", init_method=f"file://{rendezvous_file}", rank=rank, world_size=world_size)
+    try:
+        torch.manual_seed(0)
+        logits = torch.randn(5, 36)
+        ids = torch.stack([torch.randperm(36)[:4] for _ in range(5)])
+        ids[0, 1] = ids[0, 0]  # a repeated id must accumulate its gradient twice
+        weight = torch.randn(5, 4)
+        shard = 36 // world_size
+        local = logits[:, rank * shard : (rank + 1) * shard].clone().requires_grad_(True)
+        out = topk_log_probs_from_logits(local, ids, chunk_size=2, process_group=dist.group.WORLD)
+        (out * weight).sum().backward()
+        torch.save({"out": out.detach(), "grad": local.grad}, f"{out_dir}/rank{rank}.pt")
+    finally:
+        dist.destroy_process_group()
+
+
+def test_topk_log_probs_vocab_parallel_matches_single_shard(tmp_path):
+    world_size = 2
+    mp.spawn(_vocab_parallel_topk_worker, args=(world_size, str(tmp_path / "rdzv"), str(tmp_path)), nprocs=world_size)
+    torch.manual_seed(0)
+    logits = torch.randn(5, 36, requires_grad=True)
+    ids = torch.stack([torch.randperm(36)[:4] for _ in range(5)])
+    ids[0, 1] = ids[0, 0]
+    weight = torch.randn(5, 4)
+    ref = topk_log_probs_from_logits(logits, ids, chunk_size=2)
+    (ref * weight).sum().backward()
+    shards = [torch.load(tmp_path / f"rank{r}.pt") for r in range(world_size)]
+    for shard in shards:
+        torch.testing.assert_close(shard["out"], ref.detach())
+    torch.testing.assert_close(torch.cat([s["grad"] for s in shards], dim=-1), logits.grad)
 
 
 def test_correction_is_zero_on_policy():
@@ -481,9 +518,9 @@ def test_padding_template_uses_dummy_heads():
     torch.testing.assert_close(template["rollout_topk_log_probs"].exp().sum(-1), torch.ones(seq_len))
 
 
-def _actor_config(rollout_correction):
+def _actor_config(rollout_correction, strategy="fsdp"):
     config = ActorConfig(
-        strategy="fsdp",
+        strategy=strategy,
         rollout_n=1,
         ppo_micro_batch_size_per_gpu=1,
         policy_loss=PolicyLossConfig(loss_mode="bypass_mode", rollout_correction=rollout_correction),
@@ -594,6 +631,28 @@ def test_logits_processor_reads_mapping_rollout_correction(preset, rollout_corre
     out = score_centering_logits_processor(
         student_logits=logits, data=data, config=_actor_config({**rollout_correction, "score_centering": True})
     )
+    for key in expected:
+        torch.testing.assert_close(out[key], expected[key])
+
+
+def test_logits_processor_megatron_splits_head_by_cp_and_uses_tp_group():
+    torch.manual_seed(5)
+    lengths, k, vocab = [3, 5], 4, 17
+    data = _nested_batch(lengths, k, vocab)
+    logits = torch.randn(1, sum(lengths), vocab)
+    expected = score_centering_logits_processor(
+        student_logits=logits, data=data, config=_actor_config(RolloutCorrectionConfig.bypass_pg_sc())
+    )
+    config = _actor_config(RolloutCorrectionConfig.bypass_pg_sc(), strategy="megatron")
+    with (
+        patch(
+            "verl.models.mcore.util.preprocess_thd_engine",
+            side_effect=lambda x, pre_process: (x.values().unsqueeze(0), None, None),
+        ) as mock_split,
+        patch("megatron.core.parallel_state.get_tensor_model_parallel_group", return_value=None) as mock_group,
+    ):
+        out = score_centering_logits_processor(student_logits=logits, data=data, config=config)
+    assert mock_split.call_count == 2 and mock_group.call_count == 1
     for key in expected:
         torch.testing.assert_close(out[key], expected[key])
 
