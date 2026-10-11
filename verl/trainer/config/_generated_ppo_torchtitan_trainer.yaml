@@ -796,6 +796,7 @@ algorithm:
     loss_type: ppo_clip
     rollout_is_batch_normalize: false
     score_centering: false
+    score_centering_top_p: false
   _target_: verl.trainer.config.AlgoConfig
   gamma: 1.0
   lam: 1.0

@@ -182,6 +182,7 @@ algorithm:
     bypass_mode: false # Skip old_log_prob computation (sets π_old = π_rollout)
     loss_type: ppo_clip # Loss type in bypass mode: "ppo_clip" (default) or "reinforce"
     score_centering: false # Subtract the sampler's expected score (bypass + reinforce only)
+    score_centering_top_p: false # Center over the truncated support when top_p < 1 or top_k > 0
 
 # REQUIRED: Enable log prob calculation
 actor_rollout_ref:
@@ -299,6 +300,14 @@ Subtract the expected score under the sampler from every token's score
 - Requires `rollout_is` to be `None` or `"token"` (raises `ValueError` for `"sequence"`) and `rollout_is_batch_normalize=False`
 - Requires `actor_rollout_ref.rollout.topk_log_probs > 0` (sampler top-k log-probs, vLLM only)
 - FSDP actor only; incompatible with `use_fused_kernels` and distillation; single-turn agent loop only
+
+### `score_centering_top_p` (bool)
+
+Center over the sampler's truncated support instead of the top-k head plus a modeled tail. Default: `False`
+
+- Must be `True` exactly when the rollout truncates sampling (`top_p < 1` or `top_k > 0`), with
+  `0 < top_k <= topk_log_probs` so the head holds the whole support
+- The trainer is renormalized over the support for both the centering term and the sampled token
 
 ## Understanding the Framework: Components and Combinations
 
@@ -620,13 +629,18 @@ algorithm:
 - Reported by the paper to be stable under sampler quantization
 - The trainer only evaluates the sampler's top-`k` head log-probs per token; the tail is modeled as
   the trainer's tail rescaled to the sampler's tail mass
+- Under truncated sampling (`score_centering_top_p: true`) the head holds the whole sampling
+  support and the trainer is renormalized over it, so the centering is exact and the sampled
+  token's IS ratio compares the two policies on the same support
 
 **Theory:** See [Marek & Ryabinin, 2026](https://arxiv.org/abs/2609.20807).
 
 **Additional requirements:**
 
 - Set `actor_rollout_ref.rollout.calculate_log_probs: true` and `actor_rollout_ref.rollout.topk_log_probs: 128` (vLLM rollout only; `k=128` matches the paper, `k=32` also matches)
-- Set `actor_rollout_ref.rollout.temperature` > 0, `actor_rollout_ref.rollout.top_p: 1.0`, `actor_rollout_ref.rollout.top_k: -1`
+- Set `actor_rollout_ref.rollout.temperature` > 0. Either sample untruncated (`top_p: 1.0`, `top_k: -1`), or set
+  `0 < top_k <= topk_log_probs` (any `top_p`) together with `score_centering_top_p: true` on both
+  `algorithm.rollout_correction` and the actor mirror below
 - Set `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode` and mirror `bypass_mode`, `loss_type`, `rollout_is`, `rollout_is_threshold`, `score_centering` from `algorithm.rollout_correction` into `actor_rollout_ref.actor.policy_loss.rollout_correction`:
 
   ```yaml
@@ -646,7 +660,9 @@ algorithm:
 - v1 trainer (`trainer.use_v1: true`) with an FSDP actor only; single-turn agent loop only
 - Memory: `8k` bytes per padded prompt+response position on the driver (`k=128`: 1 KB per position)
 - The trainer evaluates the head log-probs in chunks of 4096 positions, with an fp32 workspace of roughly `4096 × vocab × 4` bytes
-- Metrics: `actor/sc_correction`, `actor/sc_sampler_head_mass`, `actor/sc_train_head_mass`
+- Metrics: `actor/sc_correction`, `actor/sc_sampler_head_mass`, `actor/sc_train_head_mass`. With
+  `score_centering_top_p` the sampler head mass is 1 by construction and the trainer head mass is
+  the trainer's probability of the sampler's support
 
 ---
 

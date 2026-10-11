@@ -144,6 +144,11 @@ class RolloutCorrectionConfig(BaseConfig):
             ``bypass_mode=True``, ``loss_type="reinforce"`` and ``rollout_is`` None or "token".
             Default: False
 
+        score_centering_top_p (bool): Center over the sampler's truncated support instead of the
+            head-plus-tail model. Set exactly when the rollout truncates sampling (``top_p < 1`` or
+            ``top_k > 0``); the head then holds the whole support and the trainer is renormalized
+            over it. Default: False
+
     Example:
         # Create with defaults
         config = RolloutCorrectionConfig()
@@ -198,9 +203,12 @@ class RolloutCorrectionConfig(BaseConfig):
     bypass_mode: bool = False
     loss_type: str = "ppo_clip"
     score_centering: bool = False
+    score_centering_top_p: bool = False
 
     def __post_init__(self):
         if not self.score_centering:
+            if self.score_centering_top_p:
+                raise ValueError("score_centering_top_p requires score_centering=True.")
             return
         if not self.bypass_mode or self.loss_type != "reinforce":
             raise ValueError("score_centering requires bypass_mode=True and loss_type='reinforce'.")
