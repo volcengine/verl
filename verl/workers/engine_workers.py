@@ -506,7 +506,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         elif actor_strategy == "veomni":
             rr_mode = self.config.actor.veomni.router_replay.mode
         elif actor_strategy in ("fsdp", "fsdp2"):
-            rr_mode = self.config.actor.fsdp_config.router_replay.mode
+            rr_mode = self.config.actor.fsdp_config.get("router_replay", {}).get("mode", "disabled")
         else:
             rr_mode = "disabled"
         self.enable_routing_replay = rr_mode != "disabled"

@@ -40,11 +40,11 @@ def _engine(module, use_ulysses_sp=False):
     return engine
 
 
-def _micro_batch(with_routing=True):
+def _micro_batch(with_routing=True, topk=TOPK):
     offsets = torch.tensor([0, 3, 5])
     fields = {"input_ids": torch.nested.nested_tensor_from_jagged(torch.arange(5), offsets)}
     if with_routing:
-        routed = torch.arange(1, 5 * LAYERS * TOPK + 1, dtype=torch.int16).view(5, LAYERS, TOPK)
+        routed = torch.arange(1, 5 * LAYERS * TOPK + 1, dtype=torch.int16)[: 5 * LAYERS * topk].view(5, LAYERS, topk)
         fields["routed_experts"] = torch.nested.nested_tensor_from_jagged(routed, offsets)
     return TensorDict(fields, batch_size=2)
 
@@ -61,17 +61,16 @@ def test_packs_like_input_ids(pad_size):
 
 
 @pytest.mark.parametrize(
-    "module,with_routing,use_remove_padding,use_ulysses_sp",
+    "module,micro_batch,use_remove_padding,use_ulysses_sp",
     [
-        (_PlainModel(), True, True, False),
-        (_ReplayModel(), False, True, False),
-        (_ReplayModel(), True, False, False),
-        (_ReplayModel(), True, True, True),
+        (_PlainModel(), _micro_batch(), True, False),
+        (_ReplayModel(), _micro_batch(with_routing=False), True, False),
+        (_ReplayModel(), _micro_batch(topk=1), True, False),
+        (_ReplayModel(), _micro_batch(), False, False),
+        (_ReplayModel(), _micro_batch(), True, True),
     ],
-    ids=["model-ignores-routing", "batch-without-routing", "padded-inputs", "ulysses-sp"],
+    ids=["model-ignores-routing", "batch-without-routing", "top-1", "padded-inputs", "ulysses-sp"],
 )
-def test_rejects_unsupported(module, with_routing, use_remove_padding, use_ulysses_sp):
+def test_rejects_unsupported(module, micro_batch, use_remove_padding, use_ulysses_sp):
     with pytest.raises(NotImplementedError):
-        _engine(module, use_ulysses_sp)._pack_routed_experts(
-            _micro_batch(with_routing), {"pad_size": 0}, use_remove_padding
-        )
+        _engine(module, use_ulysses_sp)._pack_routed_experts(micro_batch, {"pad_size": 0}, use_remove_padding)

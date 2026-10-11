@@ -1354,7 +1354,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
         """R3: the rollout's top-k expert indices, packed like ``input_ids``.
 
         Returns ``(1, total_nnz + pad_size, num_layers, topk)`` int64. Rows without a recorded choice
-        (the pad suffix, tokens the rollout did not route) are all zero: the model routes them natively.
+        (the pad suffix, tokens the rollout did not route) are all zero: the model routes them natively,
+        which it can only tell apart from a real choice when topk > 1.
         """
         model = getattr(self.module, "module", self.module)
         model = model.get_base_model() if hasattr(model, "get_base_model") else model
@@ -1363,11 +1364,12 @@ class FSDPEngineWithLMHead(FSDPEngine):
             not use_remove_padding
             or self.use_ulysses_sp
             or routed is None
+            or routed.size(-1) < 2
             or "routed_experts" not in inspect.signature(model.forward).parameters
         ):
             raise NotImplementedError(
                 "FSDP router replay (R3) needs use_remove_padding=True, ulysses_sequence_parallel_size=1, "
-                "rollout.enable_rollout_routing_replay=True and a model whose forward takes `routed_experts`."
+                "rollout.enable_rollout_routing_replay=True, topk > 1 and a model whose forward takes `routed_experts`."
             )
         routed = routed.values().to(torch.int64)  # (total_nnz, num_layers, topk)
         pad = routed.new_zeros((int(output_args["pad_size"]), *routed.shape[1:]))
