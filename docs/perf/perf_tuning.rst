@@ -172,6 +172,28 @@ Here're some tips to tune the above parameters:
    
 .. :math:`\text{critic.ppo_max_token_len_per_gpu}  = 2 \times  \text{actor.ppo_max_token_len_per_gpu})`.
 
+Padded-token budget for Megatron BSHD
+"""""""""""""""""""""""""""""""""""""
+
+By default the token limits above bound the real (unpadded) tokens of each micro-batch. On the Megatron BSHD path
+(``use_remove_padding=False``) every micro-batch is stored padded to its longest sequence, so a micro-batch of many
+short samples and one long sample can use far more memory than the limit suggests. Set
+``actor_rollout_ref.actor.megatron.dynamic_bsz_cost_model=bshd_padded`` (the reference model follows the actor;
+``critic.megatron.dynamic_bsz_cost_model`` for the critic) to bound the padded storage instead:
+
+.. code-block:: text
+
+   batch_size * align(seq_len) / context_parallel_size <= max_token_len_per_gpu
+
+``seq_len`` is the longest sequence of the micro-batch, or the longest sequence of the mini-batch when
+``megatron.pad_bshd_to_minibatch_max=True`` (the default). In the latter case every micro-batch holds at most
+``max_token_len_per_gpu * cp_size / align(seq_len)`` samples; set ``pad_bshd_to_minibatch_max=False`` to let short
+samples share larger micro-batches. ``align`` is the padding that the BSHD forward applies:
+a multiple of ``tp_size * cp_size * 2`` (``tp_size`` without context parallelism), plus the FP8 block-quantization
+padding when FP8 (``e4m3`` or ``hybrid``) is enabled. Samples of similar length are grouped together, all
+data-parallel ranks use the same number of micro-batches, and a sample that does not fit the limit on its own raises
+an error. It requires ``use_remove_padding=False`` and only takes effect with ``use_dynamic_bsz=True``.
+
 Ulysses Sequence Parallel for Long Context Training
 ----------------------------------------------------
 

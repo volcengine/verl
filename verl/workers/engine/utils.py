@@ -25,7 +25,7 @@ from verl.utils.device import is_npu_available
 from verl.utils.device import manual_seed as device_manual_seed
 from verl.utils.device import manual_seed_all as device_manual_seed_all
 from verl.utils.py_functional import append_to_dict
-from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
+from verl.utils.seqlen_balancing import BSHDPadding, rearrange_micro_batches, restore_dynamic_batch
 
 
 def enable_full_determinism(seed: int):
@@ -96,9 +96,12 @@ def prepare_micro_batches(
     same_micro_num_in_dp=True,
     min_num_micro_batch=None,
     use_dynamic_bsz_balance=True,
+    bshd_padding: BSHDPadding | None = None,
 ):
     """
     Prepare micro batches from data.
+
+    ``bshd_padding`` is forwarded to :func:`rearrange_micro_batches` with dynamic batch size and is ignored otherwise.
     """
     use_dynamic_bsz = tu.get_non_tensor_data(data=data, key="use_dynamic_bsz", default=True)
     sp_size = tu.get_non_tensor_data(data=data, key="sp_size", default=1)
@@ -118,6 +121,7 @@ def prepare_micro_batches(
             min_num_micro_batch=min_num_micro_batch,
             use_dynamic_bsz_balance=use_dynamic_bsz_balance,
             force_group_size=force_group_size,
+            bshd_padding=bshd_padding,
         )
     else:
         total_data_size = len(data)

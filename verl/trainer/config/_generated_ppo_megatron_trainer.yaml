@@ -76,6 +76,7 @@ actor_rollout_ref:
       use_mbridge: true
       use_remove_padding: true
       pad_bshd_to_minibatch_max: true
+      dynamic_bsz_cost_model: token
       pad_to_length: false
       pad_to_length_bucket: 512
       use_megatron_fsdp: false
@@ -277,6 +278,7 @@ actor_rollout_ref:
       use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
       use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
       pad_bshd_to_minibatch_max: true
+      dynamic_bsz_cost_model: ${oc.select:actor_rollout_ref.actor.megatron.dynamic_bsz_cost_model,token}
       pad_to_length: ${oc.select:actor_rollout_ref.actor.megatron.pad_to_length,False}
       pad_to_length_bucket: ${oc.select:actor_rollout_ref.actor.megatron.pad_to_length_bucket,512}
       use_megatron_fsdp: false
@@ -618,6 +620,7 @@ critic:
     use_mbridge: true
     use_remove_padding: true
     pad_bshd_to_minibatch_max: true
+    dynamic_bsz_cost_model: token
     pad_to_length: false
     pad_to_length_bucket: 512
     use_megatron_fsdp: false

@@ -14,6 +14,8 @@
 
 import copy
 import heapq
+import math
+from dataclasses import dataclass
 from itertools import chain
 
 import torch
@@ -345,6 +347,119 @@ def roundup_divisible(a: int, b: int) -> int:
     return ((a + b - 1) // b) * b
 
 
+def get_bshd_padded_seq_len(
+    max_seq_len: int, batch_size: int, tp_size: int, cp_size: int, use_fp8_padding: bool
+) -> int:
+    """Return the sequence length that the Megatron BSHD forward pads a micro-batch to.
+
+    For CP (zigzag), the sequence length must be divisible by ``2 * cp_size``. After the zigzag CP split each rank
+    holds ``seq_len / cp_size`` tokens, which must also be divisible by ``tp_size`` for the sequence-parallel
+    scatter, so the length is aligned to ``tp_size * cp_size * 2`` (``tp_size`` without CP). For FP8 block
+    quantization, ``batch_size * seq_len`` must additionally be divisible by ``128 * tp_size * cp_size``.
+
+    Args:
+        max_seq_len: Raw (unaligned) length of the longest sequence in the micro-batch.
+        batch_size: Number of sequences in the micro-batch.
+        tp_size: Tensor model parallel size.
+        cp_size: Context parallel size.
+        use_fp8_padding: Whether FP8 block quantization padding is applied.
+
+    Returns:
+        int: The aligned sequence length of the padded micro-batch.
+    """
+    align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
+    padded_seq_len = roundup_divisible(max_seq_len, align_size)
+    if use_fp8_padding:
+        fp8_total_align = 128 * tp_size * cp_size
+        fp8_seq_align = math.lcm(fp8_total_align // math.gcd(batch_size, fp8_total_align), align_size)
+        padded_seq_len = roundup_divisible(padded_seq_len, fp8_seq_align)
+    return padded_seq_len
+
+
+@dataclass(frozen=True)
+class BSHDPadding:
+    """Padding rule of the Megatron BSHD forward, used as the cost model of dynamic batching.
+
+    A BSHD micro-batch stores ``batch_size * get_bshd_padded_seq_len(raw_seq_len, batch_size, ...)`` tokens, where
+    ``raw_seq_len`` is ``fixed_seq_len`` if set and the longest sequence of the micro-batch otherwise.
+
+    Args:
+        tp_size: Tensor model parallel size.
+        cp_size: Context parallel size.
+        use_fp8_padding: Whether FP8 block quantization padding is applied.
+        fixed_seq_len: Raw length every micro-batch is padded to, i.e. the ``forced_max_seqlen`` passed to
+            ``preprocess_bshd_engine``. If None, each micro-batch is padded to its own longest sequence.
+    """
+
+    tp_size: int = 1
+    cp_size: int = 1
+    use_fp8_padding: bool = False
+    fixed_seq_len: int | None = None
+
+    def num_tokens(self, batch_size: int, max_seq_len: int) -> int:
+        """Return the padded tokens stored for ``batch_size`` sequences whose longest one has ``max_seq_len``."""
+        raw_seq_len = max_seq_len if self.fixed_seq_len is None else self.fixed_seq_len
+        padded_seq_len = get_bshd_padded_seq_len(
+            raw_seq_len, batch_size, self.tp_size, self.cp_size, self.use_fp8_padding
+        )
+        return batch_size * padded_seq_len
+
+
+def _get_bshd_padded_partitions(
+    seq_lens: list[int],
+    max_token_len: int,
+    bshd_padding: BSHDPadding,
+    num_partitions: int | None = None,
+) -> list[list[int]]:
+    """Group samples into micro-batches that keep the BSHD padded storage within ``max_token_len``.
+
+    Samples are sorted by length (longest first) and cut greedily into contiguous runs whose padded storage fits
+    ``max_token_len``, so that short sequences are padded together instead of up to a long one. If
+    ``num_partitions`` is given, the most expensive run is repeatedly split at the point that minimizes the larger
+    half until there are exactly ``num_partitions`` runs.
+
+    Splitting a run never increases its padded storage, except with FP8 padding where the alignment depends on the
+    batch size. Callers must therefore still check every partition against the budget.
+
+    Args:
+        seq_lens: Sequence length of each sample.
+        max_token_len: Budget of padded tokens per micro-batch.
+        bshd_padding: Padding rule of the BSHD forward.
+        num_partitions: Exact number of partitions to return. Must be between the number of greedy runs and
+            ``len(seq_lens)``. If None, return the greedy runs.
+
+    Returns:
+        list[list[int]]: Non-empty partitions of sample indices; indices within each partition are sorted.
+    """
+    order = sorted(range(len(seq_lens)), key=lambda idx: seq_lens[idx], reverse=True)
+
+    # Runs follow the descending order, so the first sample of a run is its longest one.
+    def cost(run: list[int], start: int, stop: int) -> int:
+        return bshd_padding.num_tokens(stop - start, seq_lens[run[start]])
+
+    runs = [[order[0]]]
+    for idx in order[1:]:
+        run = runs[-1]
+        if bshd_padding.num_tokens(len(run) + 1, seq_lens[run[0]]) <= max_token_len:
+            run.append(idx)
+        else:
+            runs.append([idx])
+
+    if num_partitions is not None:
+        assert len(runs) <= num_partitions <= len(seq_lens), (
+            f"num_partitions={num_partitions} must be in [{len(runs)}, {len(seq_lens)}]"
+        )
+        while len(runs) < num_partitions:
+            run_idx = max(
+                (i for i in range(len(runs)) if len(runs[i]) > 1), key=lambda i: cost(runs[i], 0, len(runs[i]))
+            )
+            run = runs.pop(run_idx)
+            split = min(range(1, len(run)), key=lambda s: max(cost(run, 0, s), cost(run, s, len(run))))
+            runs += [run[:split], run[split:]]
+
+    return [sorted(run) for run in runs]
+
+
 def rearrange_micro_batches(
     batch,
     max_token_len,
@@ -354,6 +469,7 @@ def rearrange_micro_batches(
     min_num_micro_batch=None,
     use_dynamic_bsz_balance=True,
     force_group_size=1,
+    bshd_padding: BSHDPadding | None = None,
 ):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
@@ -367,6 +483,9 @@ def rearrange_micro_batches(
         min_num_micro_batch (int, optional): force at least this many splits (pads empty ones).
         use_dynamic_bsz_balance (bool, optional): balance the computational workload between micro-batches
         force_group_size (int, optional): force consecutive samples to be in the same micro-batch (for RM training).
+        bshd_padding (BSHDPadding, optional): if set, ``max_token_len`` bounds the padded tokens that the BSHD
+            forward stores for each micro-batch instead of the sum of its real tokens. Requires
+            ``force_group_size == 1``.
 
     Returns:
         List[TensorDict]: the micro-batches.
@@ -390,12 +509,18 @@ def rearrange_micro_batches(
     assert batch_size % force_group_size == 0, (
         f"Batch size {batch_size} must be divisible by force_group_size {force_group_size}"
     )
+    if bshd_padding is not None and force_group_size != 1:
+        raise ValueError(f"bshd_padding does not support force_group_size > 1, got {force_group_size=}")
 
     total_seqlen = seq_len_effective.sum().item()
     # NOTE: num_microbatches <= batch_size, so take the min of this two.
     # When force_group_size > 1, we work with groups instead of individual samples
     num_groups = batch_size // force_group_size
-    num_micro_batches = min(num_groups, ceildiv(total_seqlen, max_token_len))
+    if bshd_padding is None:
+        num_micro_batches = min(num_groups, ceildiv(total_seqlen, max_token_len))
+    else:
+        seq_lens = seq_len_effective.cpu().tolist()
+        num_micro_batches = len(_get_bshd_padded_partitions(seq_lens, max_token_len, bshd_padding))
     if min_num_micro_batch is not None:
         # used to support pp
         num_micro_batches = max(min_num_micro_batch, num_micro_batches)
@@ -422,6 +547,9 @@ def rearrange_micro_batches(
         # note that seq_len_effective is a GPU tensor. We need to make it a list to avoid D2H!
         workloads = calculate_workload(seq_len_effective).cpu().tolist()
         group_token_lens = seq_len_effective.cpu().tolist()
+        if bshd_padding is not None:
+            # A sample stored alone is the cheapest BSHD micro-batch it can be part of.
+            group_token_lens = [bshd_padding.num_tokens(1, seq_len) for seq_len in group_token_lens]
 
     max_group_token_len = max(group_token_lens)
     min_num_groups = num_groups
@@ -433,6 +561,10 @@ def rearrange_micro_batches(
         min_num_groups = -int(constraints[1].item())
 
     if max_group_token_len > max_token_len:
+        if bshd_padding is not None:
+            raise ValueError(
+                f"A single sample takes {max_group_token_len} padded BSHD tokens, exceeding {max_token_len=}."
+            )
         raise ValueError(
             "A forced group exceeds max_token_len and cannot be split. "
             f"Got max_group_token_len={max_group_token_len} and max_token_len={max_token_len}."
@@ -449,10 +581,19 @@ def rearrange_micro_batches(
                 f"Requested {num_micro_batches} non-empty micro-batches, but a rank has only "
                 f"{min_num_groups} forced groups."
             )
-        micro_bsz_group_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
-        within_limit = all(
-            sum(group_token_lens[idx] for idx in partition) <= max_token_len for partition in micro_bsz_group_idx
-        )
+        if bshd_padding is None:
+            micro_bsz_group_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
+            within_limit = all(
+                sum(group_token_lens[idx] for idx in partition) <= max_token_len for partition in micro_bsz_group_idx
+            )
+        else:
+            micro_bsz_group_idx = _get_bshd_padded_partitions(
+                seq_lens, max_token_len, bshd_padding, num_partitions=num_micro_batches
+            )
+            within_limit = all(
+                bshd_padding.num_tokens(len(partition), max(seq_lens[idx] for idx in partition)) <= max_token_len
+                for partition in micro_bsz_group_idx
+            )
         if sync_micro_batch_count:
             within_limit_tensor = torch.tensor([int(within_limit)], device=get_device_name())
             dist.all_reduce(within_limit_tensor, op=dist.ReduceOp.MIN, group=dp_group)

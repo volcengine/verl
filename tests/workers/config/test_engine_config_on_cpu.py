@@ -44,6 +44,11 @@ class TestMcoreEngineConfig:
         config = McoreEngineConfig(**{offload_field: True})
         assert getattr(config, offload_field) is True
 
+    def test_rejects_unknown_dynamic_bsz_cost_model(self):
+        McoreEngineConfig(dynamic_bsz_cost_model="bshd_padded")
+        with pytest.raises(ValueError, match="dynamic_bsz_cost_model"):
+            McoreEngineConfig(dynamic_bsz_cost_model="padded")
+
 
 class TestFSDPEngineConfigCPU:
     def test_default_values(self):

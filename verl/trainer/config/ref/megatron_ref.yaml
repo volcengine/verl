@@ -23,6 +23,7 @@ megatron:
   override_transformer_config: ${oc.select:actor_rollout_ref.actor.megatron.override_transformer_config,{}}
   use_mbridge: ${oc.select:actor_rollout_ref.actor.megatron.use_mbridge,False}
   use_remove_padding: ${oc.select:actor_rollout_ref.actor.megatron.use_remove_padding,True}
+  dynamic_bsz_cost_model: ${oc.select:actor_rollout_ref.actor.megatron.dynamic_bsz_cost_model,token}
   pad_to_length: ${oc.select:actor_rollout_ref.actor.megatron.pad_to_length,False}
   pad_to_length_bucket: ${oc.select:actor_rollout_ref.actor.megatron.pad_to_length_bucket,512}
   tensor_model_parallel_size: ${oc.select:actor_rollout_ref.actor.megatron.tensor_model_parallel_size,1}

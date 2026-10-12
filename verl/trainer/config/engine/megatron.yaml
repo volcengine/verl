@@ -102,6 +102,13 @@ use_remove_padding: True
 # effect when use_remove_padding=False (BSHD); no-op on the THD path.
 pad_bshd_to_minibatch_max: True
 
+# What the dynamic batch size token budget (e.g. ppo_max_token_len_per_gpu) bounds per micro-batch.
+# - token: the real (unpadded) tokens of the micro-batch.
+# - bshd_padded: the padded tokens stored by the BSHD forward, i.e. batch_size * aligned max_seq_len, with the
+#   TP/CP/FP8 alignment of the forward and the mini-batch max length if pad_bshd_to_minibatch_max=True.
+#   Requires use_remove_padding=False.
+dynamic_bsz_cost_model: token
+
 # Match the FSDP packed-padding controls. Set the bucket to 512 to reduce THD shape variability.
 pad_to_length: false
 pad_to_length_bucket: 512

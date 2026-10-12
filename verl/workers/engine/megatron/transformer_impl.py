@@ -75,7 +75,7 @@ from verl.utils.megatron_utils import (
     unwrap_model,
 )
 from verl.utils.model import extract_multi_modal_inputs, load_mcore_dist_weights
-from verl.utils.seqlen_balancing import restore_dynamic_batch
+from verl.utils.seqlen_balancing import BSHDPadding, restore_dynamic_batch
 from verl.workers.config import HFModelConfig, McoreEngineConfig, McoreOptimizerConfig
 
 from ..base import BaseEngine, BaseEngineCtx, EngineRegistry
@@ -779,6 +779,23 @@ class MegatronEngine(BaseEngine):
             return input_ids.offsets()[-1]
         return torch.tensor(input_ids.numel(), device=input_ids.device)
 
+    def _get_bshd_padding(self, fixed_seq_len: int | None) -> BSHDPadding | None:
+        """Return the BSHD padding rule that dynamic batching budgets, or None for the token cost model.
+
+        It mirrors the ``preprocess_bshd_engine`` call of ``gptmodel_forward_model_engine``; ``fixed_seq_len`` is
+        the ``forced_max_seqlen`` passed to every micro-batch.
+        """
+        if self.engine_config.dynamic_bsz_cost_model == "token":
+            return None
+        if self.engine_config.use_remove_padding:
+            raise ValueError("dynamic_bsz_cost_model='bshd_padded' requires use_remove_padding=False (BSHD)")
+        return BSHDPadding(
+            tp_size=mpu.get_tensor_model_parallel_world_size(),
+            cp_size=mpu.get_context_parallel_world_size(),
+            use_fp8_padding=self.tf_config.fp8 in ["e4m3", "hybrid"],
+            fixed_seq_len=fixed_seq_len,
+        )
+
     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> Any:
         self._distillation_use_topk_active = tu.get_non_tensor_data(data, key="distillation_use_topk", default=False)
         tu.assign_non_tensor(data, sp_size=self.engine_config.context_parallel_size)
@@ -857,6 +874,7 @@ class MegatronEngine(BaseEngine):
                 num_batches_divided_by=num_batches_divided_by,
                 same_micro_num_in_dp=True,
                 min_num_micro_batch=None,
+                bshd_padding=self._get_bshd_padding(fixed_seq_len=global_max_seqlen),
             )
 
         if num_batches_divided_by is not None:

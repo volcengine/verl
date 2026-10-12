@@ -175,6 +175,9 @@ class McoreEngineConfig(EngineConfig):
         use_megatron_fsdp (bool): Whether to use Megatron-FSDP (Zero-3 sharding).
         pad_to_length (bool): Whether to round every packed micro-batch up to a bucket-aligned length.
         pad_to_length_bucket (int): Padding granularity on the global packed sequence.
+        dynamic_bsz_cost_model (str): What the dynamic batch size token budget bounds per micro-batch. "token"
+            bounds the real tokens; "bshd_padded" bounds the padded tokens stored by the BSHD forward and
+            requires ``use_remove_padding=False``.
         dtype (str): Mixed precision training param dtype, default "bfloat16"
     """
 
@@ -196,6 +199,7 @@ class McoreEngineConfig(EngineConfig):
     pad_bshd_to_minibatch_max: bool = True
     pad_to_length: bool = False
     pad_to_length_bucket: int = 512
+    dynamic_bsz_cost_model: Literal["token", "bshd_padded"] = "token"
     use_dist_checkpointing: bool = False
     dist_checkpointing_path: Optional[str] = None
     dist_checkpointing_prefix: str = ""
@@ -221,6 +225,10 @@ class McoreEngineConfig(EngineConfig):
         ):
             raise ValueError(
                 "max_seqlen_per_dp_cp_rank must be a positive integer when dynamic_context_parallel is enabled"
+            )
+        if self.dynamic_bsz_cost_model not in ("token", "bshd_padded"):
+            raise ValueError(
+                f"dynamic_bsz_cost_model must be 'token' or 'bshd_padded', got {self.dynamic_bsz_cost_model!r}"
             )
         if self.tensor_model_parallel_size == 1:
             warnings.warn("set sequence parallel to false as TP size is 1", stacklevel=2)
