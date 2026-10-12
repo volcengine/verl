@@ -3,7 +3,7 @@
 Config Explanation
 ===================
 
-Last updated: 08/24/2026.
+Last updated: 10/12/2026.
 
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
@@ -34,6 +34,9 @@ Data
      image_key: images
      trust_remote_code: True
      custom_cls:
+        path: null
+        name: null
+     custom_validation_metrics:
         path: null
         name: null
 
@@ -97,6 +100,56 @@ Customized dataset extension is implemented for the SFT trainer and can be exten
 
 - ``data.custom_cls.path``: The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.
 - ``data.custom_cls.name``: The name of the dataset class within the specified file.
+
+Customized Validation Metrics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Built-in validation metrics are grouped by ``data_source`` only. To add other aggregations without
+subclassing the trainer, point ``data.custom_validation_metrics`` to a function. It is supported by both
+the legacy ``RayPPOTrainer`` and the V1 ``PPOTrainer``.
+
+.. code:: yaml
+
+   custom_validation_metrics:
+     path: null
+     name: null
+
+- ``data.custom_validation_metrics.path``: The path to the file containing the function. If not specified,
+  only built-in validation metrics are computed.
+- ``data.custom_validation_metrics.name``: The name of the function within the specified file. Required when
+  ``path`` is set.
+
+The function is loaded when the trainer is constructed and called once per validation as
+``fn(data_sources=..., reward_extra_infos=...)``:
+
+- ``data_sources``: ``list[str]``, the data source of each validation sample.
+- ``reward_extra_infos``: ``dict[str, list]``, the per-sample values also used by the built-in metrics,
+  i.e. ``reward`` plus every extra field returned by the reward function (e.g. ``acc``).
+
+It must return a ``dict`` mapping metric names to scalar values. The keys are logged verbatim, so choose a
+prefix such as ``val-aux/`` to group them with the built-in metrics. For example, to report the mean ``acc``
+per ``difficulty`` returned by the reward function:
+
+.. code:: python
+
+   from collections import defaultdict
+
+   import numpy as np
+
+
+   def difficulty_metrics(data_sources: list[str], reward_extra_infos: dict[str, list]) -> dict[str, float]:
+       acc_by_difficulty = defaultdict(list)
+       for difficulty, acc in zip(reward_extra_infos["difficulty"], reward_extra_infos["acc"], strict=True):
+           acc_by_difficulty[difficulty].append(acc)
+       return {f"val-aux/difficulty/{key}/acc/mean": float(np.mean(vals)) for key, vals in acc_by_difficulty.items()}
+
+.. code:: bash
+
+   data.custom_validation_metrics.path=/path/to/my_metrics.py \
+   data.custom_validation_metrics.name=difficulty_metrics
+
+A wrong ``path`` or ``name`` fails at trainer construction. During validation, a non-``dict`` return value
+raises ``TypeError`` and a key that collides with a built-in validation metric raises ``ValueError``.
 
 Actor/Rollout/Reference Policy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

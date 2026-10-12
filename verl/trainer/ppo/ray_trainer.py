@@ -46,6 +46,8 @@ from verl.trainer.ppo.metric_utils import (
     compute_throughout_metrics,
     compute_timing_metrics,
     compute_variance_proxy_metrics,
+    load_custom_validation_metrics_fn,
+    merge_custom_validation_metrics,
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import extract_reward
@@ -352,6 +354,7 @@ class RayPPOTrainer:
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
         )
+        self.custom_validation_metrics_fn = load_custom_validation_metrics_fn(self.config.data)
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
@@ -743,6 +746,10 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
+        if self.custom_validation_metrics_fn is not None:
+            metric_dict = merge_custom_validation_metrics(
+                metric_dict, self.custom_validation_metrics_fn, data_sources, reward_extra_infos_dict
+            )
         return metric_dict
 
     def _merge_validation_results(self, result_a, result_b):

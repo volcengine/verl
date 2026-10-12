@@ -34,6 +34,7 @@ from verl.experimental.fully_async_policy.message_queue import MessageQueueClien
 from verl.experimental.separation.ray_trainer import SeparateRayPPOTrainer
 from verl.protocol import DataProto
 from verl.single_controller.ray import RayResourcePool, RayWorkerGroup, ResourcePoolManager
+from verl.trainer.ppo.metric_utils import load_custom_validation_metrics_fn
 from verl.trainer.ppo.utils import (
     create_rl_dataset,
     create_rl_sampler,
@@ -370,6 +371,7 @@ class FullyAsyncRollouter(SeparateRayPPOTrainer):
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
         )
+        self.custom_validation_metrics_fn = load_custom_validation_metrics_fn(self.config.data)
 
         self.ref_in_actor = False
         self.kl_ctrl_in_reward = False

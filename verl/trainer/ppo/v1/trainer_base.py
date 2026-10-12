@@ -58,6 +58,8 @@ from verl.trainer.ppo.metric_utils import (
     compute_timing_metrics,
     compute_variance_proxy_metrics,
     get_metric_data_with_optional_routed_experts,
+    load_custom_validation_metrics_fn,
+    merge_custom_validation_metrics,
     process_validation_metrics,
 )
 from verl.trainer.ppo.padding_utils import upsample_batch_to_divisible_size
@@ -120,6 +122,7 @@ class PPOTrainer(ABC):
     def __init__(self, config: DictConfig):
         self.config = config
         self.checkpoint_callback = build_checkpoint_callback(config)
+        self.custom_validation_metrics_fn = load_custom_validation_metrics_fn(self.config.data)
         self.use_critic = need_critic(self.config)
         self.use_reference_policy = need_reference_policy(self.config)
         self.use_teacher_policy = need_teacher_policy(self.config)
@@ -1376,6 +1379,10 @@ class PPOTrainer(ABC):
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
 
+        if self.custom_validation_metrics_fn is not None:
+            metric_dict = merge_custom_validation_metrics(
+                metric_dict, self.custom_validation_metrics_fn, data_sources, reward_extra_infos_dict
+            )
         return metric_dict
 
     def _rollout_server_managers(self) -> list:

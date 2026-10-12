@@ -34,6 +34,7 @@ from verl import DataProto
 from verl.experimental.separation.ray_trainer import SeparateRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
+from verl.trainer.ppo.metric_utils import load_custom_validation_metrics_fn
 from verl.trainer.ppo.ray_trainer import (
     ResourcePoolManager,
     compute_response_mask,
@@ -103,6 +104,7 @@ class OneStepOffRayTrainer(SeparateRayPPOTrainer):
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
         )
+        self.custom_validation_metrics_fn = load_custom_validation_metrics_fn(self.config.data)
 
         # if ref_in_actor is True, the reference policy will be actor without lora applied
         lora_rank = config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)

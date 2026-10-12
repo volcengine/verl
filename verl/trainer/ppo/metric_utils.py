@@ -28,7 +28,7 @@ from transformers import AutoConfig
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.utils.fs import copy_to_local
-from verl.utils.import_utils import deprecated
+from verl.utils.import_utils import deprecated, load_extern_object
 from verl.utils.model import update_model_config
 
 logger = logging.getLogger(__name__)
@@ -1072,3 +1072,71 @@ def process_validation_metrics(
             for metric_name, uid_vals in metric2uid_vals.items():
                 data_src2var2metric2val[data_source][var_name][metric_name] = np.mean(uid_vals)
     return data_src2var2metric2val
+
+
+CustomValidationMetricsFn = Callable[..., dict[str, Any]]
+
+
+def load_custom_validation_metrics_fn(data_config: DictConfig) -> CustomValidationMetricsFn | None:
+    """Load the user function configured by ``data.custom_validation_metrics``.
+
+    Args:
+        data_config: The ``data`` section of the trainer config.
+
+    Returns:
+        The loaded function, or ``None`` if ``data.custom_validation_metrics.path`` is not set.
+
+    Raises:
+        ValueError: If ``path`` is set but ``name`` is not.
+        TypeError: If the loaded object is not callable.
+    """
+    fn_config = data_config.get("custom_validation_metrics") or {}
+    module_path = fn_config.get("path")
+    if not module_path:
+        return None
+
+    fn_name = fn_config.get("name")
+    if not fn_name:
+        raise ValueError(
+            f"data.custom_validation_metrics.name must be set when data.custom_validation_metrics.path={module_path!r}"
+        )
+
+    fn = load_extern_object(module_path=module_path, object_name=fn_name)
+    if not callable(fn):
+        raise TypeError(f"Custom validation metrics {fn_name!r} from {module_path!r} must be callable, got {type(fn)}")
+    return fn
+
+
+def merge_custom_validation_metrics(
+    metric_dict: dict[str, Any],
+    custom_metrics_fn: CustomValidationMetricsFn,
+    data_sources: list[str],
+    reward_extra_infos_dict: dict[str, list[Any]],
+) -> dict[str, Any]:
+    """Call a custom validation metrics function and merge its result into the built-in metrics.
+
+    The function is called as ``custom_metrics_fn(data_sources=..., reward_extra_infos=...)`` with the
+    same per-sample inputs as :func:`process_validation_metrics`. Returned keys are used verbatim as
+    metric names.
+
+    Args:
+        metric_dict: Built-in validation metrics.
+        custom_metrics_fn: Function returned by :func:`load_custom_validation_metrics_fn`.
+        data_sources: Data source of each validation sample.
+        reward_extra_infos_dict: Per-sample reward values and extra reward infos.
+
+    Returns:
+        A new dict with the built-in and custom metrics.
+
+    Raises:
+        TypeError: If the custom function does not return a dict.
+        ValueError: If a custom metric key collides with a built-in metric key.
+    """
+    custom_metrics = custom_metrics_fn(data_sources=list(data_sources), reward_extra_infos=reward_extra_infos_dict)
+    if not isinstance(custom_metrics, dict):
+        raise TypeError(f"Custom validation metrics must return a dict, got {type(custom_metrics)}")
+
+    collisions = sorted(metric_dict.keys() & custom_metrics.keys())
+    if collisions:
+        raise ValueError(f"Custom validation metrics collide with built-in validation metrics: {collisions}")
+    return metric_dict | custom_metrics
