@@ -188,6 +188,7 @@ command=("${PYTHON}" -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.prompt_length="${MAX_VALIDATION_PROMPT_LEN}" \
     actor_rollout_ref.rollout.max_model_len="${MAX_MODEL_LEN}" \
     actor_rollout_ref.rollout.max_num_batched_tokens="${MAX_MODEL_LEN}" \
+    actor_rollout_ref.rollout.response_length="${MAX_RESPONSE_LEN}" \
     actor_rollout_ref.rollout.max_num_seqs="${MAX_NUM_SEQS}" \
     actor_rollout_ref.rollout.val_kwargs.do_sample=False \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.0 \
