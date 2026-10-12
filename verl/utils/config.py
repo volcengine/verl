@@ -99,7 +99,7 @@ def _validate_score_centering_config(config: DictConfig) -> None:
 
     # the actor-side mirror is a plain mapping, so run the dataclass checks on it here
     RolloutCorrectionConfig(**actor_rc)
-    for key in ("bypass_mode", "loss_type", "rollout_is", "rollout_is_threshold", "score_centering_top_p"):
+    for key in ("bypass_mode", "loss_type", "rollout_is", "rollout_is_threshold"):
         if actor_rc.get(key) != algorithm_rc.get(key):
             raise ValueError(
                 f"score centering requires actor_rollout_ref.actor.policy_loss.rollout_correction.{key} to match "
@@ -113,13 +113,8 @@ def _validate_score_centering_config(config: DictConfig) -> None:
         raise ValueError("score centering requires actor_rollout_ref.rollout.name=vllm.")
     if not config.actor_rollout_ref.rollout.get("topk_log_probs", 0):
         raise ValueError("score centering requires actor_rollout_ref.rollout.topk_log_probs > 0.")
-    rollout = config.actor_rollout_ref.rollout
-    truncated = rollout.get("top_p", 1.0) < 1.0 or rollout.get("top_k", -1) > 0
-    if bool(actor_rc.get("score_centering_top_p", False)) != truncated:
-        raise ValueError(
-            "score_centering_top_p must be set exactly when the rollout truncates sampling "
-            "(actor_rollout_ref.rollout.top_p < 1 or top_k > 0)."
-        )
+    if config.actor_rollout_ref.rollout.get("temperature", 1.0) <= 0:
+        raise ValueError("score centering requires stochastic training rollouts with temperature > 0.")
     if (config.get("distillation") or {}).get("enabled", False):
         raise ValueError("score centering cannot be combined with distillation.")
 

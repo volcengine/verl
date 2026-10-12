@@ -140,14 +140,11 @@ class RolloutCorrectionConfig(BaseConfig):
 
         score_centering (bool): Subtract the expected score under the sampler from every token's
             score, see the score centering reference below. Needs the sampler's top-k log-probs
-            from the rollout (``actor_rollout_ref.rollout.topk_log_probs``). Only with
+            from the rollout (``actor_rollout_ref.rollout.topk_log_probs``). Automatically aligns
+            with the complete sampling support when it is recorded; otherwise uses the recorded
+            head and a trainer-proportional tail approximation. Only with
             ``bypass_mode=True``, ``loss_type="reinforce"`` and ``rollout_is`` None or "token".
             Default: False
-
-        score_centering_top_p (bool): Center over the sampler's truncated support instead of the
-            head-plus-tail model. Set exactly when the rollout truncates sampling (``top_p < 1`` or
-            ``top_k > 0``); the head then holds the whole support and the trainer is renormalized
-            over it. Default: False
 
     Example:
         # Create with defaults
@@ -203,12 +200,9 @@ class RolloutCorrectionConfig(BaseConfig):
     bypass_mode: bool = False
     loss_type: str = "ppo_clip"
     score_centering: bool = False
-    score_centering_top_p: bool = False
 
     def __post_init__(self):
         if not self.score_centering:
-            if self.score_centering_top_p:
-                raise ValueError("score_centering_top_p requires score_centering=True.")
             return
         if not self.bypass_mode or self.loss_type != "reinforce":
             raise ValueError("score_centering requires bypass_mode=True and loss_type='reinforce'.")

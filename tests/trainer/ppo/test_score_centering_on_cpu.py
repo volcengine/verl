@@ -76,9 +76,6 @@ def test_score_centering_rejects_unsupported_modes(kwargs):
     [
         dict(name="sglang"),
         dict(calculate_log_probs=False),
-        dict(top_p=0.9),
-        dict(top_k=256),
-        dict(top_p=0.9, top_k=256),
         dict(logprobs_mode="raw_logprobs"),
     ],
 )
@@ -87,16 +84,16 @@ def test_topk_log_probs_needs_the_vllm_sampling_distribution(kwargs):
         RolloutConfig(**{"name": "vllm", "topk_log_probs": 128, "calculate_log_probs": True, **kwargs})
 
 
-@pytest.mark.parametrize("kwargs", [dict(top_k=128), dict(top_p=0.9, top_k=64)])
-def test_topk_log_probs_accepts_truncation_covered_by_the_head(kwargs):
-    # vLLM applies top-k before top-p, so a top-k cap no larger than the head keeps the whole
-    # sampling support inside it
+@pytest.mark.parametrize("kwargs", [dict(top_k=128), dict(top_p=0.9, top_k=64), dict(top_p=0.9)])
+def test_topk_log_probs_accepts_sampling_parameters_without_a_manual_centering_mode(kwargs):
     RolloutConfig(**{"name": "vllm", "topk_log_probs": 128, "calculate_log_probs": True, **kwargs})
 
 
-def test_score_centering_support_requires_score_centering():
-    with pytest.raises(ValueError, match="score_centering_top_p"):
-        RolloutCorrectionConfig(bypass_mode=True, loss_type="reinforce", score_centering_top_p=True)
+@pytest.mark.parametrize("top_p", [1.0, 0.9])
+def test_topk_log_probs_warns_but_accepts_a_recording_budget_below_sampling_top_k(top_p):
+    with pytest.warns(UserWarning, match="smaller than the sampling top_k"):
+        config = RolloutConfig(name="vllm", topk_log_probs=128, calculate_log_probs=True, top_k=256, top_p=top_p)
+    assert config.top_k == 256 and config.top_p == top_p
 
 
 def test_topk_log_probs_raises_vllm_max_logprobs():
@@ -137,18 +134,20 @@ def _config(algorithm_rc=None, actor_rc=None, **overrides):
     return config
 
 
-_SUPPORT = {"score_centering_top_p": True}
-_TRUNCATED = {"actor_rollout_ref.rollout.top_p": 0.9, "actor_rollout_ref.rollout.top_k": 64}
-
-
-def test_score_centering_config_accepts_consistent_settings():
-    _validate_score_centering_config(_config())
-    _validate_score_centering_config(_config(algorithm_rc=_SUPPORT, actor_rc=_SUPPORT, **_TRUNCATED))
+@pytest.mark.parametrize("top_p, top_k", [(1.0, -1), (0.9, -1), (0.9, 64), (1.0, 256)])
+def test_score_centering_config_accepts_sampling_parameters_without_a_manual_centering_mode(top_p, top_k):
+    _validate_score_centering_config(
+        _config(**{"actor_rollout_ref.rollout.top_p": top_p, "actor_rollout_ref.rollout.top_k": top_k})
+    )
 
 
 def test_score_centering_config_skips_checks_when_off():
     _validate_score_centering_config(
-        _config(algorithm_rc={"score_centering": False}, actor_rc=False, **{"trainer.use_v1": False})
+        _config(
+            algorithm_rc={"score_centering": False},
+            actor_rc=False,
+            **{"trainer.use_v1": False, "actor_rollout_ref.rollout.temperature": 0},
+        )
     )
 
 
@@ -163,10 +162,9 @@ def test_score_centering_config_skips_checks_when_off():
         ({"actor_rollout_ref.actor.strategy": "megatron"}, "strategy"),
         ({"actor_rollout_ref.rollout.name": "sglang"}, "vllm"),
         ({"actor_rollout_ref.rollout.topk_log_probs": 0}, "topk_log_probs"),
+        ({"actor_rollout_ref.rollout.temperature": 0}, "temperature"),
+        ({"actor_rollout_ref.rollout.temperature": -1}, "temperature"),
         ({"distillation.enabled": True}, "distillation"),
-        (dict(actor_rc=_SUPPORT, **_TRUNCATED), "match"),
-        (_TRUNCATED, "score_centering_top_p"),
-        (dict(algorithm_rc=_SUPPORT, actor_rc=_SUPPORT), "score_centering_top_p"),
     ],
 )
 def test_score_centering_config_rejects_misconfigurations(kwargs, match):
@@ -531,6 +529,11 @@ def _nested_batch(lengths, k, vocab, top_p=None):
     ids = torch.nested.as_nested_tensor(list(ids), layout=torch.jagged)
     log_probs = torch.nested.as_nested_tensor(list(log_probs), layout=torch.jagged)
     data = TensorDict({"rollout_topk_ids": ids, "rollout_topk_log_probs": log_probs}, batch_size=[len(lengths)])
+    if top_p is not None:
+        # This synthetic provider knows its complete support, independently of head mass.
+        data["rollout_support_complete"] = torch.nested.as_nested_tensor(
+            [torch.ones(n, dtype=torch.bool) for n in lengths], layout=torch.jagged
+        )
     return data
 
 
@@ -540,7 +543,6 @@ def _support_rollout_correction(rollout_is=None, **kwargs):
         loss_type="reinforce",
         rollout_is=rollout_is,
         score_centering=True,
-        score_centering_top_p=True,
         **kwargs,
     )
 
@@ -553,7 +555,15 @@ def test_logits_processor_support_mode_adds_log_support_mass():
     out = score_centering_logits_processor(
         student_logits=logits, data=data, config=_actor_config(_support_rollout_correction())
     )
-    assert set(out) == {"sc_correction", "sc_sampler_head_mass", "sc_train_head_mass", "sc_log_support_mass"}
+    assert set(out) == {
+        "sc_correction",
+        "sc_sampler_head_mass",
+        "sc_train_head_mass",
+        "sc_log_support_mass",
+        "sc_support_aligned",
+        "sc_sampler_tail_mass",
+        "sc_support_unknown",
+    }
     for v in out.values():
         assert v.shape == (1, sum(lengths))
     assert out["sc_correction"].requires_grad and out["sc_log_support_mass"].requires_grad
@@ -568,7 +578,15 @@ def test_logits_processor_returns_per_token_scalars():
     logits = torch.randn(1, sum(lengths), vocab, requires_grad=True)
     config = _actor_config(RolloutCorrectionConfig.bypass_pg_sc())
     out = score_centering_logits_processor(student_logits=logits, data=data, config=config)
-    assert set(out) == {"sc_correction", "sc_sampler_head_mass", "sc_train_head_mass"}
+    assert set(out) == {
+        "sc_correction",
+        "sc_sampler_head_mass",
+        "sc_train_head_mass",
+        "sc_log_support_mass",
+        "sc_support_aligned",
+        "sc_sampler_tail_mass",
+        "sc_support_unknown",
+    }
     for v in out.values():
         assert v.shape == (1, sum(lengths))
     assert out["sc_correction"].requires_grad
@@ -749,10 +767,16 @@ def test_ppo_loss_support_mode_scores_the_sampled_token_on_the_support():
     nnz = int(cu_seqlens[-1])
     logits = torch.randn(nnz, vocab) * 2
     next_ids = torch.roll(data["input_ids"].values(), shifts=-1)
+    # A real sampled token must belong to the support; the original random response fixture
+    # could ask to score a token that had zero sampler probability.
+    logits[torch.arange(nnz), next_ids] = logits.max(-1).values + 2
     topk_ids, topk_log_probs = _truncated_head(torch.log_softmax(logits, dim=-1), top_p=0.7, k=k)
     in_support = _support_mask(topk_ids, topk_log_probs, vocab)
     data["rollout_topk_ids"] = torch.nested.nested_tensor_from_jagged(topk_ids, cu_seqlens)
     data["rollout_topk_log_probs"] = torch.nested.nested_tensor_from_jagged(topk_log_probs, cu_seqlens)
+    data["rollout_support_complete"] = torch.nested.nested_tensor_from_jagged(
+        torch.ones(nnz, dtype=torch.bool), cu_seqlens
+    )
 
     def sampled_log_probs(logits_):
         log_p = torch.log_softmax(logits_, dim=-1)

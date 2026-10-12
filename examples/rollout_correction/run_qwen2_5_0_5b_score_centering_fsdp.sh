@@ -103,7 +103,7 @@ ROLLOUT=(
     actor_rollout_ref.rollout.temperature=1.0
     actor_rollout_ref.rollout.top_p=1.0
     actor_rollout_ref.rollout.top_k=-1
-    # truncated sampling needs 0 < top_k <= topk_log_probs and rollout_correction.score_centering_top_p=true
+    # Score centering aligns complete recorded support automatically, otherwise it uses a trainer-tail approximation.
 )
 
 TRAINER=(
