@@ -219,15 +219,21 @@ restart flow. Server-actor and HTTP-listener exit confirmation remain owned by v
 The caller must fence traffic before restarting, reload the intended weights into the new engine,
 replace cached actor handles and HTTP addresses, and check health before reopening traffic.
 Restart does not restore requests, KV cache, weights, or application queues, and does not retry failed generations.
-For example, in an owner that already implements these steps:
+For example, with a load balancer and an application-provided weight reload callback:
 
 .. code:: python
 
-   await owner.fence_replica(replica)
+   old_address, old_handle = replica.server_address, replica.server_handle
+   await load_balancer.remove_server_if_current.remote(old_address, old_handle)
    await replica.restart()
    await owner.reload_weights(replica)
-   await replica._server_handle.check_health.remote()
-   await owner.publish_replica(replica)
+   await replica.server_handle.check_health.remote()
+   await load_balancer.add_servers.remote({replica.server_address: replica.server_handle})
+
+``owner.reload_weights()`` is an application-provided callback, not a verl API;
+it must restore weights and resume generation before publication. The load balancer
+checks the old actor handle before removal so a delayed failure cannot remove a
+same-address replacement.
 
 next_weight_sync recovery
 """""""""""""""""""""""""
@@ -237,11 +243,12 @@ for ``next_weight_sync`` recovery without a Relay or a separate weight cache:
 
 .. code:: python
 
-   await owner.fence_replica(replica)
+   old_address, old_handle = replica.server_address, replica.server_handle
+   await load_balancer.remove_server_if_current.remote(old_address, old_handle)
    await checkpoint_manager.restart_replica(replica)
    # Reuse the trainer's next normal synchronization at a safe GPU/optimizer boundary.
    await checkpoint_manager.update_weights(global_steps)
-   await owner.publish_replica(replica, weight_version=global_steps)
+   await load_balancer.add_servers.remote({replica.server_address: replica.server_handle})
 
 ``restart_replica()`` rebuilds only that server, retains its workers/resource pool,
 and explicitly binds the existing weight receivers to the new actor handle.
