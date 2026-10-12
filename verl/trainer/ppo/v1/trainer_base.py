@@ -184,8 +184,18 @@ class PPOTrainer(ABC):
         self.resource_pool_manager.create_resource_pool()
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
+        lora_rank = self.config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
+        if lora_rank <= 0:
+            lora_rank = self.config.actor_rollout_ref.model.get("lora_rank", 0)
+        self.ref_in_actor = lora_rank > 0 or self.config.actor_rollout_ref.model.get("lora_adapter_path") is not None
+
         # 1. define actor and rollout class
-        actor_role = Role.ActorRolloutRef if Role.ActorRolloutRef in self.role_worker_mapping else Role.ActorRollout
+        if Role.Actor in self.role_worker_mapping:
+            actor_role = Role.Actor
+        elif Role.ActorRolloutRef in self.role_worker_mapping:
+            actor_role = Role.ActorRolloutRef
+        else:
+            actor_role = Role.ActorRollout
         actor_rollout_resource_pool = self.resource_pool_manager.get_resource_pool(actor_role)
         actor_rollout_cls = RayClassWithInitArgs(
             cls=self.role_worker_mapping[actor_role],
@@ -194,6 +204,15 @@ class PPOTrainer(ABC):
             role=str(actor_role),
         )
         self.resource_pool_to_cls[actor_rollout_resource_pool][str(actor_role)] = actor_rollout_cls
+
+        if actor_role == Role.Actor and self.use_reference_policy and not self.ref_in_actor:
+            ref_resource_pool = self.resource_pool_manager.get_resource_pool(Role.RefPolicy)
+            ref_policy_cls = RayClassWithInitArgs(
+                cls=self.role_worker_mapping[Role.RefPolicy],
+                config=self.config.actor_rollout_ref,
+                role=str(Role.RefPolicy),
+            )
+            self.resource_pool_to_cls[ref_resource_pool][str(Role.RefPolicy)] = ref_policy_cls
 
         # 2. define critic class
         if self.use_critic:
@@ -263,13 +282,12 @@ class PPOTrainer(ABC):
         self.actor_rollout_wg.init_model()
         logger.info("actor and ref model engine initialized")
 
-        # if ref_in_actor is True, the reference policy will be actor without lora applied
-        lora_rank = self.config.actor_rollout_ref.model.get("lora", {}).get("rank", 0)
-        if lora_rank <= 0:
-            lora_rank = self.config.actor_rollout_ref.model.get("lora_rank", 0)
-        self.ref_in_actor = lora_rank > 0 or self.config.actor_rollout_ref.model.get("lora_adapter_path") is not None
         if self.use_reference_policy and not self.ref_in_actor:
-            self.ref_policy_wg = all_wg[str(actor_role)]
+            if actor_role == Role.Actor:
+                self.ref_policy_wg = all_wg[str(Role.RefPolicy)]
+                self.ref_policy_wg.init_model()
+            else:
+                self.ref_policy_wg = all_wg[str(actor_role)]
         if self.ref_in_actor:
             self.ref_policy_wg = self.actor_rollout_wg
 
@@ -298,9 +316,19 @@ class PPOTrainer(ABC):
             self.distillation_config = None
 
         # 9. initialize agent loop manager
-        self.llm_server_manager: LLMServerManager = LLMServerManager.create(
-            config=self.config, worker_group=self.actor_rollout_wg, rollout_resource_pool=actor_rollout_resource_pool
-        )
+        # Trainers that opt out of colocated rollout replicas on the training
+        # GPUs (v1 separate_async with actor_rollout_ref.hybrid_engine=False)
+        # set ``self._enable_hybrid_replicas = False`` before super()._setup();
+        # they get an empty manager here and serve rollout from their
+        # standalone replicas only.
+        if getattr(self, "_enable_hybrid_replicas", True):
+            self.llm_server_manager: LLMServerManager = LLMServerManager.create(
+                config=self.config,
+                worker_group=self.actor_rollout_wg,
+                rollout_resource_pool=actor_rollout_resource_pool,
+            )
+        else:
+            self.llm_server_manager = LLMServerManager.create_empty(config=self.config)
 
         # 10. initialize checkpoint engine manager
         checkpoint_engine_config = omega_conf_to_dataclass(self.config.actor_rollout_ref.rollout.checkpoint_engine)
@@ -387,7 +415,6 @@ class PPOTrainer(ABC):
 
         # we start from step 1
         self.global_steps += 1
-        # SkipManager skips warmup batches in async trainers, so it doesn't conflict with reissue.
         SkipManager.set_step(self.global_steps)
         ray.get(
             self.streaming_dataloader.load_checkpoint.remote(
@@ -702,9 +729,15 @@ class PPOTrainer(ABC):
             lora_rank = config.actor_rollout_ref.model.get("lora_rank", 0)
         ref_in_actor = lora_rank > 0 or config.actor_rollout_ref.model.get("lora_adapter_path") is not None
 
-        role = Role.ActorRolloutRef if need_reference_policy(config) and not ref_in_actor else Role.ActorRollout
+        if not getattr(self, "_enable_hybrid_replicas", True):
+            role = Role.Actor
+        else:
+            role = Role.ActorRolloutRef if need_reference_policy(config) and not ref_in_actor else Role.ActorRollout
         self.role_worker_mapping[role] = ray.remote(ActorRolloutRefWorker)
         self.mapping[role] = "global_pool"
+        if role == Role.Actor and need_reference_policy(config) and not ref_in_actor:
+            self.role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            self.mapping[Role.RefPolicy] = "global_pool"
 
         # Add critic worker to mapping.
         if need_critic(config):
@@ -880,12 +913,25 @@ class PPOTrainer(ABC):
         dump_all_outputs: list[str] = []
         dump_all_keys: list[str] = []
         session_to_sample_idx: dict[str, int] = {}
+        # To avoid failure sessions
+        expected_acc_counts: dict[tuple[str, str], int] = {}
 
         for batch_dict in self.val_dataloader:
             # 1. put batch to agent loop manager
             batch_dict["uid"] = np.array(
                 [str(uuid.uuid4()) for _ in range(len(batch_dict["raw_prompt"]))], dtype=object
             )
+            batch_size = len(batch_dict["uid"])
+            batch_data_sources = batch_dict.get("data_source", ["unknown"] * batch_size)
+            batch_rollout_ns = batch_dict.get(
+                "__rollout_n__", [self.config.actor_rollout_ref.rollout.val_kwargs.n] * batch_size
+            )
+            for uid, data_source, rollout_n in zip(
+                batch_dict["uid"], batch_data_sources, batch_rollout_ns, strict=True
+            ):
+                rollout_n = int(rollout_n)
+                expected_acc_counts[(str(data_source), str(uid))] = rollout_n
+
             batch = tu.get_tensordict(batch_dict)
             tu.assign_non_tensor_data(batch, "global_steps", self.global_steps)
             tu.assign_non_tensor_data(batch, "validate", True)
@@ -1011,7 +1057,13 @@ class PPOTrainer(ABC):
                 dump_path=val_data_dir,
             )
 
-        return self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+        return self._val_metrics_update(
+            data_sources,
+            sample_uids,
+            reward_extra_infos_dict,
+            sample_turns,
+            expected_acc_counts=expected_acc_counts,
+        )
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
@@ -1143,8 +1195,20 @@ class PPOTrainer(ABC):
                 dump_path=rollout_data_dir,
             )
 
-    def _val_metrics_update(self, data_sources, sample_uids, reward_extra_infos_dict, sample_turns) -> dict[str, float]:
-        data_src2var2metric2val = process_validation_metrics(data_sources, sample_uids, reward_extra_infos_dict)
+    def _val_metrics_update(
+        self,
+        data_sources,
+        sample_uids,
+        reward_extra_infos_dict,
+        sample_turns,
+        expected_acc_counts: dict[tuple[str, str], int] | None = None,
+    ) -> dict[str, float]:
+        data_src2var2metric2val = process_validation_metrics(
+            data_sources,
+            sample_uids,
+            reward_extra_infos_dict,
+            expected_acc_counts=expected_acc_counts,
+        )
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
             core_var = "acc" if "acc" in var2metric2val else "reward"
@@ -1179,6 +1243,16 @@ class PPOTrainer(ABC):
         managers = [getattr(self, "llm_server_manager", None)]
         return [manager for manager in managers if manager is not None]
 
+    def _start_rollout_profiling(self) -> None:
+        """Start rollout profiling."""
+        for manager in self._rollout_server_managers():
+            manager.start_profile()
+
+    def _stop_rollout_profiling(self) -> None:
+        """Stop rollout profiling."""
+        for manager in self._rollout_server_managers():
+            manager.stop_profile()
+
     def _start_profiling(self) -> None:
         """Start profiling for all worker groups if profiling is enabled."""
         do_profile = (
@@ -1206,11 +1280,7 @@ class PPOTrainer(ABC):
             if self.use_critic and id(self.critic_wg) not in seen:
                 seen.add(id(self.critic_wg))
                 self.critic_wg.start_profile(profile_step=self.global_steps)
-            # Rollout generation is decoupled from the training step in V1 (prompts are served
-            # asynchronously and consumed from the replay buffer), so the inference engines are
-            # profiled across the whole step rather than around a single generation call.
-            for manager in self._rollout_server_managers():
-                manager.start_profile()
+            self._start_rollout_profiling()
 
     def _stop_profiling(self) -> None:
         """Stop profiling for all worker groups if profiling is enabled."""
@@ -1248,8 +1318,6 @@ class PPOTrainer(ABC):
             if self.use_critic and id(self.critic_wg) not in seen:
                 seen.add(id(self.critic_wg))
                 self.critic_wg.stop_profile(run_command=run_command)
-            for manager in self._rollout_server_managers():
-                manager.stop_profile()
 
     def prepare_step(self) -> dict:
         return {}
@@ -1572,10 +1640,14 @@ class PPOTrainer(ABC):
                 and not distillation_loss_cfg.use_task_rewards
                 and not distillation_loss_cfg.use_policy_gradient
             )
+        score_centering = bool(
+            self.config.actor_rollout_ref.actor.policy_loss.get("rollout_correction", {}).get("score_centering", False)
+        )
         extra_info = {
             "calculate_entropy": calculate_entropy,
             "distillation_use_topk": distillation_use_topk,
             "distillation_only": distillation_only,
+            "score_centering": score_centering,
             "global_batch_size": ppo_mini_batch_size,
             "mini_batch_size": ppo_mini_batch_size,
             "epochs": self.config.actor_rollout_ref.actor.ppo_epochs,
@@ -1658,6 +1730,12 @@ class PPOTrainer(ABC):
         data["response_length"] = response_length.float()
         batch = DataProto(batch=data, meta_info={"global_token_num": global_token_num})
         metrics_batch = batch.select_idxs(non_padding_mask) if non_padding_mask.any() else batch
+        # Expose per-row turn counts under the V0 schema (agent_loop writes
+        # ``__num_turns__`` into the non-tensor batch) so compute_data_metrics
+        # emits the V0-compatible ``num_turns/{mean,max,min}`` tags in addition
+        # to the ``training/num_turns/*`` names computed below.
+        num_turns_for_metrics = num_turns[non_padding_mask] if non_padding_mask.any() else num_turns
+        metrics_batch.non_tensor_batch["__num_turns__"] = np.asarray(num_turns_for_metrics, dtype=np.int32)
 
         # 2. compute metrics
         metrics.update({"training/global_step": global_steps, "training/epoch": epoch})

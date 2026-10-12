@@ -174,6 +174,7 @@ class PromptSpec:
     sessions: int = 1
     global_steps: int = 0
     rewards: list[float] | None = None
+    canonical_rewards: list[float | list[float]] | None = None
     trajectory_keys: list[str] = field(default_factory=list)
 
 
@@ -195,6 +196,11 @@ class RolloutProducer(threading.Thread):
                     tag = {"is_prompt": False, "seq_len": 3, "global_steps": spec.global_steps}
                     if spec.rewards is not None:
                         fields["extra_fields"] = {"reward_extra_info": {"acc": float(spec.rewards[session_id])}}
+                    if spec.canonical_rewards is not None:
+                        reward = spec.canonical_rewards[session_id]
+                        fields["rm_scores"] = torch.tensor(
+                            reward if isinstance(reward, list) else [reward], dtype=torch.float32
+                        )
                     tq.kv_put(
                         key=key,
                         partition_id=self.partition_id,
@@ -1056,6 +1062,34 @@ def test_dapo_classification_cache_fetches_only_new_finished_groups(tq_init, par
         _clear_partition(partition_id)
 
 
+def test_dapo_reward_metric_uses_canonical_rm_scores(tq_init, partition_id):
+    same_reward = PromptSpec(
+        uid=_uid(),
+        status="finished",
+        sessions=2,
+        rewards=[0.0, 1.0],
+        canonical_rewards=[[0.25, 0.75], [1.0]],
+    )
+    different_reward = PromptSpec(
+        uid=_uid(),
+        status="finished",
+        sessions=2,
+        rewards=[1.0, 1.0],
+        canonical_rewards=[0.0, 1.0],
+    )
+    _produce(partition_id, [same_reward, different_reward]).join_and_check()
+
+    rb = _make_rb(filter_groups_metric="reward", refill_fn=lambda _n: None)
+    try:
+        rb._sync_metadata_from_transfer_queue()
+        filtered_uids, filtered_counts = rb._dapo_filtered_keys(partition_id)
+
+        assert filtered_uids == {same_reward.uid}
+        assert dict(filtered_counts) == {1.0: 1}
+    finally:
+        _clear_partition(partition_id)
+
+
 def test_terminal_eviction_reasons_has_no_cross_call_hidden_state(tq_init, partition_id):
     """An interleaved validation lookup must not overwrite a pending training breakdown."""
     all_zero = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 0.0])
@@ -1430,35 +1464,17 @@ def test_register_prompts_marks_pending_groups(tq_init, trainer_mode, persists_f
         tq.kv_clear(keys=uids, partition_id="train")
 
 
-def test_async_checkpoint_saves_transfer_queue_when_supported(monkeypatch, tmp_path):
+def test_async_checkpoint_saves_transfer_queue(monkeypatch, tmp_path):
     saves = []
-    monkeypatch.setattr(tq, "save_checkpoint", lambda path, metadata: saves.append((path, metadata)), raising=False)
-    monkeypatch.setattr(tq, "load_checkpoint", lambda _path: None, raising=False)
-    monkeypatch.setattr(tq, "__version__", "0.1.9", raising=False)
+    monkeypatch.setattr(tq, "save_checkpoint", lambda path, metadata: saves.append((path, metadata)))
     rb = _make_rb(trainer_mode="colocate_async")
 
-    assert rb._save_tq_checkpoint(str(tmp_path / "transfer_queue"), global_steps=7) is True
+    rb._save_tq_checkpoint(str(tmp_path / "transfer_queue"), global_steps=7)
     assert saves == [(str(tmp_path / "transfer_queue"), {"global_steps": 7})]
 
 
-def test_async_checkpoint_skips_transfer_queue_without_api_support(monkeypatch, tmp_path):
-    monkeypatch.setattr(tq, "save_checkpoint", None, raising=False)
-    monkeypatch.setattr(tq, "load_checkpoint", None, raising=False)
-    rb = _make_rb(trainer_mode="colocate_async")
-    tq_path = tmp_path / "transfer_queue"
-
-    assert rb._save_tq_checkpoint(str(tq_path), global_steps=7) is False
-    assert not tq_path.exists()
-    tq_path.mkdir()
-    assert rb._load_tq_checkpoint(str(tq_path)) is False
-
-
 def test_async_checkpoint_load_skips_missing_snapshot(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        tq, "load_checkpoint", lambda _path: pytest.fail("missing snapshot must not load"), raising=False
-    )
-    monkeypatch.setattr(tq, "save_checkpoint", lambda *_args, **_kwargs: None, raising=False)
-    monkeypatch.setattr(tq, "__version__", "0.1.9", raising=False)
+    monkeypatch.setattr(tq, "load_checkpoint", lambda _path: pytest.fail("missing snapshot must not load"))
     rb = _make_rb(trainer_mode="colocate_async")
 
     assert rb._load_tq_checkpoint(str(tmp_path / "transfer_queue")) is False

@@ -28,9 +28,8 @@ The method is bound to a lightweight stub ``self`` exposing a fake
 trainer.
 
 A second group of tests covers the ``tq.save_checkpoint``/``tq.load_checkpoint``
-round-trip that backs checkpoint consistency. These call the real checkpoint APIs,
-so they skip on builds that lack them (the same ``_tq_supports_checkpoint`` gate the
-dataloader uses to decide whether to save/load).
+round-trip that backs checkpoint consistency (matching ``save_checkpoint``/
+``load_checkpoint``), calling the real checkpoint APIs.
 """
 
 import uuid
@@ -44,13 +43,6 @@ import verl.trainer.ppo.v1.streaming_dataloader as streaming_module
 from verl.trainer.ppo.v1.streaming_dataloader import StreamingDataloaderAsync
 from verl.utils import tensordict_utils as tu
 
-# The save/load round-trip tests call the real APIs, so they must skip on builds that do not provide them.
-_REAL_TQ_SUPPORTS_CHECKPOINT = streaming_module._tq_supports_checkpoint
-requires_tq_checkpoint = pytest.mark.skipif(
-    not _REAL_TQ_SUPPORTS_CHECKPOINT(),
-    reason="TransferQueue >= 0.1.9 with save_checkpoint/load_checkpoint is required",
-)
-
 
 @pytest.fixture(scope="module")
 def tq_init():
@@ -63,25 +55,6 @@ def tq_init():
 def partition_id():
     """A unique partition per test to isolate TransferQueue state across tests."""
     return f"test-{uuid.uuid4().hex}"
-
-
-def test_tq_checkpoint_guard_checks_version_and_api_capabilities(monkeypatch):
-    """Checkpoint support requires TransferQueue 0.1.9 or newer and both callable APIs."""
-
-    def checkpoint_api(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(tq, "save_checkpoint", checkpoint_api, raising=False)
-    monkeypatch.setattr(tq, "load_checkpoint", checkpoint_api, raising=False)
-
-    monkeypatch.setattr(tq, "__version__", "0.1.8", raising=False)
-    assert _REAL_TQ_SUPPORTS_CHECKPOINT() is False
-
-    monkeypatch.setattr(tq, "__version__", "0.1.9")
-    assert _REAL_TQ_SUPPORTS_CHECKPOINT() is True
-
-    monkeypatch.setattr(tq, "load_checkpoint", None)
-    assert _REAL_TQ_SUPPORTS_CHECKPOINT() is False
 
 
 def _uid() -> str:
@@ -338,12 +311,10 @@ def test_reissue_noop_on_empty_partition(tq_init, partition_id):
 # --------------------------------------------------------------------------- #
 # tq.save_checkpoint / tq.load_checkpoint round-trip
 #
-# These call the real TransferQueue checkpoint APIs (matching _save_checkpoint/_load_checkpoint),
-# so they skip on builds that lack them.
+# These call the real TransferQueue checkpoint APIs (matching save_checkpoint/load_checkpoint).
 # --------------------------------------------------------------------------- #
 
 
-@requires_tq_checkpoint
 def test_save_load_roundtrip_restores_prompts(tq_init, partition_id, tmp_path):
     """save_checkpoint then load_checkpoint (into a cleared queue) restores prompt status and data."""
     pending = _uid()
@@ -382,7 +353,6 @@ def test_save_load_roundtrip_restores_prompts(tq_init, partition_id, tmp_path):
         _clear_partition(partition_id)
 
 
-@requires_tq_checkpoint
 def test_save_load_then_reissue_only_inflight(tq_init, partition_id, tmp_path):
     """End-to-end recovery: after a save/load round-trip, only in-flight prompts are re-issued."""
     pending = _uid()
@@ -403,5 +373,28 @@ def test_save_load_then_reissue_only_inflight(tq_init, partition_id, tmp_path):
         submitted_uids = {uid for batch in stub.agent_loop_manager.batches for uid in batch["uid"]}
         assert submitted_uids == {pending}
         assert int(stub.agent_loop_manager.batches[0]["global_steps"]) == 5
+    finally:
+        _clear_partition(partition_id)
+
+
+def test_save_load_terminal_only_reissues_nothing(tq_init, partition_id, tmp_path):
+    """A terminal-only checkpoint restores its groups for sampling without re-issuing any of them."""
+    finished = _uid()
+    failure = _uid()
+    _submit_prompt(partition_id, finished, "finished", global_steps=6)
+    _submit_prompt(partition_id, failure, "failure", global_steps=6)
+    _add_trajectory(partition_id, finished, session_id=0, global_steps=6)
+
+    ckpt_dir = str(tmp_path / "transfer_queue")
+    tq.save_checkpoint(ckpt_dir, metadata={"global_steps": 6})
+    _clear_partition(partition_id)
+    tq.load_checkpoint(ckpt_dir)
+
+    stub = _make_dataloader_stub(global_steps=7)
+    try:
+        assert stub._reissue_inflight_prompts(partition_id) == 0
+        assert stub.agent_loop_manager.batches == []
+        assert _prompt_status(partition_id, finished) == "finished"
+        assert _prompt_status(partition_id, failure) == "failure"
     finally:
         _clear_partition(partition_id)

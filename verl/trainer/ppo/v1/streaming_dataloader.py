@@ -27,7 +27,6 @@ import numpy as np
 import ray
 import torch
 import transfer_queue as tq
-from packaging.version import InvalidVersion, Version
 from tensordict import TensorDict
 from tensordict.tensorclass import NonTensorData
 from torchdata.stateful_dataloader import StatefulDataLoader
@@ -47,18 +46,7 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
 VERL_REPLAY_BUFFER_DEBUG_INTERVAL_SECONDS = int(os.getenv("VERL_REPLAY_BUFFER_DEBUG_INTERVAL_SECONDS", "60"))
 
 DAPO_FILTERED_REWARD_COUNTS_KEY = "_dapo_filtered_reward_counts"
-
-
-def _tq_supports_checkpoint() -> bool:
-    try:
-        version_supported = Version(getattr(tq, "__version__", "")) >= Version("0.1.9")
-    except InvalidVersion:
-        return False
-    return (
-        version_supported
-        and callable(getattr(tq, "save_checkpoint", None))
-        and callable(getattr(tq, "load_checkpoint", None))
-    )
+FILTER_GROUPS_REWARD_METRIC = "reward"
 
 
 def _accumulate_eviction_metrics(acc: dict, new: dict) -> None:
@@ -249,7 +237,7 @@ class StreamingDataloader:
     def _init_replay_state(
         self,
         *,
-        max_off_policy_threshold: int,
+        max_off_policy_threshold: int | None,
         max_off_policy_strategy: str,
         sampler_kwargs,
         poll_interval: float,
@@ -260,9 +248,16 @@ class StreamingDataloader:
         self.sampler_kwargs = sampler_kwargs
         self.filter_groups_metric = filter_groups_metric
         self.poll_interval = poll_interval
-        assert isinstance(self.max_off_policy_threshold, int) and self.max_off_policy_threshold > 0, (
-            f"Invalid max off policy threshold: {self.max_off_policy_threshold}, must be an integer greater than 0"
-        )
+        if self.max_off_policy_threshold is not None:
+            assert isinstance(self.max_off_policy_threshold, int) and self.max_off_policy_threshold > 0, (
+                f"Invalid max off policy threshold: {self.max_off_policy_threshold}, "
+                "must be an integer greater than 0, or null to disable off-policy version control"
+            )
+        else:
+            logger.info(
+                "[StreamingDataloader] off-policy version control disabled (max_off_policy_threshold is null): "
+                "no samples will be dropped or awaited for staleness"
+            )
         assert self.max_off_policy_strategy in ["drop", "wait"], (
             f"Invalid max off policy strategy: {self.max_off_policy_strategy}, must be one of ['drop', 'wait']"
         )
@@ -700,6 +695,7 @@ class StreamingDataloader:
 
         new_finished_uids = finished_uids - classification_cache.keys()
         trajectory_keys = [key for key in self.partitions[partition_id] if tq_schema.uid_of(key) in new_finished_uids]
+        use_canonical_reward = self.filter_groups_metric == FILTER_GROUPS_REWARD_METRIC
         metrics_by_uid: dict[str, list[float]] = defaultdict(list)
         missing_metric_uids = new_finished_uids - {tq_schema.uid_of(key) for key in trajectory_keys}
 
@@ -707,20 +703,23 @@ class StreamingDataloader:
             data = tq.kv_batch_get(
                 keys=trajectory_keys,
                 partition_id=partition_id,
-                select_fields=["extra_fields"],
+                select_fields=["rm_scores"] if use_canonical_reward else ["extra_fields"],
             )
-            extra_fields_list = list(data["extra_fields"])
+            metric_data = list(data["rm_scores"] if use_canonical_reward else data["extra_fields"])
         else:
-            extra_fields_list = []
+            metric_data = []
 
-        for key, extra_fields in zip(trajectory_keys, extra_fields_list, strict=True):
+        for key, value in zip(trajectory_keys, metric_data, strict=True):
             uid = tq_schema.uid_of(key)
-            extra_fields = getattr(extra_fields, "data", extra_fields)
-            reward_extra_info = extra_fields.get("reward_extra_info", {}) if isinstance(extra_fields, dict) else {}
-            if self.filter_groups_metric not in reward_extra_info:
-                missing_metric_uids.add(uid)
+            if use_canonical_reward:
+                metrics_by_uid[uid].append(float(value.sum().item()))
             else:
-                metrics_by_uid[uid].append(float(reward_extra_info[self.filter_groups_metric]))
+                extra_fields = getattr(value, "data", value)
+                reward_extra_info = extra_fields.get("reward_extra_info", {}) if isinstance(extra_fields, dict) else {}
+                if self.filter_groups_metric not in reward_extra_info:
+                    missing_metric_uids.add(uid)
+                else:
+                    metrics_by_uid[uid].append(float(reward_extra_info[self.filter_groups_metric]))
 
         if missing_metric_uids:
             raise RuntimeError(
@@ -848,11 +847,6 @@ class StreamingDataloaderAsync(StreamingDataloader):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if int(self.config.trainer.get("save_freq", 0) or 0) > 0 and not _tq_supports_checkpoint():
-            logger.warning(
-                "TransferQueue checkpoint APIs are unavailable; async checkpoints will preserve the "
-                "dataloader cursor but not in-flight rollout state"
-            )
         # Validation may start the coordinator before load_checkpoint establishes train state.
         self._train_state_ready = False
         self._validation_active = False
@@ -1015,7 +1009,11 @@ class StreamingDataloaderAsync(StreamingDataloader):
         selected_prompt_uids, partition_snapshot, prompt_global_steps_snapshot = self._select_prompt_uids(
             partition_id, sampleable_keys, batch_size
         )
-        if partition_id != "val" and self.max_off_policy_strategy == "drop":
+        if (
+            partition_id != "val"
+            and self.max_off_policy_threshold is not None
+            and self.max_off_policy_strategy == "drop"
+        ):
             selected_spans = [
                 global_steps - prompt_global_steps_snapshot.get(uid, global_steps) + 1 for uid in selected_prompt_uids
             ]
@@ -1066,7 +1064,7 @@ class StreamingDataloaderAsync(StreamingDataloader):
         return total
 
     def _stale_terminal_keys(self, global_steps: int, partition_id: str) -> set[str]:
-        if partition_id == "val" or self.max_off_policy_strategy != "drop":
+        if partition_id == "val" or self.max_off_policy_threshold is None or self.max_off_policy_strategy != "drop":
             return set()
         prompt_global_steps = self.prompt_global_steps[partition_id]
         terminal_keys = self.finished_keys[partition_id]
@@ -1095,7 +1093,7 @@ class StreamingDataloaderAsync(StreamingDataloader):
     ) -> bool:
         # Dropless off-policy control: block sampling while any in-flight prompt has reached the staleness
         # threshold, so it can finish and be trained on instead of dropped.
-        if self.max_off_policy_strategy == "wait":
+        if self.max_off_policy_threshold is not None and self.max_off_policy_strategy == "wait":
             for key in self.pending_keys[partition_id] | self.running_keys[partition_id]:
                 prompt_global_steps = self.prompt_global_steps[partition_id][key]
                 if (global_steps - prompt_global_steps + 1) >= self.max_off_policy_threshold:
@@ -1139,22 +1137,14 @@ class StreamingDataloaderAsync(StreamingDataloader):
         self.agent_loop_manager.generate_sequences(batch)
         return len(inflight_uids)
 
-    def _save_tq_checkpoint(self, path: str, global_steps: int) -> bool:
-        """Persist TransferQueue state; return ``False`` when the installed TransferQueue cannot checkpoint."""
-        if not _tq_supports_checkpoint():
-            logger.warning(
-                "Skipping TransferQueue checkpoint because its checkpoint APIs are unavailable; "
-                "in-flight rollout state will not be recoverable"
-            )
-            return False
+    def _save_tq_checkpoint(self, path: str, global_steps: int) -> None:
         tq.save_checkpoint(path, metadata={"global_steps": global_steps})
-        return True
 
     def _load_tq_checkpoint(self, path: str) -> bool:
         """Restore TransferQueue state; return ``False`` when there is nothing restorable."""
-        if not (_tq_supports_checkpoint() and os.path.exists(path)):
+        if not os.path.exists(path):
             logger.warning(
-                "Skipping TransferQueue restore because its checkpoint APIs or checkpoint data are unavailable; "
+                f"Skipping TransferQueue restore because {path} does not exist; "
                 "in-flight rollout state will not be recovered"
             )
             return False
