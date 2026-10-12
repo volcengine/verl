@@ -17,6 +17,9 @@ import pytest
 import torch
 
 from tests.trainer.ppo.test_score_centering_shared_scores_on_cpu import fixture, loss, reference, weight_fn
+from tests.trainer.ppo.test_score_centering_shared_scores_on_cpu import (
+    test_low_entropy_support_gradient_matches_fp64_expected_score as check_low_entropy_expected_score,
+)
 from verl.trainer.ppo.score_centering import score_centering_shared_scores_from_logits
 
 pytest.importorskip("triton")
@@ -62,3 +65,12 @@ def test_shared_cuda_scores_match_mixed_route_oracle(dtype, mode, strided_inputs
         support = torch.zeros_like(initial, dtype=torch.bool).scatter_(-1, ids, q_head.isfinite())
         outside = actual_logits.grad.masked_fill(support | ~complete.unsqueeze(-1), 0)
         assert torch.equal(outside, torch.zeros_like(outside))
+
+
+@pytest.mark.parametrize("mode", ["none", "tis"])
+@pytest.mark.parametrize(
+    "dtype, common_offset",
+    [(torch.float32, 64.0), (torch.float32, 65536.0), (torch.bfloat16, 64.0)],
+)
+def test_shared_cuda_low_entropy_gradient_matches_fp64_expected_score(mode, dtype, common_offset):
+    check_low_entropy_expected_score(mode, dtype, common_offset, device="cuda")
