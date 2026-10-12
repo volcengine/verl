@@ -35,3 +35,15 @@ def test_call_based_correct_solution_gets_full_reward(tests):
 @pytest.mark.parametrize("tests", [APPS_LAYOUT, STRING_LAYOUT], ids=["apps_layout", "string_layout"])
 def test_call_based_wrong_solution_gets_no_reward(tests):
     assert default_compute_score("apps", WRONG, json.dumps(tests)) == 0.0
+
+
+@pytest.mark.parametrize(
+    "tests",
+    [
+        {"fn_name": "add", "inputs": [[1, 2], [3, 4], [5, 999]], "outputs": [3, 7, 999]},
+        {"fn_name": "add", "inputs": ["1\n2", "3\n4", "5\n999"], "outputs": ["3", "7", "999"]},
+    ],
+    ids=["apps_layout", "string_layout"],
+)
+def test_call_based_partial_solution_gets_partial_reward(tests):
+    assert default_compute_score("apps", RIGHT, json.dumps(tests)) == pytest.approx(2 / 3)
