@@ -107,6 +107,7 @@ def test_r3_alignment_mask_and_dcp_collection():
 
 
 def test_r3_alignment_expands_deepseek_v41_compact_image_routes():
+    """Verify compact rollout routes expand around actor image spans and mask those spans from replay."""
     input_ids = _nested([torch.arange(9)])
     routes = _nested(
         [
@@ -130,6 +131,7 @@ def test_r3_alignment_expands_deepseek_v41_compact_image_routes():
 
 
 def test_r3_alignment_keeps_full_deepseek_v41_routes_but_uses_native_image_mask():
+    """Verify already-expanded DeepSeek V4.1 route tensors retain their values during alignment."""
     input_ids = _nested([torch.arange(6)])
     routes = _nested(
         [
@@ -145,6 +147,7 @@ def test_r3_alignment_keeps_full_deepseek_v41_routes_but_uses_native_image_mask(
 
 
 def test_r3_alignment_accepts_partial_deepseek_v41_image_expansion():
+    """Verify partially expanded image routes preserve existing rows and zero-fill missing visual positions."""
     input_ids = _nested([torch.arange(10)])
     # The rollout has six text rows and two visual rows, while the actor
     # expands the image span to four visual positions.

@@ -672,6 +672,7 @@ class vLLMHttpServer:
         budget_warnings = getattr(self, "_topk_budget_warnings", set())
         warn_topk_logprob_budget(sampling_params, budget_warnings)
         self._topk_budget_warnings = budget_warnings
+        actor_prompt_ids = prompt_ids
         prompt_ids = qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         multi_modal_data = {}
         if image_data is not None:
@@ -792,6 +793,8 @@ class vLLMHttpServer:
 
         routed_experts = None
         if self.config.enable_rollout_routing_replay:
+            if final_res.prompt_token_ids != actor_prompt_ids:
+                raise ValueError("Rollout routing replay requires identical actor and rollout prompt tokens")
             routed_experts = final_res.outputs[0].routed_experts
 
         # Determine stop reason from finish_reason
@@ -940,6 +943,7 @@ class vLLMHttpServer:
             logger.info("skip wake_up in standalone mode")
 
     async def sleep(self):
+        """Release rollout resources on the leading node according to the configured rollout and sleep modes."""
         if self.node_rank != 0 or not self.config.free_cache_engine:
             return
 

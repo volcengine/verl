@@ -35,6 +35,8 @@ if [ "${USE_FP8}" = 1 ]; then
     # Transformer Engine import; TE applies it to input, weight, and gradient
     # block quantizers consistently.
     export NVTE_FP8_BLOCK_SCALING_FP32_SCALES=1
+    ACTOR_TP=${ACTOR_TP:-4}
+    REF_TP=${REF_TP:-4}
 fi
 LORA_MERGE=${LORA_MERGE:-False}
 LORA_DTYPE=${LORA_DTYPE:-bf16}
@@ -55,8 +57,8 @@ LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-0}
 CLIP_GRAD=${CLIP_GRAD:-1.0}
 OPTIMIZER_OFFLOAD_FRACTION=${OPTIMIZER_OFFLOAD_FRACTION:-1}
 
-# TP=4 keeps the 64-output beta projection aligned to FP8 GEMM's 16-column
-# minimum; safe for both BF16 and FP8.
+# BF16 defaults to TP=8; FP8 defaults to TP=4 to keep the 64-output beta
+# projection aligned to FP8 GEMM's 16-column minimum.
 ACTOR_TP=${ACTOR_TP:-8}
 ACTOR_PP=${ACTOR_PP:-1}
 ACTOR_VPP=${ACTOR_VPP:-null}
@@ -285,11 +287,9 @@ EXTRA=(
 # FP8 with FP8 KV cache. kda_disable_fp8 and mla_proj_disable_quantization keep the
 # KDA and MLA attention paths in BF16 for numerical stability. The TE backward
 # amax_epsilon=1e-12 fix (in Megatron-LM fp8_utils.py) is required to avoid NaN
-# grad_norm from all-zero gradient blocks. TP is forced to 4 to keep the
+# grad_norm from all-zero gradient blocks. TP defaults to 4 to keep the
 # 64-output beta projection aligned to FP8 GEMM's 16-column minimum.
 if [ "${USE_FP8}" = 1 ]; then
-    ACTOR_TP=4
-    REF_TP=4
     ACTOR+=(
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8=hybrid
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8_recipe=blockwise

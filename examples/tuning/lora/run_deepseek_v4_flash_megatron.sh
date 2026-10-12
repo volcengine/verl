@@ -185,7 +185,7 @@ if [ "${ACTOR_CP}" -gt 1 ]; then
     CP_ARGS=(
         ++actor_rollout_ref.actor.megatron.override_transformer_config.cp_partition_mode=contiguous
         ++actor_rollout_ref.actor.megatron.override_transformer_config.sequence_packing_scheduler=dp_balanced
-        ++actor_rollout_ref.actor.megatron.override_transformer_config.max_seqlen_per_dp_cp_rank=$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH) / ACTOR_CP))
+        ++actor_rollout_ref.actor.megatron.override_transformer_config.max_seqlen_per_dp_cp_rank=$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + ACTOR_CP - 1) / ACTOR_CP))
     )
 fi
 

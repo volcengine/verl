@@ -398,6 +398,7 @@ except ImportError:
 
 
 def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
+    """Remove recognized module wrappers while preserving a single-model or list return shape."""
     module_instances = tuple(m for m in module_instances if isinstance(m, type))
     return_list = True
     if not isinstance(model, list):

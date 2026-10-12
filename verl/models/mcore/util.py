@@ -33,6 +33,12 @@ ContextParallelLayout = Literal["zigzag", "contiguous"]
 
 
 def build_deepseek_v41_image_inputs(multi_modal_inputs: dict, input_ids: torch.Tensor, batch_size: int | None = None):
+    """Convert processor tensors into per-sample Megatron ImageInput lists.
+
+    Image spans are located by vision_token_types and consume image grids and
+    patches in batch order. Patches and token types move to input_ids.device.
+    Return None for empty inputs; reject unterminated spans or missing grids.
+    """
     if not multi_modal_inputs:
         return None
 
@@ -60,6 +66,11 @@ def build_deepseek_v41_image_inputs(multi_modal_inputs: dict, input_ids: torch.T
                 position += 1
             position += 1
 
+            # expand_image_tokens encodes the end-of-image type as 3.
+            if position > len(row) or row[position - 1] != 3:
+                raise ValueError(f"Unterminated image span in batch row {batch_index} at position {start}")
+            if grid_index >= len(grids):
+                raise ValueError(f"Missing image grid for span in batch row {batch_index} at position {start}")
             n_vit_h, n_vit_w = grids[grid_index]
             patch_end = patch_start + n_vit_h * n_vit_w
             images[batch_index].append(

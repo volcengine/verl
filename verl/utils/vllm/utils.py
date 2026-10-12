@@ -244,6 +244,7 @@ def resolve_weight_name(model, name: str, model_weight_names: set[str]) -> str:
     is_leaf = leaf in {"weight", "bias"} or leaf.endswith(("_weight", "_bias"))
 
     def _exists(candidate: str) -> bool:
+        """Check the live weight namespace, including mapped names and packed projection owners."""
         # Bridge names are HF-style; the live namespace carries a ``model.``
         # prefix and regex renames. Reconcile via the WeightsMapper rather than
         # a hardcoded prepend.

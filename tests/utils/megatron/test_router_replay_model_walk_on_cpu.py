@@ -189,6 +189,7 @@ def test_mtp_routers_are_not_addressed(orphans_then_model, wrapped):
 
 @pytest.mark.parametrize("route_count", [0, 3, 6])
 def test_invalid_route_layer_count_is_rejected(orphans_then_model, tf_config, route_count):
+    """Verify replay rejects route tensors whose layer count does not match the model."""
     _, model = orphans_then_model
     routes = torch.zeros(1, NUM_TOKENS, route_count, TOPK, dtype=torch.int64)
     attention_mask = torch.ones(1, NUM_TOKENS, dtype=torch.bool)

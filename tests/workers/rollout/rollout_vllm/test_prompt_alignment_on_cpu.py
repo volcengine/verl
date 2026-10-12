@@ -34,10 +34,12 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
     ],
 )
 def test_generate_checks_expanded_replay_prompt(rollout_prompt, replay, raises):
+    """Verify replay validates expanded rollout prompt alignment after image-token deduplication."""
     routes = np.zeros((4, 2, 2), dtype=np.uint16)
     submitted = []
 
     async def generate(**kwargs):
+        """Capture submitted prompt tokens and yield a synthetic rollout with expert routes."""
         submitted.append(kwargs["prompt"]["prompt_token_ids"])
         yield SimpleNamespace(
             prompt_token_ids=rollout_prompt,

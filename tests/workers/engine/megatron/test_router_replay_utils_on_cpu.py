@@ -60,6 +60,7 @@ def _config(num_layers=48, moe_layer_freq=1, virtual_pipeline_model_parallel_siz
 
 
 def test_is_moe_layer_uses_hybrid_expert_symbols():
+    """Verify hybrid-pattern expert symbols determine which layers use MoE routing."""
     config = _config(num_layers=6)
     config.hybrid_pattern = "VEVEVE"
 
@@ -311,6 +312,7 @@ def test_merge_router_topk_indices_requires_bshd_attention_mask(monkeypatch):
 
 
 def test_merge_router_topk_indices_restores_bshd_sequence_major_rows(monkeypatch):
+    """Verify dense sequence-major route rows merge into unpadded per-sample tensors."""
     recorded = torch.tensor([[10], [20], [11], [21], [0], [22], [0], [0]], dtype=torch.int64)
     router = _FakeRouter(recorded)
     input_ids = torch.nested.as_nested_tensor(
@@ -446,6 +448,7 @@ def test_set_router_replay_data_requires_bshd_attention_mask():
 
 
 def test_set_router_replay_data_pads_bshd_in_sequence_major_order(monkeypatch):
+    """Verify dense replay routes and masks are padded and flattened in sequence-major order."""
     router = _FakeRouter()
     routes = torch.nested.as_nested_tensor(
         [
@@ -480,6 +483,7 @@ def test_set_router_replay_data_pads_bshd_in_sequence_major_order(monkeypatch):
 
 
 def _patch_replay_plumbing(monkeypatch, layer_routers):
+    """Stub packing, parallel scattering, and router discovery for CPU replay tests."""
     monkeypatch.setattr(rr_utils, "device_name", "cpu")
     monkeypatch.setattr(rr_utils, "preprocess_packed_seqs", lambda tensor, _mask, **_kwargs: (tensor, object()))
     monkeypatch.setattr(rr_utils, "scatter_to_sequence_parallel_region", lambda tensor: tensor)
@@ -521,6 +525,7 @@ def test_set_router_replay_data_rejects_incomplete_model_routes(monkeypatch):
 
 
 def test_replay_topk_computes_native_routes_only_for_unmasked_rows():
+    """Verify native top-k runs only for rows outside the replay mask."""
     router = RouterReplay()
     router.set_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
     target_indices = torch.tensor([[0, 1], [2, 3], [4, 5], [1, 6], [0, 7]])
@@ -538,6 +543,7 @@ def test_replay_topk_computes_native_routes_only_for_unmasked_rows():
     native_rows_seen = []
 
     def compute_topk(values, topk, num_groups=None, group_topk=None):
+        """Record the number of rows requiring native routing and compute their top-k experts."""
         del num_groups, group_topk
         native_rows_seen.append(values.shape[0])
         return torch.topk(values, k=topk, dim=1)

@@ -172,6 +172,7 @@ def get_num_layers_to_build(config: TransformerConfig, vp_stage: int | None = No
 
 
 def is_moe_layer(tf_config, layer_idx):
+    """Identify an MoE layer from the hybrid expert pattern or the configured MoE layer frequency."""
     hybrid_pattern = getattr(tf_config, "hybrid_pattern", None)
     if isinstance(hybrid_pattern, str):
         main_pattern = hybrid_pattern.split("/", 1)[0].replace("|", "")

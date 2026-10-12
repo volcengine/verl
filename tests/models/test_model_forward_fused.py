@@ -45,6 +45,7 @@ def test_mcore_gpt_forward_has_native_output_processor_contract():
     ],
 )
 def test_engine_registry_uses_supported_model_layout(monkeypatch, architecture, vision_model):
+    """Verify registered architectures select the expected vision-model forwarding mode."""
     config = SimpleNamespace(architectures=[architecture], vision_config=object())
     monkeypatch.setattr(registry, "gptmodel_forward_model_engine", lambda **kwargs: kwargs)
     assert registry.get_mcore_engine_forward_fn(config)()["vision_model"] is vision_model
@@ -52,6 +53,7 @@ def test_engine_registry_uses_supported_model_layout(monkeypatch, architecture, 
 
 @pytest.mark.parametrize("model_cls", [GPTModel, mff.HybridModel])
 def test_native_hook_selection_preserves_forward_and_is_idempotent(monkeypatch, model_cls):
+    """Verify repeated hook selection preserves native forward and inspects its signature only once."""
     if model_cls is None:
         pytest.skip("Megatron does not provide HybridModel.")
     model = _new_uninitialized_model(model_cls)
@@ -80,6 +82,7 @@ def test_native_hook_selection_preserves_forward_and_is_idempotent(monkeypatch, 
 
 @pytest.mark.parametrize("model_cls", [GPTModel, mff.HybridModel])
 def test_vlm_patching_target_preserves_wrapper_hook(model_cls):
+    """Verify hybrid VLM hooks target the wrapper while GPT hooks target the inner language model."""
     if model_cls is None:
         pytest.skip("Megatron does not provide HybridModel.")
     wrapper = torch.nn.Module()

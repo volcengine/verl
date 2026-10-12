@@ -32,6 +32,7 @@ from verl.workers.rollout.utils import qwen2_5_vl_dedup_image_tokens
     ],
 )
 def test_dedup_preserves_text_and_modality_boundaries(processor_name, tokens, expected):
+    """Verify image-token deduplication preserves text, modality boundaries, and the original input list."""
     processor = SimpleNamespace(image_processor=type(processor_name, (), {})(), image_token_id=10, video_token_id=11)
     original = tokens.copy()
     assert qwen2_5_vl_dedup_image_tokens(tokens, processor) == expected
@@ -40,5 +41,6 @@ def test_dedup_preserves_text_and_modality_boundaries(processor_name, tokens, ex
 
 @pytest.mark.parametrize("processor", [None, SimpleNamespace(), SimpleNamespace(image_processor=object())])
 def test_unrelated_processors_are_unchanged(processor):
+    """Verify unsupported processors return the original token list without deduplication."""
     tokens = [1, 10, 10, 2]
     assert qwen2_5_vl_dedup_image_tokens(tokens, processor) is tokens

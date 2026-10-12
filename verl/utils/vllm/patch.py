@@ -87,6 +87,7 @@ except ImportError:
 
 
 def patch_vllm_moe_model_weight_loader(model):
+    """Attach expert weight loaders to fused MoE parameters in supported vLLM models."""
     # this is a work around to load the weight of vllm fused moe model
     # it is from a bug from vllm 0.8.2
     # all the weights are supposed to have a weight_loader, but the moe weights

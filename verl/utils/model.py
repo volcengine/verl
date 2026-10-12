@@ -82,6 +82,7 @@ def update_model_config(module_config, override_config_kwargs):
 
 
 def get_huggingface_actor_config(model_name: str, override_config_kwargs=None, trust_remote_code=False) -> dict:
+    """Load an actor config with a vLLM fallback for unknown models, then apply the requested overrides."""
     if override_config_kwargs is None:
         override_config_kwargs = {}
     assert isinstance(override_config_kwargs, dict), (
@@ -551,6 +552,7 @@ def get_hf_auto_model_class(hf_config):
 
 
 def _pad_last_dim_and_cat(values: list[torch.Tensor], key: str) -> torch.Tensor:
+    """Pad compatible tensors on their last axis and batch-concatenate, using -1 for vision token types."""
     if not values:
         raise ValueError(f"Cannot merge empty multi-modal input list for key {key!r}.")
 

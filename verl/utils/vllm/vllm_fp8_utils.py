@@ -428,6 +428,7 @@ def process_weights_after_loading_for_vllm14(self, layer) -> None:
 
 
 def process_weights_after_loading_moe_for_vllm14(self, layer) -> None:
+    """Convert reloaded FP8 expert weights to kernel format and rebuild the compatible vLLM MoE kernel."""
     # removed the reentrancy guard here for refit
     from vllm.model_executor.layers.fused_moe.oracle.fp8 import convert_to_fp8_moe_kernel_format, make_fp8_moe_kernel
 

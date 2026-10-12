@@ -76,6 +76,7 @@ refresh_weight_caches = _weight_update_utils.refresh_weight_caches
 
 class Glm5NextLinearAttention(torch.nn.Module):
     def __init__(self, build_cache=True):
+        """Create fake convolution projections and an optional merged cache allocated in inference mode."""
         super().__init__()
         for kind in "qkv":
             setattr(self, f"{kind}_conv1d", torch.nn.Conv1d(4, 4, 4, groups=4, bias=False))
@@ -84,6 +85,7 @@ class Glm5NextLinearAttention(torch.nn.Module):
 
 
 def test_refresh_conv_cache_preserves_inference_storage():
+    """Verify repeated convolution-cache refreshes update values while preserving the inference storage."""
     layer = Glm5NextLinearAttention()
     cached = layer._merged_conv_weight
     original_pointer = cached.data_ptr()
@@ -99,6 +101,7 @@ def test_refresh_conv_cache_preserves_inference_storage():
 
 
 def test_refresh_conv_cache_keeps_lazy_initialization():
+    """Verify refresh leaves absent convolution caches and unrelated linear modules untouched."""
     layer = Glm5NextLinearAttention(build_cache=False)
     assert refresh_weight_caches(layer) == 0
     assert layer._merged_conv_weight is None
@@ -107,6 +110,7 @@ def test_refresh_conv_cache_keeps_lazy_initialization():
 
 class Glm5NextMLAAttention(torch.nn.Module):
     def __init__(self, build_cache=True):
+        """Create a BF16 indexer projection and an optional FP32 cache allocated in inference mode."""
         super().__init__()
         self.indexer = torch.nn.Module()
         self.indexer.head_dim = 4
@@ -116,6 +120,7 @@ class Glm5NextMLAAttention(torch.nn.Module):
 
 
 def test_refresh_indexer_cache_preserves_fp32_inference_storage():
+    """Verify indexer refresh updates the FP32 projection cache without replacing its inference storage."""
     layer = Glm5NextMLAAttention()
     cached = layer.indexer._wp_fp32
     original_pointer = cached.data_ptr()
@@ -131,6 +136,7 @@ def test_refresh_indexer_cache_preserves_fp32_inference_storage():
 
 
 def test_refresh_indexer_cache_keeps_lazy_initialization():
+    """Verify indexer refresh leaves an absent cache or absent indexer uninitialized."""
     layer = Glm5NextMLAAttention(build_cache=False)
     assert refresh_weight_caches(layer) == 0
     assert layer.indexer._wp_fp32 is None
@@ -237,6 +243,7 @@ vLLMColocateWorkerExtension = _vllm_rollout_utils.vLLMColocateWorkerExtension
 
 
 def test_vllm_refreshes_derived_caches_after_all_weight_buckets(monkeypatch):
+    """Verify derived caches refresh in place only after all weight buckets and post-load processing complete."""
     model = torch.nn.Sequential(Glm5NextLinearAttention(), Glm5NextMLAAttention())
     worker = object.__new__(vLLMColocateWorkerExtension)
     worker.model_runner = _FakeModelRunner(model)
@@ -249,6 +256,7 @@ def test_vllm_refreshes_derived_caches_after_all_weight_buckets(monkeypatch):
     cached_gate = model[1].indexer._wp_fp32
 
     def load_weights(weights):
+        """Copy a synthetic weight bucket into the test model parameters."""
         with torch.no_grad():
             for name, source in weights:
                 model.get_parameter(name).copy_(source)
@@ -257,9 +265,11 @@ def test_vllm_refreshes_derived_caches_after_all_weight_buckets(monkeypatch):
 
     class Receiver:
         def __init__(self, **kwargs):
+            """Accept transport configuration without opening an IPC connection."""
             pass
 
         def receive_weights(self, on_bucket_received):
+            """Deliver one parameter per bucket and verify derived caches remain unchanged during transfer."""
             params = list(model.named_parameters())
             for index, (name, parameter) in enumerate(params):
                 on_bucket_received([(name, torch.full_like(parameter, index + 1))], index == len(params) - 1)
@@ -269,6 +279,7 @@ def test_vllm_refreshes_derived_caches_after_all_weight_buckets(monkeypatch):
     post_load_calls = []
 
     def post_load(inner_model, config, device):
+        """Record post-load processing and verify cache refresh has not run yet."""
         post_load_calls.append(inner_model)
         assert torch.count_nonzero(cached_conv) == 0
         assert torch.count_nonzero(cached_gate) == 0

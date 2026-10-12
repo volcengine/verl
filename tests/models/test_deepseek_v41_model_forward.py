@@ -14,12 +14,38 @@
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from verl.models.mcore import model_forward, registry
+from verl.models.mcore.util import build_deepseek_v41_image_inputs
+
+
+@pytest.mark.parametrize("types", [[0], [0, 1], [0, 1, 2], [0, 1, 2, -1], [0, 1, 2, 0, 1, 2, 3]])
+def test_deepseek_v41_rejects_unterminated_image_span(types):
+    """Verify incomplete image spans fail before constructing native image inputs."""
+    inputs = {
+        "pixel_values": torch.zeros(2, 3, 2, 2),
+        "image_grid_hws": torch.tensor([[1, 1], [1, 1]]),
+        "vision_token_types": torch.tensor([types]),
+    }
+    with pytest.raises(ValueError, match="Unterminated image span"):
+        build_deepseek_v41_image_inputs(inputs, torch.zeros(1, len(types), dtype=torch.long))
+
+
+def test_deepseek_v41_rejects_missing_image_grid():
+    """Verify every image span requires a corresponding processor grid."""
+    inputs = {
+        "pixel_values": torch.zeros(1, 3, 2, 2),
+        "image_grid_hws": torch.tensor([[1, 1]]),
+        "vision_token_types": torch.tensor([[0, 1, 2, 3, 0, 1, 2, 3]]),
+    }
+    with pytest.raises(ValueError, match="Missing image grid"):
+        build_deepseek_v41_image_inputs(inputs, torch.zeros(1, 8, dtype=torch.long))
 
 
 def test_deepseek_v41_bshd_uses_padding_mask_instead_of_attention_mask(monkeypatch):
+    """Verify dense DeepSeek V4.1 batches pass an inverted validity mask as the padding mask."""
     valid_tokens = torch.tensor([[True, True, False], [True, True, True]])
     dense_ids = torch.tensor([[1, 2, 0], [3, 4, 5]])
     position_ids = torch.arange(3).expand(2, -1)
@@ -38,6 +64,7 @@ def test_deepseek_v41_bshd_uses_padding_mask_instead_of_attention_mask(monkeypat
         config = SimpleNamespace(fp8=None, dsv4_version="v4.1", vision_config=SimpleNamespace(downsample_ratio=3))
 
         def __call__(self, **kwargs):
+            """Capture forwarded arguments and return zero logits with the expected model output shape."""
             captured.update(kwargs)
             return torch.zeros(2, 3, 8)
 
@@ -53,6 +80,7 @@ def test_deepseek_v41_bshd_uses_padding_mask_instead_of_attention_mask(monkeypat
 
 
 def test_deepseek_v41_thd_keeps_logical_and_physical_lengths_separate(monkeypatch):
+    """Verify packed logical sequence offsets remain separate from padded storage offsets."""
     input_ids = torch.nested.nested_tensor([torch.tensor([1, 2, 3]), torch.tensor([4, 5])], layout=torch.jagged)
     physical = torch.tensor([0, 4, 8], dtype=torch.int32)
     packed = SimpleNamespace(
@@ -75,6 +103,7 @@ def test_deepseek_v41_thd_keeps_logical_and_physical_lengths_separate(monkeypatc
         config = SimpleNamespace(fp8=None, dsv4_version="v4.1")
 
         def __call__(self, **kwargs):
+            """Capture forwarded arguments and return zero logits with the expected model output shape."""
             captured.update(kwargs)
             return torch.zeros(8, 1, 8)
 
@@ -86,6 +115,7 @@ def test_deepseek_v41_thd_keeps_logical_and_physical_lengths_separate(monkeypatc
 
 
 def test_deepseek_v41_thd_forwards_images_and_reserves_cp_halo(monkeypatch):
+    """Verify packed image inputs reach the model and context parallelism reserves the required halo rows."""
     input_ids = torch.nested.nested_tensor(
         [torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6, 7, 8])],
         layout=torch.jagged,
@@ -101,6 +131,7 @@ def test_deepseek_v41_thd_forwards_images_and_reserves_cp_halo(monkeypatch):
     padding_rows = []
 
     def preprocess(*_args, **kwargs):
+        """Capture the requested halo size and return fixed packed inputs."""
         padding_rows.append(kwargs["min_local_rows"])
         return torch.zeros(1, 8, dtype=torch.long), packed, None
 
@@ -118,6 +149,7 @@ def test_deepseek_v41_thd_forwards_images_and_reserves_cp_halo(monkeypatch):
         )
 
         def __call__(self, **kwargs):
+            """Capture forwarded arguments and return zero logits with the expected model output shape."""
             captured.update(kwargs)
             return torch.zeros(8, 1, 8)
 
@@ -146,6 +178,7 @@ def test_deepseek_v41_thd_forwards_images_and_reserves_cp_halo(monkeypatch):
 
 
 def test_deepseek_v41_bshd_converts_processor_tensors_to_native_images(monkeypatch):
+    """Verify dense processor outputs become per-sample image inputs with matching spans, grids, and patches."""
     image_token_id = 129264
     dense_ids = torch.tensor(
         [
@@ -175,6 +208,7 @@ def test_deepseek_v41_bshd_converts_processor_tensors_to_native_images(monkeypat
         config = SimpleNamespace(fp8=None, dsv4_version="v4.1", vision_config=SimpleNamespace(downsample_ratio=3))
 
         def __call__(self, **kwargs):
+            """Capture forwarded arguments and return zero logits with the expected model output shape."""
             captured.update(kwargs)
             return torch.zeros(2, 11, 8)
 

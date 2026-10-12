@@ -233,6 +233,12 @@ def process_quanted_weights_after_loading(model, reload_state):
 
 
 def load_quanted_weights(weights, model_runner, is_drafter=False, peft_config=None):
+    """Load a trainer-quantized weight bucket into the rollout model or its MTP drafter.
+
+    When peft_config is provided, reconcile LoRA base-layer names with the
+    live namespace. Restore temporary parameter classes after loading and
+    return the names reported by the model loader.
+    """
     if is_drafter:
         drafter = getattr(model_runner, "drafter", None)
         model = drafter.model if drafter is not None and hasattr(drafter, "model") else None

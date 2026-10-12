@@ -162,6 +162,7 @@ def fused_output_processor(
 
 
 def _get_patching_model(model: torch.nn.Module):
+    """Return the supported module exposing the fused output hook, or None for unsupported models."""
     model = unwrap_model(model)
     if isinstance(model, GPTModel):
         return model

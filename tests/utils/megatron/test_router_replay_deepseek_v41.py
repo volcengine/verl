@@ -15,6 +15,7 @@ ModalityRouter = deepseek_v41_moe.ModalityRouter
 
 class _Balance(nn.Module):
     def __init__(self, bias):
+        """Register expert bias and token-count buffers for the modality-router fixture."""
         super().__init__()
         self.register_buffer("expert_bias", torch.tensor(bias, dtype=torch.float32))
         self.register_buffer("local_tokens_per_expert", torch.zeros(len(bias), dtype=torch.int64))
@@ -22,6 +23,7 @@ class _Balance(nn.Module):
 
 @pytest.fixture
 def isolated_router_registry():
+    """Isolate global router instances for the test and restore the previous registry afterward."""
     previous = RouterReplay.router_instances
     RouterReplay.router_instances = []
     try:
@@ -31,6 +33,7 @@ def isolated_router_registry():
 
 
 def test_modality_router_records_and_replays_experts_without_changing_scores(isolated_router_registry):
+    """Verify modality biases select recorded experts while replay preserves the total routing weight."""
     del isolated_router_registry
     apply_router_replay_patch()
     router = ModalityRouter.__new__(ModalityRouter)
@@ -69,6 +72,7 @@ def test_modality_router_records_and_replays_experts_without_changing_scores(iso
 def test_modality_router_replay_keeps_padding_dispatch_rows_out_of_balance_counts(
     isolated_router_registry, bias_update_rate
 ):
+    """Verify padding retains dispatch routes but contributes no routing weight or expert balance counts."""
     del isolated_router_registry
     apply_router_replay_patch()
     router = ModalityRouter.__new__(ModalityRouter)
@@ -100,6 +104,7 @@ def test_modality_router_replay_keeps_padding_dispatch_rows_out_of_balance_count
 
 
 def test_model_walk_finds_deepseek_v41_modality_router(isolated_router_registry):
+    """Verify model traversal discovers a DeepSeek V4.1 modality router and its layer number."""
     del isolated_router_registry
     router = ModalityRouter.__new__(ModalityRouter)
     nn.Module.__init__(router)

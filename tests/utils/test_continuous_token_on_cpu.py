@@ -465,6 +465,7 @@ def _tokenizer_for_text_family(family: str):
 
 
 def test_builtin_family_surface():
+    """Verify the public builder-family list includes every supported text and multimodal family."""
     assert CONTINUOUS_TOKEN_BUILDER_FAMILIES == (
         "default",
         "qwen",
@@ -525,6 +526,7 @@ def test_builtin_family_surface():
     ],
 )
 def test_builtin_family_class_mapping(family, builder_cls):
+    """Verify each family name resolves to its expected continuous-token builder class."""
     assert get_continuous_token_builder_class(family) is builder_cls
 
 
@@ -558,6 +560,7 @@ def test_builtin_family_class_mapping(family, builder_cls):
     ],
 )
 def test_auto_family_inference_uses_exact_root_model_type(model_type, expected):
+    """Verify family inference maps the root Hugging Face model type to the expected builder family."""
     assert infer_continuous_token_model_family(hf_model_type=model_type) == expected
 
 
@@ -1734,6 +1737,7 @@ def test_deepseek_v4_does_not_duplicate_existing_assistant_eos():
 
 
 def test_deepseek_v41_thinking_adds_numeric_reasoning_effort_prefix():
+    """Verify V4.1 thinking prompts include the default numeric reasoning effort."""
     tokenizer = _DeepSeekBoundaryTokenizer()
     builder = DeepSeekV41ContinuousTokenBuilder(
         tokenizer,
@@ -1748,7 +1752,30 @@ def test_deepseek_v41_thinking_adds_numeric_reasoning_effort_prefix():
     assert token_ids == [ord(char) for char in rendered]
 
 
+@pytest.mark.parametrize("effort", [True, False, 0, 101, 1.5])
+def test_deepseek_v41_rejects_invalid_numeric_reasoning_effort(effort):
+    """Verify V4.1 rejects reasoning effort values outside its accepted integer range."""
+    builder = DeepSeekV41ContinuousTokenBuilder(
+        _DeepSeekBoundaryTokenizer(),
+        chat_template_kwargs={"enable_thinking": True, "reasoning_effort": effort},
+    )
+    with pytest.raises(ValueError, match="must be an int in"):
+        builder.build_initial_tokens([{"role": "user", "content": "question"}])
+
+
+@pytest.mark.parametrize("effort", [1, 50, 100])
+def test_deepseek_v41_accepts_numeric_reasoning_effort(effort):
+    """Verify valid V4.1 reasoning effort values appear in the rendered prompt."""
+    builder = DeepSeekV41ContinuousTokenBuilder(
+        _DeepSeekBoundaryTokenizer(),
+        chat_template_kwargs={"enable_thinking": True, "reasoning_effort": effort},
+    )
+    token_ids = builder.build_initial_tokens([{"role": "user", "content": "question"}])
+    assert f"Reasoning Effort: {effort} (range 1-100" in "".join(map(chr, token_ids))
+
+
 def test_deepseek_v4_thinking_does_not_add_v41_reasoning_prefix():
+    """Verify V4 thinking prompts retain their format without the V4.1 effort prefix."""
     tokenizer = _DeepSeekBoundaryTokenizer()
     builder = DeepSeekV4ContinuousTokenBuilder(
         tokenizer,

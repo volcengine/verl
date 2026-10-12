@@ -233,7 +233,7 @@ def encode_messages(
             if effort not in REASONING_EFFORT_MAPPINGS:
                 raise ValueError(f"Invalid DeepSeek-V4.1 reasoning_effort: {effort!r}")
             effort = REASONING_EFFORT_MAPPINGS[effort]
-        if not isinstance(effort, int) or not 1 <= effort <= 100:
+        if isinstance(effort, bool) or not isinstance(effort, int) or not 1 <= effort <= 100:
             raise ValueError("DeepSeek-V4.1 reasoning_effort must be an int in [1, 100]")
         out.extend((SYSTEM_TOKEN, REASONING_EFFORT_TEMPLATE.format(budget=effort)))
     elif think and reasoning_effort in ("max", "xhigh"):
@@ -363,6 +363,7 @@ class DeepSeekV4ContinuousTokenBuilder(ContinuousTokenBuilder):
         add_bos_token: bool,
         drop_thinking: bool | None = None,
     ) -> list[int]:
+        """Render messages with the configured thinking options and encode without extra special tokens."""
         text = encode_messages(
             messages,
             tools=tools,
@@ -433,10 +434,14 @@ class DeepSeekV4VLContinuousTokenBuilder(DeepSeekV4ContinuousTokenBuilder):
         mm_processor_kwargs: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
+        """Initialize the text builder and retain the multimodal processor and its keyword arguments."""
         super().__init__(tokenizer, **kwargs)
+        self.processor = processor
+        self.mm_processor_kwargs = mm_processor_kwargs if mm_processor_kwargs is not None else {}
 
     @classmethod
     def supports_multimodal(cls) -> bool:
+        """Report that this builder supports multimodal inputs."""
         return True
 
     def _encode(
@@ -447,6 +452,7 @@ class DeepSeekV4VLContinuousTokenBuilder(DeepSeekV4ContinuousTokenBuilder):
         add_bos_token: bool,
         drop_thinking: bool | None = None,
     ) -> list[int]:
+        """Encode copied messages after replacing image blocks with DeepSeek image placeholders."""
         messages = [dict(message) for message in messages]
         for message in messages:
             content = message.get("content")

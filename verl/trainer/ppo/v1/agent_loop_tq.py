@@ -55,6 +55,7 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
         self.background_tasks = set()
 
     def _compute_multi_modal_inputs(self, output, input_ids):
+        """Build processor inputs, expanding DeepSeek V4.1 image tokens and aligning their modality types."""
         if getattr(getattr(self.processor, "config", None), "model_type", None) != "deepseek_v41":
             return super()._compute_multi_modal_inputs(output, input_ids)
 

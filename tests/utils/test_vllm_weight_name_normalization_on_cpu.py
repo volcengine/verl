@@ -259,6 +259,7 @@ class _FakeModel:
     """A fake vLLM model exposing only the introspection surface the resolver uses."""
 
     def __init__(self, params: dict[str, torch.Tensor], *, mapper=None, packed=None, routed_experts=()):
+        """Store fake parameters, name mappings, packed projections, and routed-expert modules."""
         # name -> tensor (for named_parameters / named_buffers)
         self._params = dict(params)
         self.hf_to_vllm_mapper = mapper
@@ -267,10 +268,12 @@ class _FakeModel:
         self._routed_experts = list(routed_experts)
 
     def modules(self):
+        """Yield the fake model followed by its routed-expert modules."""
         yield self
         yield from self._routed_experts
 
     def named_modules(self, memo: set | None = None, remove_duplicate: bool = False):
+        """Yield stable names for the fake model and its routed-expert modules."""
         del memo, remove_duplicate
         yield "", self
         for i, expert in enumerate(self._routed_experts):
@@ -726,6 +729,7 @@ def test_drafter_drops_base_layer_wholesale():
 
 
 def test_update_weights_resolves_names_before_load(monkeypatch):
+    """Verify LoRA base synchronization reconciles incoming names before invoking the model loader."""
     # LoRA base-sync phase (peft_config set, base_sync_done=False): the vLLM model
     # is LoRA-wrapped (has ``.base_layer``), so the resolver reconciles incoming
     # names against it. (``peft_config=None`` is the non-LoRA/merge path where the
@@ -813,6 +817,7 @@ class _FakeBucketReceiver:
 
 
 def _install_fake_receiver(monkeypatch, buckets):
+    """Replace the lazy IPC transport import with a receiver that supplies the given test buckets."""
     # ``update_weights_from_ipc`` imports the receiver lazily, so stub the transport
     # module itself; a full-name hit in ``sys.modules`` also skips the vLLM-backed
     # package ``__init__``.
@@ -1155,6 +1160,7 @@ class _FakeStrictInner:
     """
 
     def load_weights(self, weights):
+        """Expose dictionary-based parameter lookup for strict-loader detection tests."""
         loaded = set()
         # Strict loaders (DeepseekV2) do ``params_dict[name]`` lookups; the
         # probe matches the ``params_dict[`` token in this source. The line is
@@ -1175,6 +1181,7 @@ class _FakeFlatInner:
     """
 
     def load_weights(self, weights):
+        """Expose delegation to AutoWeightsLoader for flat-loader detection tests."""
         loader = AutoWeightsLoader(self)  # noqa: F821 - source signature only
         return loader.load_weights(weights)
 
@@ -1183,23 +1190,28 @@ class _OuterModel:
     """Wraps an inner transformer under ``.model`` (the ForCausalLM layout)."""
 
     def __init__(self, inner, params):
+        """Wrap an inner loader and retain its fake live parameter namespace."""
         self.model = inner
         self._params = dict(params)
 
     def named_parameters(self, remove_duplicate: bool = False):
+        """Yield the stored live parameter names and tensors."""
         del remove_duplicate
         yield from self._params.items()
 
     def named_buffers(self):
+        """Return an empty buffer iterator for the fake outer model."""
         return iter(())
 
 
 def _strict_outer(params):
+    """Clear loader detection state and build a model with a strict inner loader."""
     _vllm_utils_real._inner_load_weights_is_strict_cache.clear()
     return _OuterModel(_FakeStrictInner(), params)
 
 
 def _flat_outer(params):
+    """Clear loader detection state and build a model with a flat inner loader."""
     _vllm_utils_real._inner_load_weights_is_strict_cache.clear()
     return _OuterModel(_FakeFlatInner(), params)
 

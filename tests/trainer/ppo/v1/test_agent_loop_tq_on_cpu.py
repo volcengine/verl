@@ -146,6 +146,7 @@ async def test_agent_loop_tq_postprocess_skips_rollout_topk_on_validate(monkeypa
 
 
 def test_deepseek_adjacent_images_keep_separate_spans():
+    """Verify adjacent image placeholders expand into distinct modality spans."""
     import torch
 
     from verl.utils.tokenizer.deepseek import expand_image_tokens
@@ -156,6 +157,7 @@ def test_deepseek_adjacent_images_keep_separate_spans():
 
 
 def test_deepseek_text_only_processor_outputs_keep_aligned_empty_image_inputs(monkeypatch):
+    """Verify text-only samples retain aligned token types and empty image tensors compatible with BF16 batching."""
     from types import SimpleNamespace
 
     import torch
@@ -198,6 +200,7 @@ def test_deepseek_text_only_processor_outputs_keep_aligned_empty_image_inputs(mo
 
 
 def test_deepseek_multimodal_inputs_survive_storage_and_padding(monkeypatch):
+    """Verify image features and expert routes survive transfer-queue serialization, selection, and padding."""
     from unittest.mock import AsyncMock
 
     import torch
@@ -219,6 +222,7 @@ def test_deepseek_multimodal_inputs_survive_storage_and_padding(monkeypatch):
     monkeypatch.setattr(agent_loop_tq.tq, "async_kv_batch_put", put)
 
     def image_inputs(output, input_ids):
+        """Build synthetic image features and expanded token types for image-bearing or text-only prompts."""
         has_image = 129264 in output.prompt_ids
         grids = torch.tensor([[3, 3]]) if has_image else torch.empty((0, 2), dtype=torch.long)
         expanded_ids, types = expand_image_tokens(input_ids, grids, 129264, 3)

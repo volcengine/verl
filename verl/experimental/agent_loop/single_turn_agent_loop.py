@@ -36,6 +36,7 @@ class SingleTurnAgentLoop(AgentLoopBase):
 
     @rollout_trace_op
     async def run(self, sampling_params: dict[str, Any], priority: int = 0, **kwargs) -> AgentLoopOutput:
+        """Generate one assistant response and return aligned tokens, rollout metadata, and timing metrics."""
         # priority may arrive as np.int64 from non_tensor_batch; normalize to Python int.
         priority = int(priority)
         messages = list(kwargs["raw_prompt"])

@@ -306,6 +306,7 @@ class SFTTrainer:
         return batch_seqlens
 
     def fit(self):
+        """Run supervised training from the resumed step with profiling, validation, logging, and checkpoints."""
         is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0
 
         # TODO: add a unified tracking

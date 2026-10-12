@@ -307,6 +307,7 @@ class MultiTurnSFTDataset(Dataset):
         return messages
 
     def __getitem__(self, item):
+        """Tokenize a conversation and align its loss mask, positions, and multimodal features after resizing."""
         row_dict: dict = self.dataframe.iloc[item].to_dict()
         messages = self._build_messages(row_dict)
         tools = self.tools[item] if self.tools is not None else None
