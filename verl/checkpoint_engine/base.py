@@ -619,9 +619,14 @@ class CheckpointEngineManager:
         await self.resume_kv_cache_replicas()
 
         # 8. resume all unfinished requests for partial rollout
-        await asyncio.gather(*[replica.server_handle.check_health.remote() for replica in self._pending_restarts])
-        await self.resume_generation_replicas()
-        self._pending_restarts.clear()
+        if self._pending_restarts:
+            # A replacement's failed health check must not keep normal replicas paused.
+            await asyncio.gather(*[r.resume_generation() for r in self.replicas if r not in self._pending_restarts])
+            await asyncio.gather(*[r.server_handle.check_health.remote() for r in self._pending_restarts])
+            await asyncio.gather(*[r.resume_generation() for r in self._pending_restarts])
+            self._pending_restarts.clear()
+        else:
+            await self.resume_generation_replicas()
 
         return sync_metrics
 

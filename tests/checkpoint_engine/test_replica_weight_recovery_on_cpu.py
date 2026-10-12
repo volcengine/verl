@@ -133,10 +133,16 @@ def test_restart_rebinds_target_then_normal_sync_loads_current_trainer_weights(m
     target.server_handle.snapshot.remote.assert_not_awaited()
     assert target.workers is workers and target.resource_pool is pool
     healthy.restart.assert_not_awaited()
+    healthy.resume_generation.assert_awaited_once()
+
+    # Ordinary synchronization retains the customizable manager resume hook.
+    manager.resume_generation_replicas = AsyncMock()
+    asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
+    manager.resume_generation_replicas.assert_awaited_once()
 
 
 def test_unsupported_restart_has_no_effect_and_failed_health_keeps_target_pending(monkeypatch):
-    manager, target, _healthy, _adapter, _live, events = _make_manager(monkeypatch)
+    manager, target, healthy, _adapter, _live, events = _make_manager(monkeypatch)
     target.rollout_mode = RolloutMode.COLOCATED
     with pytest.raises(NotImplementedError):
         asyncio.run(checkpoint_base.CheckpointEngineManager.restart_replica.__wrapped__(manager, target))
@@ -151,5 +157,6 @@ def test_unsupported_restart_has_no_effect_and_failed_health_keeps_target_pendin
         asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
     assert caught.value is failure
     target.resume_generation.assert_not_awaited()
+    healthy.resume_generation.assert_awaited_once()
     assert manager._pending_restarts == [target]
     assert not manager._weight_sync_lock.locked()
