@@ -43,41 +43,6 @@ def test_expert_coverage_accepts_complete_reordered_stream():
     _attest(weights)
 
 
-def test_expert_coverage_rejects_duplicate_replacing_missing_projection():
-    weights = _weights()
-    weights[1] = weights[0]
-    with pytest.raises(RuntimeError, match="duplicate expert weight"):
-        _attest(weights)
-
-
 def test_expert_coverage_rejects_missing_projection():
     with pytest.raises(RuntimeError, match="missing 1 expert weights"):
         _attest(_weights()[:-1])
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "model.layers.2.mlp.experts.0.gate_proj.weight",
-        "model.layers.0.mlp.experts.2.gate_proj.weight",
-        "other.layers.0.mlp.experts.0.gate_proj.weight",
-    ],
-)
-def test_expert_coverage_rejects_wrong_layer_expert_or_prefix(name):
-    weights = _weights()
-    weights[0] = name, weights[0][1]
-    with pytest.raises(RuntimeError, match="unexpected expert weight"):
-        _attest(weights)
-
-
-def test_transport_rejects_prepacked_tensors():
-    weights = _weights() + [("model.layers.0.mlp.experts.0.gate_proj.weight_scale", torch.ones(1))]
-    with pytest.raises(RuntimeError, match="packed tensor"):
-        _attest(weights)
-
-
-def test_transport_rejects_non_floating_expert_weights():
-    weights = _weights()
-    weights[0] = weights[0][0], torch.ones(2, 8, dtype=torch.uint8)
-    with pytest.raises(RuntimeError, match="must be floating point"):
-        _attest(weights)

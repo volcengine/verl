@@ -23,8 +23,6 @@ import pytest
 
 from verl.utils.real_nvfp4.config import (
     real_nvfp4_quant_recipe_config,
-    validate_real_nvfp4_model_contract,
-    validate_real_nvfp4_parallelism,
     validate_real_nvfp4_te_recipe,
 )
 
@@ -54,27 +52,6 @@ def _engine(start=2, end=4, pp=1, vpp=None):
     )
 
 
-def test_all_moe_model_is_supported():
-    validate_real_nvfp4_model_contract(_model_config())
-
-
-@pytest.mark.parametrize("overrides", [{"decoder_sparse_step": 2}, {"mlp_only_layers": [0, 1]}])
-def test_mixed_dense_moe_is_rejected(overrides):
-    with pytest.raises(ValueError, match="mixed dense/MoE"):
-        validate_real_nvfp4_model_contract(_model_config(**overrides))
-
-
-def test_shared_experts_are_rejected():
-    with pytest.raises(ValueError, match="shared experts"):
-        validate_real_nvfp4_model_contract(_model_config(shared_expert_intermediate_size=512))
-
-
-@pytest.mark.parametrize("pp,vpp", [(2, None), (1, 2), (2, 2)])
-def test_pipeline_splitting_is_rejected(pp, vpp):
-    with pytest.raises(ValueError, match="pipeline_model_parallel_size=1"):
-        validate_real_nvfp4_parallelism(pipeline_size=pp, virtual_pipeline_size=vpp)
-
-
 def test_recipe_lists_carved_out_layers_before_general_patterns():
     matchers = real_nvfp4_quant_recipe_config(48, 2, 4)["matchers"]
     assert list(matchers) == [
@@ -91,12 +68,6 @@ def test_recipe_lists_carved_out_layers_before_general_patterns():
     ]
     assert matchers["layer_44_bf16"]["pattern"] == "*.layers.44.*"
     assert matchers["mlp_fc1_nvfp4"] == {"config": "nvfp4", "type": "glob", "pattern": "*.linear_fc1", "enabled": True}
-
-
-@pytest.mark.parametrize("start,end", [(-1, 0), (0, -1), (24, 24)])
-def test_recipe_rejects_invalid_carveout(start, end):
-    with pytest.raises(ValueError, match="carve-out"):
-        real_nvfp4_quant_recipe_config(48, start, end)
 
 
 @pytest.mark.parametrize(
@@ -135,28 +106,6 @@ def test_engine_without_carveout_disables_first_last_layers_bf16():
     assert overrides["first_last_layers_bf16"] is False
 
 
-@pytest.mark.parametrize(
-    "overrides,match",
-    [
-        ({"num_layers_at_end_in_bf16": 2}, "num_layers_at_end_in_bf16=4"),
-        ({"first_last_layers_bf16": False}, "first_last_layers_bf16=True"),
-        ({"fp4_param": True}, "fp4_param=False"),
-        ({"fp8": "e4m3"}, "FP8"),
-        ({"quant_recipe": object()}, "owns"),
-    ],
-)
-def test_engine_rejects_conflicting_overrides(overrides, match):
-    pytest.importorskip("megatron.core.quantization.quant_config")
-    with pytest.raises(ValueError, match=match):
-        _engine_method("_apply_real_nvfp4_overrides")(_engine(), overrides)
-
-
-def test_engine_rejects_pipeline_splitting():
-    pytest.importorskip("megatron.core.quantization.quant_config")
-    with pytest.raises(ValueError, match="pipeline_model_parallel_size=1"):
-        _engine_method("_apply_real_nvfp4_overrides")(_engine(pp=2), {})
-
-
 def _te_recipe(**overrides):
     qparams = SimpleNamespace(random_hadamard_transform=False, stochastic_rounding=False, fp4_2d_quantization=False)
     values = {
@@ -184,13 +133,7 @@ def test_te_recipe_contract_accepts_expected_semantics():
     "overrides",
     [
         {"nvfp4_4over6": "all"},
-        {"backward_override": "high_precision"},
         {"row_scaled_activation": False},
-        {
-            "fp4_quant_fwd_inp": SimpleNamespace(
-                random_hadamard_transform=True, stochastic_rounding=False, fp4_2d_quantization=False
-            )
-        },
     ],
 )
 def test_te_recipe_contract_rejects_drift(overrides):

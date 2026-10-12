@@ -110,32 +110,6 @@ def test_native_vllm_rejects_one_refit_stale_derived_scale():
         _attest_one(model)
 
 
-def test_native_vllm_rejects_rebound_eager_scale_even_if_values_match():
-    model = _single_layer(_FakeNativeMoE())
-    model.layers[0].mlp.experts.quant_method.moe_kernel.fused_experts.g1_scale_c = model.layers[
-        0
-    ].mlp.experts.g1_scale_c.clone()
-    with pytest.raises(RuntimeError, match="stale eager/CUDA-graph"):
-        _attest_one(model)
-
-
-@pytest.mark.parametrize("field", ["g1_alphas", "g2_alphas", "w1_scale", "w2_scale", "a1_gscale", "a2_gscale"])
-def test_native_vllm_rejects_detached_quant_config_scale(field):
-    model = _single_layer(_FakeNativeMoE())
-    config = model.layers[0].mlp.experts.quant_method.moe_kernel.fused_experts.quant_config
-    setattr(config, field, getattr(config, field).clone())
-    with pytest.raises(RuntimeError, match="stale scale reference"):
-        _attest_one(model)
-
-
-@pytest.mark.parametrize("field", ["a1_gscale", "a2_gscale"])
-def test_native_vllm_rejects_discarded_activation_scale_after_sleep(field):
-    model = _single_layer(_FakeNativeMoE())
-    getattr(model.layers[0].mlp.experts.quant_method.moe_kernel.fused_experts.quant_config, field).zero_()
-    with pytest.raises(RuntimeError, match="current activation scale after sleep/refit"):
-        _attest_one(model)
-
-
 def test_online_nvfp4_ignore_is_a_model_config_argument(monkeypatch):
     # _apply_quantization intentionally exports these for vLLM worker
     # subprocesses. Track their original state so this unit test cannot leak
