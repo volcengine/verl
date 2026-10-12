@@ -28,6 +28,9 @@ _preprocess_sampling_params before admission, _postprocess_output after release.
 """
 
 import asyncio
+import os
+import subprocess
+import sys
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -340,6 +343,23 @@ def test_engine_cleanup_reaps_owned_orphans_and_refuses_survivors(monkeypatch, s
     for process in (unrelated, unrelated_child):
         process.terminate.assert_not_called()
         process.kill.assert_not_called()
+
+
+@pytest.mark.skipif(not hasattr(os, "waitid"), reason="requires waiting for a child without reaping it")
+def test_server_process_probe_treats_zombie_as_exited():
+    with subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE) as child:
+        process = vllm_async_server.psutil.Process(child.pid)
+        create_time = process.create_time()
+        probe = vllm_async_server._server_process_is_alive
+        assert probe(None, child.pid, create_time)
+        assert not probe(None, child.pid, create_time + 1)
+
+        child.stdin.close()
+        # Leave the exited child unreaped, as can happen after ray.kill().
+        os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+        assert process.is_running() and process.status() == vllm_async_server.psutil.STATUS_ZOMBIE
+        assert not probe(None, child.pid, create_time)
+    assert not probe(None, child.pid, create_time)
 
 
 def _make_restart_replica(monkeypatch):

@@ -87,7 +87,9 @@ def _server_process_is_alive(_worker, pid: int, create_time: float) -> bool:
     """Check an old server's exact process identity on its retained worker node."""
     try:
         process = psutil.Process(pid)
-        return process.create_time() == create_time and process.is_running()
+        return (
+            process.create_time() == create_time and process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+        )
     except psutil.NoSuchProcess:
         return False
 
