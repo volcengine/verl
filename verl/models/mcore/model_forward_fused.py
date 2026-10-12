@@ -283,11 +283,7 @@ def fused_forward_model_engine(vision_model: bool = False):
                 full_loss_mask,
                 pre_process=True,
                 need_roll=True,
-                use_fp8_padding=use_fp8_padding,
-                min_local_rows=min_local_rows,
-                pad_to_length_bucket=pad_to_length_bucket,
-                cp_layout=cp_layout,
-                local_cp_size=local_cp_size,
+                **thd_kwargs,
             )[0].to(torch.bool)
         forward_kwargs = dict(
             input_ids=input_ids_rmpad,
