@@ -129,6 +129,7 @@ class ServerAdapter(BaseRollout):
         device_mesh: DeviceMesh,
         replica_rank: int = -1,
     ):
+        """Initialize server routing and the sleep level for the model's LoRA configuration."""
         super().__init__(config, model_config, device_mesh)
         self._engine: AsyncHttpServerAdapter = None
 

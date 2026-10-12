@@ -79,6 +79,7 @@ class TestSleepTags:
 
     @staticmethod
     def _sleep_tags(model_config) -> list[str]:
+        """Return the memory tags released by sleep for the given LoRA configuration."""
         return ["kv_cache"] if lora_base_kept_on_sleep(model_config) else ["kv_cache", "weights"]
 
     def test_merge_mode_releases_weights(self):
@@ -88,15 +89,19 @@ class TestSleepTags:
         assert self._sleep_tags(_StubModelConfig(lora={"rank": 16})) == ["kv_cache"]
 
     def test_adapter_mode_resync_base_false_keeps_weights(self):
+        """Explicitly disabling base re-sync keeps adapter base weights resident."""
         assert self._sleep_tags(_StubModelConfig(lora={"rank": 16, "resync_base": False})) == ["kv_cache"]
 
     def test_megatron_adapter_mode_resync_base_releases_weights(self):
+        """Megatron adapter mode releases base weights when they will be re-synced."""
         model_config = _StubModelConfig(lora={"rank": 16, "resync_base": True})
         assert self._sleep_tags(model_config) == ["kv_cache", "weights"]
 
     def test_fsdp_adapter_mode_resync_base_releases_weights(self):
+        """FSDP adapter mode releases base weights when they will be re-synced."""
         model_config = _StubModelConfig(lora_rank=8, lora={"resync_base": True})
         assert self._sleep_tags(model_config) == ["kv_cache", "weights"]
 
     def test_resync_base_without_lora_releases_weights(self):
+        """Base re-sync leaves weight release enabled when LoRA is disabled."""
         assert self._sleep_tags(_StubModelConfig(lora={"rank": 0, "resync_base": True})) == ["kv_cache", "weights"]
