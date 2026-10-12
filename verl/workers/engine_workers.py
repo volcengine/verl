@@ -486,7 +486,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             omega_profiler_config = config.ref.get("profiler", {})
 
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory", "precision_debugger"]:
+        # Any configured tool gets its tool_config converted, not just verl's built-in ones:
+        # omega_conf_to_dataclass returns None for a missing/empty config, so a tool without a
+        # tool_config entry still works, and a plugin-supplied tool can name its own dataclass
+        # through `_target_`.
+        if omega_profiler_config.get("tool", None) is not None:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -763,9 +767,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 # the delta engine owns the sync state machine (seed vs steady,
                 # snapshot prime), so it drives the training engine itself.
                 metrics = await self.checkpoint_engine.send_weights(self.actor.engine, global_steps=global_steps)
-                return metrics or {}
-            per_tensor_param, _ = self.actor.engine.get_per_tensor_param()
-            metrics = await self.checkpoint_engine.send_weights(per_tensor_param, global_steps=global_steps)
+            else:
+                per_tensor_param, _ = self.actor.engine.get_per_tensor_param()
+                metrics = await self.checkpoint_engine.send_weights(per_tensor_param, global_steps=global_steps)
+            if self.actor.engine.is_param_offload_enabled:
+                self.actor.engine.to("cpu", model=True, optimizer=False, grad=False)
             return metrics or {}
 
         set_expandable_segments(False)
