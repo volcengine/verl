@@ -1,7 +1,7 @@
 Agent Loop
 ==========
 
-Last updated: 07/17/2025.
+Last updated: 10/12/2026.
 
 .. versionadded:: 0.4.2
    [status: alpha]
@@ -233,6 +233,7 @@ they can call ``LLMServerClient.generate`` to generate response_ids.
 Next
 ----
 
+- :doc:`Tool read-ahead<tool_read_ahead>`: Overlap a predictable immutable read with the next model turn.
 - :doc:`Agentic RL Training<../start/agentic_rl>`: Quick start agentic RL training with gsm8k dataset.
 - `LangGraph MathExpression <https://github.com/verl-project/verl-recipe/tree/main/langgraph_agent/example>`_: Demonstrate how to use LangGraph to build agent loop.
 - `Retool <https://github.com/verl-project/verl-recipe/tree/main/retool>`_: End-to-end retool paper reproduction using tool agent.

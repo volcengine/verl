@@ -1,0 +1,4 @@
+- name: read_ahead_agent
+  _target_: examples.tutorial.agent_loop_get_started.read_ahead.ReadAheadAgentLoop
+  records_url: http://127.0.0.1:8000/snapshot-v1
+  read_ahead: false

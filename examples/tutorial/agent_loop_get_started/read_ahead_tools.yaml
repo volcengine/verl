@@ -1,0 +1,16 @@
+tools:
+  - class_name: examples.tutorial.agent_loop_get_started.read_ahead.ReadRecordTool
+    config:
+      type: native
+    tool_schema:
+      type: function
+      function:
+        name: read_record
+        description: Read a record and its next_record_id from a fixed snapshot.
+        parameters:
+          type: object
+          properties:
+            record_id:
+              type: integer
+              description: Record identifier supplied by the user or a previous read.
+          required: [record_id]

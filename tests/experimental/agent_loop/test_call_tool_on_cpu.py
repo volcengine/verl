@@ -18,10 +18,17 @@ Tests that malformed tool calls return specific, actionable error messages
 instead of generic exception strings.
 """
 
+import asyncio
+import json
 import unittest
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+
+import pytest
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from verl.tools.schemas import ToolResponse
 
@@ -186,6 +193,110 @@ class TestCallToolErrorHandling(unittest.IsolatedAsyncioTestCase):
         assert response.text.startswith("Search results")
         assert response.text.endswith("...(truncated)")
         assert "Final answer: Paris" not in response.text
+
+
+def _make_read_ahead_loop(records_url, enabled):
+    from examples.tutorial.agent_loop_get_started.read_ahead import ReadAheadAgentLoop
+    from verl.tools.tool_registry import initialize_tools_from_config
+
+    config = Path(__file__).parents[3] / "examples/tutorial/agent_loop_get_started/read_ahead_tools.yaml"
+    tools = initialize_tools_from_config(config)
+    loop = object.__new__(ReadAheadAgentLoop)
+    loop.tools = {tool.name: tool for tool in tools}
+    loop.records_url = records_url
+    loop.read_ahead = enabled
+    loop.max_tool_response_length = 10000
+    loop.tool_response_truncate_side = "left"
+    return loop
+
+
+async def _read_record(loop, record_id):
+    call = FakeFunctionCall("read_record", json.dumps({"record_id": record_id}))
+    response, _, _ = await loop._call_tool(call, {}, FakeAgentData())
+    return json.loads(response.text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_read_ahead_example_isolates_concurrent_trajectories(monkeypatch, enabled):
+    """Matching keys in two trajectories must not share speculative results."""
+    from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+
+    calls = []
+    both_prefetched = asyncio.Event()
+
+    async def fetch(request):
+        record_id = int(request.match_info["record_id"])
+        calls.append(record_id)
+        if calls.count(2) == 2:
+            both_prefetched.set()
+        return web.json_response({"record_id": record_id, "next_record_id": 2 if record_id == 1 else None})
+
+    async def model_turns(loop, *args, **kwargs):
+        first = await _read_record(loop, 1)
+        if enabled:
+            await asyncio.wait_for(both_prefetched.wait(), timeout=5)
+        second = await _read_record(loop, first["next_record_id"])
+        return [first, second]
+
+    monkeypatch.setattr(ToolAgentLoop, "run", model_turns)
+    app = web.Application()
+    app.router.add_get("/{record_id}.json", fetch)
+    async with TestServer(app) as server:
+        loop = _make_read_ahead_loop(str(server.make_url("")).rstrip("/"), enabled)
+        outputs = await asyncio.gather(loop.run({}), loop.run({}))
+    assert outputs == [[{"record_id": 1, "next_record_id": 2}, {"record_id": 2, "next_record_id": None}]] * 2
+    assert sorted(calls) == [1, 1, 2, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["return", "error", "cancel"])
+async def test_read_ahead_example_closes_unused_http_read(monkeypatch, ending):
+    """The trajectory owns prefetch cleanup, not the per-call tool release."""
+    from verl.experimental.agent_loop.tool_agent_loop import ToolAgentLoop
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def fetch(request):
+        if request.match_info["record_id"] == "2":
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        return web.json_response({"record_id": 1, "next_record_id": 2})
+
+    async def model_turns(loop, *args, **kwargs):
+        await _read_record(loop, 1)
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if ending == "error":
+            raise RuntimeError("model failed")
+        if ending == "cancel":
+            await asyncio.Event().wait()
+        return "finished"
+
+    monkeypatch.setattr(ToolAgentLoop, "run", model_turns)
+    app = web.Application()
+    app.router.add_get("/{record_id}.json", fetch)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        loop = _make_read_ahead_loop(str(server.make_url("")).rstrip("/"), True)
+        task = asyncio.create_task(loop.run({}))
+        if ending == "cancel":
+            await asyncio.wait_for(started.wait(), timeout=5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        elif ending == "error":
+            with pytest.raises(RuntimeError, match="model failed"):
+                await task
+        else:
+            assert await task == "finished"
+        await asyncio.wait_for(cancelled.wait(), timeout=5)
+    finally:
+        await server.close()
 
 
 if __name__ == "__main__":
