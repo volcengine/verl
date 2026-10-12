@@ -811,14 +811,23 @@ def test_wait_does_not_block_when_inflight_is_fresh(tq_init, partition_id):
 # --------------------------------------------------------------------------- #
 
 
-def test_init_rejects_batched_sync_failure_refill():
-    with pytest.raises(ValueError, match="requires gen_batch_size=1"):
-        _make_rb(sync_refill_failed_groups=True, refill_fn=lambda _n: None, gen_batch_size=2)
+def test_materialize_removes_sampled_groups_from_poll_snapshot(tq_init, partition_id):
+    """Async refill runs on the same poll after sampling, so consumed groups must not count as outstanding."""
+    finished = [PromptSpec(uid=_uid(), status="finished", sessions=1, global_steps=1) for _ in range(3)]
+    _produce(partition_id, finished).join_and_check()
 
+    rb = _make_rb(trainer_mode="colocate_async")
+    try:
+        sampleable, _metrics, ready = rb.poll_once(1, partition_id, 2)
+        assert ready is True
+        batch = rb.materialize_sampleable(1, partition_id, sampleable, 2)
 
-def test_init_rejects_sync_gen_batch_size_between_one_and_train_batch():
-    with pytest.raises(ValueError, match="gen_batch_size to be 1 or train_batch_size"):
-        _make_rb(refill_fn=lambda _n: None, train_batch_size=4, gen_batch_size=2)
+        sampled = _uids_of(batch.keys)
+        assert len(sampled) == 2
+        assert not sampled & rb.finished_keys[partition_id]
+        assert rb.outstanding_group_count(partition_id) == 1
+    finally:
+        _clear_partition(partition_id)
 
 
 def test_validation_never_drops_terminal_groups(tq_init):

@@ -39,6 +39,7 @@ def _trainer_with_filter_groups(filter_groups: dict, trainer_mode: str = "sync")
             "reward": {"reward_model": {"enable": False, "enable_resource_pool": False}},
             "trainer": {
                 "v1": {
+                    "trainer_mode": trainer_mode,
                     trainer_mode: {},
                     "sampler": {
                         "custom_sampler": None,
@@ -76,7 +77,7 @@ def test_sync_failure_refill_overrides_dataloader_generation_batch_size():
     with (
         patch("verl.trainer.ppo.v1.trainer_base.create_rl_dataset", side_effect=[[{}, {}], [{}]]),
         patch("verl.trainer.ppo.v1.trainer_base.StatefulDataLoader") as dataloader,
-        patch("verl.trainer.ppo.v1.trainer_base.logger.warning") as warning,
+        patch("verl.trainer.ppo.v1.streaming_dataloader.logger.warning") as warning,
     ):
         trainer._init_dataloader()
 

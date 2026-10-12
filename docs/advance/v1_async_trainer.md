@@ -68,7 +68,7 @@ The V1 sampler controls staleness in model-version units:
 | Parameter                                     | Default | Meaning                                                                                                                                                                      |
 | --------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `trainer.v1.sampler.max_off_policy_threshold` | `8`     | Maximum model versions from prompt dispatch to being trained before staleness handling is triggered. `null` disables off-policy version control entirely: no samples are dropped or awaited for staleness |
-| `trainer.v1.sampler.max_off_policy_strategy`  | `drop`  | `drop` evicts stale finished prompt groups as a whole; `wait` blocks for threshold-reaching in-flight groups instead of dropping them. Ignored when `max_off_policy_threshold` is `null` |
+| `trainer.v1.sampler.max_off_policy_strategy`  | `drop`  | `drop` evicts stale finished prompt groups as a whole; `wait` blocks for threshold-reaching in-flight groups instead of dropping them and requires a threshold of at least `2`, because watermark refill always keeps prompts in flight. Ignored when `max_off_policy_threshold` is `null` |
 
 
 Monitor both forms of off-policy behavior:
@@ -93,7 +93,7 @@ The coordinator continuously dispatches new prompts as session slots become free
 
 With `max_off_policy_strategy=wait`, stale groups are not evicted. Instead, sampling blocks when an in-flight prompt reaches the threshold, allowing it to finish and remain trainable. DAPO-filtered and failed terminal groups are still evicted normally.
 
-With `max_off_policy_threshold=null` (set via `trainer.v1.sampler.max_off_policy_threshold=null`), off-policy version control is disabled entirely: no samples are dropped or awaited for staleness, and the off-policy degree is only bounded by rollout concurrency and the feed/consume balance of the replay buffer.
+With `max_off_policy_threshold=null` (set via `trainer.v1.sampler.max_off_policy_threshold=null`), off-policy version control is disabled entirely: no samples are dropped or awaited for staleness, and the off-policy degree is only bounded by `max_outstanding_batches` (see below).
 
 When async trainer saves a checkpoint, pending and running groups have already consumed dataloader entries, so they are reissued from their saved prompts during `load_checkpoint` recovery. Finished groups and their completed trajectories are restored as-is and remain available for sampling; they are not regenerated.
 
@@ -106,8 +106,10 @@ trainer:
   v1:
     colocate_async:
       watermark_batches: 2
+      max_outstanding_batches: 4
     separate_async:
       watermark_batches: 2
+      max_outstanding_batches: 4
 ```
 
 The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses these actor methods:
@@ -129,9 +131,19 @@ pending_slots = pending_prompt_count * rollout.n
 running_slots = sum(rollout.n - completed_entries for running prompts)
 watermark_sessions = watermark_batches * train_batch_size * default_rollout.n
 free_slots = max(0, watermark_sessions - pending_slots - running_slots)
+outstanding_groups = pending + running + finished/failed groups awaiting sampling
+admission = max(0, max_outstanding_batches * train_batch_size - outstanding_groups)
+num_prompts = min(floor(free_slots / rollout.n), admission)
 ```
 
-Each session creates one metadata-only `{uid}_{session_id}` entry with `status=running`, then updates it after all trajectory writes settle; `finished` and `failure` session statuses both release one slot. Finished and failed prompt groups occupy no rollout slots; ready-backlog capacity is not separately bounded. Async trainers require a fixed train `rollout.n` and `data.gen_batch_size=1` (or null, which resolves to `1`), so refill dispatches `floor(free_slots / rollout.n)` whole prompt groups.
+Each session creates one metadata-only `{uid}_{session_id}` entry with `status=running`, then updates it after all trajectory writes settle; `finished` and `failure` session statuses both release one slot. Finished and failed prompt groups occupy no rollout slots, but they still count toward `max_outstanding_batches` until they are sampled or evicted. Async trainers require a fixed train `rollout.n` and fetch one prompt per dataloader call (other `data.gen_batch_size` values are overridden to `1`), so refill dispatches whole prompt groups.
+
+The two limits govern different regimes. Prompt staleness (steps from dispatch to training) is roughly the number of unconsumed groups divided by `train_batch_size`:
+
+- When rollout is slower than training, groups are sampled as soon as they finish, the watermark binds, and staleness stays near `watermark_batches`.
+- When rollout outpaces training, finished groups wait for the trainer. Without a cap they would accumulate indefinitely, growing staleness and TransferQueue memory and, under `drop`, wasting generation on groups that are later evicted. The cap holds the unconsumed groups near `max_outstanding_batches` batches, so staleness settles near that value while the trainer still always finds a full mini-batch.
+
+Keep `max_outstanding_batches` at least `watermark_batches` (enforced) and preferably one batch above it, so groups waiting for a full batch do not reduce rollout concurrency. Keep it at most `max_off_policy_threshold - 1` so steady-state staleness stays within the off-policy threshold (a warning is logged otherwise). Set it to `null` to disable the cap.
 
 The actor event loop serializes sampling, checkpointing, coordinator state transitions, and watermark refill without a state lock. These operations contain no `await`, so an RPC can run only when the coordinator reaches its wakeup/timeout wait; it cannot interleave with a state transition already in progress. Each coordinator pass synchronizes TransferQueue metadata once and reuses that snapshot for request handling and refill.
 

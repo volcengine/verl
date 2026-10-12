@@ -69,7 +69,7 @@ from verl.trainer.ppo.utils import (
     need_teacher_policy,
 )
 from verl.trainer.ppo.v1 import tq_schema
-from verl.trainer.ppo.v1.streaming_dataloader import DAPO_FILTERED_REWARD_COUNTS_KEY
+from verl.trainer.ppo.v1.streaming_dataloader import DAPO_FILTERED_REWARD_COUNTS_KEY, resolve_gen_batch_size
 from verl.trainer.ppo.v1.utils import MetricsAggregator, compute_advantage_for_multi_trajectories
 from verl.utils import tensordict_utils as tu
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
@@ -667,19 +667,9 @@ class PPOTrainer(ABC):
             max_samples=self.config.data.get("val_max_samples", -1),
         )
 
-        # Exact refill counts require single-prompt dataloader fetches.
-        filter_groups = self.config.algorithm.get("filter_groups", None)
-        dapo_enabled = bool(filter_groups is not None and filter_groups.get("enable", False))
-        sync_refill_failed_groups = bool(self.config.trainer.v1.sampler.get("sync_refill_failed_groups", False))
-        requires_exact_refill = self.trainer_mode != "sync" or dapo_enabled or sync_refill_failed_groups
-        if requires_exact_refill:
-            user_gen_batch_size = self.config.data.get("gen_batch_size", None)
-            if user_gen_batch_size not in (None, 1):
-                logger.warning(f"data.gen_batch_size={user_gen_batch_size} is overridden to 1.")
-            elif user_gen_batch_size is None:
-                logger.info("data.gen_batch_size defaulted to 1.")
-            with open_dict(self.config):
-                self.config.data.gen_batch_size = 1
+        # The dataloader actor owns the train dataloader; resolving here fails invalid values before workers start.
+        with open_dict(self.config):
+            self.config.data.gen_batch_size = resolve_gen_batch_size(self.config)
 
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,

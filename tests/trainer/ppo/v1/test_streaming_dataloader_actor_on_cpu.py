@@ -107,6 +107,7 @@ def test_session_watermark_refills_complete_prompt_groups():
     actor.watermark_sessions = 5
     actor.default_rollout_n = 2
     actor.gen_batch_size = 1
+    actor.max_outstanding_groups = None
     _stub_methods(actor, unfinished_session_count=lambda *_args: 1)
     requested = []
     actor._refill_exact = lambda count: requested.append(count) or count
@@ -116,9 +117,34 @@ def test_session_watermark_refills_complete_prompt_groups():
     assert requested == [2]
 
 
+@pytest.mark.parametrize(("max_outstanding_groups", "expected"), [(5, 1), (4, 0), (None, 3)])
+def test_outstanding_cap_limits_watermark_refill(max_outstanding_groups, expected):
+    actor = _async_stub()
+    actor.watermark_sessions = 8
+    actor.default_rollout_n = 2
+    actor.max_outstanding_groups = max_outstanding_groups
+    replay = _replay_state(running={"r0"}, finished={"f0", "f1", "f2"})
+    _stub_methods(
+        actor,
+        pending_keys=replay.pending_keys,
+        running_keys=replay.running_keys,
+        finished_keys=replay.finished_keys,
+        failure_keys=replay.failure_keys,
+        unfinished_session_count=lambda *_args: 2,
+    )
+    requested = []
+    actor._refill_exact = lambda count: requested.append(count) or count
+
+    assert actor.outstanding_group_count("train") == 4
+    assert actor._refill_to_watermark() == expected
+    assert requested == ([expected] if expected else [])
+
+
 def test_session_watermark_rejects_positive_value_that_rounds_to_zero():
     actor = _async_stub()
     actor.trainer_mode = "colocate_async"
+    actor.max_off_policy_strategy = "drop"
+    actor.max_off_policy_threshold = 8
     actor.config = OmegaConf.create(
         {
             "trainer": {"v1": {"colocate_async": {"watermark_batches": 0.5}}},
@@ -129,6 +155,118 @@ def test_session_watermark_rejects_positive_value_that_rounds_to_zero():
 
     with pytest.raises(ValueError, match="resolves to zero"):
         actor._init_refill_policy()
+
+
+@pytest.mark.parametrize(("threshold", "rejected"), [(1, True), (2, False)])
+def test_async_wait_strategy_requires_threshold_above_one(threshold, rejected):
+    actor = _async_stub()
+    actor.trainer_mode = "colocate_async"
+    actor.max_off_policy_strategy = "wait"
+    actor.max_off_policy_threshold = threshold
+    actor.config = OmegaConf.create(
+        {
+            "trainer": {"v1": {"colocate_async": {"watermark_batches": 1}}},
+            "data": {"train_batch_size": 2},
+            "actor_rollout_ref": {"rollout": {"n": 2}},
+        }
+    )
+
+    if rejected:
+        with pytest.raises(ValueError, match="requires max_off_policy_threshold >= 2"):
+            actor._init_refill_policy()
+    else:
+        actor._init_refill_policy()
+        assert actor.watermark_sessions == 4
+
+
+def _refill_policy_stub(*, watermark_batches=2, max_outstanding_batches=4, threshold=8):
+    actor = _async_stub()
+    actor.trainer_mode = "separate_async"
+    actor.max_off_policy_strategy = "drop"
+    actor.max_off_policy_threshold = threshold
+    actor.config = OmegaConf.create(
+        {
+            "trainer": {
+                "v1": {
+                    "separate_async": {
+                        "watermark_batches": watermark_batches,
+                        "max_outstanding_batches": max_outstanding_batches,
+                    }
+                }
+            },
+            "data": {"train_batch_size": 8},
+            "actor_rollout_ref": {"rollout": {"n": 2}},
+        }
+    )
+    return actor
+
+
+@pytest.mark.parametrize(("max_outstanding_batches", "expected"), [(4, 32), (2.5, 20), (None, None)])
+def test_outstanding_cap_resolves_to_prompt_groups(max_outstanding_batches, expected):
+    actor = _refill_policy_stub(max_outstanding_batches=max_outstanding_batches)
+    actor._init_refill_policy()
+    assert actor.max_outstanding_groups == expected
+
+
+def test_outstanding_cap_must_cover_watermark():
+    actor = _refill_policy_stub(watermark_batches=3, max_outstanding_batches=2)
+    with pytest.raises(ValueError, match="must be >= watermark_batches"):
+        actor._init_refill_policy()
+
+
+def test_outstanding_cap_warns_when_staleness_can_reach_threshold(monkeypatch):
+    warnings = []
+    monkeypatch.setattr(streaming_module.logger, "warning", warnings.append)
+
+    _refill_policy_stub(max_outstanding_batches=4, threshold=5)._init_refill_policy()
+    assert warnings == []
+    _refill_policy_stub(max_outstanding_batches=4, threshold=4)._init_refill_policy()
+    assert len(warnings) == 1 and "max_off_policy_threshold=4" in warnings[0]
+
+
+def _gen_batch_config(trainer_mode, gen_batch_size, *, dapo=False, refill_failed=False):
+    return OmegaConf.create(
+        {
+            "data": {"train_batch_size": 4, "gen_batch_size": gen_batch_size},
+            "algorithm": {"filter_groups": {"enable": dapo}},
+            "trainer": {"v1": {"trainer_mode": trainer_mode, "sampler": {"sync_refill_failed_groups": refill_failed}}},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("trainer_mode", "configured", "dapo", "refill_failed", "expected"),
+    [
+        ("sync", None, False, False, 4),
+        ("sync", 1, False, False, 1),
+        ("sync", 4, False, False, 4),
+        ("sync", None, True, False, 1),
+        ("sync", None, False, True, 1),
+        ("colocate_async", None, False, False, 1),
+        ("separate_async", 1, False, False, 1),
+    ],
+)
+def test_resolve_gen_batch_size(trainer_mode, configured, dapo, refill_failed, expected):
+    config = _gen_batch_config(trainer_mode, configured, dapo=dapo, refill_failed=refill_failed)
+    assert streaming_module.resolve_gen_batch_size(config) == expected
+
+
+@pytest.mark.parametrize(
+    ("trainer_mode", "dapo", "refill_failed"),
+    [("separate_async", False, False), ("sync", True, False), ("sync", False, True)],
+)
+def test_resolve_gen_batch_size_overrides_exact_refill_modes_to_one(monkeypatch, trainer_mode, dapo, refill_failed):
+    warnings = []
+    monkeypatch.setattr(streaming_module.logger, "warning", warnings.append)
+    config = _gen_batch_config(trainer_mode, 2, dapo=dapo, refill_failed=refill_failed)
+
+    assert streaming_module.resolve_gen_batch_size(config) == 1
+    assert warnings == ["data.gen_batch_size=2 is overridden to 1."]
+
+
+def test_resolve_gen_batch_size_rejects_sync_value_between_one_and_train_batch():
+    with pytest.raises(ValueError, match="gen_batch_size to be 1 or train_batch_size"):
+        streaming_module.resolve_gen_batch_size(_gen_batch_config("sync", 2))
 
 
 def _sync_coordinator_stub():

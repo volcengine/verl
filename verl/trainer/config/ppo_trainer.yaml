@@ -246,11 +246,19 @@ trainer:
       # Target in-flight session inventory, expressed in train batches at the fixed rollout.n
       watermark_batches: 2
 
+      # Cap on dispatched-but-unconsumed prompt groups (in flight plus awaiting sampling), in train batches.
+      # Bounds steady-state staleness to about this many steps when rollout outpaces training; null disables it
+      max_outstanding_batches: 4
+
     # Asynchronous PPO trainer with separate trainer and rollout
     separate_async:
 
       # Target in-flight session inventory, expressed in train batches at the fixed rollout.n
       watermark_batches: 2
+
+      # Cap on dispatched-but-unconsumed prompt groups (in flight plus awaiting sampling), in train batches.
+      # Bounds steady-state staleness to about this many steps when rollout outpaces training; null disables it
+      max_outstanding_batches: 4
 
       # Frequency of parameter synchronization between trainer and rollout
       parameter_sync_step: 4

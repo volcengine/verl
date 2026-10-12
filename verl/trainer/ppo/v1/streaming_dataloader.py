@@ -196,13 +196,7 @@ class StreamingDataloader:
             is_train=True,
             max_samples=config.data.get("train_max_samples", -1),
         )
-        configured_gen_batch_size = config.data.get("gen_batch_size", None)
-        if self.trainer_mode == "sync":
-            self.gen_batch_size = int(configured_gen_batch_size or config.data.train_batch_size)
-        else:
-            if configured_gen_batch_size not in (None, 1):
-                raise ValueError("Async trainers require data.gen_batch_size to be 1 or null")
-            self.gen_batch_size = 1
+        self.gen_batch_size = resolve_gen_batch_size(config)
         self.train_dataloader = StatefulDataLoader(
             dataset=train_dataset,
             batch_size=self.gen_batch_size,
@@ -299,17 +293,9 @@ class StreamingDataloader:
         self.train_batch_size = train_batch_size
         self.max_inflight_gen_batches = max_inflight_gen_batches
         self.sync_refill_failed_groups = sync_refill_failed_groups
-        if self.gen_batch_size not in (1, train_batch_size):
-            raise ValueError(
-                f"Sync trainers require data.gen_batch_size to be 1 or train_batch_size ({train_batch_size}), "
-                f"got {self.gen_batch_size}"
-            )
         if self.filter_groups_metric is not None:
             if not isinstance(self.max_inflight_gen_batches, int) or self.max_inflight_gen_batches <= 0:
                 raise ValueError("max_inflight_gen_batches must be a positive integer")
-        # Refill counts are exact prompt counts, so failed-group refill needs single-prompt fetches.
-        if self.sync_refill_failed_groups and self.gen_batch_size != 1:
-            raise ValueError("sync_refill_failed_groups requires gen_batch_size=1")
 
     # ------------------------------------------------------------------ #
     # Trainer-facing RPCs
@@ -823,6 +809,9 @@ class StreamingDataloader:
             if tq_schema.uid_of(key) in selected
         ]
         tq.kv_clear(partition_id=partition_id, keys=[*selected_prompt_uids, *session_keys])
+        # Keep same-poll decisions consistent with tq, e.g. the outstanding-group cap checked by async refill.
+        for status_keys in (self.pending_keys, self.running_keys, self.finished_keys, self.failure_keys):
+            status_keys[partition_id].difference_update(selected)
         for status_keys in (self.running_session_keys, self.finished_session_keys, self.failure_session_keys):
             status_keys[partition_id].difference_update(session_keys)
 
@@ -853,15 +842,43 @@ class StreamingDataloaderAsync(StreamingDataloader):
         self._pending_metrics: dict = {}
 
     def _init_refill_policy(self) -> None:
-        watermark_batches = float(self.config.trainer.v1.get(self.trainer_mode, {}).get("watermark_batches", 1))
+        # Refill keeps prompts in flight while a request waits, and every in-flight prompt has staleness >= 1,
+        # so ``wait`` with threshold 1 would block sampling forever.
+        if self.max_off_policy_strategy == "wait" and self.max_off_policy_threshold == 1:
+            raise ValueError(
+                "max_off_policy_strategy=wait requires max_off_policy_threshold >= 2 in async trainers; "
+                "use the drop strategy or the sync trainer for strictly on-policy sampling"
+            )
+        mode_config = self.config.trainer.v1.get(self.trainer_mode, {})
+        train_batch_size = self.config.data.train_batch_size
+        watermark_batches = float(mode_config.get("watermark_batches", 2))
         if watermark_batches <= 0:
             raise ValueError(f"watermark_batches must be positive, got {watermark_batches}")
         self.default_rollout_n = self._default_rollout_n("train")
-        self.watermark_sessions = round(watermark_batches * self.config.data.train_batch_size * self.default_rollout_n)
+        self.watermark_sessions = round(watermark_batches * train_batch_size * self.default_rollout_n)
         if self.watermark_sessions <= 0:
             raise ValueError(
                 "watermark_batches resolves to zero in-flight sessions; increase it for the configured "
-                f"train_batch_size={self.config.data.train_batch_size} and rollout.n={self.default_rollout_n}"
+                f"train_batch_size={train_batch_size} and rollout.n={self.default_rollout_n}"
+            )
+
+        # When rollout outpaces training, unconsumed groups pile up and their staleness grows with the pile.
+        max_outstanding_batches = mode_config.get("max_outstanding_batches", 4)
+        if max_outstanding_batches is None:
+            self.max_outstanding_groups = None
+            return
+        max_outstanding_batches = float(max_outstanding_batches)
+        if max_outstanding_batches < watermark_batches:
+            raise ValueError(
+                f"max_outstanding_batches ({max_outstanding_batches}) must be >= watermark_batches "
+                f"({watermark_batches}), otherwise the in-flight watermark is never reached"
+            )
+        self.max_outstanding_groups = round(max_outstanding_batches * train_batch_size)
+        if self.max_off_policy_threshold is not None and max_outstanding_batches + 1 > self.max_off_policy_threshold:
+            logger.warning(
+                f"max_outstanding_batches={max_outstanding_batches} lets steady-state staleness reach "
+                f"max_off_policy_threshold={self.max_off_policy_threshold} when rollout outpaces training; "
+                "expect off-policy drops or waits"
             )
 
     # ------------------------------------------------------------------ #
@@ -1038,11 +1055,17 @@ class StreamingDataloaderAsync(StreamingDataloader):
     def _refill_to_watermark(self) -> int:
         inflight_sessions = self.unfinished_session_count("train", self.default_rollout_n)
         free_slots = max(0, self.watermark_sessions - inflight_sessions)
-        if free_slots <= 0:
-            return 0
-
         num_prompts = free_slots // self.default_rollout_n
-        return self._refill_exact(num_prompts) if num_prompts else 0
+        if self.max_outstanding_groups is not None:
+            num_prompts = min(num_prompts, max(0, self.max_outstanding_groups - self.outstanding_group_count("train")))
+        return self._refill_exact(num_prompts) if num_prompts > 0 else 0
+
+    def outstanding_group_count(self, partition_id: str) -> int:
+        """Count prompt groups dispatched but not yet consumed: in flight or terminal and awaiting sampling."""
+        return sum(
+            len(status_keys[partition_id])
+            for status_keys in (self.pending_keys, self.running_keys, self.finished_keys, self.failure_keys)
+        )
 
     def unfinished_session_count(self, partition_id: str, default_rollout_n: int) -> int:
         """Count session slots still occupied by pending or running prompt groups."""
@@ -1150,6 +1173,31 @@ class StreamingDataloaderAsync(StreamingDataloader):
             return False
         tq.load_checkpoint(path)
         return True
+
+
+def resolve_gen_batch_size(config) -> int:
+    """Resolve ``data.gen_batch_size``, the number of prompts per train dataloader fetch.
+
+    Async watermark refill and sync DAPO/failure refill dispatch exact prompt counts, so they fetch one prompt at a
+    time and other configured values are overridden to 1. Plain sync sampling dispatches whole train batches.
+    """
+    configured = config.data.get("gen_batch_size", None)
+    train_batch_size = config.data.train_batch_size
+    filter_groups = config.algorithm.get("filter_groups", None)
+    dapo_enabled = bool(filter_groups is not None and filter_groups.get("enable", False))
+    sync_refill_failed_groups = bool(config.trainer.v1.sampler.get("sync_refill_failed_groups", False))
+    if config.trainer.v1.trainer_mode != "sync" or dapo_enabled or sync_refill_failed_groups:
+        if configured not in (None, 1):
+            logger.warning(f"data.gen_batch_size={configured} is overridden to 1.")
+        return 1
+    if configured is None:
+        return int(train_batch_size)
+    if configured not in (1, train_batch_size):
+        raise ValueError(
+            f"Sync trainers require data.gen_batch_size to be 1 or train_batch_size ({train_batch_size}), "
+            f"got {configured}"
+        )
+    return int(configured)
 
 
 def resolve_streaming_dataloader_cls(config) -> type[StreamingDataloader]:
