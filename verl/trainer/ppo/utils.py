@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import warnings
 from enum import Enum
 
@@ -105,6 +106,26 @@ def need_critic(config: DictConfig) -> bool:
             stacklevel=2,
         )
         return False
+
+
+def get_balance_mini_batch_size(config: DictConfig, use_critic: bool, update_actor: bool) -> int:
+    """Return the largest global sample count that every PPO mini-batch of this step is a multiple of.
+
+    Every actor and critic mini-batch is a run of consecutive chunks of this size, so balancing each chunk
+    across DP ranks balances all of them. Returns 0 if neither model is updated.
+    """
+    rollout_n = config.actor_rollout_ref.rollout.n
+    mini_batch_size = 0
+    if use_critic:
+        mini_batch_size = math.gcd(mini_batch_size, config.critic.ppo_mini_batch_size * rollout_n)
+    if update_actor:
+        mini_batch_size = math.gcd(mini_batch_size, config.actor_rollout_ref.actor.ppo_mini_batch_size * rollout_n)
+    return mini_batch_size
+
+
+def need_minibatch_shuffle(config: DictConfig, use_critic: bool) -> bool:
+    """Whether samples should be randomly assigned to PPO mini-batches."""
+    return bool(config.actor_rollout_ref.actor.shuffle or (use_critic and config.critic.shuffle))
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):

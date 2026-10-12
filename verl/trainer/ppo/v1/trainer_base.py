@@ -67,7 +67,9 @@ from verl.trainer.ppo.utils import (
     Role,
     create_rl_dataset,
     create_rl_sampler,
+    get_balance_mini_batch_size,
     need_critic,
+    need_minibatch_shuffle,
     need_reference_policy,
     need_teacher_policy,
 )
@@ -82,7 +84,7 @@ from verl.utils.debug.metrics import calculate_debug_metrics
 from verl.utils.import_utils import load_extern_type
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
-from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
+from verl.utils.seqlen_balancing import calculate_workload, get_minibatch_balanced_partitions, log_seqlen_unbalance
 from verl.utils.skip import SkipManager
 from verl.utils.tracking import DapoFilteredRewardTableLogger, Tracking, ValidationGenerationsLogger
 from verl.workers.config import CriticConfig, DistillationConfig, HFModelConfig
@@ -1605,8 +1607,8 @@ class PPOTrainer(ABC):
         # Notice lcm(a, b, c) == lcm(lcm(a, b), c), so it is optimal.
         return required_multiple
 
-    def _balance_batch(self, batch: KVBatchMeta, metrics, logging_prefix="global_seqlen", keep_minibatch=False):
-        """Reorder the data on single controller such that each dp rank gets similar total tokens."""
+    def _balance_batch(self, batch: KVBatchMeta, metrics, logging_prefix="global_seqlen"):
+        """Shuffle samples into PPO mini-batches if enabled, then balance each mini-batch across DP ranks."""
         # get actor dp size
         role, worker_group = "actor", self.actor_rollout_wg
         if role not in worker_group._dispatch_info:
@@ -1623,7 +1625,17 @@ class PPOTrainer(ABC):
         workload_lst = calculate_workload(global_seqlen_lst)
 
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
-        global_partition_lst = get_seqlen_balanced_partitions(workload_lst, k_partitions=dp_size, equal_size=True)
+        global_partition_lst = get_minibatch_balanced_partitions(
+            workload_lst,
+            k_partitions=dp_size,
+            mini_batch_size=get_balance_mini_batch_size(
+                self.config,
+                use_critic=self.use_critic,
+                update_actor=self.config.trainer.critic_warmup <= self.global_steps,
+            ),
+            shuffle=need_minibatch_shuffle(self.config, self.use_critic),
+            seed=[self.config.actor_rollout_ref.actor.data_loader_seed, self.global_steps, self.local_trigger_step],
+        )
         batch.reorder([j for partition in global_partition_lst for j in partition])
         global_balance_stats = log_seqlen_unbalance(
             seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
@@ -1810,7 +1822,9 @@ class PPOTrainer(ABC):
             "mini_batch_size": ppo_mini_batch_size,
             "epochs": self.config.critic.ppo_epochs,
             "seed": self.config.critic.data_loader_seed,
-            "dataloader_kwargs": {"shuffle": self.config.critic.shuffle},
+            # Shuffling samples on workers would break the per-mini-batch balance; reorder whole mini-batches.
+            "dataloader_kwargs": {"shuffle": False},
+            "shuffle_mini_batch_order": self.config.critic.shuffle,
             "temperature": self.config.actor_rollout_ref.rollout.temperature,
         }
         batch.extra_info.update(extra_info)
@@ -1856,7 +1870,9 @@ class PPOTrainer(ABC):
             "mini_batch_size": ppo_mini_batch_size,
             "epochs": self.config.actor_rollout_ref.actor.ppo_epochs,
             "seed": self.config.actor_rollout_ref.actor.data_loader_seed,
-            "dataloader_kwargs": {"shuffle": self.config.actor_rollout_ref.actor.shuffle},
+            # Shuffling samples on workers would break the per-mini-batch balance; reorder whole mini-batches.
+            "dataloader_kwargs": {"shuffle": False},
+            "shuffle_mini_batch_order": self.config.actor_rollout_ref.actor.shuffle,
             "temperature": self.config.actor_rollout_ref.rollout.temperature,
         }
         batch.extra_info.update(extra_info)

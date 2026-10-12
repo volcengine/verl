@@ -51,7 +51,7 @@ forward_max_token_len_per_gpu: ${.ppo_max_token_len_per_gpu}
 # Number of PPO epochs per batch
 ppo_epochs: ${oc.select:actor_rollout_ref.actor.ppo_epochs,1}
 
-# Shuffle training data across PPO epochs
+# Randomly assign samples to PPO mini-batches, see actor.shuffle
 shuffle: ${oc.select:actor_rollout_ref.actor.shuffle,false}
 
 # The seed used to construct mini-batch
