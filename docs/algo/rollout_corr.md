@@ -632,9 +632,10 @@ algorithm:
 
 **Properties:**
 
-- Removes the policy-gradient drift term `E_q[R] * E_q[∇log p]` introduced by training-inference
-  mismatch exactly, with no extra hyperparameters
-- A no-op on-policy (π_θ = π_rollout)
+- Centers the policy-gradient score to address the drift term `E_q[R] * E_q[∇log p]`
+  introduced by training-inference mismatch. Evaluation is exact for a verified complete
+  support and uses the preset trainer-tail approximation otherwise
+- A no-op when the sampler and trainer distributions represented by the estimator agree
 - Composes with token-level TIS / IcePop by centering the already-weighted score
 - Reported by the paper to be stable under sampler quantization
 - The sampler records a top-`k` head per token. Score centering attempts to align with its
@@ -672,7 +673,8 @@ algorithm:
 
 - Set `actor_rollout_ref.actor.use_fused_kernels: false` (incompatible with fused kernels)
 - v1 trainer (`trainer.use_v1: true`) with an FSDP actor only; single-turn agent loop only
-- Memory: `8k` bytes per padded prompt+response position on the driver (`k=128`: 1 KB per position)
+- Head payload: `8k` bytes per padded prompt+response position on the driver (`k=128`: 1 KB
+  per position), plus one boolean completeness receipt per position
 - The trainer evaluates the head log-probs in chunks of 4096 positions, with an fp32 workspace of roughly `4096 × vocab × 4` bytes
 - Metrics: `actor/sc_correction`, `actor/sc_sampler_head_mass`, `actor/sc_train_head_mass`,
   `actor/sc_support_aligned`, `actor/sc_sampler_tail_mass`, `actor/sc_support_unknown`.
