@@ -160,3 +160,22 @@ def test_unsupported_restart_has_no_effect_and_failed_health_keeps_target_pendin
     healthy.resume_generation.assert_awaited_once()
     assert manager._pending_restarts == [target]
     assert not manager._weight_sync_lock.locked()
+
+
+def test_failed_pending_replica_does_not_block_other_replacement(monkeypatch):
+    manager, target, other, _adapter, _live, _events = _make_manager(monkeypatch)
+    asyncio.run(checkpoint_base.CheckpointEngineManager.restart_replica.__wrapped__(manager, target))
+    other.server_handle = SimpleNamespace(check_health=SimpleNamespace(remote=AsyncMock()))
+    manager._pending_restarts.append(other)
+    failure = RuntimeError("one replacement engine is unhealthy")
+    target.server_handle.check_health.remote.side_effect = failure
+
+    with pytest.raises(RuntimeError) as caught:
+        asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
+
+    assert caught.value is failure
+    target.resume_generation.assert_not_awaited()
+    other.server_handle.check_health.remote.assert_awaited_once()
+    other.resume_generation.assert_awaited_once()
+    assert manager._pending_restarts == [target]
+    assert not manager._weight_sync_lock.locked()

@@ -622,9 +622,18 @@ class CheckpointEngineManager:
         if self._pending_restarts:
             # A replacement's failed health check must not keep normal replicas paused.
             await asyncio.gather(*[r.resume_generation() for r in self.replicas if r not in self._pending_restarts])
-            await asyncio.gather(*[r.server_handle.check_health.remote() for r in self._pending_restarts])
-            await asyncio.gather(*[r.resume_generation() for r in self._pending_restarts])
-            self._pending_restarts.clear()
+
+            async def resume_replacement(replica):
+                await replica.server_handle.check_health.remote()
+                await replica.resume_generation()
+                self._pending_restarts.remove(replica)
+
+            results = await asyncio.gather(
+                *[resume_replacement(r) for r in self._pending_restarts], return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
         else:
             await self.resume_generation_replicas()
 
