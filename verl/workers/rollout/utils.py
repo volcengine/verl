@@ -176,6 +176,11 @@ def extract_response_topk_logprobs(logprobs, k: int) -> tuple[list[float], np.nd
     sorted_ids = np.sort(head_ids, axis=-1)
     if np.any(sorted_ids[:, :-1] == sorted_ids[:, 1:]):
         raise ValueError("sampler top-k ids must be unique within each head")
+    if np.any(np.exp(head_log_probs).sum(-1) > 1.0 + 1e-5):
+        raise ValueError("sampler top-k head probability mass must not exceed one")
+    rows, columns = np.nonzero(head_ids == ids[:, :1])
+    if not np.allclose(head_log_probs[rows, columns], log_probs[rows, 0], atol=1e-6, rtol=1e-6):
+        raise ValueError("sampled-token log-probs must match the corresponding sampler head entries")
     return log_probs[:, 0].tolist(), ids[:, 1:].copy(), log_probs[:, 1:].copy()
 
 
@@ -246,17 +251,23 @@ def extract_response_topk_logprobs_with_coverage(
     """
     sampled, ids, head_log_probs = extract_response_topk_logprobs(logprobs, k)
     complete = np.zeros(len(sampled), dtype=np.bool_)
+    sampled_ids = np.asarray(logprobs.token_ids[:: k + 1], dtype=np.int32)
+    if vocab_size is not None:
+        if vocab_size <= 0 or np.any(ids >= vocab_size) or np.any(sampled_ids >= vocab_size):
+            raise ValueError("sampler top-k ids and sampled ids must lie within the model vocabulary")
     if not all(hasattr(logprobs, key) for key in ("start_indices", "end_indices", "ranks")):
         return sampled, ids, head_log_probs, complete
     ranks = np.asarray(logprobs.ranks).reshape(len(sampled), k + 1)
     if not np.all(ranks[:, 1:] == np.arange(1, k + 1)):
         raise ValueError("sampler top-k entries must have consecutive provider ranks 1..k")
-    if vocab_size is not None:
-        if vocab_size <= 0 or np.any(ids >= vocab_size):
-            raise ValueError("sampler top-k ids must lie within the model vocabulary")
-        if k == vocab_size:
-            complete[:] = True
+    if k == vocab_size:
+        complete[:] = True
     complete |= np.isneginf(head_log_probs).any(-1)
+    sampled_in_head = ((ids == sampled_ids[:, None]) & np.isfinite(head_log_probs)).any(-1)
+    if np.any(complete & ~sampled_in_head):
+        raise ValueError("a complete sampler head must contain the sampled token with finite log-prob")
+    if not np.allclose(np.exp(head_log_probs[complete]).sum(-1), 1.0, atol=1e-5, rtol=0):
+        raise ValueError("a complete sampler head must have unit probability mass")
     return sampled, ids, head_log_probs, complete
 
 

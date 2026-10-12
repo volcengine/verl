@@ -100,6 +100,45 @@ def test_duplicate_global_head_ids_are_rejected():
         extract_response_topk_logprobs_with_coverage(flat, k=2)
 
 
+def test_individually_valid_logprobs_with_impossible_head_mass_are_rejected():
+    flat = _flat([[-0.1, -0.2]])
+    with pytest.raises(ValueError, match="mass must not exceed one"):
+        extract_response_topk_logprobs_with_coverage(flat, k=2)
+
+
+def test_sampled_logprob_must_match_a_recorded_head_entry():
+    flat = _flat([[-0.1, -2.5]])
+    flat.logprobs[0] = -1.0
+    with pytest.raises(ValueError, match="match the corresponding"):
+        extract_response_topk_logprobs_with_coverage(flat, k=2)
+
+
+def test_complete_head_cannot_omit_a_sampled_token_with_positive_probability():
+    flat = _flat([[0.0, float("-inf")]])
+    flat.token_ids[0] = 3
+    flat.logprobs[0] = -2.0
+    with pytest.raises(ValueError, match="must contain the sampled token"):
+        extract_response_topk_logprobs_with_coverage(flat, k=2, vocab_size=4)
+
+
+def test_complete_evidence_with_nonunit_head_mass_is_corrupt_not_a_fallback():
+    flat = _flat([[-0.5, float("-inf")]])
+    with pytest.raises(ValueError, match="unit probability mass"):
+        extract_response_topk_logprobs_with_coverage(flat, k=2)
+
+
+def test_sampled_id_must_be_in_known_model_vocabulary_even_without_provider_layout():
+    class Legacy:
+        token_ids = [3, 0, 1]
+        logprobs = [-2.0, -0.1, -2.5]
+
+        def __len__(self):
+            return 1
+
+    with pytest.raises(ValueError, match="sampled ids must lie within"):
+        extract_response_topk_logprobs_with_coverage(Legacy(), k=2, vocab_size=3)
+
+
 def test_missing_ranked_slot_cannot_be_used_as_complete_evidence():
     flat = _flat([[0.0, float("-inf")]])
     flat.ranks[-1] = 0

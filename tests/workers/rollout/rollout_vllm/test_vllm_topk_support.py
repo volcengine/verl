@@ -81,7 +81,8 @@ def test_small_decode_batch_ties_do_not_prove_support_fits_configured_top_k(k, e
     log_probs = logits.log_softmax(-1)
     assert int(log_probs.isfinite().sum()) == 3
     head, ids = log_probs.topk(k, -1)
-    sampled_id = 2
+    # topk may break equal-logit ties differently across devices. Pick the actual omitted id.
+    sampled_id = next((i for i in range(4) if log_probs[0, i].isfinite() and i not in ids[0].tolist()), 2)
     flat = FlatLogprobs()
     append_logprobs_for_next_position(
         flat,

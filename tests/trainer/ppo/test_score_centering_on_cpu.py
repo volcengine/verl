@@ -370,14 +370,14 @@ def test_extract_reads_sampled_token_and_head_by_rank():
     # position 0 samples the top-1 token; position 1 samples token 42, outside the head
     flat = _FlatLogprobs(
         token_ids=[7, 7, 3, 9, 42, 3, 7, 9],
-        logprobs=[-0.1, -0.1, -1.5, -2.0, -8.0, -0.2, -1.0, -1.9],
+        logprobs=[-0.6, -0.6, -1.5, -2.0, -8.0, -0.8, -1.5, -2.0],
         num_positions=2,
     )
     sampled, ids, log_probs = extract_response_topk_logprobs(flat, k=3)
-    assert sampled == pytest.approx([-0.1, -8.0])
+    assert sampled == pytest.approx([-0.6, -8.0])
     assert ids.dtype == np.int32 and log_probs.dtype == np.float32
     assert ids.tolist() == [[7, 3, 9], [3, 7, 9]]
-    np.testing.assert_allclose(log_probs, [[-0.1, -1.5, -2.0], [-0.2, -1.0, -1.9]], rtol=1e-6)
+    np.testing.assert_allclose(log_probs, [[-0.6, -1.5, -2.0], [-0.8, -1.5, -2.0]], rtol=1e-6)
 
 
 def test_extract_rejects_ragged_rows():
