@@ -96,3 +96,43 @@ def test_small_decode_batch_ties_do_not_prove_support_fits_configured_top_k(k, e
     assert complete.tolist() == [expected_complete]
     if k == 2:
         assert not (head_ids == sampled_id).any()
+
+
+@pytest.mark.parametrize("rule,threshold", [(None, 2.0), ("token", 2.0), ("token", "0.5_5.0")])
+def test_pure_top_p_overflow_scores_sample_outside_recorded_head(rule, threshold):
+    from verl.trainer.ppo.score_centering import score_centering_auto_correction, score_centering_weight_fn
+
+    # Pure top-p has no cardinality cap: this real provider keeps all four tokens,
+    # while the recording budget is two. Sample an actual nonzero-probability tail token.
+    sampler_logits = apply_top_k_top_p(torch.zeros(1, 4, device="cuda"), None, torch.tensor([0.9], device="cuda"))
+    sampler_lp = sampler_logits.log_softmax(-1)
+    assert int(sampler_lp.isfinite().sum()) == 4
+    q_head, ids = sampler_lp.topk(2, -1)
+    sampled_id = next(i for i in range(4) if i not in ids[0].tolist())
+    flat = FlatLogprobs()
+    append_logprobs_for_next_position(
+        flat,
+        [sampled_id, *ids[0].tolist()],
+        [sampler_lp[0, sampled_id].item(), *q_head[0].tolist()],
+        [None] * 3,
+        4,
+        2,
+    )
+    q_sample, _, recorded, complete = extract_response_topk_logprobs_with_coverage(flat, 2, vocab_size=4)
+    assert complete.tolist() == [False]
+    trainer = torch.tensor([[2.0, 1.0, 0.0, -1.0]], device="cuda", requires_grad=True)
+    lp = trainer.log_softmax(-1)
+    weight = score_centering_weight_fn(rule, threshold)
+    correction, shift, mass, _ = score_centering_auto_correction(
+        lp.gather(-1, ids),
+        torch.as_tensor(recorded, device="cuda"),
+        weight,
+        torch.as_tensor(complete, device="cuda"),
+    )
+    assert mass.item() == pytest.approx(0.5)
+    assert shift.item() == 0
+    sampled = lp[:, sampled_id] - shift
+    actual_q_sample = torch.as_tensor(q_sample, device="cuda")
+    sampled_weight = weight((sampled.detach() - actual_q_sample).exp())
+    loss = -(sampled_weight * sampled - correction).mean()
+    assert torch.isfinite(torch.autograd.grad(loss, trainer)[0]).all()
