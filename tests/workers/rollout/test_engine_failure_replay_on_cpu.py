@@ -130,3 +130,27 @@ def test_errors_outside_enabled_engine_replay_propagate(error, recovery_timeout)
         assert router.get_all_servers() == ["server"] and router.get_inflight_count("server") == 0
 
     asyncio.run(main())
+
+
+@pytest.mark.parametrize("timeout,retries,error", [(0.02, 3, TimeoutError), (1, 0, RuntimeError)])
+def test_engine_replay_stops_at_wait_or_retry_limit(timeout, retries, error):
+    async def main():
+        async def failed(**kwargs):
+            return TokenOutput(token_ids=[], stop_reason="aborted", extra_fields={"engine_failed": True})
+
+        router = GlobalRequestLoadBalancer({"failed": _Handle(SimpleNamespace(generate=failed))})
+        client = LLMServerClient(
+            _config(), _Handle(router), engine_recovery_timeout=timeout, max_engine_retries=retries
+        )
+        # The outer guard fails the test if the recovery limit itself stops working.
+        task = asyncio.create_task(client.generate("session", prompt_ids=[1], sampling_params={"max_tokens": 4}))
+        done, _ = await asyncio.wait([task], timeout=2)
+        if not done:
+            task.cancel()
+            pytest.fail("engine replay did not terminate within its recovery limit")
+        with pytest.raises(error):
+            await task
+        await asyncio.sleep(0)
+        assert router.get_all_servers() == []
+
+    asyncio.run(main())

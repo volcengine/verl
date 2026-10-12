@@ -144,21 +144,21 @@ class LLMServerClient:
             return isinstance(cause, EngineDeadError)
         return False
 
-    async def _acquire_for_generation(self, request_id: str, recovery: _EngineRecovery | None, **extra):
+    async def _wait_for_server(self, request_id: str, **extra):
         while True:
             try:
-                if recovery is not None and recovery.deadline is not None:
-                    timeout = recovery.remaining()
-                    return await asyncio.wait_for(self._acquire_server(request_id, **extra), timeout=timeout)
                 return await self._acquire_server(request_id, **extra)
             except RuntimeError as exc:
-                if (
-                    recovery is None
-                    or recovery.deadline is None
-                    or "No available servers in load balancer" not in str(exc)
-                ):
+                if "No available servers in load balancer" not in str(exc):
                     raise
-                await asyncio.sleep(min(1.0, recovery.remaining()))
+                await asyncio.sleep(1)
+
+    async def _acquire_for_generation(self, request_id: str, recovery: _EngineRecovery | None, **extra):
+        recovering = recovery is not None and recovery.deadline is not None
+        acquire = self._wait_for_server if recovering or getattr(self, "_only_hybrid", False) else self._acquire_server
+        if recovering:
+            return await asyncio.wait_for(acquire(request_id, **extra), timeout=recovery.remaining())
+        return await acquire(request_id, **extra)
 
     def _vllm_request_id(self, request_id: str) -> str:
         # request_id passed to vLLM. Default: a fresh uuid per turn so each turn
@@ -310,26 +310,11 @@ class FullyAsyncLLMServerClient(LLMServerClient):
                 that also holds the server-handle registry.
             only_hybrid (bool): When ``True``, hybrid replicas are the *only* rollout
                 resource.  If the load balancer is temporarily empty (e.g. during
-                weight synchronisation) :meth:`_acquire_server` will keep retrying
+                weight synchronisation) generation will keep retrying
                 every 1 second instead of raising immediately.
         """
         super().__init__(config=config, load_balancer_handle=load_balancer_handle, **kwargs)
         self._only_hybrid = only_hybrid
-
-    async def _acquire_server(self, request_id: str, **extra) -> tuple[str, ray.actor.ActorHandle]:
-        # Atomic acquire: returns (server_id, handle) in one Ray RPC.
-        # When only_hybrid is True, hybrid replicas are the sole rollout resource and
-        # the LB may be temporarily empty during weight sync / scaling transitions.
-        # In that case keep retrying every 1 s until a server becomes available.
-        # Otherwise raise immediately so callers see the error right away.
-        while True:
-            try:
-                return await super()._acquire_server(request_id, **extra)
-            except RuntimeError as e:
-                if "No available servers in load balancer" in str(e) and self._only_hybrid:
-                    await asyncio.sleep(1)
-                else:
-                    raise
 
     def _configured_response_length(self) -> Optional[int]:
         """Per-response token budget from the rollout config, or ``None`` when unavailable.
@@ -470,12 +455,8 @@ class FullyAsyncLLMServerClient(LLMServerClient):
                     break
 
             # 4. check stop reason
-            # If partial rollout not enable, aborted samples will be dropped.
-            # For v1 trainer, should_retry is always True. Since self.config.async_training is not exist.
-            should_retry = True
-            if hasattr(self.config, "async_training") and not self.config.async_training.partial_rollout:
-                should_retry = False
-            if output.stop_reason not in ("aborted", "abort") or not should_retry:
+            # Normal aborts and engine failures share the same partial-rollout policy.
+            if output.stop_reason not in ("aborted", "abort") or not self._resume_failed_partial():
                 break
 
             await asyncio.sleep(1)

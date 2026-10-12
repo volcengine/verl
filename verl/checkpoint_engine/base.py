@@ -569,8 +569,6 @@ class CheckpointEngineManager:
 
         with self._weight_sync_operation():
             if self._pending_restarts:
-                if self.backend == "naive" or self.backend_cls.wire_format != "named_tensors":
-                    raise NotImplementedError("restarted replicas require full weight synchronization")
                 if type(global_steps) is not int or global_steps < 0:
                     raise ValueError("restarted replicas require a non-negative integer weight version")
             return await self._update_weights(global_steps)

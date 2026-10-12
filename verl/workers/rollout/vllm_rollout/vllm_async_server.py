@@ -775,7 +775,7 @@ class vLLMHttpServer:
             if recover_engine_failure and getattr(self, "_engine_failed", False):
                 rejected.extra_fields["engine_failed"] = True
             return rejected
-        generation_version = self.global_steps
+        extra_fields = {"global_steps": self.global_steps}
         engine_failed = False
 
         with RLInsightLogger.trace_state(
@@ -813,19 +813,11 @@ class vLLMHttpServer:
             finally:
                 if not admitted:
                     self._admitting -= 1
-            if final_res is None:
-                if not engine_failed:
-                    raise RuntimeError("generation ended without an output")
-                return TokenOutput(
-                    token_ids=[],
-                    stop_reason="aborted",
-                    extra_fields={"global_steps": generation_version, "engine_failed": True},
-                )
-
-        extra_fields = {"global_steps": generation_version}
+            if final_res is None and not engine_failed:
+                raise RuntimeError("generation ended without an output")
         if engine_failed:
             extra_fields["engine_failed"] = True
-            if final_res.outputs:
+            if final_res is not None and final_res.outputs:
                 completion = final_res.outputs[0]
                 missing_logprobs = sampling_params.logprobs is not None and (
                     completion.logprobs is None or len(completion.logprobs) != len(completion.token_ids)
@@ -834,7 +826,9 @@ class vLLMHttpServer:
                 # this attempt rather than retaining tokens without their original routes.
                 missing_routing = self.config.enable_rollout_routing_replay and completion.routed_experts is None
                 if missing_logprobs or missing_routing:
-                    return TokenOutput(token_ids=[], stop_reason="aborted", extra_fields=extra_fields)
+                    final_res = None
+            if final_res is None:
+                return TokenOutput(token_ids=[], stop_reason="aborted", extra_fields=extra_fields)
         # Handle abort case: when the request is aborted by pause_generation(abort),
         # outputs may be empty. Return empty results with stop_reason="aborted"
         # instead of crashing with "IndexError: list index out of range".
