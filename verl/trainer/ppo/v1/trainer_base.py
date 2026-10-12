@@ -121,6 +121,7 @@ class PPOTrainer(ABC):
         has_custom_sampler = bool(
             custom_sampler is not None and custom_sampler.get("path") and custom_sampler.get("name")
         )
+        # TODO: support skip manager
         if OmegaConf.select(self.config, "skip.rollout_tq.enable", default=False):
             raise ValueError(
                 "skip.rollout_tq is currently unsupported by all V1 trainer modes: "
