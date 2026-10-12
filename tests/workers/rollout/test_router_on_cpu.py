@@ -84,7 +84,9 @@ class _MockPluginLoadBalancer:
         self._inflight[sid] += 1
         return sid, self._servers[sid]
 
-    def release_server(self, server_id: str, request_id: str | None = None) -> None:
+    def release_server(self, server_id: str, request_id: str | None = None, expected_handle: Any = None) -> None:
+        if expected_handle is not None and self._servers.get(server_id) != expected_handle:
+            return
         self.releases.append((server_id, request_id))
         if server_id in self._inflight and self._inflight[server_id] > 0:
             self._inflight[server_id] -= 1
@@ -98,6 +100,12 @@ class _MockPluginLoadBalancer:
         for sid in server_ids:
             self._inflight.pop(sid, None)
             self._servers.pop(sid, None)
+
+    def remove_server_if_current(self, server_id: str, expected_handle: Any) -> bool:
+        if server_id not in self._servers or self._servers[server_id] != expected_handle:
+            return False
+        self.remove_servers([server_id])
+        return True
 
     def get_all_servers(self) -> list[str]:
         return list(self._inflight.keys())
@@ -330,6 +338,20 @@ class TestReleaseServerSignature:
         sid, _ = ray.get(lb.acquire_server.remote("req-1"))
         ray.get(lb.release_server.remote(sid, request_id="req-1"))
         assert ray.get(lb.get_total_inflight.remote()) == 0
+
+    def test_plugin_recovery_preserves_replacement_identity(self, ray_session, tmp_path):
+        lb = _plugin_lb({"s0": "old-handle"}, tmp_path)
+        client = LLMServerClient(config=OmegaConf.create({}), load_balancer_handle=lb, engine_recovery_timeout=5)
+        sid, old = asyncio.run(client._acquire_server("req-1", prompt_ids=[1]))
+        assert ray.get(lb.remove_server_if_current.remote(sid, old))
+        ray.get(lb.add_servers.remote({sid: "new-handle"}))
+        assert not ray.get(lb.remove_server_if_current.remote(sid, old))
+        sid, new = asyncio.run(client._acquire_server("req-2", prompt_ids=[1]))
+        client._release_server(sid, request_id="req-1", expected_handle=old)
+        assert ray.get(lb.get_total_inflight.remote()) == 1
+        client._release_server(sid, request_id="req-2", expected_handle=new)
+        assert ray.get(lb.get_total_inflight.remote()) == 0
+        assert ray.get(lb.get_releases.remote()) == [(sid, "req-2")]
 
 
 class TestGetRouterHandlePrecedence:

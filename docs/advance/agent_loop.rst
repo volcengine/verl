@@ -308,6 +308,13 @@ rollout would deadlock. Reuse ``update_weights(current_version)`` at a safe
 boundary instead. Replay is opt-in, and waiting after a fault is bounded by the
 configured timeout and per-generation failure budget.
 
+Custom load balancers used with replay must implement
+``remove_server_if_current(server_id, expected_handle)`` and accept
+``expected_handle`` in ``release_server()``. Both calls must compare the
+registered handle before changing state, so a late failure or release from an
+old actor cannot remove a replacement or decrement its in-flight count.
+Clients with replay disabled keep the existing acquire/release interface.
+
 SGLang
 ^^^^^^
 
