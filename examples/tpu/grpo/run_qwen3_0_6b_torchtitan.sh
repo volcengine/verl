@@ -80,8 +80,8 @@ project_name='verl_tpu_grpo'
 RAY_DATA_HOME="/data/jialei"
 MODEL_PATH="${MODEL_PATH:-${RAY_DATA_HOME}/assets/hf/Qwen3-0.6B}"
 
-TRAIN_FILE="${RAY_DATA_HOME}/data/gsm8k/train.parquet"
-TEST_FILE="${RAY_DATA_HOME}/data/gsm8k/test.parquet"
+TRAIN_FILE="${TRAIN_FILE:-${RAY_DATA_HOME}/data/gsm8k/train.parquet}"
+TEST_FILE="${TEST_FILE:-${RAY_DATA_HOME}/data/gsm8k/test.parquet}"
 
 # TPU 2-slice v6e-8 configurations
 export NNODES_TRAINER=2       # 2 physical VM hosts for training slice
