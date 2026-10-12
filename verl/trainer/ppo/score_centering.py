@@ -28,6 +28,7 @@ import torch
 from tensordict import TensorDict
 
 from verl.trainer.ppo.rollout_corr_helper import _parse_rollout_is_threshold
+from verl.trainer.ppo.score_centering_scores import score_centering_shared_scores_from_logits
 from verl.utils.ulysses import get_ulysses_sequence_parallel_world_size, slice_input_tensor
 from verl.workers.config import ActorConfig
 from verl.workers.utils.losses import ppo_loss
@@ -304,7 +305,11 @@ def score_centering_auto_correction(
 
 
 def score_centering_logits_processor(
-    student_logits: torch.Tensor, data: TensorDict, config: ActorConfig, data_format: str = "thd"
+    student_logits: torch.Tensor,
+    data: TensorDict,
+    config: ActorConfig,
+    data_format: str = "thd",
+    sampled_token_ids: torch.Tensor = None,
 ) -> dict[str, torch.Tensor]:
     """Per-token centering term from the trainer logits, in the engine's logits-processor slot.
 
@@ -314,16 +319,21 @@ def score_centering_logits_processor(
             sampler heads of shape [B, j, k].
         config: Actor configuration, used for ``policy_loss.rollout_correction``.
         data_format: "thd" or "bshd". Only "thd" is supported.
+        sampled_token_ids: Optional local prediction labels, already sliced by the engine
+            for sequence parallelism. Enables shared head/sample scoring for a full local vocabulary.
 
     Returns:
         Dict with, each of shape (1, nnz/sp):
             sc_correction: Centering term, with gradient to ``student_logits``.
             sc_sampler_head_mass: Sampler's head probability mass, detached.
             sc_train_head_mass: Trainer's head probability mass, detached.
-            sc_log_support_mass: Trainer's log support mass for aligned rows, zero otherwise.
+            sc_log_support_mass: Log support mass to subtract from separately computed sampled
+                scores; zero when shared scoring already normalized them in the selected domain.
             sc_support_aligned: Fraction indicator for verified support alignment.
             sc_sampler_tail_mass: Sampler probability mass outside the recorded head.
             sc_support_unknown: Approximate rows with near-unit head mass but no coverage proof.
+            log_probs: Sampled log-probs in the selected per-row domain, present only when
+                ``sampled_token_ids`` enables shared scoring.
     """
     if data_format != "thd":
         raise NotImplementedError("score centering supports the thd (remove padding) format only.")
@@ -343,8 +353,18 @@ def score_centering_logits_processor(
     weight_fn = score_centering_weight_fn(
         rollout_correction.get("rollout_is", None), rollout_correction.get("rollout_is_threshold", 2.0)
     )
-    train_head_log_probs = topk_log_probs_from_logits(student_logits.squeeze(0), topk_ids.squeeze(0))
     complete = support_complete.squeeze(0)
+    if sampled_token_ids is not None:
+        outputs = score_centering_shared_scores_from_logits(
+            student_logits.squeeze(0),
+            topk_ids.squeeze(0),
+            sampled_token_ids,
+            topk_log_probs.squeeze(0),
+            complete,
+            weight_fn,
+        )
+        return {key: value.unsqueeze(0) for key, value in outputs.items()}
+    train_head_log_probs = topk_log_probs_from_logits(student_logits.squeeze(0), topk_ids.squeeze(0))
     correction, log_support_mass, sampler_head_mass, train_head_mass = score_centering_auto_correction(
         train_head_log_probs, topk_log_probs.squeeze(0), weight_fn, complete
     )
@@ -367,6 +387,7 @@ def score_centering_ppo_loss(
     dp_group=None,
     student_logits: torch.Tensor = None,
     data_format: str = "thd",
+    sampled_token_ids: torch.Tensor = None,
 ):
     """Actor loss function used both for the logits processor and the final policy loss.
     - student_logits is not None, compute the centering term in the logits processor.
@@ -379,13 +400,14 @@ def score_centering_ppo_loss(
         dp_group: Data parallel group for ``ppo_loss``.
         student_logits: (1, nnz/sp, V).
         data_format: "thd" or "bshd". Only "thd" is supported.
+        sampled_token_ids: Optional local prediction labels for shared head/sample scoring.
 
     Returns:
         student_logits is not None: dict from ``score_centering_logits_processor``.
         student_logits is None: the (loss, metrics) tuple from ``ppo_loss``.
     """
     if student_logits is not None:
-        return score_centering_logits_processor(student_logits, data, config, data_format)
+        return score_centering_logits_processor(student_logits, data, config, data_format, sampled_token_ids)
     rollout_correction = config.policy_loss.get("rollout_correction", None) or {}
     if rollout_correction.get("score_centering", False) and "sc_correction" not in model_output:
         # an entrypoint that never sets the micro-batch flag would otherwise train plain bypass PG

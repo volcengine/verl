@@ -1428,7 +1428,14 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 # logits_processor_func return tensors with shape (1, total_nnz/sp_size)
                 if distillation_use_topk or score_centering:
-                    outputs = logits_processor_func(student_logits=logits_rmpad.unsqueeze(0), data=micro_batch)
+                    processor_kwargs = {"sampled_token_ids": input_ids_rmpad_rolled} if score_centering else {}
+                    outputs = logits_processor_func(
+                        student_logits=logits_rmpad.unsqueeze(0), data=micro_batch, **processor_kwargs
+                    )
+                    if score_centering:
+                        log_probs = outputs.pop("log_probs", None)
+                        if log_probs is not None:
+                            log_probs = log_probs.squeeze(0)
                     cu_seqlens = input_ids.offsets()
                     for k, v in outputs.items():
                         v = v.squeeze(0)
@@ -1438,7 +1445,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         v = self._gather_and_unpad_packed(v, output_args["pad_size"])
                         model_output[k] = torch.nested.nested_tensor_from_jagged(v, cu_seqlens)
 
-                if not distillation_only:
+                if not distillation_only and log_probs is None:
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     # entropy and the score centering hook reuse the logits in their backward
                     inplace_backward = not (calculate_entropy or score_centering)
@@ -1525,8 +1532,16 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     # (log_probs is also not gathered) and pad_size is only
                     # populated in output_args along the use_remove_padding=True
                     # path of prepare_model_inputs.
+                    log_probs = None
                     if distillation_use_topk or score_centering:
-                        outputs = logits_processor_func(student_logits=logits_rmpad.unsqueeze(0), data=micro_batch)
+                        processor_kwargs = {"sampled_token_ids": input_ids_rmpad_rolled} if score_centering else {}
+                        outputs = logits_processor_func(
+                            student_logits=logits_rmpad.unsqueeze(0), data=micro_batch, **processor_kwargs
+                        )
+                        if score_centering:
+                            log_probs = outputs.pop("log_probs", None)
+                            if log_probs is not None:
+                                log_probs = log_probs.squeeze(0)
                         for k, v in outputs.items():
                             v = v.squeeze(0)
                             assert v.shape == (logits_rmpad.shape[0],), (
@@ -1534,8 +1549,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                             )
                             model_output[k] = torch.nested.nested_tensor_from_jagged(v, cu_seqlens)
 
-                    log_probs = None
-                    if not distillation_only:
+                    if not distillation_only and log_probs is None:
                         log_probs = logprobs_from_logits(
                             logits=logits_rmpad,
                             labels=input_ids_rmpad_rolled,

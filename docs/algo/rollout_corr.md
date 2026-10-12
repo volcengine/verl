@@ -676,6 +676,11 @@ algorithm:
 - Head payload: `8k` bytes per padded prompt+response position on the driver (`k=128`: 1 KB
   per position), plus one boolean completeness receipt per position
 - The trainer evaluates the head log-probs in chunks of 4096 positions, with an fp32 workspace of roughly `4096 × vocab × 4` bytes
+- The FSDP actor shares normalization between the recorded head and the sampled token.
+  Verified complete rows normalize their loss scores within the recorded support; approximate
+  rows share one full-vocabulary normalizer. The detached trainer head-mass metric still requires
+  a full-vocabulary forward scan for every row. Complete rows avoid full-vocabulary softmax
+  recomputation in backward, while the dense logits-gradient output still occupies vocabulary-sized memory
 - Metrics: `actor/sc_correction`, `actor/sc_sampler_head_mass`, `actor/sc_train_head_mass`,
   `actor/sc_support_aligned`, `actor/sc_sampler_tail_mass`, `actor/sc_support_unknown`.
   `sc_support_aligned` reports the fraction of response tokens with verified support alignment;
