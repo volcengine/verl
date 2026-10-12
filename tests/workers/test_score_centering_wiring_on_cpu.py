@@ -53,7 +53,9 @@ def test_prepare_model_outputs_keeps_logits_intact_for_score_centering(use_remov
     engine = object.__new__(FSDPEngineWithLMHead)
     engine.use_ulysses_sp = False
 
-    def logits_processor(student_logits, data):
+    def logits_processor(student_logits, data, sampled_token_ids=None):
+        if score_centering:
+            torch.testing.assert_close(sampled_token_ids, output_args["input_ids_rmpad_rolled"])
         return {"sc_correction": torch.zeros(student_logits.shape[:2])}
 
     with patch(
