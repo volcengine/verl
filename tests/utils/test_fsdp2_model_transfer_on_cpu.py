@@ -24,9 +24,9 @@ from torch.distributed.fsdp import fully_shard
 from verl.utils import fsdp_utils
 
 
-@pytest.mark.parametrize("device_name, non_blocking", [("cuda", True), ("npu", False)])
+@pytest.mark.parametrize("device_name", ["cuda", "npu"])
 @pytest.mark.parametrize("empty_cache", [False, True])
-def test_offload_fsdp2_model_to_cpu_copy_policy(monkeypatch, device_name, non_blocking, empty_cache):
+def test_offload_fsdp2_model_to_cpu_copy_policy(monkeypatch, device_name, empty_cache):
     model = Mock()
     device_module = Mock()
     calls = Mock()
@@ -37,16 +37,16 @@ def test_offload_fsdp2_model_to_cpu_copy_policy(monkeypatch, device_name, non_bl
 
     fsdp_utils.offload_fsdp2_model_to_cpu(model, empty_cache=empty_cache)
 
-    expected = [call.to("cpu", non_blocking=non_blocking)]
+    expected = [call.to("cpu", non_blocking=False)]
     if empty_cache:
         expected.append(call.empty_cache())
     assert calls.mock_calls == expected
 
 
-@pytest.mark.parametrize("device_name, non_blocking", [("cuda", True), ("npu", False)])
+@pytest.mark.parametrize("device_name", ["cuda", "npu"])
 @pytest.mark.parametrize("rank", [0, 1])
 @pytest.mark.parametrize("cpu_offload", [None, fsdp_utils.CPUOffloadPolicy()])
-def test_load_full_state_dict_cpu_transfer(monkeypatch, device_name, non_blocking, rank, cpu_offload):
+def test_load_full_state_dict_cpu_transfer(monkeypatch, device_name, rank, cpu_offload):
     if fsdp_utils.version.parse(torch.__version__) >= fsdp_utils.version.parse("2.7.0"):
         from torch.distributed.checkpoint import state_dict
     else:
@@ -84,7 +84,7 @@ def test_load_full_state_dict_cpu_transfer(monkeypatch, device_name, non_blockin
     else:
         model.to_empty.assert_not_called()
     if cpu_offload is not None:
-        expected.append(call("cpu", non_blocking=non_blocking))
+        expected.append(call("cpu", non_blocking=False))
         buffer_data.to.assert_called_once_with(device)
         assert buffer.data is buffer_data.to.return_value
     else:

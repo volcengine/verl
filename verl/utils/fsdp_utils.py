@@ -194,22 +194,10 @@ def offload_fsdp_model_to_cpu(model: FSDP, empty_cache: bool = True):
 
 @torch.no_grad()
 def offload_fsdp2_model_to_cpu(model, empty_cache: bool = True):
-    # On NPU, FSDPModule._apply may repad uneven shards on CPU inside model.to().
-    # Wait for each D2H copy before that CPU read; synchronizing after model.to()
-    # cannot repair values already copied from an unfinished transfer.
-    non_blocking = get_device_name() != "npu"
-
-    # PyTorch currently allocates pinned host storage for CUDA-to-CPU
-    # Tensor.to() copies when non_blocking=True. This behavior is not strictly
-    # documented, so keep it covered by the FSDP2 model-transfer regression
-    # test. The pinned parameters also make the subsequent CPU-to-GPU copy
-    # asynchronous.
-    #
-    # Non-blocking transfers require completion before host access. Reloading
-    # on the same CUDA stream preserves device-copy ordering; CPU reads still
-    # require synchronization. Reloading on another stream requires an explicit
-    # stream dependency. empty_cache() below is not a synchronization point.
-    model.to("cpu", non_blocking=non_blocking)
+    # FSDPModule._apply may read CPU data to repad uneven shards or pin memory
+    # inside model.to(). Complete each D2H copy before those reads: synchronizing
+    # after model.to() cannot repair values copied from an unfinished transfer.
+    model.to("cpu", non_blocking=False)
     if empty_cache:
         get_torch_device().empty_cache()
 
