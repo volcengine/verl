@@ -1,6 +1,6 @@
 # Proximal Policy Optimization (PPO)
 
-Last updated: 06/19/2025.
+Last updated: 10/13/2026.
 
 Proximal Policy Optimization (PPO) is a family of policy gradient methods for reinforcement learning, proposed by OpenAI in 2017. PPO strikes a balance between simplicity, stability, and performance, making it one of the most widely used algorithms in modern RL applications, including large-scale language model fine-tuning.
 
@@ -29,11 +29,11 @@ Most critic configs are similar to those of actors. Note that the critic model i
 
 ![image](https://github.com/user-attachments/assets/16aebad1-0da6-4eb3-806d-54a74e712c2d)
 
-- `data.train_batch_size`: The global batch size of prompts used to generate a set of sampled trajectories/rollouts. The number of responses/trajectories is `data.train_batch_size * actor_rollout.ref.rollout.n`
+- `data.train_batch_size`: The global batch size of prompts used to generate a set of sampled trajectories/rollouts. The number of responses/trajectories is `data.train_batch_size * actor_rollout_ref.rollout.n`.
 
-- `actor_rollout_ref.actor.ppo_mini_batch_size`: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO actor updates. The ppo_mini_batch_size is a global size across all workers
+- `actor_rollout_ref.actor.ppo_mini_batch_size`: The global actor mini-batch size in prompt-equivalent units. The trainer expands it to `ppo_mini_batch_size * actor_rollout_ref.rollout.n` trajectories per optimizer update before partitioning across actor data-parallel ranks.
 
-- `critic.ppo_mini_batch_size`: The set of sampled trajectories is split into multiple mini-batches with batch_size=ppo_mini_batch_size for PPO critic updates. The ppo_mini_batch_size is a global size across all workers
+- `critic.ppo_mini_batch_size`: The global critic mini-batch size in prompt-equivalent units. It is likewise expanded by `actor_rollout_ref.rollout.n`, then partitioned across critic data-parallel ranks.
 
 - `actor_rollout_ref.actor.clip_ratio`: The PPO clip range. Default to 0.2
 
@@ -46,6 +46,8 @@ Most critic configs are similar to those of actors. Note that the critic model i
 - `algorithm.lam`: The lambda term that trades off between bias and variance in the GAE estimator
 
 - `algorithm.adv_estimator`: Support gae, grpo, reinforce_plus_plus, reinforce_plus_plus_baseline, rloo
+
+See the {ref}`GRPO batching example <grpo-batch-size-example>` for the shared rollout/mini/micro-batch arithmetic, divisibility checks, and the distinction between trainer steps and optimizer updates. Apply the same calculation to the critic using its own mini-batch size, micro-batch size, data-parallel size, and `ppo_epochs`.
 
 ## Advanced Extensions
 
