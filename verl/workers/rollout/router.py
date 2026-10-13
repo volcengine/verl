@@ -212,7 +212,7 @@ class GlobalRequestLoadBalancer:
         return server_id, self._servers[server_id]
 
     def release_server(
-        self, server_id: str, request_id: str | None = None, expected_handle: ray.actor.ActorHandle = None
+        self, server_id: str, request_id: str | None = None, expected_handle: ray.actor.ActorHandle | None = None
     ) -> None:
         """Release a server after a request completes.
 
@@ -220,6 +220,9 @@ class GlobalRequestLoadBalancer:
         balancers (which look up the prompt length from their own
         acquire-time bookkeeping); this balancer tracks request counts only
         and ignores it.
+
+        ``expected_handle`` fences a late release from a replaced actor. When
+        supplied, decrement only if that actor is still registered for this ID.
         """
         if server_id not in self._inflight_requests:
             return

@@ -84,14 +84,17 @@ class LLMServerClient:
             load_balancer_handle (ray.actor.ActorHandle): shared global load balancer actor
                 that also holds the server-handle registry. Optional; subclasses that
                 manage server routing externally can pass None.
-            engine_recovery_timeout: Opt into engine-failure replay and bound waiting
-                for the routing owner to publish a recovered server. The owner must
-                restore the current committed weight version for synchronous rollout.
+            engine_recovery_timeout: Opt into replay after Ray actor death or vLLM
+                EngineDeadError. A positive, finite timeout bounds waiting for the
+                routing owner to publish a recovered server. The owner must restore
+                the current committed weight version for synchronous rollout.
                 None preserves the existing exception behavior.
             max_engine_retries: Maximum engine failures to replay per generation.
         """
-        if engine_recovery_timeout is not None and (engine_recovery_timeout <= 0 or load_balancer_handle is None):
-            raise ValueError("engine recovery requires a positive timeout and a load balancer")
+        if engine_recovery_timeout is not None and (
+            not 0 < engine_recovery_timeout < float("inf") or load_balancer_handle is None
+        ):
+            raise ValueError("engine recovery requires a positive, finite timeout and a load balancer")
         if max_engine_retries < 0:
             raise ValueError("max_engine_retries must be nonnegative")
         self.config = config
@@ -116,7 +119,7 @@ class LLMServerClient:
         return await self._load_balancer.acquire_server.remote(request_id=request_id, **fields)
 
     def _release_server(
-        self, server_id: str, request_id: str | None = None, expected_handle: ray.actor.ActorHandle = None
+        self, server_id: str, request_id: str | None = None, expected_handle: ray.actor.ActorHandle | None = None
     ) -> None:
         # Fire-and-forget: release is just a counter decrement, no need to await.
         # Awaiting here risks blocking the finally clause if the LB actor is unresponsive.

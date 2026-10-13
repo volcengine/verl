@@ -339,6 +339,27 @@ class TestReleaseServerSignature:
         ray.get(lb.release_server.remote(sid, request_id="req-1"))
         assert ray.get(lb.get_total_inflight.remote()) == 0
 
+    def test_default_balancer_recovery_preserves_actor_identity_across_rpc(self, ray_session):
+        @ray.remote(num_cpus=0)
+        class Server:
+            pass
+
+        old, new = Server.remote(), Server.remote()
+        lb = ray.remote(GlobalRequestLoadBalancer).remote(servers={"s0": old})
+        sid, acquired_old = ray.get(lb.acquire_server.remote("req-1"))
+        assert ray.get(lb.remove_server_if_current.remote(sid, acquired_old))
+        ray.get(lb.add_servers.remote({sid: new}))
+        assert not ray.get(lb.remove_server_if_current.remote(sid, acquired_old))
+        _, acquired_new = ray.get(lb.acquire_server.remote("req-2"))
+        # Both handles were serialized through the balancer and returned by acquire.
+        ray.get(lb.release_server.remote(sid, expected_handle=acquired_old))
+        assert ray.get(lb.get_total_inflight.remote()) == 1
+        ray.get(lb.release_server.remote(sid, expected_handle=acquired_new))
+        assert ray.get(lb.get_total_inflight.remote()) == 0
+        ray.kill(lb)
+        ray.kill(old)
+        ray.kill(new)
+
     def test_plugin_recovery_preserves_replacement_identity(self, ray_session, tmp_path):
         lb = _plugin_lb({"s0": "old-handle"}, tmp_path)
         client = LLMServerClient(config=OmegaConf.create({}), load_balancer_handle=lb, engine_recovery_timeout=5)

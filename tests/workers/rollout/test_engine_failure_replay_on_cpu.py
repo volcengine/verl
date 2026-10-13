@@ -49,17 +49,18 @@ def _config():
     return OmegaConf.create({"actor_rollout_ref": {"rollout": {"name": "vllm", "response_length": 4}}})
 
 
-@pytest.mark.parametrize(
-    "client_class,actor_dies", [(LLMServerClient, False), (LLMServerClient, True), (FullyAsyncLLMServerClient, False)]
-)
-def test_pending_generation_replays_after_owner_publishes_replacement(client_class, actor_dies):
+@pytest.mark.parametrize("client_class", [LLMServerClient, FullyAsyncLLMServerClient])
+@pytest.mark.parametrize("failure", ["partial", "actor_death", "engine_dead"])
+def test_pending_generation_replays_after_owner_publishes_replacement(client_class, failure):
     async def main():
         calls = []
 
         async def failed(**kwargs):
             calls.append({**kwargs, "sampling_params": dict(kwargs["sampling_params"])})
-            if actor_dies:
+            if failure == "actor_death":
                 raise ActorDiedError()
+            if failure == "engine_dead":
+                raise EngineDeadError()
             return TokenOutput(
                 token_ids=[7, 8],
                 log_probs=[-0.1, -0.2],
@@ -93,15 +94,21 @@ def test_pending_generation_replays_after_owner_publishes_replacement(client_cla
             assert router.get_inflight_count("same-address") == 1
             router.release_server("same-address", expected_handle=new)
 
-        task = asyncio.create_task(owner())
-        result = await client.generate("session", prompt_ids=[1, 2, 3], sampling_params=params)
-        await task
+        # Bound the owner as well as generation: a missing route removal must fail
+        # instead of leaving the owner polling forever after generation finishes.
+        result, _ = await asyncio.wait_for(
+            asyncio.gather(
+                client.generate("session", prompt_ids=[1, 2, 3], sampling_params=params),
+                owner(),
+            ),
+            timeout=3,
+        )
         await asyncio.sleep(0)
         assert len(calls) == 2 and result.token_ids == [7, 8, 9, 10]
         assert len(result.log_probs) == 4
         assert result.stop_reason == ("length" if client_class is FullyAsyncLLMServerClient else "completed")
         assert calls[0]["prompt_ids"] == [1, 2, 3]
-        if client_class is FullyAsyncLLMServerClient:
+        if client_class is FullyAsyncLLMServerClient and failure == "partial":
             assert calls[1]["prompt_ids"] == [1, 2, 3, 7, 8]
             assert calls[1]["sampling_params"]["max_tokens"] == 2
             assert result.log_probs[:2] == [-0.1, -0.2]
@@ -109,10 +116,19 @@ def test_pending_generation_replays_after_owner_publishes_replacement(client_cla
         else:
             assert calls[1]["prompt_ids"] == [1, 2, 3]
             assert calls[1]["sampling_params"]["max_tokens"] == 4
+            if client_class is FullyAsyncLLMServerClient:
+                assert result.extra_fields["min_global_steps"] == 5
+                assert result.extra_fields["max_global_steps"] == 5
         assert params == {"max_tokens": 4, "logprobs": True}
         assert router.get_inflight_count("same-address") == 0
 
     asyncio.run(main())
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("-inf"), float("nan")])
+def test_engine_replay_rejects_invalid_timeout(timeout):
+    with pytest.raises(ValueError, match="positive.*finite"):
+        LLMServerClient(_config(), _Handle(GlobalRequestLoadBalancer({})), engine_recovery_timeout=timeout)
 
 
 @pytest.mark.parametrize("error,recovery_timeout", [(ValueError("invalid request"), 5), (EngineDeadError(), None)])
