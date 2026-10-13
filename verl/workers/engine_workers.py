@@ -573,6 +573,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
+        """Initialize models and engines for this worker's reference, actor, and rollout roles.
+
+        Configure training and dispatch, propagate vLLM's shared MoE LoRA setting
+        to the actor engine, and create the actor's checkpoint engine as needed.
+        """
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
         liger_capacity = _plan_liger_flsce_capacity(self.config, self.role)
 

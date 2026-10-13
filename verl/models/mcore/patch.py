@@ -504,6 +504,10 @@ def apply_patch():
 
 
 def apply_patch_megatron_v012_with_torch_v28_v29() -> None:
+    """Patch async checkpoint writes for Megatron 0.12.1 with PyTorch 2.8.0 or 2.9.0.
+
+    Leave other version combinations unchanged.
+    """
     # Error due to missing serialization_format in _write_item of megatron v012;
     # resolved by using megatron v013's implementation.
     import inspect

@@ -486,6 +486,7 @@ class MegatronEngine(BaseEngine):
             patch_fused_forward(model, self.model_config, engine_config=self.engine_config)
 
     def _build_optimizer(self):
+        """Build the optimizer with the configured LoRA+ ratio and register training hooks."""
         from verl.utils.megatron.optimizer import get_megatron_optimizer, init_megatron_optim_config
 
         optim_config_megatron = init_megatron_optim_config(
@@ -987,6 +988,13 @@ class MegatronEngine(BaseEngine):
         return self._hf_export_tasks
 
     def get_per_tensor_param(self, base_sync_done=False, **kwargs):
+        """Return exported named weights and the optional rollout PEFT configuration.
+
+        With unmerged LoRA, export only adapters after ``base_sync_done``;
+        otherwise export the full model weights. Shared expert adapters use the
+        target rollout's MoE layout. Load the required parameters onto the GPU
+        and apply quantization-aware export when enabled.
+        """
         peft_config = None
         non_merge_lora_sync = self.peft_cls is not None and not self.model_config.lora.get("merge", False)
         adapter_only = base_sync_done and non_merge_lora_sync

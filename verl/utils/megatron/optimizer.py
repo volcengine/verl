@@ -223,6 +223,17 @@ def get_megatron_optimizer(
     config: OptimizerConfig,
     lora_plus_ratio: float = 1.0,
 ):
+    """Build a Megatron optimizer for the given model chunks.
+
+    Args:
+        model: Model chunks whose parameters will be optimized.
+        config: Megatron optimizer configuration.
+        lora_plus_ratio: LoRA B-to-A learning-rate ratio. Values other than
+            zero or one enable Megatron-Bridge's LoRA+ parameter-group overrides.
+
+    Returns:
+        The optimizer created by Megatron-Core.
+    """
     # LoRA+ (https://arxiv.org/abs/2402.12354): build per-group LR overrides in
     # Megatron-Bridge when ratio != 1.0; else mcore uses standard overrides.
     config_overrides = None

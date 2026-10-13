@@ -83,9 +83,7 @@ def wrap_model_chunks_with_layerwise_aware_ddp(
     ``tag_params_for_buffer_routing`` + ``compute_full_param_layout`` before DDP
     construction — verl's plain DDP wrap omits this and causes redundant buffers.
     """
-    from megatron.core.distributed import (
-        DistributedDataParallel as DDP,
-    )
+    from megatron.core.distributed import DistributedDataParallel as DDP
     from megatron.core.optimizer.layer_wise_optimizer import (
         LayerWiseDistributedOptimizer,
         tag_params_for_buffer_routing,
@@ -1041,6 +1039,15 @@ def get_transformer_layer_offset(pipeline_rank, vp_stage, config: TransformerCon
 
 
 def register_megatron_training_hooks(model: list[torch.nn.Module], optimizer):
+    """Configure loss scaling and gradient/parameter synchronization for model chunks.
+
+    Use Megatron-Bridge's gradient finalizer when shared expert adapters need
+    expert-parallel synchronization, and install overlap callbacks as configured.
+
+    Raises:
+        RuntimeError: Shared expert adapters require expert-parallel gradient
+            synchronization but the installed Bridge lacks the required helpers.
+    """
     from megatron.core.distributed import finalize_model_grads
     from megatron.core.utils import get_model_config
 

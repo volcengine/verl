@@ -290,6 +290,13 @@ class vLLMHttpServer:
         self._pd_prefill_engine_id = prefill_engine_id
 
     async def launch_server(self, master_address: str = None, master_port: int = None, dp_rpc_port: int = None):
+        """Configure and launch this node's vLLM rollout server, including enabled LoRA options.
+
+        Args:
+            master_address: Master node address, required on non-master nodes.
+            master_port: Master node port, required on non-master nodes.
+            dp_rpc_port: Data-parallel RPC port, required on non-master nodes.
+        """
         if self.node_rank != 0:
             assert master_address and master_port and dp_rpc_port, (
                 "non-master node should provide master_address, master_port and dp_rpc_port"
