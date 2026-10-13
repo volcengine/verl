@@ -25,15 +25,18 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
 
 @pytest.mark.parametrize(
-    "rollout_prompt, replay, raises",
+    "actor_prompt, rollout_prompt, replay, raises",
     [
-        ([1, 10, 10, 2], True, False),
-        ([1, 10, 10, 10, 2], True, True),
-        ([1, 10, 11, 2], True, True),
-        ([1, 10, 10, 10, 2], False, False),
+        ([1, 10, 10, 2], [1, 10, 10, 2], True, False),
+        ([1, 10, 10, 2], [1, 10, 10, 10, 2], True, True),
+        ([1, 10, 10, 2], [1, 10, 2], True, True),
+        ([1, 10, 10, 2], [1, 10, 11, 2], True, True),
+        ([1, 10, 10, 2, 10, 3], [1, 10, 2, 10, 10, 3], True, True),
+        ([1, 10, 10, 2], [1, 10, 10, 10, 2], False, False),
     ],
 )
-def test_generate_checks_expanded_replay_prompt(rollout_prompt, replay, raises):
+@pytest.mark.parametrize("model_type", ["glm5_next", "deepseek_v41"])
+def test_generate_checks_expanded_replay_prompt(actor_prompt, rollout_prompt, replay, raises, model_type):
     """Verify replay validates expanded rollout prompt alignment after image-token deduplication."""
     routes = np.zeros((4, 2, 2), dtype=np.uint16)
     submitted = []
@@ -53,8 +56,13 @@ def test_generate_checks_expanded_replay_prompt(rollout_prompt, replay, raises):
     server.model_config = SimpleNamespace(
         lora_rank=0,
         lora={},
+        hf_config=SimpleNamespace(model_type=model_type, image_token_id=10),
         processor=SimpleNamespace(
-            image_processor=type("Glm5NextImageProcessor", (), {})(), image_token_id=10, video_token_id=11
+            image_processor=type(
+                "Glm5NextImageProcessor" if model_type == "glm5_next" else "DeepseekV41ImageProcessor", (), {}
+            )(),
+            image_token_id=10,
+            video_token_id=11,
         ),
     )
     server.engine = SimpleNamespace(generate=generate)
@@ -64,7 +72,9 @@ def test_generate_checks_expanded_replay_prompt(rollout_prompt, replay, raises):
     server.replica_rank = 0
     server.global_steps = 1
 
-    request = server.generate(prompt_ids=[1, 10, 10, 2], sampling_params={"max_tokens": 1}, request_id="test")
+    request = server.generate(
+        prompt_ids=actor_prompt, sampling_params={"max_tokens": 1}, request_id="test", image_data=[object()]
+    )
     if raises:
         with pytest.raises(ValueError, match="identical actor and rollout prompt tokens"):
             asyncio.run(request)
@@ -72,5 +82,13 @@ def test_generate_checks_expanded_replay_prompt(rollout_prompt, replay, raises):
         result = asyncio.run(request)
         assert result.token_ids == [3]
         assert result.routed_experts is (routes if replay else None)
-    assert submitted == [[1, 10, 2]]
+    assert submitted == [
+        [
+            token
+            for index, token in enumerate(actor_prompt)
+            if token != 10 or index == 0 or actor_prompt[index - 1] != 10
+        ]
+        if model_type == "glm5_next"
+        else actor_prompt
+    ]
     assert server._admitting == 0

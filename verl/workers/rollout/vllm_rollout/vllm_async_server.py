@@ -798,12 +798,21 @@ class vLLMHttpServer:
                 getattr(getattr(self.model_config, "hf_config", None), "model_type", None) == "deepseek_v41"
                 and image_data is not None
             ):
+                # Collapsing image runs can hide differences in routing positions.
+                if rollout_prompt_ids != actor_prompt_ids:
+                    raise ValueError(
+                        "Rollout routing replay requires identical actor and rollout prompt tokens "
+                        "before image-token normalization"
+                    )
                 image_token_id = self.model_config.hf_config.image_token_id
-                rollout_prompt_ids = [
-                    token_id
-                    for index, token_id in enumerate(rollout_prompt_ids)
-                    if token_id != image_token_id or index == 0 or rollout_prompt_ids[index - 1] != image_token_id
-                ]
+                rollout_prompt_ids, actor_prompt_ids = (
+                    [
+                        token_id
+                        for index, token_id in enumerate(prompt_token_ids)
+                        if token_id != image_token_id or index == 0 or prompt_token_ids[index - 1] != image_token_id
+                    ]
+                    for prompt_token_ids in (rollout_prompt_ids, actor_prompt_ids)
+                )
             if rollout_prompt_ids != actor_prompt_ids:
                 raise ValueError("Rollout routing replay requires identical actor and rollout prompt tokens")
             routed_experts = final_res.outputs[0].routed_experts

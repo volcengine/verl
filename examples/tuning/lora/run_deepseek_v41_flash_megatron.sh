@@ -162,7 +162,7 @@ LR_WARMUP_STEPS=${LR_WARMUP_STEPS:-3}
 ENGRAM_CPU_LOOKUP=${ENGRAM_CPU_LOOKUP:-True}
 
 if ((gen_tp < 1 || 24 % gen_tp != 0 || train_ep % gen_tp != 0)); then
-    echo "DeepSeek-V4.1 Engram requires rollout TP/EP to divide 24 (got ${gen_tp})." >&2
+    echo "DeepSeek-V4.1 Engram requires gen_tp to be positive and divide 24, and train_ep to be divisible by gen_tp (got gen_tp=${gen_tp}, train_ep=${train_ep})." >&2
     exit 1
 fi
 train_data_bsz=$((train_prompt_bsz * n_resp_per_prompt))
