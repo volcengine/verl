@@ -120,12 +120,13 @@ class _LegacyMPEngineCleanup:
         self._owned_processes.update(set(psutil.Process().children(recursive=True)) - excluded)
         return list(self._owned_processes)
 
-    async def shutdown(self, engine: AsyncLLM) -> None:
+    async def shutdown(self, engine: AsyncLLM | None) -> None:
         """Run vLLM shutdown and require every recorded engine process to exit."""
         children = self.record()
         shutdown_error = None
         try:
-            await asyncio.to_thread(engine.shutdown)
+            if engine is not None:
+                await asyncio.to_thread(engine.shutdown)
         except Exception as exc:
             # A broken core may prevent normal cleanup. Reap our recorded
             # descendants and verify their exit before allowing replacement.
@@ -563,8 +564,14 @@ class vLLMHttpServer:
             kwargs["disable_log_stats"] = engine_args.disable_log_stats
 
         # Capture exclusions before creating the engine's subprocesses.
+        self._engine_executor_backend = vllm_config.parallel_config.distributed_executor_backend
         self._engine_cleanup = _LegacyMPEngineCleanup()
-        engine_client = AsyncLLM.from_vllm_config(vllm_config=vllm_config, usage_context=usage_context, **kwargs)
+        try:
+            self.engine = AsyncLLM.from_vllm_config(vllm_config=vllm_config, usage_context=usage_context, **kwargs)
+        finally:
+            # Retain descendants even if construction fails or later setup cannot finish.
+            self._engine_cleanup.record()
+        engine_client = self.engine
 
         # Don't keep the dummy data in memory
         await engine_client.reset_mm_cache()
@@ -602,7 +609,6 @@ class vLLMHttpServer:
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
-        self.engine = engine_client
         self._engine_cleanup.record()
         self._server_port, self._server_task = await run_uvicorn(app, args, self._server_address)
 
@@ -617,13 +623,19 @@ class vLLMHttpServer:
             raise NotImplementedError("engine shutdown requires a single-node standalone replica")
         if self._disaggregation_role != "null":
             raise NotImplementedError("engine shutdown does not support PD")
-        if self.engine.vllm_config.parallel_config.distributed_executor_backend != "mp":
+        engine = getattr(self, "engine", None)
+        executor_backend = (
+            engine.vllm_config.parallel_config.distributed_executor_backend
+            if engine is not None
+            else getattr(self, "_engine_executor_backend", None)
+        )
+        if executor_backend != "mp":
             raise NotImplementedError("engine shutdown requires the multiprocessing executor")
 
         self._rejecting = True
         self._submission_paused = True
         self._resume_event.set()
-        await self._engine_cleanup.shutdown(self.engine)
+        await self._engine_cleanup.shutdown(engine)
         actor = psutil.Process()
         return actor.pid, actor.create_time()
 
