@@ -1,12 +1,12 @@
 # KubeRay RayCluster for the GRPO examples (see README.md): 1 CPU head pod and 2 single-host TPU v6e-4 slices.
-# Set the image, the Google service account and the GCS bucket mounted at /data before applying.
+# Replace <IMAGE>, <BUCKET> and <GSA_EMAIL> before applying (see README.md, step 3).
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ray-ksa
   annotations:
-    iam.gke.io/gcp-service-account: ray-tpu-gsa@tpu-pytorch.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: "<GSA_EMAIL>"
 ---
 apiVersion: ray.io/v1
 kind: RayCluster
@@ -23,7 +23,7 @@ spec:
         serviceAccountName: ray-ksa
         containers:
           - name: ray-head
-            image: us-west2-docker.pkg.dev/tpu-pytorch/raycluster/verl-tpu:v20261013-grpo-dockerfile-v3
+            image: "<IMAGE>"
             imagePullPolicy: Always
             ports:
               - containerPort: 8265  # Dashboard and job submission
@@ -45,7 +45,7 @@ spec:
             csi:
               driver: gcsfuse.csi.storage.gke.io
               volumeAttributes:
-                bucketName: torchprime
+                bucketName: "<BUCKET>"
                 mountOptions: implicit-dirs
           - name: host-tmp
             hostPath:
@@ -63,7 +63,7 @@ spec:
           serviceAccountName: ray-ksa
           containers:
             - name: ray-worker
-              image: us-west2-docker.pkg.dev/tpu-pytorch/raycluster/verl-tpu:v20261013-grpo-dockerfile-v3
+              image: "<IMAGE>"
               imagePullPolicy: Always
               env:
                 - name: RAY_memory_monitor_refresh_ms
@@ -88,7 +88,7 @@ spec:
               csi:
                 driver: gcsfuse.csi.storage.gke.io
                 volumeAttributes:
-                  bucketName: torchprime
+                  bucketName: "<BUCKET>"
                   mountOptions: implicit-dirs
             - name: host-tmp
               hostPath:

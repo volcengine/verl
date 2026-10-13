@@ -17,7 +17,7 @@ docker buildx build -t <IMAGE> --push examples/tpu/grpo
 
 ## 2. Upload the model and data
 
-The scripts read the models and the dataset from `$RAY_DATA_HOME` in the pods, which defaults to `/data/jialei` (`gs://torchprime/jialei`, mounted at `/data`). To use your own bucket:
+The Ray pods mount a GCS bucket at `/data`, and the scripts read the models and the dataset from `$RAY_DATA_HOME` under it (default `/data/jialei`). Upload them to `gs://<BUCKET>/<DIR>`:
 
 ```bash
 hf download Qwen/Qwen3-0.6B --local-dir Qwen3-0.6B
@@ -39,7 +39,7 @@ gcloud container node-pools create <NODE_POOL> --cluster <CLUSTER> --region <REG
   --workload-metadata GKE_METADATA --scopes cloud-platform
 ```
 
-In [`ray-tpu-v6e4-2slice.yaml`](ray-tpu-v6e4-2slice.yaml), set the `image`, the `bucketName` and the Google service account of `ray-ksa`, which needs read access to the bucket and `roles/iam.workloadIdentityUser` for `serviceAccount:<PROJECT>.svc.id.goog[default/ray-ksa]`. Then:
+Before applying [`ray-tpu-v6e4-2slice.yaml`](ray-tpu-v6e4-2slice.yaml), replace its placeholders: `<IMAGE>` with the image from step 1, `<BUCKET>` with the bucket from step 2, and `<GSA_EMAIL>` with a Google service account that can read the bucket and that `ray-ksa` may act as (`roles/iam.workloadIdentityUser` for `serviceAccount:<PROJECT>.svc.id.goog[default/ray-ksa]`). Then:
 
 ```bash
 kubectl apply -f examples/tpu/grpo/ray-tpu-v6e4-2slice.yaml
