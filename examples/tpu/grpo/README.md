@@ -1,12 +1,13 @@
 # GRPO RL Training on Google Cloud TPU with `verl` + `verl-hardware-plugin`
 
 This directory contains reference scripts for running **GRPO (Group Relative Policy Optimization) RL training** on Google Cloud TPU v6e using `verl` core together with [`verl-hardware-plugin`](https://github.com/verl-project/verl-hardware-plugin):
-- `run_qwen3_0_6b_torchtitan.sh`: Fast 5-step smoke test (`Qwen3-0.6B`, `train_batch_size=4`, `total_training_steps=5`) to validate that the TPU stack comes up cleanly.
-- `run_qwen3_4b_torchtitan.sh`: Realistic 100-step GRPO training recipe (`Qwen3-4B`, `train_batch_size=32`, `rollout.n=8`, `SimpleFSDP` + `TPUSplashAttention` + `torch.compile`, and P2P `raiden` checkpoint synchronization).
+- `run_qwen3_0_6b_torchtitan.sh`: Fast 5-step smoke test (`Qwen3-0.6B`, `train_batch_size=4`, `total_training_steps=5`, `ray-plasma-store` weight sync) to validate that the TPU stack comes up cleanly.
+- `run_qwen3_4b_torchtitan.sh`: Realistic 100-step GRPO training recipe (`Qwen3-4B`, `train_batch_size=32`, `rollout.n=8`, `SimpleFSDP` + `TPUSplashAttention` + `torch.compile`, and peer-to-peer `tpu-sync` weight sync).
 
 The training setup uses:
 - **Actor Engine**: TorchTitan (`model_engine=torchtitan`, registered by `verl-hardware-plugin`)
 - **Rollout Engine**: vLLM on TPU (`actor_rollout_ref.rollout.name=vllm`)
+- **Weight Sync**: `actor_rollout_ref.rollout.checkpoint_engine.backend`, either `ray-plasma-store` (through the Ray object store) or `tpu-sync` (peer to peer between the TPU slices), both provided by `verl-hardware-plugin`
 - **Trainer Mode**: V1 disaggregated async overlap (`trainer.use_v1=True`, `trainer.v1.trainer_mode=separate_async`)
 - **Placement Strategy**: Non-colocated multi-slice execution (Slice 0: 8-chip TorchTitan trainer; Slice 1: 8-chip TP=8 vLLM rollout server)
 
