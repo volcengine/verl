@@ -121,14 +121,14 @@ class _LegacyMPEngineCleanup:
         return list(self._owned_processes)
 
     async def shutdown(self, engine: AsyncLLM) -> None:
-        """Run vLLM shutdown, reap recorded descendants, and fail closed on errors."""
+        """Run vLLM shutdown and require every recorded engine process to exit."""
         children = self.record()
         shutdown_error = None
         try:
             await asyncio.to_thread(engine.shutdown)
         except Exception as exc:
             # A broken core may prevent normal cleanup. Reap our recorded
-            # descendants before propagating the original shutdown failure.
+            # descendants and verify their exit before allowing replacement.
             shutdown_error = exc
         _, alive = await asyncio.to_thread(psutil.wait_procs, children, timeout=5)
         for signal in ("terminate", "kill"):
@@ -144,7 +144,7 @@ class _LegacyMPEngineCleanup:
                 "vLLM shutdown left owned engine processes alive; refusing to restart"
             ) from shutdown_error
         if shutdown_error is not None:
-            raise shutdown_error
+            logger.warning("vLLM shutdown failed, but all owned engine processes exited: %r", shutdown_error)
 
 
 if os.getenv("VERL_USE_GPT_OSS", "0") == "1":
@@ -1054,6 +1054,8 @@ class vLLMHttpServer:
 
     async def check_health(self) -> None:
         """Check the serving engine independently of optional metrics logging."""
+        if self.node_rank != 0 or not hasattr(self, "engine"):
+            raise RuntimeError("vLLMHttpServer.check_health() requires the node-rank-0 AsyncLLM")
         await self.engine.check_health()
         self._engine_cleanup.record()
 
@@ -1630,6 +1632,9 @@ class vLLMReplica(RolloutReplica):
             raise NotImplementedError("engine restart requires a single-node standalone replica")
         if self.config.disaggregation.enabled:
             raise NotImplementedError("engine restart does not support PD")
+        executor_backend = (self.config.engine_kwargs.get("vllm") or {}).get("distributed_executor_backend")
+        if executor_backend is not None and executor_backend != "mp":
+            raise NotImplementedError("engine restart requires the multiprocessing executor")
         if not 0 < timeout < float("inf"):
             raise ValueError("engine restart timeout must be positive and finite")
         if len(self.servers) != 1:

@@ -45,6 +45,7 @@ from vllm.v1.engine.exceptions import EngineDeadError
 
 from verl.workers.config import RolloutConfig
 from verl.workers.rollout.vllm_rollout import vllm_async_server
+from verl.workers.rollout.vllm_rollout.vllm_rollout import ServerAdapter
 
 
 class _FakeEngine:
@@ -315,8 +316,17 @@ def test_health_works_without_metrics_and_snapshot_propagates_engine_failure():
     server.engine.check_health.assert_awaited_once_with()
 
 
+@pytest.mark.parametrize("node_rank", [0, 1])
+def test_health_rejects_headless_or_uninitialized_server(node_rank):
+    server = _make_server(node_rank=node_rank)
+    del server.engine
+    with pytest.raises(RuntimeError, match="requires the node-rank-0 AsyncLLM"):
+        asyncio.run(server.check_health())
+
+
 @pytest.mark.parametrize("survivors", [False, True])
-def test_engine_cleanup_reaps_owned_orphans_and_refuses_survivors(monkeypatch, survivors):
+@pytest.mark.parametrize("shutdown_fails", [False, True])
+def test_engine_cleanup_reaps_owned_orphans_and_refuses_survivors(monkeypatch, survivors, shutdown_fails):
     orphan, unrelated, unrelated_child, actor = Mock(), Mock(), Mock(), Mock()
     actor.children.return_value = [unrelated]
     unrelated.children.return_value = []
@@ -331,9 +341,12 @@ def test_engine_cleanup_reaps_owned_orphans_and_refuses_survivors(monkeypatch, s
     wait = Mock(side_effect=[([], [orphan]), ([], [orphan]), ([], [orphan]) if survivors else ([orphan], [])])
     monkeypatch.setattr(vllm_async_server.psutil, "wait_procs", wait)
     engine = Mock()
+    failure = RuntimeError("broken engine shutdown") if shutdown_fails else None
+    engine.shutdown.side_effect = failure
     if survivors:
-        with pytest.raises(RuntimeError, match="owned engine processes alive"):
+        with pytest.raises(RuntimeError, match="owned engine processes alive") as caught:
             asyncio.run(cleanup.shutdown(engine))
+        assert caught.value.__cause__ is failure
     else:
         asyncio.run(cleanup.shutdown(engine))
     engine.shutdown.assert_called_once_with()
@@ -343,6 +356,18 @@ def test_engine_cleanup_reaps_owned_orphans_and_refuses_survivors(monkeypatch, s
     for process in (unrelated, unrelated_child):
         process.terminate.assert_not_called()
         process.kill.assert_not_called()
+
+
+@pytest.mark.parametrize("has_server", [False, True])
+def test_server_rebind_preserves_adapter_rank_ownership(has_server):
+    adapter = ServerAdapter.__new__(ServerAdapter)
+    adapter._has_server = has_server
+    adapter.server_handle = None
+    handle = object()
+
+    adapter.bind_server_handle(handle)
+
+    assert adapter.server_handle is (handle if has_server else None)
 
 
 @pytest.mark.skipif(not hasattr(os, "waitid"), reason="requires waiting for a child without reaping it")
@@ -373,7 +398,7 @@ def _make_restart_replica(monkeypatch):
     replica = object.__new__(vllm_async_server.vLLMReplica)
     replica.rollout_mode = vllm_async_server.RolloutMode.STANDALONE
     replica.nnodes = 1
-    replica.config = SimpleNamespace(disaggregation=SimpleNamespace(enabled=False))
+    replica.config = SimpleNamespace(disaggregation=SimpleNamespace(enabled=False), engine_kwargs={})
     replica.servers = [server]
     replica._server_handle = server
     replica._server_address = "old-address"
@@ -384,8 +409,10 @@ def _make_restart_replica(monkeypatch):
     return replica, server, kill
 
 
-def test_restart_waits_for_old_server_exit_and_retains_workers_and_pool(monkeypatch):
+@pytest.mark.parametrize("executor_backend", [None, "mp"])
+def test_restart_waits_for_old_server_exit_and_retains_workers_and_pool(monkeypatch, executor_backend):
     replica, server, kill = _make_restart_replica(monkeypatch)
+    replica.config.engine_kwargs = {"vllm": {"distributed_executor_backend": executor_backend}}
     workers, pool = replica.workers, replica.resource_pool
     process_probe = workers[0].__ray_call__.remote
     process_probe.side_effect = [True, False]
@@ -418,6 +445,20 @@ def test_restart_refuses_shutdown_failure_without_replacing_server(monkeypatch):
     with pytest.raises(RuntimeError) as caught:
         asyncio.run(replica.restart())
     assert caught.value is failure
+    kill.assert_not_called()
+    replica.launch_servers.assert_not_awaited()
+    assert replica.servers == [server] and replica._server_handle is server
+
+
+@pytest.mark.parametrize("executor_backend", ["uni", "ray"])
+def test_restart_rejects_non_mp_executor_before_touching_server(monkeypatch, executor_backend):
+    replica, server, kill = _make_restart_replica(monkeypatch)
+    replica.config.engine_kwargs = {"vllm": {"distributed_executor_backend": executor_backend}}
+
+    with pytest.raises(NotImplementedError, match="requires the multiprocessing executor"):
+        asyncio.run(replica.restart())
+
+    server.shutdown.remote.assert_not_awaited()
     kill.assert_not_called()
     replica.launch_servers.assert_not_awaited()
     assert replica.servers == [server] and replica._server_handle is server

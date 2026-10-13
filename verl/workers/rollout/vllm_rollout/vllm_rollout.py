@@ -152,7 +152,8 @@ class ServerAdapter(BaseRollout):
 
     def bind_server_handle(self, server_handle: ray.actor.ActorHandle) -> None:
         """Replace the cached handle after the lifecycle owner rebuilds this server."""
-        self.server_handle = server_handle
+        if self._has_server:
+            self.server_handle = server_handle
 
     def _ensure_server_handle(self) -> bool:
         """Lazy-init server handle. Returns False if this rank should not proceed."""
