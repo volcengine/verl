@@ -57,6 +57,43 @@ def _prepare_packed_seq_idx(cu_seqlens: torch.LongTensor, cu_seqlens_cpu: Option
         return torch.cat(seq_idx, dim=0).unsqueeze(0)
 
 
+def _cache_has_previous_state(cache_params, layer_idx: int) -> bool:
+    """Support both the legacy cache flags and Transformers 5 layer caches."""
+    if cache_params is None:
+        return False
+    has_previous_state = getattr(cache_params, "has_previous_state", False)
+    if callable(has_previous_state):
+        try:
+            return bool(has_previous_state(layer_idx))
+        except TypeError:
+            return bool(has_previous_state())
+    return bool(has_previous_state)
+
+
+def _cache_layer_states(cache_params, layer_idx: int):
+    layers = getattr(cache_params, "layers", None)
+    if layers is not None:
+        layer = layers[layer_idx]
+        return layer.conv_states, layer.recurrent_states
+    return cache_params.conv_states[layer_idx], cache_params.recurrent_states[layer_idx]
+
+
+def _cache_update_conv_state(cache_params, conv_state: torch.Tensor, layer_idx: int) -> None:
+    update = getattr(cache_params, "update_conv_state", None)
+    if callable(update):
+        update(conv_state, layer_idx)
+    else:
+        cache_params.conv_states[layer_idx] = conv_state
+
+
+def _cache_update_recurrent_state(cache_params, recurrent_state: torch.Tensor, layer_idx: int) -> None:
+    update = getattr(cache_params, "update_recurrent_state", None)
+    if callable(update):
+        update(recurrent_state, layer_idx)
+    else:
+        cache_params.recurrent_states[layer_idx] = recurrent_state
+
+
 def _split_packed_args(
     cu_seqlens: torch.LongTensor,
     tensors: tuple[torch.Tensor, ...],
@@ -155,12 +192,24 @@ def _packed_causal_conv1d_fallback(
     return torch.cat(outputs, dim=-1)
 
 
-def _packed_chunk_gated_delta_rule(self, query, key, value, g, beta, cu_seqlens, cu_seqlens_cpu, cp_context=None):
+def _packed_chunk_gated_delta_rule(
+    self,
+    query,
+    key,
+    value,
+    g,
+    beta,
+    cu_seqlens,
+    cu_seqlens_cpu,
+    cp_context=None,
+    initial_state=None,
+    output_final_state: bool = False,
+):
     kwargs = {
         "g": g,
         "beta": beta,
-        "initial_state": None,
-        "output_final_state": False,
+        "initial_state": initial_state,
+        "output_final_state": output_final_state,
         "use_qk_l2norm_in_kernel": True,
     }
     if cu_seqlens is None:
@@ -224,10 +273,9 @@ def qwen3_5_gated_delta_net_forward(
             model_cu_seqlens = cp_context.cu_seqlens
             model_cu_seqlens_cpu = cp_context.cu_seqlens_cpu
 
-    use_precomputed_states = cache_params is not None and cache_params.has_previous_state and seq_len == 1
-    if cache_params is not None:
-        conv_state = cache_params.conv_states[self.layer_idx]
-        recurrent_state = cache_params.recurrent_states[self.layer_idx]
+    use_precomputed_states = _cache_has_previous_state(cache_params, self.layer_idx)
+    if use_precomputed_states:
+        conv_state, recurrent_state = _cache_layer_states(cache_params, self.layer_idx)
 
     mixed_qkv = self.in_proj_qkv(hidden_states)
     mixed_qkv = mixed_qkv.transpose(1, 2)
@@ -238,7 +286,7 @@ def qwen3_5_gated_delta_net_forward(
     b = self.in_proj_b(hidden_states)
     a = self.in_proj_a(hidden_states)
 
-    if use_precomputed_states:
+    if use_precomputed_states and seq_len == 1:
         mixed_qkv = self.causal_conv1d_update(
             mixed_qkv,
             conv_state,
@@ -247,9 +295,11 @@ def qwen3_5_gated_delta_net_forward(
             self.activation,
         )
     else:
+        if use_precomputed_states:
+            mixed_qkv = torch.cat([conv_state, mixed_qkv], dim=-1)
         if cache_params is not None:
             conv_state = F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))
-            cache_params.conv_states[self.layer_idx] = conv_state
+            _cache_update_conv_state(cache_params, conv_state, self.layer_idx)
         if self.causal_conv1d_fn is not None:
             conv_prefix_len = 0
             conv_input = mixed_qkv
@@ -284,7 +334,9 @@ def qwen3_5_gated_delta_net_forward(
             else:
                 mixed_qkv = _packed_causal_conv1d_fallback(self, mixed_qkv, model_cu_seqlens, model_cu_seqlens_cpu)
         else:
-            mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
+            mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, : mixed_qkv.shape[-1]])
+        if use_precomputed_states:
+            mixed_qkv = mixed_qkv[..., -seq_len:]
 
     mixed_qkv = mixed_qkv.transpose(1, 2)
     query, key, value = torch.split(
@@ -307,11 +359,7 @@ def qwen3_5_gated_delta_net_forward(
         query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
         key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
 
-    if not use_precomputed_states:
-        core_attn_out, last_recurrent_state = _packed_chunk_gated_delta_rule(
-            self, query, key, value, g, beta, model_cu_seqlens, model_cu_seqlens_cpu, cp_context
-        )
-    else:
+    if use_precomputed_states and seq_len == 1:
         core_attn_out, last_recurrent_state = self.recurrent_gated_delta_rule(
             query,
             key,
@@ -322,9 +370,23 @@ def qwen3_5_gated_delta_net_forward(
             output_final_state=cache_params is not None,
             use_qk_l2norm_in_kernel=True,
         )
+    else:
+        core_attn_out, last_recurrent_state = _packed_chunk_gated_delta_rule(
+            self,
+            query,
+            key,
+            value,
+            g,
+            beta,
+            model_cu_seqlens,
+            model_cu_seqlens_cpu,
+            cp_context,
+            initial_state=recurrent_state if use_precomputed_states else None,
+            output_final_state=cache_params is not None,
+        )
 
     if cache_params is not None:
-        cache_params.recurrent_states[self.layer_idx] = last_recurrent_state
+        _cache_update_recurrent_state(cache_params, last_recurrent_state, self.layer_idx)
 
     core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
     z = z.reshape(-1, self.head_v_dim)
