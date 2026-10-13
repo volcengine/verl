@@ -1,7 +1,7 @@
 Agent Loop
 ==========
 
-Last updated: 10/09/2026.
+Last updated: 10/13/2026.
 
 .. versionadded:: 0.4.2
    [status: alpha]
@@ -258,6 +258,13 @@ Rebuilt servers must pass their ``check_health()`` calls before generation resum
 these checks do not require metrics logging to be enabled. A failed
 load or health check leaves recovery pending; the caller keeps request routing fenced
 until synchronization succeeds and it publishes the new handles and HTTP addresses.
+If weight transfer, finalization and KV restoration complete but a replacement fails
+its health check or generation resume, ``update_weights()`` raises
+``verl.checkpoint_engine.base.ReplicaRecoveryError``. Its ``sync_metrics``,
+``global_steps`` and ``failures`` (replica/exception pairs) expose the completed
+synchronization and every failed replacement. Other healthy replicas resume;
+failed replacements remain pending and must stay outside routing. Transfer failures
+and cancellation continue to propagate directly.
 
 This integration requires single-node standalone vLLM, full model weights or merged
 LoRA, a full-tensor synchronization backend, and no PD. Incremental-only/delta and

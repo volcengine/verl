@@ -37,6 +37,7 @@ def _make_manager(monkeypatch):
     )
     receiver = checkpoint_base.CheckpointEngineWorker.__new__(checkpoint_base.CheckpointEngineWorker)
     receiver.server_adapter = ServerAdapter.__new__(ServerAdapter)
+    receiver.server_adapter._has_server = True
     receiver.server_adapter.server_handle = object()
     target = SimpleNamespace(
         rollout_mode=RolloutMode.STANDALONE,
@@ -74,7 +75,7 @@ def _make_manager(monkeypatch):
     def send(*, global_steps, mode):
         wire.weights, wire.version = [("w", live_weights.clone())], global_steps
         events.append("send")
-        return [{}]
+        return [{"sync/test": 1.0}]
 
     def load(*, global_steps):
         assert wire.version == global_steps
@@ -126,6 +127,8 @@ def test_restart_rebinds_target_then_normal_sync_loads_current_trainer_weights(m
 
     live.fill_(17)
     asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
+    assert all(call.kwargs["reject_request"] for call in target.abort_all_requests.await_args_list)
+    healthy.abort_all_requests.assert_awaited_once_with(reject_request=False)
     assert events == ["restart", "bind", "send", "load", "health", "resume"]
     torch.testing.assert_close(adapter.loaded_weights[0][1], torch.tensor([17.0, 17.0]))
     manager.actor_wg.update_weights.assert_called_once_with(global_steps=17, mode="nccl")
@@ -153,29 +156,67 @@ def test_unsupported_restart_has_no_effect_and_failed_health_keeps_target_pendin
     asyncio.run(checkpoint_base.CheckpointEngineManager.restart_replica.__wrapped__(manager, target))
     failure = RuntimeError("replacement engine is unhealthy")
     target.server_handle.check_health.remote.side_effect = failure
-    with pytest.raises(RuntimeError) as caught:
+    with pytest.raises(checkpoint_base.ReplicaRecoveryError) as caught:
         asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
-    assert caught.value is failure
+    assert caught.value.sync_metrics == {"sync/test": 1.0}
+    assert caught.value.global_steps == 17
+    assert caught.value.failures == [(target, failure)]
+    assert caught.value.__cause__ is failure
     target.resume_generation.assert_not_awaited()
     healthy.resume_generation.assert_awaited_once()
     assert manager._pending_restarts == [target]
     assert not manager._weight_sync_lock.locked()
 
 
-def test_failed_pending_replica_does_not_block_other_replacement(monkeypatch):
+@pytest.mark.parametrize("other_fails", [False, True])
+def test_failed_pending_replica_does_not_block_other_replacement(monkeypatch, other_fails):
     manager, target, other, _adapter, _live, _events = _make_manager(monkeypatch)
     asyncio.run(checkpoint_base.CheckpointEngineManager.restart_replica.__wrapped__(manager, target))
     other.server_handle = SimpleNamespace(check_health=SimpleNamespace(remote=AsyncMock()))
     manager._pending_restarts.append(other)
     failure = RuntimeError("one replacement engine is unhealthy")
     target.server_handle.check_health.remote.side_effect = failure
+    other_failure = RuntimeError("another replacement engine is unhealthy")
+    if other_fails:
+        other.server_handle.check_health.remote.side_effect = other_failure
 
-    with pytest.raises(RuntimeError) as caught:
+    with pytest.raises(checkpoint_base.ReplicaRecoveryError) as caught:
         asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, global_steps=17))
 
-    assert caught.value is failure
+    expected_failures = [(target, failure)] + ([(other, other_failure)] if other_fails else [])
+    assert caught.value.failures == expected_failures
+    assert caught.value.sync_metrics == {"sync/test": 1.0}
     target.resume_generation.assert_not_awaited()
     other.server_handle.check_health.remote.assert_awaited_once()
-    other.resume_generation.assert_awaited_once()
-    assert manager._pending_restarts == [target]
+    assert other.resume_generation.await_count == (0 if other_fails else 1)
+    assert manager._pending_restarts == ([target, other] if other_fails else [target])
     assert not manager._weight_sync_lock.locked()
+
+
+@pytest.mark.parametrize("version", [None, -1, True, 1.5])
+def test_pending_restart_requires_version_before_sync(monkeypatch, version):
+    manager, target, _healthy, _adapter, _live, _events = _make_manager(monkeypatch)
+    manager._pending_restarts = [target]
+    with pytest.raises(ValueError, match="non-negative integer"):
+        asyncio.run(checkpoint_base.CheckpointEngineManager.update_weights.__wrapped__(manager, version))
+    manager.actor_wg.update_weights.assert_not_called()
+    target.abort_all_requests.assert_not_awaited()
+    assert not manager._weight_sync_lock.locked()
+
+
+@pytest.mark.parametrize("method", ["add_replicas", "remove_replicas"])
+def test_membership_changes_and_restart_cannot_overlap_weight_sync(monkeypatch, method):
+    manager, target, _healthy, _adapter, _live, _events = _make_manager(monkeypatch)
+    with manager._weight_sync_operation():
+        with pytest.raises(RuntimeError, match="already in progress"):
+            asyncio.run(checkpoint_base.CheckpointEngineManager.restart_replica.__wrapped__(manager, target))
+    target.restart.assert_not_awaited()
+    assert manager._pending_restarts == []
+    removed = Mock()
+    manager.replicas = [removed]
+    manager._pending_restarts = [removed]
+    with manager._weight_sync_operation():
+        with pytest.raises(RuntimeError, match="already in progress"):
+            getattr(manager, method)([])
+    manager.remove_replicas([removed])
+    assert removed not in manager.replicas and manager._pending_restarts == []

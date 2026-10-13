@@ -385,6 +385,28 @@ class CheckpointEngineWorker(Worker):
 _worker_cls = ray.remote(CheckpointEngineWorker)
 
 
+class ReplicaRecoveryError(RuntimeError):
+    """Weight synchronization completed, but some replacements could not resume.
+
+    ``sync_metrics`` and ``global_steps`` describe the completed synchronization;
+    ``failures`` contains every failed replacement and its original exception.
+    Failed replacements remain pending and must not be published to routing.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        global_steps: int | None = None,
+        sync_metrics: dict | None = None,
+        failures: list[tuple[RolloutReplica, Exception]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.global_steps = global_steps
+        self.sync_metrics = dict(sync_metrics or {})
+        self.failures = list(failures or [])
+
+
 class CheckpointEngineManager:
     """Checkpoint engine manager to coordinate weight synchronization between actor and rollout replicas.
 
@@ -447,21 +469,26 @@ class CheckpointEngineManager:
         The replacement remains paused until a successful, versioned update_weights().
         Request routing and publication of the new address remain with the caller.
         """
-        if not any(registered is replica for registered in self.replicas):
-            raise ValueError("restart requires a replica registered with this checkpoint manager")
-        if (
-            self.backend == "naive"
-            or self.backend_cls.wire_format != "named_tensors"
-            or replica.rollout_mode != RolloutMode.STANDALONE
-            or replica.nnodes != 1
-            or replica.config.name != "vllm"
-            or replica.config.disaggregation.enabled
-        ):
-            raise NotImplementedError("restart requires single-node standalone vLLM with full weight synchronization")
-        lora = replica.model_config.lora
-        if (lora.get("rank", 0) or replica.model_config.lora_rank) and not lora.get("merge", False):
-            raise NotImplementedError("restart requires full model weights or merged LoRA")
         with self._weight_sync_operation():
+            if not any(registered is replica for registered in self.replicas):
+                raise ValueError("restart requires a replica registered with this checkpoint manager")
+            if (
+                self.backend == "naive"
+                or self.backend_cls.wire_format != "named_tensors"
+                or replica.rollout_mode != RolloutMode.STANDALONE
+                or replica.nnodes != 1
+                or replica.config.name != "vllm"
+                or replica.config.disaggregation.enabled
+            ):
+                raise NotImplementedError(
+                    "restart requires single-node standalone vLLM with full weight synchronization "
+                    f"(backend={self.backend!r}, wire_format={self.backend_cls.wire_format!r}, "
+                    f"mode={replica.rollout_mode!r}, nnodes={replica.nnodes}, "
+                    f"rollout={replica.config.name!r}, disaggregation={replica.config.disaggregation.enabled})"
+                )
+            lora = replica.model_config.lora
+            if (lora.get("rank", 0) or replica.model_config.lora_rank) and not lora.get("merge", False):
+                raise NotImplementedError("restart requires full model weights or merged LoRA")
             if not any(pending is replica for pending in self._pending_restarts):
                 self._pending_restarts.append(replica)
             await replica.restart(timeout=timeout)
@@ -504,7 +531,8 @@ class CheckpointEngineManager:
         Args:
             replicas: The list of rollout replicas to add.
         """
-        self.replicas.extend(replicas)
+        with self._weight_sync_operation():
+            self.replicas.extend(replicas)
 
     def remove_replicas(self, replicas: list[RolloutReplica]):
         """Remove rollout replicas from the manager for elastic scale down, will rebuild process group.
@@ -512,9 +540,10 @@ class CheckpointEngineManager:
         Args:
             replicas: The list of rollout replicas to remove.
         """
-        replicas_set = set(replicas)
-        self.replicas = [r for r in self.replicas if r not in replicas_set]
-        self._pending_restarts = [r for r in self._pending_restarts if r not in replicas_set]
+        with self._weight_sync_operation():
+            replicas_set = set(replicas)
+            self.replicas = [r for r in self.replicas if r not in replicas_set]
+            self._pending_restarts = [r for r in self._pending_restarts if r not in replicas_set]
 
     @auto_await
     async def sleep_replicas(self):
@@ -533,8 +562,11 @@ class CheckpointEngineManager:
         Args:
             reject_request: Fail requests arriving behind the closed gate instead of
                 parking them, for replicas that will not resume generation soon.
+                Pending replacements always reject requests until recovery completes.
         """
-        await asyncio.gather(*[r.abort_all_requests(reject_request=reject_request) for r in self.replicas])
+        await asyncio.gather(
+            *[r.abort_all_requests(reject_request=reject_request or r in self._pending_restarts) for r in self.replicas]
+        )
 
     @auto_await
     async def resume_generation_replicas(self):
@@ -565,6 +597,10 @@ class CheckpointEngineManager:
 
         Args:
             global_steps: The global steps of the actor worker group.
+
+        Raises:
+            ReplicaRecoveryError: The weights were synchronized, but one or more
+                replacements failed to resume. Carries sync metrics and all failures.
         """
 
         with self._weight_sync_operation():
@@ -628,12 +664,24 @@ class CheckpointEngineManager:
                 await replica.resume_generation()
                 self._pending_restarts.remove(replica)
 
-            results = await asyncio.gather(
-                *[resume_replacement(r) for r in self._pending_restarts], return_exceptions=True
-            )
+            pending = list(self._pending_restarts)
+            results = await asyncio.gather(*[resume_replacement(r) for r in pending], return_exceptions=True)
             for result in results:
-                if isinstance(result, BaseException):
+                if isinstance(result, BaseException) and not isinstance(result, Exception):
                     raise result
+            failures = [
+                (replica, result)
+                for replica, result in zip(pending, results, strict=True)
+                if isinstance(result, Exception)
+            ]
+            if failures:
+                raise ReplicaRecoveryError(
+                    f"weights synchronized at version {global_steps}, "
+                    f"but {len(failures)} replacement(s) failed to resume",
+                    global_steps=global_steps,
+                    sync_metrics=sync_metrics,
+                    failures=failures,
+                ) from failures[0][1]
         else:
             await self.resume_generation_replicas()
 
