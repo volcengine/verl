@@ -216,5 +216,5 @@ if [[ "${CONFIG_ONLY:-0}" = 1 ]]; then
 fi
 
 export RAY_ADDRESS
-ray job submit --runtime-env="$RUNTIME_ENV" -- \
+ray job submit --working-dir="$WORKING_DIR" --runtime-env="$RUNTIME_ENV" -- \
   python3 -m verl.trainer.main_ppo "${HYDRA_ARGS[@]}"

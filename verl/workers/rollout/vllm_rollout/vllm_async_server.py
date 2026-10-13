@@ -1398,7 +1398,7 @@ class vLLMHttpServer:
                 raise ValueError("real_nvfp4 rollout currently requires vLLM pipeline_model_parallel_size=1")
             if self.config.enforce_eager:
                 raise ValueError("real_nvfp4 rollout requires CUDA Graphs (enforce_eager=False)")
-            if self.config.mtp is not None and self.config.mtp.enable:
+            if self.config.mtp is not None and self.config.mtp.enable and self.config.mtp.enable_rollout:
                 raise ValueError("real_nvfp4 rollout does not support speculative decoding/MTP")
             if self.config.quantization is not None:
                 raise ValueError("real_nvfp4 owns the vLLM quantization setting")
