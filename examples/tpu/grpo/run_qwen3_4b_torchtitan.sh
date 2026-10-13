@@ -22,7 +22,7 @@ exp_name="${EXPERIMENT_NAME:-qwen3_4b_gsm8k_grpo}"
 SEED="${SEED:-1}"
 
 # Paths
-RAY_DATA_HOME="${RAY_DATA_HOME:-/data/jialei}"
+RAY_DATA_HOME="${RAY_DATA_HOME:-/data}"
 if [[ -z "${MODEL_PATH:-}" ]]; then
     if [[ -d "${RAY_DATA_HOME}/assets/hf/Qwen3-4B-Base" ]]; then
         MODEL_PATH="${RAY_DATA_HOME}/assets/hf/Qwen3-4B-Base"

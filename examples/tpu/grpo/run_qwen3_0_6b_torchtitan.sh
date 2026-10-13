@@ -20,7 +20,7 @@ project_name="${PROJECT_NAME:-verl_tpu_grpo}"
 exp_name="${EXPERIMENT_NAME:-qwen3_0.6b_fast_smoke_test}"
 
 # Paths
-RAY_DATA_HOME="${RAY_DATA_HOME:-/data/jialei}"
+RAY_DATA_HOME="${RAY_DATA_HOME:-/data}"
 MODEL_PATH="${MODEL_PATH:-${RAY_DATA_HOME}/assets/hf/Qwen3-0.6B}"
 TRAIN_FILE="${TRAIN_FILE:-${RAY_DATA_HOME}/data/gsm8k/train.parquet}"
 TEST_FILE="${TEST_FILE:-${RAY_DATA_HOME}/data/gsm8k/test.parquet}"
