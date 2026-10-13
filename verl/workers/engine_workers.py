@@ -696,6 +696,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.actor.engine.vllm_enable_moe_shared_loras = bool(
                 vllm_engine_kwargs.get("enable_moe_shared_loras", False)
             )
+            self.actor.engine.vllm_enable_mixed_moe_lora_format = bool(
+                vllm_engine_kwargs.get("enable_mixed_moe_lora_format", False)
+            )
             self.set_dispatch_collect(mesh_name="actor", **self.actor.get_dispatch_collect())
 
         # 3. build rollout engine
