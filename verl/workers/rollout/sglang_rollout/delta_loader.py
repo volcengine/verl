@@ -40,6 +40,7 @@ Register at server launch (verl config)::
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import math
@@ -84,7 +85,7 @@ def apply_delta(model: torch.nn.Module, named_tensors: Iterable[tuple[str, torch
         return
 
     encoding = spec["encoding"]
-    with _masked_copy():
+    with _masked_copy(model):
         chunk: list[tuple[str, torch.Tensor]] = []
         chunk_bytes = 0
         for p in spec["params"]:
@@ -200,15 +201,35 @@ def _decode_one(encoding: str, positions: torch.Tensor, values: torch.Tensor, p:
 
 
 @contextmanager
-def _masked_copy() -> Iterator[None]:
+def _masked_copy(model: torch.nn.Module) -> Iterator[None]:
     """Temporarily make ``Tensor.copy_`` skip NaN positions in the source.
 
     SGLang's per-model ``load_weights`` ultimately lands on ``param.copy_(loaded)``
     (possibly on a narrowed TP slice). Under this context a NaN-masked source
     overwrites only the changed positions; fully dense sources (e.g. the first
     full-seed flush) take the original fast path untouched.
+
+    Guard (a) (ported from THUDM/slime#1806): the masked semantics apply ONLY
+    to destinations whose storage belongs to ``model``'s own parameters or
+    buffers, tracked as a sorted ``data_ptr`` interval index. Any other
+    ``copy_`` inside the window -- temporaries, scratch tensors, other
+    modules' state -- passes through to the original implementation untouched.
     """
     orig_copy = torch.Tensor.copy_
+
+    spans = []
+    for t in model.parameters():
+        spans.append((t.data_ptr(), t.data_ptr() + t.numel() * t.element_size()))
+    for _, t in model.named_buffers():
+        if t is not None:
+            spans.append((t.data_ptr(), t.data_ptr() + t.numel() * t.element_size()))
+    spans.sort()
+    starts = [s for s, _ in spans]
+    ends = [e for _, e in spans]
+
+    def _in_model_storage(ptr: int) -> bool:
+        i = bisect.bisect_right(starts, ptr) - 1
+        return i >= 0 and ptr < ends[i]
 
     def masked_copy_(self: torch.Tensor, src: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         # Sync-free masked overwrite: boolean advanced indexing (and a
@@ -216,7 +237,12 @@ def _masked_copy() -> Iterator[None]:
         # parameter -- ruinous for MoE flushes carrying >10k per-expert
         # entries. ``torch.where`` keeps everything on-stream; a NaN-free
         # (dense) source degenerates to a plain copy.
-        if isinstance(src, torch.Tensor) and src.is_floating_point() and self.shape == src.shape:
+        if (
+            isinstance(src, torch.Tensor)
+            and src.is_floating_point()
+            and self.shape == src.shape
+            and _in_model_storage(self.data_ptr())
+        ):
             cast = src.to(self.dtype)
             return orig_copy(self, torch.where(torch.isnan(cast), self, cast))
         return orig_copy(self, src, *args, **kwargs)

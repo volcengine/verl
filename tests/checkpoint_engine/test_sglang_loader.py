@@ -37,6 +37,12 @@ class _FakeModel:
     def __init__(self, named: list[tuple[str, torch.Tensor]]):
         self.params = {n: t.clone() for n, t in named}
 
+    def parameters(self):
+        return iter(self.params.values())
+
+    def named_buffers(self):
+        return iter([])
+
     def load_weights(self, chunk):
         for name, tensor in chunk:
             self.params[name].copy_(tensor)
@@ -227,3 +233,56 @@ def test_verify_sweep_fails_loud_on_divergence():
     model = _FakeModel(diverged)
     with pytest.raises(RuntimeError, match="verification FAILED"):
         apply_delta(model, _dense_verify_flush(named))
+
+
+def test_masked_copy_guard_spares_non_model_storage():
+    """Guard (a): NaN-skip semantics apply ONLY to the model's own param/buffer
+    storage. A foreign same-shape floating tensor copied inside the window must
+    go through the original copy_ (NaNs land), not be masked."""
+    from verl.workers.rollout.sglang_rollout.delta_loader import _masked_copy
+
+    named = _make_named()
+    model = _FakeModel(named)
+    param = model.params[named[0][0]]
+    live_before = param.detach().clone()
+
+    foreign = torch.zeros_like(param)
+
+    with _masked_copy(model):
+        nan_src = torch.full(param.shape, float("nan"), dtype=param.dtype)
+        nan_src.view(-1)[0] = 1.0
+        param.copy_(nan_src)
+        foreign.copy_(nan_src)
+
+    # Model param: changed position landed, NaN positions kept live values.
+    assert param.view(-1)[0].item() == 1.0
+    assert torch.equal(param.view(-1)[1:], live_before.view(-1)[1:])
+    # Foreign tensor: passthrough -- NaNs were written as a plain copy would.
+    assert torch.isnan(foreign.view(-1)[1:]).all()
+    assert foreign.view(-1)[0].item() == 1.0
+
+
+def test_masked_copy_guard_covers_model_buffers():
+    """Guard (a) must treat registered buffers as model storage too."""
+    from verl.workers.rollout.sglang_rollout.delta_loader import _masked_copy
+
+    class _ModelWithBuffer(_FakeModel):
+        def __init__(self):
+            super().__init__(_make_named())
+            self.buffers_ = {"kv_scale": torch.ones(16, dtype=torch.bfloat16)}
+
+        def named_buffers(self):
+            return iter(self.buffers_.items())
+
+    model = _ModelWithBuffer()
+    buf = model.buffers_["kv_scale"]
+    live_before = buf.detach().clone()
+
+    with _masked_copy(model):
+        nan_src = torch.full((16,), float("nan"), dtype=torch.bfloat16)
+        nan_src.view(-1)[2] = 5.0
+        buf.copy_(nan_src)
+
+    assert buf.view(-1)[2].item() == 5.0
+    assert torch.equal(buf.view(-1)[:2], live_before.view(-1)[:2])
+    assert torch.equal(buf.view(-1)[3:], live_before.view(-1)[3:])
