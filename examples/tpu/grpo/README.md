@@ -33,7 +33,7 @@ export PLUGIN_REPO="$(cd ../verl-hardware-plugin && pwd)"
 
 ### Step 2. Build the TPU Image (optional)
 
-[`Dockerfile`](Dockerfile) builds the image the Ray pods run: Ray 2.56, PyTorch 2.13 (CPU) + `torch_tpu`, JAX + `libtpu`, `tpu-sync`, `google-pytorch/torchtitan` and vLLM + `vllm-torchtpu`. `verl` and `verl-hardware-plugin` are not baked in; they are shipped with every job (Step 4). Skip this step if you already have an image, e.g. `us-west2-docker.pkg.dev/tpu-pytorch/raycluster/verl-tpu:v20261013-grpo-dockerfile`, which was built from this file.
+[`Dockerfile`](Dockerfile) builds the image the Ray pods run: Ray 2.56, PyTorch 2.13 (CPU) + `torch_tpu`, JAX + `libtpu`, `tpu-sync`, `google-pytorch/torchtitan` and vLLM + `vllm-torchtpu`. `verl` and `verl-hardware-plugin` are not baked in; they are shipped with every job (Step 4). Skip this step if you already have an image, e.g. `us-west2-docker.pkg.dev/tpu-pytorch/raycluster/verl-tpu:v20261013-grpo-dockerfile-v2`, which was built from this file.
 
 The registry and GitHub tokens are passed as BuildKit secrets, so they are not stored in the image:
 
@@ -41,7 +41,7 @@ The registry and GitHub tokens are passed as BuildKit secrets, so they are not s
 export AUTH_TOKEN="$(gcloud auth print-access-token)"  # read access to the TorchTPU Python registry
 export GITHUB_TOKEN=<token>  # read access to google-pytorch/torchtitan and vllm-project/vllm-torchtpu
 docker buildx build -f examples/tpu/grpo/Dockerfile \
-  --secret id=auth_token,env=AUTH_TOKEN --secret id=github_token,env=GITHUB_TOKEN \
+  --secret id=auth_token,env=AUTH_TOKEN --secret id=GIT_AUTH_TOKEN,env=GITHUB_TOKEN \
   -t <registry>/verl-tpu:<tag> --push examples/tpu/grpo
 ```
 
