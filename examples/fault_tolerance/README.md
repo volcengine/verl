@@ -2,7 +2,8 @@
 
 This example runs a real optimizer update, kills a rollout EngineCore during two
 native verl client calls, then restores their generation through
-`next_weight_sync`. It creates a tiny Qwen2 model locally and needs no dataset or
+`next_weight_sync`: `restart_replica()` followed by the normal versioned
+`update_weights()` call. It creates a tiny Qwen2 model locally and needs no dataset or
 model download.
 
 Run from the verl repository root on one node with three available CUDA GPUs:

@@ -571,7 +571,8 @@ def main():
     import ray
     import torch
 
-    assert torch.cuda.is_available() and torch.cuda.device_count() >= 3, "three local CUDA GPUs are required"
+    if not torch.cuda.is_available() or torch.cuda.device_count() < 3:
+        raise RuntimeError("three local CUDA GPUs are required")
     output = args.output_dir.resolve() if args.output_dir else Path(tempfile.mkdtemp(prefix="verl-recovery-"))
     if args.output_dir:
         output.mkdir(parents=True, exist_ok=False)
