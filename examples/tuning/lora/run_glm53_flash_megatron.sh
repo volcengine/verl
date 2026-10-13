@@ -79,11 +79,7 @@ ROLLOUT_PP=${ROLLOUT_PP:-1}
 ROLLOUT_DCP=${ROLLOUT_DCP:-1}
 ROLLOUT_GPU_MEM_UTIL=${ROLLOUT_GPU_MEM_UTIL:-0.35}
 ROLLOUT_MAX_NUM_BATCHED_TOKENS=${ROLLOUT_MAX_NUM_BATCHED_TOKENS:-$((1024 * 10))}
-if [ "${USE_FP8}" = 1 ]; then
-    ROLLOUT_KV_CACHE_DTYPE=${ROLLOUT_KV_CACHE_DTYPE:-fp8}
-else
-    ROLLOUT_KV_CACHE_DTYPE=${ROLLOUT_KV_CACHE_DTYPE:-auto}
-fi
+ROLLOUT_KV_CACHE_DTYPE=${ROLLOUT_KV_CACHE_DTYPE:-fp8}
 ROLLOUT_UPDATE_WEIGHTS_BUCKET_MB=${ROLLOUT_UPDATE_WEIGHTS_BUCKET_MB:-4096}
 ROUTER_REPLAY_MODE=${ROUTER_REPLAY_MODE:-R3}
 
@@ -205,7 +201,7 @@ CP_ARGS=()
 if [ "${ACTOR_CP}" -gt 1 ]; then
     CP_ARGS=(
         ++actor_rollout_ref.actor.megatron.override_transformer_config.sequence_packing_scheduler=dp_balanced
-        ++actor_rollout_ref.actor.megatron.override_transformer_config.max_seqlen_per_dp_cp_rank=$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH) / ACTOR_CP))
+        ++actor_rollout_ref.actor.megatron.override_transformer_config.max_seqlen_per_dp_cp_rank=$(((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH + ACTOR_CP - 1) / ACTOR_CP))
     )
 fi
 
@@ -284,8 +280,8 @@ EXTRA=(
 
 # FP8 hybrid blockwise training + FP8 rollout. When USE_FP8=1 the actor forward
 # uses E4M3 / backward E5M2 blockwise quantization, and the vLLM rollout runs in
-# FP8 with FP8 KV cache. kda_disable_fp8 and mla_proj_disable_quantization keep the
-# KDA and MLA attention paths in BF16 for numerical stability. The TE backward
+# FP8 with FP8 KV cache. kda_disable_fp8 and mla_proj_use_quantization=False keep
+# the KDA and MLA attention paths in BF16 for numerical stability. The TE backward
 # amax_epsilon=1e-12 fix (in Megatron-LM fp8_utils.py) is required to avoid NaN
 # grad_norm from all-zero gradient blocks. TP defaults to 4 to keep the
 # 64-output beta projection aligned to FP8 GEMM's 16-column minimum.
@@ -294,7 +290,7 @@ if [ "${USE_FP8}" = 1 ]; then
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8=hybrid
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8_recipe=blockwise
         +actor_rollout_ref.actor.megatron.override_transformer_config.kda_disable_fp8=True
-        +actor_rollout_ref.actor.megatron.override_transformer_config.mla_proj_disable_quantization=True
+        +actor_rollout_ref.actor.megatron.override_transformer_config.mla_proj_use_quantization=False
         +actor_rollout_ref.actor.megatron.override_transformer_config.attention_dropout=0.0
         +actor_rollout_ref.actor.megatron.override_transformer_config.hidden_dropout=0.0
         +actor_rollout_ref.actor.optim.override_optimizer_config.fp8_recipe=blockwise
