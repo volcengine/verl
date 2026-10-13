@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Google LLC. All rights reserved.
 # Licensed under the Apache License, Version 2.0.
 #
-# Fast 5-step smoke test: GRPO | Qwen3-0.6B | GSM8K | TorchTitan Training & vLLM Rollout | TPU v6e-8 x2 Slices
+# Fast 5-step smoke test: GRPO | Qwen3-0.6B | GSM8K | TorchTitan Training & vLLM Rollout | TPU v6e-4 x2 Slices
 # V1 PPOTrainer (Separate Async Overlap) — requires verl-hardware-plugin.
 # See examples/tpu/grpo/README.md for full instructions.
 
@@ -25,10 +25,11 @@ MODEL_PATH="${MODEL_PATH:-${RAY_DATA_HOME}/assets/hf/Qwen3-0.6B}"
 TRAIN_FILE="${TRAIN_FILE:-${RAY_DATA_HOME}/data/gsm8k/train.parquet}"
 TEST_FILE="${TEST_FILE:-${RAY_DATA_HOME}/data/gsm8k/test.parquet}"
 
-# TPU 2-slice v6e-8 topology (8 trainer chips + 8 rollout chips)
-export NNODES_TRAINER="${NNODES_TRAINER:-2}"
+# TPU topology: 2 single-host v6e-4 slices (4 trainer chips + 4 rollout chips).
+# For 2 v6e-8 slices (8 + 8 chips), set NNODES_TRAINER=2 NNODES_ROLLOUT=2.
+export NNODES_TRAINER="${NNODES_TRAINER:-1}"
 export N_CHIPS_TRAINER="${N_CHIPS_TRAINER:-4}"
-export NNODES_ROLLOUT="${NNODES_ROLLOUT:-2}"
+export NNODES_ROLLOUT="${NNODES_ROLLOUT:-1}"
 export N_CHIPS_ROLLOUT="${N_CHIPS_ROLLOUT:-4}"
 
 TOTAL_TRAINER_CHIPS=$((NNODES_TRAINER * N_CHIPS_TRAINER))
@@ -36,6 +37,7 @@ TOTAL_ROLLOUT_CHIPS=$((NNODES_ROLLOUT * N_CHIPS_ROLLOUT))
 
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
 DATA_PARALLEL_SHARD_SIZE="${DATA_PARALLEL_SHARD_SIZE:-${TOTAL_TRAINER_CHIPS}}"
+# The tpu-sync checkpoint engine supports a single rollout replica, so the rollout TP spans all rollout chips.
 ROLLOUT_TENSOR_PARALLEL_SIZE="${ROLLOUT_TENSOR_PARALLEL_SIZE:-${TOTAL_ROLLOUT_CHIPS}}"
 
 # Smoke-test training & validation parameters
@@ -105,7 +107,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.layered_summon=True \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=4096 \
-    actor_rollout_ref.rollout.checkpoint_engine.backend=ray-plasma-store \
+    actor_rollout_ref.rollout.checkpoint_engine.backend=tpu-sync \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.max_model_len="${MAX_MODEL_LEN}" \
     actor_rollout_ref.rollout.max_num_batched_tokens="${MAX_MODEL_LEN}" \

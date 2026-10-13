@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Google LLC. All rights reserved.
 # Licensed under the Apache License, Version 2.0.
 #
-# GRPO | Qwen3-4B | GSM8K | TorchTitan Training & vLLM Rollout | TPU v6e-8 x2 Slices
+# GRPO | Qwen3-4B | GSM8K | TorchTitan Training & vLLM Rollout | TPU v6e-4 x2 Slices
 # V1 PPOTrainer (Separate Async Overlap) — requires verl-hardware-plugin.
 # See examples/tpu/grpo/README.md for full instructions.
 
@@ -34,10 +34,11 @@ TRAIN_FILE="${TRAIN_FILE:-${RAY_DATA_HOME}/data/gsm8k/train.parquet}"
 TEST_FILE="${TEST_FILE:-${RAY_DATA_HOME}/data/gsm8k/test.parquet}"
 LOG_ROOT="${LOG_ROOT:-/tmp/verl_dump/${exp_name}}"
 
-# TPU 2-slice v6e-8 topology (8 trainer chips + 8 rollout chips)
-export NNODES_TRAINER="${NNODES_TRAINER:-2}"
+# TPU topology: 2 single-host v6e-4 slices (4 trainer chips + 4 rollout chips).
+# For 2 v6e-8 slices (8 + 8 chips), set NNODES_TRAINER=2 NNODES_ROLLOUT=2.
+export NNODES_TRAINER="${NNODES_TRAINER:-1}"
 export N_CHIPS_TRAINER="${N_CHIPS_TRAINER:-4}"
-export NNODES_ROLLOUT="${NNODES_ROLLOUT:-2}"
+export NNODES_ROLLOUT="${NNODES_ROLLOUT:-1}"
 export N_CHIPS_ROLLOUT="${N_CHIPS_ROLLOUT:-4}"
 
 TOTAL_TRAINER_CHIPS=$((NNODES_TRAINER * N_CHIPS_TRAINER))
