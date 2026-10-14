@@ -505,6 +505,99 @@ skip:
     # Action to take when rollout is skipped, refer to verl.utils.skip.base_skip.SkipAction
     action: cache
 
+  # configs for RewardSkip (training-loop stage skips, refer to verl.utils.skip.stage_skip)
+  reward:
+
+    # Whether to enable RewardSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | repeat)
+    action: cache
+
+  # configs for OldLogProbSkip
+  old_log_prob:
+
+    # Whether to enable OldLogProbSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | repeat)
+    action: cache
+
+  # configs for RefLogProbSkip
+  ref_log_prob:
+
+    # Whether to enable RefLogProbSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | repeat)
+    action: cache
+
+  # configs for ValuesSkip
+  values:
+
+    # Whether to enable ValuesSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | repeat)
+    action: cache
+
+  # configs for ActorUpdateSkip
+  actor_update:
+
+    # Whether to enable ActorUpdateSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | empty)
+    action: cache
+
+  # configs for WeightSyncSkip (debug only; requires ack_debug)
+  weight_sync:
+
+    # Whether to enable WeightSyncSkip
+    enable: False
+
+    # Directory to save stage dump data
+    dump_dir: "~/.verl/stage_dump"
+
+    # Steps to skip this stage
+    steps: []
+
+    # Action to take when this stage is skipped (cache | empty)
+    action: cache
+
+    # Explicit acknowledgment that skipping weight sync is debug-only
+    ack_debug: False
+
 # configs related to ray
 ray_kwargs:
 

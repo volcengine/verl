@@ -27,13 +27,23 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
+from tensordict import TensorDict
 
 from verl.protocol import DataProto
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.skip.base_skip import SKIP_REGISTRY, BaseSkip, SkipAction, register_skip
-from verl.utils.skip.config import AsyncRolloutSkipConfig, RolloutSkipConfig, SkipManagerConfig
+from verl.utils.skip.config import AsyncRolloutSkipConfig, RolloutSkipConfig, SkipManagerConfig, StageSkipConfig
 from verl.utils.skip.rollout_skip import AsyncRolloutSkip, RolloutSkip, parse_async_rollout_sample_step
 from verl.utils.skip.skip_manager import SkipManager
+from verl.utils.skip.stage_skip import (
+    ActorUpdateSkip,
+    OldLogProbSkip,
+    RefLogProbSkip,
+    RewardSkip,
+    TrainerStageSkip,
+    ValuesSkip,
+    WeightSyncSkip,
+)
 
 
 def _noop(*_args: Any, **_kwargs: Any) -> None:
@@ -44,6 +54,7 @@ def _reset_skip_manager_class_state() -> None:
     SkipManager.config = None  # type: ignore[attr-defined]
     SkipManager.step = -1  # type: ignore[attr-defined]
     SkipManager.skip_instances = {}  # type: ignore[attr-defined]
+    SkipManager.hit_counters = {}  # type: ignore[attr-defined]
 
 
 @pytest.fixture(autouse=True)
@@ -535,3 +546,321 @@ class TestSkipDumpDiskScenarios:
         rs.prepare_data(1, DataProto.from_dict(tensors={"x": torch.tensor([1.0])}))
         dump_file = rs._get_step_dump_dir(1).joinpath("gen_batch.dp")
         assert dump_file.exists() is False
+
+
+# ---------------------------------------------------------------------------
+# Training-loop stage skips (verl-omni#716)
+# ---------------------------------------------------------------------------
+
+STAGE_ROLES = {
+    "reward": RewardSkip,
+    "old_log_prob": OldLogProbSkip,
+    "ref_log_prob": RefLogProbSkip,
+    "values": ValuesSkip,
+    "actor_update": ActorUpdateSkip,
+    "weight_sync": WeightSyncSkip,
+}
+
+
+def _minimal_stage_cfg(
+    dump_dir: str,
+    role: str,
+    *,
+    enable: bool = True,
+    steps: list[int] | None = None,
+    action: str = "cache",
+    ack_debug: bool = False,
+    bypass_mode: bool | None = None,
+) -> OmegaConf:
+    steps = steps if steps is not None else [1]
+    base: dict[str, Any] = {
+        "skip": {
+            role: {
+                "enable": enable,
+                "dump_dir": dump_dir,
+                "steps": steps,
+                "action": action,
+                "ack_debug": ack_debug,
+            },
+        },
+        "actor_rollout_ref": {"rollout": {"skip": {"enable": False}, "n": 2}},
+        "trainer": {
+            "experiment_name": "ut_exp",
+            "project_name": "ut_proj",
+            "v1": {"trainer_mode": "sync"},
+        },
+        "data": {
+            "train_batch_size": 8,
+            "gen_batch_size": 4,
+            "max_prompt_length": 8,
+            "max_response_length": 16,
+        },
+    }
+    if bypass_mode is not None:
+        base["algorithm"] = {"rollout_correction": {"bypass_mode": bypass_mode}}
+    return OmegaConf.create(base)
+
+
+def _stage_project_root(dump_dir: Path, cfg: OmegaConf) -> Path:
+    sub = f"{cfg.trainer.experiment_name}_{cfg.trainer.project_name}/GBS{cfg.data.gen_batch_size}"
+    return dump_dir.joinpath(sub).resolve()
+
+
+class _OldLogProbOwner:
+    """Minimal trainer-like object: ``_compute_old_log_prob(self, batch) -> metrics``."""
+
+    calls = 0
+
+    @SkipManager.annotate(role="old_log_prob")
+    def _compute_old_log_prob(self, batch) -> dict:
+        type(self).calls += 1
+        batch.batch["old_log_probs"] = torch.full((batch.batch.batch_size[0],), 2.0)
+        return {"actor/mse": 0.5}
+
+    @classmethod
+    def _reset(cls) -> None:
+        cls.calls = 0
+
+
+class TestStageSkipConfig:
+    def test_defaults(self):
+        c = StageSkipConfig()
+        assert c.enable is False
+        assert c.dump_dir == "~/.verl/stage_dump"
+        assert c.action == "cache"
+        assert c.steps == []
+        assert c.ack_debug is False
+
+    def test_accepts_empty_action(self):
+        assert StageSkipConfig(action="empty").action == "empty"
+
+    def test_invalid_action(self):
+        with pytest.raises(AssertionError, match="action"):
+            StageSkipConfig(action="random")  # enum exists but no stage implements it
+        with pytest.raises(AssertionError, match="action"):
+            StageSkipConfig(action="not_an_action")
+
+    def test_ack_debug_must_be_bool(self):
+        with pytest.raises(AssertionError, match="ack_debug"):
+            StageSkipConfig(ack_debug="yes")  # type: ignore[arg-type]
+
+    def test_skip_manager_config_has_stage_fields(self):
+        c = SkipManagerConfig()
+        for role in STAGE_ROLES:
+            assert isinstance(getattr(c, role), StageSkipConfig)
+
+
+class TestStageRegistry:
+    def test_stage_roles_registered(self):
+        for role, cls in STAGE_ROLES.items():
+            assert SKIP_REGISTRY.get(role) is cls
+
+    def test_stage_roles_are_trainer_stage_skip(self):
+        for cls in STAGE_ROLES.values():
+            assert issubclass(cls, TrainerStageSkip)
+            assert cls.support_online_step is False
+
+    def test_stage_action_whitelists(self):
+        def _build(role: str, action: str) -> TrainerStageSkip:
+            global_cfg = _minimal_stage_cfg("/unused", role, action=action, ack_debug=True)
+            return STAGE_ROLES[role](StageSkipConfig(action=action, ack_debug=True), global_cfg)
+
+        # metric stages accept cache/repeat but not empty
+        for role in ("reward", "old_log_prob", "ref_log_prob", "values"):
+            assert _build(role, "cache").action == SkipAction.CACHE
+            assert _build(role, "repeat").action == SkipAction.REPEAT
+            with pytest.raises(ValueError, match="Unsupported action"):
+                _build(role, "empty")
+        # debug-only stages accept cache/empty but not repeat
+        for role in ("actor_update", "weight_sync"):
+            assert _build(role, "cache").action == SkipAction.CACHE
+            assert _build(role, "empty").action == SkipAction.EMPTY
+            with pytest.raises(ValueError, match="Unsupported action"):
+                _build(role, "repeat")
+
+    def test_columns_declared_per_role(self):
+        assert RewardSkip.columns == ("rm_scores", "token_level_rewards")
+        assert OldLogProbSkip.columns == ("old_log_probs",)
+        assert RefLogProbSkip.columns == ("ref_log_prob",)
+        assert ValuesSkip.columns == ("values",)
+        assert ActorUpdateSkip.columns == ()
+        assert WeightSyncSkip.columns == ()
+
+
+class TestStageConflictAssertions:
+    def test_init_builds_all_stage_instances_disabled_by_default(self, tmp_path: Path):
+        cfg = _minimal_skip_cfg(str(tmp_path), enable=False)
+        SkipManager.init(cfg)
+        for role in STAGE_ROLES:
+            assert SkipManager.skip_instances[role].is_enabled() is False
+
+    def test_weight_sync_requires_ack_debug(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "weight_sync")
+        with pytest.raises(ValueError, match="ack_debug"):
+            SkipManager.init(cfg)
+
+        cfg = _minimal_stage_cfg(str(tmp_path), "weight_sync", ack_debug=True)
+        SkipManager.init(cfg)
+        assert SkipManager.skip_instances["weight_sync"].is_enabled() is True
+
+    def test_weight_sync_conflict_ignores_disabled_stage(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "weight_sync", enable=False)
+        SkipManager.init(cfg)  # no ack, but disabled: no raise
+
+    def test_old_log_prob_conflicts_with_rollout_correction_bypass(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", bypass_mode=True)
+        with pytest.raises(ValueError, match="bypass_mode"):
+            SkipManager.init(cfg)
+
+    def test_old_log_prob_ok_when_bypass_mode_false(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", bypass_mode=False)
+        SkipManager.init(cfg)
+        assert SkipManager.skip_instances["old_log_prob"].is_enabled() is True
+
+    def test_bypass_mode_ok_when_old_log_prob_disabled(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "reward", bypass_mode=True)
+        SkipManager.init(cfg)
+
+
+class TestSkipCounters:
+    def test_record_hit_and_summary(self):
+        SkipManager.record_hit("reward")
+        SkipManager.record_hit("reward")
+        SkipManager.record_hit("old_log_prob")
+        assert SkipManager.hit_counters == {"skip/reward": 2, "skip/old_log_prob": 1}
+        assert "skip/reward=2" in SkipManager.summary()
+        assert "skip/old_log_prob=1" in SkipManager.summary()
+
+    def test_summary_without_hits(self):
+        assert "no calls were skipped" in SkipManager.summary()
+
+    def test_init_resets_counters(self, tmp_path: Path):
+        SkipManager.record_hit("reward")
+        cfg = _minimal_skip_cfg(str(tmp_path), enable=False)
+        SkipManager.init(cfg)
+        assert SkipManager.hit_counters == {}
+
+
+class TestStageSkipAnnotate:
+    def test_cache_round_trip_via_annotate(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", steps=[1])
+        owner = _OldLogProbOwner()
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+
+        batch = DataProto.from_dict(tensors={"x": torch.ones(4)})
+        metrics = owner._compute_old_log_prob(batch)
+        assert metrics == {"actor/mse": 0.5}
+        assert _OldLogProbOwner.calls == 1
+        assert SkipManager.hit_counters == {}
+        dump = _stage_project_root(tmp_path, cfg).joinpath("1", "old_log_prob", "stage.pt")
+        assert dump.exists() is True
+
+        # replay: fresh manager, fresh batch, method body must not run
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        replay_batch = DataProto.from_dict(tensors={"x": torch.ones(4)})
+        replay_metrics = owner._compute_old_log_prob(replay_batch)
+        assert _OldLogProbOwner.calls == 1
+        assert replay_metrics == metrics
+        assert torch.equal(replay_batch.batch["old_log_probs"], batch.batch["old_log_probs"])
+        assert SkipManager.hit_counters == {"skip/old_log_prob": 1}
+        _OldLogProbOwner._reset()
+
+    def test_step_not_in_steps_passes_through(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", steps=[7])
+        owner = _OldLogProbOwner()
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        batch = DataProto.from_dict(tensors={"x": torch.ones(4)})
+        assert owner._compute_old_log_prob(batch) == {"actor/mse": 0.5}
+        assert _OldLogProbOwner.calls == 1
+        assert SkipManager.hit_counters == {}
+        _OldLogProbOwner._reset()
+
+    def test_repeat_falls_back_to_latest_dump(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", steps=[5], action="repeat")
+        owner = _OldLogProbOwner()
+        SkipManager.init(cfg)
+
+        # seed a dump for step 3 directly through the skip instance
+        seed_batch = DataProto.from_dict(tensors={"x": torch.ones(4), "old_log_probs": torch.full((4,), 7.0)})
+        SkipManager.skip_instances["old_log_prob"].prepare_data(3, {"actor/mse": 9.9}, owner, seed_batch)
+
+        SkipManager.set_step(5)
+        replay_batch = DataProto.from_dict(tensors={"x": torch.ones(4)})
+        assert owner._compute_old_log_prob(replay_batch) == {"actor/mse": 9.9}
+        assert _OldLogProbOwner.calls == 0
+        assert torch.equal(replay_batch.batch["old_log_probs"], torch.full((4,), 7.0))
+        _OldLogProbOwner._reset()
+
+    def test_empty_action_skips_actor_update(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "actor_update", steps=[1], action="empty")
+        calls = []
+
+        class _Owner:
+            @SkipManager.annotate(role="actor_update")
+            def _update_actor(self, batch) -> dict:
+                calls.append(1)
+                return {"actor/pg_loss": 0.1}
+
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        assert _Owner()._update_actor(DataProto.from_dict(tensors={"x": torch.ones(2)})) == {}
+        assert calls == []
+        assert SkipManager.hit_counters == {"skip/actor_update": 1}
+        # empty never dumps
+        assert not _stage_project_root(tmp_path, cfg).exists()
+
+    def test_empty_action_skips_weight_sync(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "weight_sync", steps=[1], action="empty", ack_debug=True)
+        calls = []
+
+        class _Owner:
+            @SkipManager.annotate(role="weight_sync")
+            def _update_weights(self, global_steps: int = None):
+                calls.append(1)
+                return None
+
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        assert _Owner()._update_weights(1) is None
+        assert calls == []
+        assert SkipManager.hit_counters == {"skip/weight_sync": 1}
+
+    def test_disabled_stage_passes_through(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", enable=False, steps=[1])
+        owner = _OldLogProbOwner()
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        batch = DataProto.from_dict(tensors={"x": torch.ones(4)})
+        assert owner._compute_old_log_prob(batch) == {"actor/mse": 0.5}
+        assert _OldLogProbOwner.calls == 1
+        assert SkipManager.hit_counters == {}
+        _OldLogProbOwner._reset()
+
+
+class TestStageSkipTensorDictBatch:
+    def test_round_trip_with_tensordict_batch(self, tmp_path: Path):
+        cfg = _minimal_stage_cfg(str(tmp_path), "old_log_prob", steps=[1])
+        calls = []
+
+        class _Owner:
+            @SkipManager.annotate(role="old_log_prob")
+            def _compute_old_log_prob(self, batch) -> dict:
+                calls.append(1)
+                batch["old_log_probs"] = torch.full((4,), 3.0)
+                return {"actor/mse": 0.7}
+
+        owner = _Owner()
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        assert owner._compute_old_log_prob(TensorDict({"x": torch.ones(4)}, batch_size=[4])) == {"actor/mse": 0.7}
+
+        SkipManager.init(cfg)
+        SkipManager.set_step(1)
+        replay = TensorDict({"x": torch.ones(4)}, batch_size=[4])
+        assert owner._compute_old_log_prob(replay) == {"actor/mse": 0.7}
+        assert calls == [1]  # only the first (miss) call ran
+        assert torch.equal(replay["old_log_probs"], torch.full((4,), 3.0))
+        assert SkipManager.hit_counters == {"skip/old_log_prob": 1}

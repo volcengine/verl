@@ -16,6 +16,8 @@ import functools
 import inspect
 from typing import Callable
 
+from omegaconf import OmegaConf
+
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.skip.base_skip import SKIP_REGISTRY
 from verl.utils.skip.config import SkipManagerConfig
@@ -34,22 +36,63 @@ class SkipManager:
     # This step is shared across all skip_instances
     # Different enabled skip_instances (no online step acquisition) shall use the same step definition.
     skip_instances: dict = {}  # noqa: RUF012 — intentionally mutable class defaults, reset in ``init``
+    # Counts of short-circuited calls per role, keyed ``skip/<role>``; printed via ``summary()``.
+    hit_counters: dict = {}  # noqa: RUF012 — intentionally mutable class default, reset in ``init``
 
     @classmethod
     def init(cls, config):
         cls.config = omega_conf_to_dataclass(config.skip, dataclass_type=SkipManagerConfig)
         cls.step = -1
         cls.skip_instances = {}
+        cls.hit_counters = {}
         for name, skip_cls in SKIP_REGISTRY.items():
             local_cfg = getattr(cls.config, name, None)
             if local_cfg is None:
                 continue
             instance = skip_cls(local_cfg, config)
             cls.skip_instances[name] = instance
+        cls._assert_stage_conflicts(config)
 
     @classmethod
     def set_step(cls, step: int):
         cls.step = step
+
+    @classmethod
+    def record_hit(cls, role: str) -> None:
+        """Count one short-circuited call (the original function was not invoked)."""
+        key = f"skip/{role}"
+        cls.hit_counters[key] = cls.hit_counters.get(key, 0) + 1
+
+    @classmethod
+    def summary(cls) -> str:
+        """One-line, end-of-run overview of skipped calls."""
+        if not cls.hit_counters:
+            return "SkipManager: no calls were skipped."
+        counts = ", ".join(f"{role}={count}" for role, count in sorted(cls.hit_counters.items()))
+        return f"SkipManager skipped calls: {counts}"
+
+    @classmethod
+    def _assert_stage_conflicts(cls, config) -> None:
+        """Fail closed on stage-skip setups that would silently corrupt training (verl-omni#716)."""
+        if cls.config is None:
+            return
+        old_log_prob = cls.config.old_log_prob
+        # Bypass mode already replaces the old-log-prob recompute pass (it reuses rollout
+        # log probs), so skipping that pass on top of it is ambiguous regardless of
+        # whether rollout correction itself is enabled.
+        bypass_mode = bool(OmegaConf.select(config, "algorithm.rollout_correction.bypass_mode", default=False))
+        if old_log_prob.enable and bypass_mode:
+            raise ValueError(
+                "skip.old_log_prob conflicts with algorithm.rollout_correction.bypass_mode: both replace "
+                "the old-log-prob recompute pass (bypass reuses rollout log probs, skip replays cached "
+                "ones). Disable one of them."
+            )
+        weight_sync = cls.config.weight_sync
+        if weight_sync.enable and not weight_sync.ack_debug:
+            raise ValueError(
+                "skip.weight_sync stalls rollout weight updates and is debug-only; explicitly acknowledge "
+                "by setting skip.weight_sync.ack_debug=True."
+            )
 
     @staticmethod
     def _get_prompts_batch(args, kwargs):
@@ -94,7 +137,9 @@ class SkipManager:
                     if step not in skip_instance.steps:
                         return await func(*args, **kwargs_inner)
                     if skip_instance.meet_precondition(step, func, *args, **kwargs_inner):
-                        return skip_instance.warp_function(step, func, *args, **kwargs_inner)
+                        result = skip_instance.warp_function(step, func, *args, **kwargs_inner)
+                        cls.record_hit(role)
+                        return result
                     result = await func(*args, **kwargs_inner)
                     skip_instance.prepare_data(step, result, *args, **kwargs_inner)
                     return result
@@ -115,7 +160,9 @@ class SkipManager:
                 if step not in skip_instance.steps:
                     return func(*args, **kwargs_inner)
                 if skip_instance.meet_precondition(step, func, *args, **kwargs_inner):
-                    return skip_instance.warp_function(step, func, *args, **kwargs_inner)
+                    result = skip_instance.warp_function(step, func, *args, **kwargs_inner)
+                    cls.record_hit(role)
+                    return result
                 result = func(*args, **kwargs_inner)
                 skip_instance.prepare_data(step, result, *args, **kwargs_inner)
                 return result
@@ -160,6 +207,7 @@ class SkipManager:
                     # Always prepare batch (keeps dataloader aligned on cache-hit steps)
                     batch = self._next_train_batch()
                     if skip_instance.maybe_load_and_inject(step, list(batch["uid"])):
+                        cls.record_hit(role)
                         return
                     self._submit_batch_to_rollout(batch)
                     return

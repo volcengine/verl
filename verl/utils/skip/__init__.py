@@ -13,17 +13,34 @@
 # limitations under the License.
 
 from .base_skip import BaseSkip
-from .config import SkipManagerConfig
+from .config import SkipManagerConfig, StageSkipConfig
 
 # register skip
 from .rollout_skip import AsyncRolloutSkip, RolloutSkip, RolloutTqSkip
 from .skip_manager import SkipManager
+from .stage_skip import (
+    ActorUpdateSkip,
+    OldLogProbSkip,
+    RefLogProbSkip,
+    RewardSkip,
+    TrainerStageSkip,
+    ValuesSkip,
+    WeightSyncSkip,
+)
 
 __all__ = [
     "BaseSkip",
     "SkipManager",
     "SkipManagerConfig",
+    "StageSkipConfig",
     "RolloutSkip",
     "RolloutTqSkip",
     "AsyncRolloutSkip",
+    "TrainerStageSkip",
+    "RewardSkip",
+    "OldLogProbSkip",
+    "RefLogProbSkip",
+    "ValuesSkip",
+    "ActorUpdateSkip",
+    "WeightSyncSkip",
 ]

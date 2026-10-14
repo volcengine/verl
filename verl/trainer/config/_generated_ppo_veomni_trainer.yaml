@@ -1031,6 +1031,37 @@ skip:
     dump_dir: ~/.verl/rollout_dump
     steps: []
     action: cache
+  reward:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+  old_log_prob:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+  ref_log_prob:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+  values:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+  actor_update:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+  weight_sync:
+    enable: false
+    dump_dir: ~/.verl/stage_dump
+    steps: []
+    action: cache
+    ack_debug: false
 ray_kwargs:
   ray_init:
     num_cpus: null

@@ -69,9 +69,44 @@ class RolloutTqSkipConfig(BaseConfig):
 
 
 @dataclass
+class StageSkipConfig(BaseConfig):
+    """Config for training-loop stage skips (reward, log-probs, values, actor update, weight sync).
+
+    Per-stage action support is validated by the role's ``support_actions``
+    (see ``verl.utils.skip.stage_skip``): ``empty`` is accepted only by the
+    debug-only stages ``actor_update`` and ``weight_sync``.
+    """
+
+    enable: bool = False
+    dump_dir: str = "~/.verl/stage_dump"
+    steps: list[int] = field(default_factory=list)
+    action: str = "cache"  # cache | repeat | empty, refer to SkipAction in base_skip.py
+    # Explicit acknowledgment that this stage's skip is debug-only; currently
+    # required to enable ``weight_sync`` (see SkipManager._assert_stage_conflicts).
+    ack_debug: bool = False
+
+    def __post_init__(self) -> None:
+        assert isinstance(self.enable, bool), f"`enable` must be bool, got {type(self.enable)}"
+        assert isinstance(self.dump_dir, str), f"`dump_dir` must be str, got {type(self.dump_dir)}"
+        assert isinstance(self.steps, list), f"`steps` must be list[int], got {type(self.steps)}"
+        assert all(isinstance(step, int) for step in self.steps), "`steps` must contain int only"
+        assert self.action in {"cache", "repeat", "empty"}, (
+            f"`action` must be one of cache/repeat/empty, got {self.action}"
+        )
+        assert isinstance(self.ack_debug, bool), f"`ack_debug` must be bool, got {type(self.ack_debug)}"
+
+
+@dataclass
 class SkipManagerConfig(BaseConfig):
     """Top-level config for skip modules."""
 
     rollout: RolloutSkipConfig = field(default_factory=RolloutSkipConfig)
     async_rollout: AsyncRolloutSkipConfig = field(default_factory=AsyncRolloutSkipConfig)
     rollout_tq: RolloutTqSkipConfig = field(default_factory=RolloutTqSkipConfig)
+    # Training-loop stage skips; all default to disabled (verl-omni#716).
+    reward: StageSkipConfig = field(default_factory=StageSkipConfig)
+    old_log_prob: StageSkipConfig = field(default_factory=StageSkipConfig)
+    ref_log_prob: StageSkipConfig = field(default_factory=StageSkipConfig)
+    values: StageSkipConfig = field(default_factory=StageSkipConfig)
+    actor_update: StageSkipConfig = field(default_factory=StageSkipConfig)
+    weight_sync: StageSkipConfig = field(default_factory=StageSkipConfig)
