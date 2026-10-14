@@ -5,7 +5,7 @@ FROM rayproject/ray:2.56.0-py312
 
 ARG TORCH_TPU_VERSION=0.1.2.dev20261006000518
 ARG TPU_SYNC_VERSION=0.0.1.dev20261006025601
-ARG TORCHTITAN_COMMIT=f880cc73725de77d892ecab888244e7718e5ad65
+ARG TORCHTITAN_COMMIT=ea7fec0f620084884ad54d87a614bfc85295ab4f
 ARG VLLM_TORCHTPU_COMMIT=9faafb177ca1f1fca39d404caa5a7fadbfdb9a06
 
 USER root
@@ -26,9 +26,10 @@ set -e
 tpu_index=https://us-python.pkg.dev/ml-oss-artifacts-transient/torch-tpu-virtual-registry/simple/
 libtpu_links=https://storage.googleapis.com/jax-releases/libtpu_releases.html
 torch_index=https://download.pytorch.org/whl/cpu
-torch=2.13.0 torchvision=0.28.0 jax=0.10.2 libtpu=0.0.47
+# jax/jaxlib, libtpu, tokamax and torchao: the versions in torchtitan/experiments/tpu/requirements.txt.
+torch=2.13.0 torchvision=0.28.0 jax=0.11.1 libtpu=0.0.50
 transformers="transformers>=5.10.4,<5.11"
-export PIP_CACHE_DIR=/root/.cache/pip PIP_ROOT_USER_ACTION=ignore PIP_EXTRA_INDEX_URL="${tpu_index}"
+export PIP_CACHE_DIR=/root/.cache/pip PIP_ROOT_USER_ACTION=ignore
 
 pip install --upgrade pip uv pandas==2.3.3
 pip install "jax[tpu]==${jax}" -f "${libtpu_links}"
@@ -37,7 +38,7 @@ pip install "torch==${torch}" "torchvision==${torchvision}" --index-url "${torch
 pip install "libtpu==${libtpu}" -f "${libtpu_links}"
 pip install --pre --no-deps "torch-tpu==${TORCH_TPU_VERSION}" "tpu-sync-torch==${TPU_SYNC_VERSION}" --index-url "${tpu_index}"
 pip install typeguard==2.13.3
-pip install portpicker absl-py numpy gcsfs frozendict triton fairscale spmd_types==0.2.1 "tyro>=1.0.5"
+pip install portpicker absl-py numpy gcsfs frozendict triton fairscale "tyro>=1.0.5" torchao==0.17.0
 pip install -r /torchtitan/requirements.txt
 
 pip install --upgrade setuptools
