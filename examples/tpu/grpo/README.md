@@ -16,6 +16,8 @@ You need `gcloud`, `kubectl`, Docker with Buildx, the Ray CLI (`pip install "ray
 ```bash
 git clone https://github.com/verl-project/verl.git
 git clone https://github.com/verl-project/verl-hardware-plugin.git
+git -C verl-hardware-plugin fetch origin b00d111072fbb172cec47ee096c54e9e15392948
+git -C verl-hardware-plugin checkout b00d111072fbb172cec47ee096c54e9e15392948
 cd verl
 ```
 
@@ -80,7 +82,7 @@ Ray ships `verl` and `verl-hardware-plugin` (from `../verl-hardware-plugin`) to 
 export RAY_ADDRESS=http://localhost:23333
 RUNTIME_ENV='{"py_modules": ["../verl-hardware-plugin/verl_hardware_plugin"], "excludes": [".git", ".venv"],
   "env_vars": {"PYTHONPATH": ".", "PYTHONUNBUFFERED": "1", "VERL_PLATFORM": "tpu",
-    "VERL_USE_EXTERNAL_MODULES": "verl_hardware_plugin", "RAY_EXPERIMENTAL_NOSET_TPU_VISIBLE_CHIPS": "1",
+    "VERL_USE_EXTERNAL_MODULES": "verl_hardware_plugin",
     "RAY_OVERRIDE_JOB_RUNTIME_ENV": "1"}}'
 
 ray job submit --working-dir . --runtime-env-json "$RUNTIME_ENV" -- bash examples/tpu/grpo/run_qwen3_0_6b_torchtitan.sh
