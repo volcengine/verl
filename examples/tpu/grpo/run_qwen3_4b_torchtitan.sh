@@ -134,6 +134,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.torchtitan.activation_checkpoint=full \
     actor_rollout_ref.actor.torchtitan.reshard_after_forward=always \
     actor_rollout_ref.actor.torchtitan.max_seq_len="${MAX_MODEL_LEN}" \
+    actor_rollout_ref.actor.torchtitan.pad_to_length=True \
+    actor_rollout_ref.actor.torchtitan.pad_to_length_bucket=1024 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu="${MICRO_BATCH_SIZE}" \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=4096 \
     actor_rollout_ref.ref.torchtitan.seed="${SEED}" \
