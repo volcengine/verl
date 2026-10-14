@@ -217,13 +217,22 @@ def _masked_copy(model: torch.nn.Module) -> Iterator[None]:
     """
     orig_copy = torch.Tensor.copy_
 
+    # Spans are built from each tensor's full underlying storage (base .. base +
+    # nbytes): numel * element_size() would underestimate the covered range for
+    # strided / storage-offset views (e.g. a TP-sharded parameter written through
+    # a narrowed slice), letting copies into the tail of such a view bypass the
+    # mask. Registered tensors can also share or overlap storages (flat FSDP
+    # params vs. their slices), so overlapping spans are merged before the
+    # bisect index is built -- otherwise a hit on a shorter span would let a
+    # destination that lies past it but still inside the longer parameter's
+    # storage pass through unmasked.
     spans = []
     for t in model.parameters():
-        spans.append((t.data_ptr(), t.data_ptr() + t.numel() * t.element_size()))
+        spans.append(_tensor_storage_span(t))
     for _, t in model.named_buffers():
         if t is not None:
-            spans.append((t.data_ptr(), t.data_ptr() + t.numel() * t.element_size()))
-    spans.sort()
+            spans.append(_tensor_storage_span(t))
+    spans = _merge_overlapping_spans(sorted(spans))
     starts = [s for s, _ in spans]
     ends = [e for _, e in spans]
 
@@ -252,3 +261,23 @@ def _masked_copy(model: torch.nn.Module) -> Iterator[None]:
         yield
     finally:
         torch.Tensor.copy_ = orig_copy
+
+
+def _tensor_storage_span(t: torch.Tensor) -> tuple[int, int]:
+    """[start, end) byte range of the tensor's full underlying storage."""
+    storage = t.untyped_storage()
+    base = storage.data_ptr()
+    return (base, base + storage.nbytes())
+
+
+def _merge_overlapping_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge overlapping or adjacent (start == previous end) spans."""
+    if not spans:
+        return spans
+    merged = [list(spans[0])]
+    for start, end in spans[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(s, e) for s, e in merged]

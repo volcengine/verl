@@ -286,3 +286,60 @@ def test_masked_copy_guard_covers_model_buffers():
     assert buf.view(-1)[2].item() == 5.0
     assert torch.equal(buf.view(-1)[:2], live_before.view(-1)[:2])
     assert torch.equal(buf.view(-1)[3:], live_before.view(-1)[3:])
+
+
+def test_masked_copy_guard_covers_strided_view_storage():
+    """Guard (a): a registered tensor's protection must cover its FULL underlying
+    storage, not numel*element_size() from its data_ptr. A narrowed registered
+    tensor leaves the storage tail outside that nominal span; copies into the
+    tail (e.g. through a sibling view) must still be masked."""
+    import torch.nn as nn
+
+    from verl.workers.rollout.sglang_rollout.delta_loader import _masked_copy
+
+    class _Model(nn.Module):
+        pass
+
+    big = torch.zeros(200, dtype=torch.bfloat16)  # storage: 200 elements
+    model = _Model()
+    model.register_buffer("narrow_param", big[50:150])  # nominal span: [50, 150)
+
+    tail = big[160:170]  # same storage, past the nominal span, inside storage
+    with _masked_copy(model):
+        nan_src = torch.full(tail.shape, float("nan"), dtype=torch.bfloat16)
+        nan_src.view(-1)[0] = 7.0
+        tail.copy_(nan_src)
+
+    assert tail.view(-1)[0].item() == 7.0  # changed position landed
+    assert not torch.isnan(tail.view(-1)[1:]).any(), (
+        "tail lives in the registered tensor's storage: NaN skip must apply"
+    )
+    assert torch.equal(tail.view(-1)[1:], torch.zeros_like(tail.view(-1)[1:]))
+
+
+def test_masked_copy_guard_overlapping_spans_do_not_shadow():
+    """Guard (a): when registered tensors overlap (a long buffer and a slice of
+    it), the shorter span must not shadow the longer one for addresses past its
+    end but still inside the longer buffer."""
+    import torch.nn as nn
+
+    from verl.workers.rollout.sglang_rollout.delta_loader import _masked_copy
+
+    class _Model(nn.Module):
+        pass
+
+    big = torch.zeros(100, dtype=torch.bfloat16)
+    model = _Model()
+    model.register_buffer("long_buf", big[0:100])
+    model.register_buffer("short_buf", big[50:60])  # overlapping view
+
+    target = big[60:70]  # inside long_buf, outside short_buf's nominal span
+    with _masked_copy(model):
+        nan_src = torch.full(target.shape, float("nan"), dtype=torch.bfloat16)
+        nan_src.view(-1)[0] = 3.0
+        target.copy_(nan_src)
+
+    assert target.view(-1)[0].item() == 3.0
+    assert torch.equal(
+        target.view(-1)[1:], torch.zeros_like(target.view(-1)[1:])
+    ), "address past the short span but inside the long buffer must still be masked"
