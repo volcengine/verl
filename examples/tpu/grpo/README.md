@@ -27,6 +27,8 @@ Run all the commands below from the root of `verl`.
 docker buildx build -t <IMAGE> --push examples/tpu/grpo
 ```
 
+`verl-hardware-plugin` `main` needs Ray 2.59 or later in the image: it relies on Ray assigning `TPU_VISIBLE_CHIPS` to each TPU actor. The `Dockerfile` here still starts from `rayproject/ray:2.56.0-py312`, so until it is updated, use an image with Ray 2.59 or later.
+
 ## 3. Upload the models and the data
 
 The Ray pods mount a GCS bucket `<BUCKET>` at `/data`. The scripts read the models from `/data/assets/hf/` and GSM8K from `/data/data/gsm8k/`. Download and preprocess them outside the `verl` checkout (Ray uploads the checkout with every job), then copy them to the bucket:
@@ -95,7 +97,7 @@ pip wheel --no-deps -w plugin_whl ../verl-hardware-plugin
 RUNTIME_ENV=$(echo "$RUNTIME_ENV" | sed 's#"verl-hardware-plugin @ git+[^"]*"#"${RAY_RUNTIME_ENV_CREATE_WORKING_DIR}/plugin_whl/verl_hardware_plugin-0.1.0-py3-none-any.whl"#')
 ```
 
-Do not set `RAY_EXPERIMENTAL_NOSET_TPU_VISIBLE_CHIPS`: the plugin relies on Ray (2.59 or later) assigning `TPU_VISIBLE_CHIPS` to each actor.
+Do not set `RAY_EXPERIMENTAL_NOSET_TPU_VISIBLE_CHIPS`: it stops Ray from assigning `TPU_VISIBLE_CHIPS`, which the plugin relies on (step 2).
 
 The smoke test takes about 10 minutes. The 4B run needs about 10 minutes to start, then about 30-40 s per step. Follow a job with `ray job logs -f <JOB_ID>`.
 
