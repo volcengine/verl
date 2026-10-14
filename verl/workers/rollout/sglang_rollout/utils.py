@@ -102,16 +102,24 @@ def sglang_lora_target_modules(target_modules: Any) -> list[str]:
     return list(target_modules)
 
 
-def default_moe_runner_backend(quantization: Optional[str], engine_kwargs: dict) -> Optional[str]:
-    """MoE runner verl asks SGLang for when ``engine_kwargs`` names none; None keeps SGLang's ``auto``.
+def default_moe_runner_backend(quantization: Optional[str], engine_kwargs: Any, hf_config: Any = None) -> Optional[str]:
+    """MoE runner verl asks SGLang for when the user leaves it to ``auto``; None keeps SGLang's choice.
 
-    On Blackwell (compute capability 10.x) SGLang resolves ``auto`` to ``flashinfer_trtllm`` for unquantized
-    Qwen3-MoE-family checkpoints. That runner keeps bf16 expert weights in a block layout, and
-    ``update_weights_from_tensor`` restores the load-time shape only for ``flashinfer_trtllm_routed``, so the
-    first weight sync fails in ``FusedMoE._load_w13`` and the scheduler exits (sgl-project/sglang#27787, still
-    in sglang 0.5.21). The Triton runner takes weight updates, so verl uses it for bf16 rollouts on Blackwell.
+    On Blackwell (compute capability 10.x) SGLang resolves ``moe_runner_backend="auto"`` to ``flashinfer_trtllm``
+    for unquantized Qwen3-MoE- and DeepSeek-family checkpoints when no ``moe_a2a_backend`` is set. That runner keeps
+    bf16 expert weights in a block layout, and ``update_weights_from_tensor`` restores the load-time shape only for
+    ``flashinfer_trtllm_routed``, so the first weight sync fails in ``FusedMoE._load_w13`` and the scheduler exits
+    (sgl-project/sglang#27787, still in sglang 0.5.21). Under the same conditions verl asks for the Triton runner,
+    which SGLang's unquantized MoE method falls back to everywhere else and which takes weight updates. A quantized
+    rollout or checkpoint uses SGLang's quantized MoE methods instead and is left alone.
     """
-    if quantization is not None or "moe_runner_backend" in engine_kwargs or torch.version.hip is not None:
+    if engine_kwargs.get("moe_runner_backend") not in (None, "auto"):
+        return None  # the user picked a runner
+    if engine_kwargs.get("moe_a2a_backend") not in (None, "none"):
+        return None  # with an a2a backend SGLang does not pick flashinfer_trtllm
+    if quantization is not None or getattr(hf_config, "quantization_config", None) is not None:
+        return None  # quantized rollout or checkpoint: not the bf16 path
+    if torch.version.hip is not None:
         return None
     major, _ = get_device_capability()
     return "triton" if major == 10 else None
