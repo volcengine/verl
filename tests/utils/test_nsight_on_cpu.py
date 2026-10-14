@@ -12,13 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from omegaconf import OmegaConf
 
 from verl.utils.profiler.config import ProfilerConfig
-from verl.utils.profiler.nsight import _config_select, _profile_rank_selected, _rollout_replica_ranks
+from verl.utils.profiler.nsight import (
+    _config_select,
+    _count_capture_ranges,
+    _profile_rank_selected,
+    _resolve_nsight_capture_options,
+    _rollout_replica_ranks,
+    build_controller_nsight_launch_options,
+    is_controller_nsys_api_control_enabled,
+    resolve_ray_actor_profiler_config,
+)
 
 
 def _as_namespace(values):
@@ -101,3 +112,174 @@ def test_rollout_replica_ranks(ranks, world_size, expected):
     original_ranks = list(ranks)
     assert _rollout_replica_ranks(ranks, world_size) == expected
     assert ranks == original_ranks
+
+
+@pytest.mark.parametrize(
+    "steps, continuous, discrete, expected",
+    [
+        (None, False, False, 0),
+        ([], True, False, 0),
+        ([1, 2, 4], False, False, 3),
+        ([1, 2, 4], True, False, 2),
+        ([4, 2, 1, 2], True, False, 2),
+        ([1, 1, 2], False, False, 2),
+        ([1, 1, 2], False, True, 6 * 2),
+        ([1, 1, 2], True, True, 6 * 2),
+        ([1, 2, 4], False, True, 6 * 3),
+        ([1, 2, 4], True, True, 6 * 3),
+    ],
+)
+def test_count_capture_ranges(steps, continuous, discrete, expected):
+    original_steps = copy.deepcopy(steps)
+    assert _count_capture_ranges(steps, continuous, discrete=discrete) == expected
+    assert steps == original_steps
+
+
+@pytest.mark.parametrize(
+    "options, capture_count, expected",
+    [
+        (
+            {"capture-range": "cudaProfilerApi"},
+            7,
+            {"capture-range": "cudaProfilerApi", "capture-range-end": "repeat-shutdown:7"},
+        ),
+        (
+            {"capture-range": "cudaProfilerApi", "capture-range-end": None},
+            7,
+            {"capture-range": "cudaProfilerApi", "capture-range-end": "repeat-shutdown:7"},
+        ),
+        (
+            {"capture-range": "cudaProfilerApi", "capture-range-end": "stop"},
+            None,
+            {"capture-range": "cudaProfilerApi", "capture-range-end": "stop"},
+        ),
+        ({"capture-range": "nvtx"}, None, {"capture-range": "nvtx"}),
+        ({}, None, {}),
+        ({"capture-range": "cudaProfilerApi"}, 0, {"capture-range": "cudaProfilerApi"}),
+    ],
+    ids=["missing-end", "null-end", "explicit-end", "nvtx", "empty", "zero-captures"],
+)
+def test_resolve_nsight_capture_options(options, capture_count, expected):
+    with patch("verl.utils.profiler.nsight._count_capture_ranges", return_value=capture_count) as count_ranges:
+        result = _resolve_nsight_capture_options(options, [1], False)
+    # None marks cases that do not need a capture count; do not constrain those calls.
+    if capture_count is not None:
+        count_ranges.assert_called_once_with([1], False)
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"capture-range": "cudaProfilerApi", "o": "worker"},
+        OmegaConf.create({"capture-range": "cudaProfilerApi", "o": "worker"}),
+    ],
+    ids=["dict", "omegaconf"],
+)
+def test_resolve_nsight_capture_options_returns_independent_dict(options):
+    original_options = copy.deepcopy(options)
+    with patch("verl.utils.profiler.nsight._count_capture_ranges", return_value=7):
+        result = _resolve_nsight_capture_options(options, [1], False)
+    assert type(result) is dict
+    assert result is not options
+    assert result["o"] == "worker"
+    result["o"] = "changed"
+    assert options == original_options
+
+
+@pytest.mark.parametrize(
+    "profiler_config, expected_options",
+    [
+        (
+            ProfilerConfig(tool="nsys", ray_actor_nsight_options={"o": "role"}),
+            {"o": "role"},
+        ),
+        (
+            OmegaConf.create({"tool": "nsys", "ray_actor_nsight_options": {"o": "role"}}),
+            {"o": "role"},
+        ),
+        (
+            ProfilerConfig(tool="nsys"),
+            {"o": "global"},
+        ),
+        (ProfilerConfig(tool="nsys", ray_actor_nsight_options={}), {}),
+    ],
+    ids=["role-options-dataclass", "role-options-omegaconf", "global-fallback", "empty-role-options"],
+)
+def test_resolve_ray_actor_profiler_config(profiler_config, expected_options):
+    config = OmegaConf.create(
+        {
+            "global_profiler": {
+                "steps": [1],
+                "profile_continuous_steps": False,
+                "global_tool_config": {"nsys": {"worker_nsight_options": {"o": "global"}}},
+            }
+        }
+    )
+    original_role = copy.deepcopy(profiler_config)
+    original_global = copy.deepcopy(config)
+    with patch(
+        "verl.utils.profiler.nsight._resolve_nsight_capture_options", return_value={"o": "resolved"}
+    ) as resolve_options:
+        result = resolve_ray_actor_profiler_config(profiler_config, config)
+    resolve_options.assert_called_once_with(expected_options, [1], False)
+    assert type(result) is type(profiler_config)
+    assert result is not profiler_config
+    assert result.ray_actor_nsight_options == {"o": "resolved"}
+    result.ray_actor_nsight_options["o"] = "changed"
+    assert profiler_config == original_role
+    assert config == original_global
+
+
+@pytest.mark.parametrize("profiler_config", [None, ProfilerConfig(tool="torch"), ProfilerConfig(tool="nsys")])
+def test_resolve_ray_actor_profiler_config_without_nsight_options_is_unchanged(profiler_config):
+    assert resolve_ray_actor_profiler_config(profiler_config, {}) == profiler_config
+
+
+@pytest.mark.parametrize(
+    "settings, expected",
+    [
+        ({}, False),
+        ({"tool": "nsys"}, False),
+        ({"tool": "nsys", "global_tool_config": {"nsys": {"controller_nsight_options": None}}}, False),
+        (
+            {"tool": "nsys", "global_tool_config": {"nsys": {"controller_nsight_options": {"capture-range": "nvtx"}}}},
+            False,
+        ),
+        (
+            {
+                "tool": "torch",
+                "global_tool_config": {"nsys": {"controller_nsight_options": {"capture-range": "cudaProfilerApi"}}},
+            },
+            False,
+        ),
+        (
+            {
+                "tool": "nsys",
+                "global_tool_config": {"nsys": {"controller_nsight_options": {"capture-range": "cudaProfilerApi"}}},
+            },
+            True,
+        ),
+    ],
+)
+def test_is_controller_nsys_api_control_enabled(settings, expected):
+    config = OmegaConf.create({"global_profiler": settings})
+    assert is_controller_nsys_api_control_enabled(config) is expected
+
+
+def test_build_controller_nsight_launch_options():
+    config = OmegaConf.create(
+        {
+            "global_profiler": {
+                "steps": [1],
+                "profile_continuous_steps": False,
+                "global_tool_config": {"nsys": {"controller_nsight_options": {}}},
+            }
+        }
+    )
+    with patch(
+        "verl.utils.profiler.nsight._resolve_nsight_capture_options", return_value={"o": "resolved"}
+    ) as resolve_options:
+        result = build_controller_nsight_launch_options(config)
+    resolve_options.assert_called_once_with({}, [1], False)
+    assert result == {"o": "resolved"}

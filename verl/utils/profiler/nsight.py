@@ -15,7 +15,28 @@
 
 """Nsight launch configuration for controllers, worker groups, and Ray actors."""
 
+import copy
+from dataclasses import is_dataclass, replace
+
 from omegaconf import OmegaConf
+
+
+def _count_capture_ranges(profile_steps, profile_continuous_steps: bool, *, discrete: bool = False) -> int:
+    """Count captures using the worker-group defaults, merging whole-step windows."""
+    steps = sorted(set(profile_steps or []))
+    if discrete or not profile_continuous_steps:
+        return (6 if discrete else 1) * len(steps)
+    return sum(index == 0 or step != steps[index - 1] + 1 for index, step in enumerate(steps))
+
+
+def _resolve_nsight_capture_options(options, profile_steps, profile_continuous_steps: bool) -> dict:
+    """Copy launch options and fill an unspecified CUDA capture count."""
+    options = copy.deepcopy(OmegaConf.to_container(options) if OmegaConf.is_config(options) else options)
+    if options.get("capture-range") == "cudaProfilerApi" and options.get("capture-range-end") is None:
+        count = _count_capture_ranges(profile_steps, profile_continuous_steps)
+        if count:
+            options["capture-range-end"] = f"repeat-shutdown:{count}"
+    return options
 
 
 def _config_select(config, path: str, default=None):
@@ -51,3 +72,52 @@ def _profile_rank_selected(profiler_config, rank: int, *, ranks=None) -> bool:
 def _rollout_replica_ranks(ranks, replica_world_size: int) -> list[int]:
     """Map requested global GPU ranks to their owning rollout replicas."""
     return sorted({int(rank) // replica_world_size for rank in ranks})
+
+
+def resolve_ray_actor_profiler_config(profiler_config, config):
+    """Resolve capture options in a copied role config, keeping output templates unrendered."""
+    if _config_select(profiler_config, "tool") != "nsys":
+        return profiler_config
+    options_template = _config_select(profiler_config, "ray_actor_nsight_options")
+    if options_template is None:
+        options_template = _config_select(config, "global_profiler.global_tool_config.nsys.worker_nsight_options")
+    if options_template is None:
+        return profiler_config
+    options_template = _resolve_nsight_capture_options(
+        options_template,
+        _config_select(config, "global_profiler.steps"),
+        _config_select(config, "global_profiler.profile_continuous_steps", default=False),
+    )
+    if is_dataclass(profiler_config):
+        return replace(profiler_config, ray_actor_nsight_options=options_template)
+    resolved = copy.deepcopy(profiler_config)
+    if isinstance(resolved, dict):
+        resolved["ray_actor_nsight_options"] = options_template
+    else:
+        resolved.ray_actor_nsight_options = options_template
+    return resolved
+
+
+def is_controller_nsys_api_control_enabled(config) -> bool:
+    """Return whether the controller uses CUDA-profiler range control."""
+    controller_options = (
+        OmegaConf.select(
+            config,
+            "global_profiler.global_tool_config.nsys.controller_nsight_options",
+            default={},
+        )
+        or {}
+    )
+    return (
+        OmegaConf.select(config, "global_profiler.tool") == "nsys"
+        and controller_options.get("capture-range") == "cudaProfilerApi"
+    )
+
+
+def build_controller_nsight_launch_options(config) -> dict:
+    """Build controller launch options by resolving the configured capture window."""
+    return _resolve_nsight_capture_options(
+        config.global_profiler.global_tool_config.nsys.controller_nsight_options,
+        config.global_profiler.steps,
+        config.global_profiler.profile_continuous_steps,
+    )
