@@ -88,8 +88,19 @@ def is_quantized_model(vllm_config):
             return True
         elif is_vllm_ascend_mx_quant(vllm_config.quant_config):
             return True
+        elif is_compressed_tensors_model(vllm_config):
+            return True
 
     return False
+
+
+def is_compressed_tensors_model(vllm_config) -> bool:
+    """Compressed-tensors rollout, whose refit weights the trainer already quantized."""
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors import (
+        CompressedTensorsConfig,
+    )
+
+    return isinstance(getattr(vllm_config, "quant_config", None), CompressedTensorsConfig)
 
 
 # vLLM 0.24.0 (MoE refactor, vllm-project/vllm#41184) removed the ``FusedMoE``
@@ -450,7 +461,10 @@ def load_quanted_weights(weights, model_runner, is_drafter=False):
     vllm_dtype = model_runner.vllm_config.model_config.dtype
 
     weights = list(weights)
-    weights_quantized = quant_weights(weights, model, quant_config, dtype=vllm_dtype)
+    if is_compressed_tensors_model(model_runner.vllm_config):
+        weights_quantized = weights
+    else:
+        weights_quantized = quant_weights(weights, model, quant_config, dtype=vllm_dtype)
 
     # Monkey patch the param class to their subclass, as certain models
     # will check the param type to call the proper weightloader

@@ -186,24 +186,20 @@ class vLLMColocateWorkerExtension:
             )
 
             register_verl_delta_weight_transfer_engine()
+        quant_config = getattr(vllm_config, "quant_config", None) if vllm_config else None
+        _is_nvfp4_packed = getattr(quant_config, "quant_format", None) == "nvfp4-pack-quantized"
         # 2. patch online fp8 quant. Some models, including DeepSeek-V4, get
         # fp8 from the HF config rather than an explicit rollout quantization arg.
-        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1" or is_quantized_model(vllm_config):
+        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1" or (
+            is_quantized_model(vllm_config) and not _is_nvfp4_packed
+        ):
             apply_vllm_quant_patches()
-        # 3. patch QAT (compressed-tensors NVFP4) for dynamic weight loading
-        quant_config = getattr(vllm_config, "quant_config", None) if vllm_config else None
-        _is_qat_model = getattr(quant_config, "quant_format", None) == "nvfp4-pack-quantized"
-        _is_modelopt_qat = type(quant_config).__name__ == "ModelOptNvFp4Config"
-        if _is_qat_model:
-            from verl.utils.qat import apply_qat_patches
+        # 3. patch compressed-tensors NVFP4 for dynamic weight loading
+        if _is_nvfp4_packed:
+            from verl.utils.vllm.vllm_nvfp4_utils import apply_qat_patches
 
             apply_qat_patches()
-            logger.info("Applied QAT (compressed-tensors) patches in vLLM worker subprocess")
-        elif _is_modelopt_qat:
-            from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-            apply_modelopt_nvfp4_patches()
-            logger.info("Applied ModelOpt NVFP4 patches in vLLM worker subprocess")
+            logger.info("Applied compressed-tensors NVFP4 patches in vLLM worker subprocess")
 
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
         # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
@@ -214,8 +210,7 @@ class vLLMColocateWorkerExtension:
                     os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
 
         instance = super().__new__(cls)
-        instance._is_qat_model = _is_qat_model
-        instance._is_modelopt_qat = _is_modelopt_qat
+        instance._is_nvfp4_packed = _is_nvfp4_packed
         return instance
 
     def _get_drafter_model(self):
@@ -276,18 +271,13 @@ class vLLMColocateWorkerExtension:
             for model in self._iter_all_models():
                 restore_moe_expert_maps(model)
 
-        if self._is_qat_model:
-            # QAT (compressed-tensors): Prepare for weight loading BEFORE receiving any buckets
-            from verl.utils.qat import prepare_qat_for_load_weights
+        if self._is_nvfp4_packed:
+            # Compressed-tensors NVFP4: prepare for weight loading BEFORE receiving any buckets
+            from verl.utils.vllm.vllm_nvfp4_utils import prepare_qat_for_load_weights
 
             for model in self._iter_all_models():
                 prepare_qat_for_load_weights(model, device=self.device)
-            logger.info("QAT: prepare_qat_for_load_weights completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import prepare_modelopt_for_weight_reload
-
-            prepare_modelopt_for_weight_reload(self.model_runner.model, device=self.device)
-            logger.info("ModelOpt: prepare_modelopt_for_weight_reload completed")
+            logger.info("NVFP4: prepare_qat_for_load_weights completed")
         elif peft_config and base_sync_done:
             # Remove the old LoRA before the new one arrives (applied after is_last below).
             self.remove_lora(VLLM_LORA_INT_ID)
@@ -339,18 +329,13 @@ class vLLMColocateWorkerExtension:
         receiver.receive_weights(on_bucket_received=on_bucket_received)
 
         # =========================== step 3: process weights after loading ===========================
-        if self._is_qat_model:
-            # QAT (compressed-tensors): call process_weights_after_loading AFTER all buckets are received
-            from verl.utils.qat import manual_process_weights_after_loading
+        if self._is_nvfp4_packed:
+            # Compressed-tensors NVFP4: call process_weights_after_loading AFTER all buckets are received
+            from verl.utils.vllm.vllm_nvfp4_utils import manual_process_weights_after_loading
 
             for model in self._iter_all_models():
                 manual_process_weights_after_loading(model)
-            logger.info("QAT: process_weights_after_loading completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import modelopt_process_weights_after_loading
-
-            modelopt_process_weights_after_loading(self.model_runner.model)
-            logger.info("ModelOpt QAT: process_weights_after_loading completed")
+            logger.info("NVFP4: process_weights_after_loading completed")
         elif peft_config and base_sync_done:
             logger.info("LoRA adapter sync, no post-process needed")
         elif is_quantized_model(self.model_runner.vllm_config):
@@ -399,7 +384,7 @@ class vLLMColocateWorkerExtension:
             param_updates, buffer_updates, named_buffers = split_buffer_updates(self.model_runner.model, weights)
             # Add the FP8 related logic here as sharding manager has been deprecated.
             # Check if FP8 quantization is enabled and apply appropriate weight loading
-            if is_quantized_model(self.model_runner.vllm_config):
+            if is_quantized_model(self.model_runner.vllm_config) and not self._is_nvfp4_packed:
                 logger.info(f"FP8 model detected (async): {self.model_runner.vllm_config.quant_config}")
                 # Convert bf16 weights to fp8 format before loading
                 model_updates = drop_tied_alias_updates(self.model_runner.model, param_updates)

@@ -21,7 +21,9 @@ Module Structure:
 - core.py: QATConfig, apply_qat, enable_qat_fuse (training setup)
 - linear.py: QATLinear layer with Triton kernels for fake quantization
 - quantizer.py: QATQuantizer for true quantization + scale computation utilities
-- vllm_patch.py: Patches for vLLM dynamic weight loading
+- compressed_tensors.py: compressed-tensors rollout config and trainer-side weight quantizer
+
+The vLLM side (NVFP4 refit patches) lives in ``verl.utils.vllm.vllm_nvfp4_utils``.
 
 Usage:
     from verl.utils.qat import apply_qat, QATConfig
@@ -37,21 +39,22 @@ from verl.utils.qat.core import (
     invalidate_all_scales,
     load_quantization_config,
 )
-from verl.utils.qat.vllm_patch import (
-    apply_qat_patches,
-    manual_process_weights_after_loading,
-    prepare_qat_for_load_weights,
+
+from verl.utils.qat.compressed_tensors import (
+    CompressedTensorsWeightQuantizer,
+    build_compressed_tensors_config,
+    is_compressed_tensors_quantization,
+    qat_mode_for_scheme,
 )
 
 __all__ = [
-    # Core
     "QATConfig",
     "apply_qat",
     "load_quantization_config",
     "enable_qat_fuse",
     "invalidate_all_scales",
-    # vLLM Patch
-    "apply_qat_patches",
-    "manual_process_weights_after_loading",
-    "prepare_qat_for_load_weights",
+    "CompressedTensorsWeightQuantizer",
+    "build_compressed_tensors_config",
+    "is_compressed_tensors_quantization",
+    "qat_mode_for_scheme",
 ]

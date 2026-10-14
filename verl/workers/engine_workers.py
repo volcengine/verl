@@ -43,6 +43,12 @@ from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
+from verl.utils.qat import (
+    CompressedTensorsWeightQuantizer,
+    build_compressed_tensors_config,
+    is_compressed_tensors_quantization,
+    qat_mode_for_scheme,
+)
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import (
@@ -728,6 +734,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             self.checkpoint_engine = CheckpointEngineRegistry.new(
                 backend, is_master=(torch.distributed.get_rank() == 0), bucket_size=bucket_size, **engine_kwargs
             )
+
+            rollout_quantization = self.config.rollout.get("quantization", None)
+            qat = self.config.rollout.get("qat", None) or {}
+            if qat.get("enable", False) and not is_compressed_tensors_quantization(rollout_quantization):
+                raise ValueError(
+                    "QAT needs a quantized rollout to sync to: set rollout.quantization, "
+                    "e.g. {linear: FP8_BLOCK, moe: FP8_BLOCK}"
+                )
+            if is_compressed_tensors_quantization(rollout_quantization):
+                schemes = {rollout_quantization.get("linear"), rollout_quantization.get("moe")} - {None}
+                if qat.get("enable", False) and {qat_mode_for_scheme(s) for s in schemes} != {qat.get("mode")}:
+                    raise ValueError(f"QAT mode {qat.get('mode')!r} does not match the rollout quantization {schemes}")
+                ct_config = build_compressed_tensors_config(rollout_quantization, model_config.local_path)
+                self.actor.engine.set_rollout_weight_quantizer(CompressedTensorsWeightQuantizer(ct_config))
 
         # Free cached GPU memory so colocated vLLM processes can see it via cudaMemGetInfo
         aggressive_empty_cache(force_sync=True)

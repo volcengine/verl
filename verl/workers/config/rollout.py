@@ -13,7 +13,7 @@
 # limitations under the License.
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from omegaconf import MISSING, DictConfig, OmegaConf
 
@@ -265,7 +265,9 @@ class RolloutConfig(BaseConfig):
 
     skip_tokenizer_init: bool = True
 
-    quantization: Optional[str] = None
+    # str: legacy engine-side quantization ("fp8", "torchao", ...);
+    # mapping {linear, moe, ignore} of compressed-tensors presets (e.g. FP8_BLOCK): rollout quantized by the trainer.
+    quantization: Optional[Any] = None
 
     quantization_config_file: Optional[str] = None
 

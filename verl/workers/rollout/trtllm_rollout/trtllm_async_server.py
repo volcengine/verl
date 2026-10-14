@@ -14,6 +14,7 @@
 import asyncio
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any, Optional
 
 import ray
@@ -207,6 +208,8 @@ class TRTLLMHttpServer:
         per_worker_gpu_share = 1.0 / self.max_colocate_count
 
         quantization = self.config.quantization
+        if isinstance(quantization, Mapping):
+            raise NotImplementedError("rollout.quantization as a {linear, moe} mapping is only supported by vLLM")
         if quantization is not None:
             if quantization == "fp8":
                 FP8_BLOCK_QUANT_KWARGS = {

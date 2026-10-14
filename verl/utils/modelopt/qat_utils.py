@@ -35,11 +35,3 @@ def apply_qat_to_modules(modules, qat_config):
     for i in range(len(modules)):
         modules[i] = apply_qat(modules[i], qat_mode, ignore_patterns=ignore_patterns)
     return modules
-
-
-def export_qat_weights(per_tensor_param, modules, qat_mode, bridge):
-    """Process exported weights through QATWeightExporter for quantized weight sync."""
-    from verl.utils.modelopt.qat_weight_exporter import QATWeightExporter
-
-    qat_weight_exporter = QATWeightExporter(modules, bridge, qat_mode)
-    return qat_weight_exporter.process_weights_iterator(per_tensor_param)

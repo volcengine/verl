@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import secrets
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -301,6 +302,8 @@ class SGLangHttpServer:
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
         quantization = self.config.get("quantization", None)
+        if isinstance(quantization, Mapping):
+            raise NotImplementedError("rollout.quantization as a {linear, moe} mapping is only supported by vLLM")
         if quantization is not None:
             if quantization == "fp8":
                 from verl.utils.sglang.sglang_fp8_utils import build_sglang_fp8_quant_config

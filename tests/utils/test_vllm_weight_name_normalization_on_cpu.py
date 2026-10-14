@@ -296,6 +296,7 @@ class _FakeVllmConfig:
 def _make_worker(model):
     worker = object.__new__(vLLMColocateWorkerExtension)
     worker.model_runner = types.SimpleNamespace(model=model, vllm_config=_FakeVllmConfig(), drafter=None)
+    worker._is_nvfp4_packed = False
     return worker
 
 
@@ -731,8 +732,7 @@ def test_update_weights_from_ipc_accumulates_lora_across_buckets(monkeypatch):
     worker.remove_lora = lambda lora_id: None
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-lora.sock"
 
     worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
@@ -765,8 +765,7 @@ def test_update_weights_from_ipc_standard_loads_per_bucket(monkeypatch):
     worker = _make_worker(model)
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-std.sock"
 
     # Bypass the post-load process_weights_after_loading (needs real vLLM).
@@ -909,8 +908,7 @@ def _staging_sync_worker(model):
     worker = _make_worker(model)
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-moe-staging.sock"
     return worker
 

@@ -51,6 +51,7 @@ from verl.utils.profiler import (
     relocate_rollout_traces,
     rollout_profiler_global_ranks,
 )
+from verl.utils.qat import build_compressed_tensors_config, is_compressed_tensors_quantization
 from verl.utils.tokenizer import normalize_token_ids
 from verl.utils.tracking import RLInsightLogger
 from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
@@ -1397,54 +1398,20 @@ class vLLMHttpServer:
         quantization = self.config.quantization
         hf_overrides = {}
 
-        # Handle QAT (Quantization-Aware Training) configuration
-        qat_config_dict = getattr(self.config, "qat", {}) or {}
-        if qat_config_dict.get("enable", False):
-            from verl.utils.qat import QATConfig, load_quantization_config
-
-            qat_config = QATConfig(**qat_config_dict)
-            quantization_config_dict = load_quantization_config(qat_config)
-            quant_method = quantization_config_dict.get("quant_method", None)
-
-            if quant_method == "modelopt":
-                from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-                apply_modelopt_nvfp4_patches()
-                quantization = "modelopt"
-            elif quant_method == "compressed-tensors":
-                from verl.utils.qat import apply_qat_patches
-
-                apply_qat_patches()
-                quantization = "compressed-tensors"
-            else:
-                raise ValueError(f"Unsupported quant_method: {quant_method}")
-
-            logger.info(f"QAT quantization config injected (quant_method={quant_method})")
-            hf_overrides["quantization_config"] = quantization_config_dict
-        elif quantization is not None:
-            # Handle other quantization methods (fp8, torchao)
-            _SUPPORTED_QUANTIZATION = ["fp8", "torchao", "ascend"]
-            if quantization not in _SUPPORTED_QUANTIZATION:
-                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
-
-            if quantization == "fp8":
-                # Ignore MoE router layers for FP8 quantization
-                all_mlp_gate_layers = []
-                for layer in range(self.model_config.hf_config.num_hidden_layers):
-                    all_mlp_gate_layers.append(f"model.layers.{layer}.mlp.gate")
-
-                FP8_BLOCK_QUANT_KWARGS = {
-                    "activation_scheme": "dynamic",
-                    "fmt": "e4m3",
-                    "quant_method": "fp8",
-                    "weight_block_size": [128, 128],
-                    "ignored_layers": all_mlp_gate_layers,
-                }
-                hf_overrides["quantization_config"] = dict(FP8_BLOCK_QUANT_KWARGS)
-                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_quant_patches()
-                # for subprocesses patching
-                os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
+        if is_compressed_tensors_quantization(quantization):
+            # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
+            hf_overrides["quantization_config"] = build_compressed_tensors_config(
+                quantization, self.model_config.local_path
+            )
+            apply_vllm_quant_patches()
+            os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
+            # The schemes carry fp32 block scales. DeepGEMM's E8M0 mode (vLLM's default) rounds weight and
+            # activation scales to powers of two, so the rollout would drift from what the trainer quantized.
+            os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
+            logger.info(f"Rollout compressed-tensors quantization_config: {hf_overrides['quantization_config']}")
+            return None, hf_overrides
+        if quantization == "fp8":
+            raise ValueError("rollout.quantization=fp8 is replaced by the mapping form, e.g. {linear: FP8_BLOCK, moe: FP8_BLOCK}")
 
         model_quantization_config = getattr(self.model_config.hf_config, "quantization_config", {}) or {}
         if quantization is None and model_quantization_config.get("quant_method") == "fp8":
