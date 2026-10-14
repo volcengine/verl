@@ -408,6 +408,10 @@ class vLLMHttpServer:
                 # mode". The node-0 API server is the internal-LB leader and must not
                 # carry a start rank (its local engines start at rank 0 anyway).
                 dp_args["data_parallel_start_rank"] = self.node_rank * data_parallel_size_local
+            else:
+                # A start rank configured through engine_kwargs would put the leader into
+                # hybrid-LB mode just the same; the leader's engines always start at rank 0.
+                args.pop("data_parallel_start_rank", None)
             args.update(dp_args)
 
         args.update({"enable_expert_parallel": self.config.expert_parallel_size > 1})
