@@ -87,7 +87,7 @@ ray job submit --working-dir . --runtime-env-json "$RUNTIME_ENV" -- bash example
 ray job submit --working-dir . --runtime-env-json "$RUNTIME_ENV" -- bash examples/tpu/grpo/run_qwen3_4b_torchtitan.sh
 ```
 
-The smoke test takes about 10 minutes. The 4B run needs about 10 minutes to start, then about 70 s per step. Follow a job with `ray job logs -f <JOB_ID>`.
+The smoke test takes about 10 minutes. The 4B run needs about 10 minutes to start, then about 30-40 s per step. Follow a job with `ray job logs -f <JOB_ID>`.
 
 The scripts take their settings from environment variables, e.g. `-- RAY_DATA_HOME=/data/<DIR> TOTAL_TRAINING_STEPS=5 bash examples/tpu/grpo/run_qwen3_4b_torchtitan.sh`, and pass extra arguments to `verl.trainer.main_ppo` as Hydra overrides.
 
