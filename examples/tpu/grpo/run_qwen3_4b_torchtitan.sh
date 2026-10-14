@@ -52,7 +52,7 @@ ROLLOUT_TENSOR_PARALLEL_SIZE="${ROLLOUT_TENSOR_PARALLEL_SIZE:-${TOTAL_ROLLOUT_CH
 # Training & validation settings
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
 PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-32}"
-MICRO_BATCH_SIZE="${MICRO_BATCH_SIZE:-1}"
+MICRO_BATCH_SIZE="${MICRO_BATCH_SIZE:-4}"
 ROLLOUT_N="${ROLLOUT_N:-8}"
 LEARNING_RATE="${LEARNING_RATE:-2e-6}"
 LR_WARMUP_STEPS="${LR_WARMUP_STEPS:-5}"
@@ -134,7 +134,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.torchtitan.activation_checkpoint=full \
     actor_rollout_ref.actor.torchtitan.reshard_after_forward=always \
     actor_rollout_ref.actor.torchtitan.max_seq_len="${MAX_MODEL_LEN}" \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu="${MICRO_BATCH_SIZE}" \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=4096 \
     actor_rollout_ref.ref.torchtitan.seed="${SEED}" \
     actor_rollout_ref.ref.torchtitan.use_torch_compile=True \
