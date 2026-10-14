@@ -23,11 +23,15 @@ Run all the commands below from the root of `verl`.
 
 ## 2. Build the image
 
+The build pulls the private `vllm-project/vllm-torchtpu` repository and `torch-tpu` from an authenticated Python index, so pass a GitHub token with access to the repository and a Google Cloud access token as BuildKit secrets (they are not stored in the image):
+
 ```bash
-docker buildx build -t <IMAGE> --push examples/tpu/grpo
+export GITHUB_TOKEN=<GITHUB_TOKEN> TPU_INDEX_TOKEN=$(gcloud auth print-access-token)
+docker buildx build --secret id=GIT_AUTH_TOKEN.github.com,env=GITHUB_TOKEN \
+  --secret id=tpu_index_token,env=TPU_INDEX_TOKEN -t <IMAGE> --push examples/tpu/grpo
 ```
 
-`verl-hardware-plugin` `main` needs Ray 2.59 or later in the image: it relies on Ray assigning `TPU_VISIBLE_CHIPS` to each TPU actor. The `Dockerfile` here still starts from `rayproject/ray:2.56.0-py312`, so until it is updated, use an image with Ray 2.59 or later.
+The image has Ray 2.59, which `verl-hardware-plugin` needs: it relies on Ray assigning `TPU_VISIBLE_CHIPS` to each TPU actor.
 
 ## 3. Upload the models and the data
 
