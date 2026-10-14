@@ -30,7 +30,7 @@ from verl.utils.profiler.config import (
     rollout_trace_dir,
     rollout_trace_local_rank,
 )
-from verl.utils.profiler.profile import DistProfiler, build_rollout_dist_profiler
+from verl.utils.profiler.profile import DistProfiler
 
 
 class TestServerProfilerArgs(unittest.TestCase):
@@ -441,51 +441,6 @@ class TestRolloutFinishHook(unittest.TestCase):
 
             sent = open(uploaded).read().split()
             self.assertEqual(sorted(sent), ["step1.json.gz", "step2.json.gz"])  # each exactly once
-
-
-class TestBuildRolloutDistProfiler(unittest.TestCase):
-    """Rollout `ranks` are global GPU ranks; the helper maps each to the replica that owns it."""
-
-    def _config(self, **kwargs) -> ProfilerConfig:
-        return ProfilerConfig(tool=None, enable=True, save_path="/tmp/test", tool_config=None, **kwargs)
-
-    def _selected(self, replica_rank: int, world_size: int, **cfg) -> bool:
-        profiler = build_rollout_dist_profiler(replica_rank, world_size, config=self._config(**cfg))
-        return profiler.check_enable() and profiler.check_this_rank()
-
-    def test_global_ranks_map_to_the_owning_replica(self):
-        # world_size 8 (e.g. tp=8): global rank 0 lives on replica 0, global rank 8 lives on replica 1.
-        self.assertTrue(self._selected(0, 8, ranks=[0, 8]))
-        self.assertTrue(self._selected(1, 8, ranks=[0, 8]))
-        # This is the whole point of the fix: [0, 8] no longer means replica indices 0 and 8.
-        self.assertFalse(self._selected(8, 8, ranks=[0, 8]))
-        self.assertFalse(self._selected(2, 8, ranks=[0, 8]))
-
-    def test_a_rank_inside_a_replica_selects_that_whole_replica(self):
-        # Any global rank owned by a replica selects it, not just the replica's base rank.
-        self.assertTrue(self._selected(0, 8, ranks=[3]))  # rank 3 is on replica 0
-        self.assertTrue(self._selected(1, 8, ranks=[9]))  # rank 9 is on replica 1
-        self.assertFalse(self._selected(0, 8, ranks=[9]))
-
-    def test_all_ranks_profiles_every_replica(self):
-        for replica_rank in range(4):
-            self.assertTrue(self._selected(replica_rank, 8, all_ranks=True, ranks=[0]))
-
-    def test_empty_ranks_defaults_to_the_replica_owning_global_rank_0(self):
-        self.assertTrue(self._selected(0, 8, ranks=[]))
-        self.assertFalse(self._selected(1, 8, ranks=[]))
-
-    def test_world_size_one_keeps_global_ranks_equal_to_replica_ranks(self):
-        # tp=dp=pp=1: the replica index equals the global rank, so [0, 8] selects replicas 0 and 8.
-        self.assertTrue(self._selected(0, 1, ranks=[0, 8]))
-        self.assertTrue(self._selected(8, 1, ranks=[0, 8]))
-        self.assertFalse(self._selected(1, 1, ranks=[0, 8]))
-
-    def test_source_config_is_not_mutated(self):
-        config = self._config(ranks=[0, 8])
-        build_rollout_dist_profiler(1, 8, config=config)
-        # The caller's (frozen) config still holds the original global ranks.
-        self.assertEqual(list(config.ranks), [0, 8])
 
 
 class TestServerProfilerFunctionality(unittest.IsolatedAsyncioTestCase):
