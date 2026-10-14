@@ -95,7 +95,7 @@ actor_lr=${ACTOR_LR:-5e-5}
 # interleaves attention (even layers) and MoE (odd layers), so generate only
 # module patterns that can actually exist at each layer.
 lora_scope=${LORA_SCOPE:-last20_all_vision}
-lora_target_modules='["linear_wkv","linear_wgate","linear_wq_b","linear_weights_proj","linear_wk","linear_kv_proj","linear_q_down_proj","linear_q_up_proj","linear_proj","linear_fc1","linear_fc2","vision.patch_embed.proj","vision.blocks.*.attn.wqkv","vision.blocks.*.attn.wo","vision.blocks.*.mlp.w1","vision.blocks.*.mlp.w2","aligner.w1","aligner.w2"]'
+lora_target_modules='["linear_wkv","linear_wgate","linear_wq_b","linear_weights_proj","linear_wk","linear_kv_proj","linear_q_down_proj","linear_q_up_proj","linear_o_group_proj","linear_proj","linear_fc1","linear_fc2","vision.patch_embed.proj","vision.blocks.*.attn.wqkv","vision.blocks.*.attn.wo","vision.blocks.*.mlp.w1","vision.blocks.*.mlp.w2","aligner.w1","aligner.w2"]'
 if [[ "${lora_scope}" == "first20_all_vision" || "${lora_scope}" == "last20_all_vision" ]]; then
     decoder_hf_total_layers=40
     decoder_hf_lora_layer_count=20
@@ -119,7 +119,7 @@ if [[ "${lora_scope}" == "first20_all_vision" || "${lora_scope}" == "last20_all_
             # CSA2 keeps the compressor only on KV-source layers and the
             # indexer only on index-source layers; list only modules that
             # exist to avoid unmatched-target warnings.
-            layer_modules=(linear_kv_proj linear_q_down_proj linear_q_up_proj linear_proj)
+            layer_modules=(linear_kv_proj linear_q_down_proj linear_q_up_proj linear_o_group_proj linear_proj)
             if ((layer == 4 || layer == 16 || layer == 28 || layer == 40)); then
                 layer_modules+=(linear_wkv linear_wgate linear_wq_b linear_wk linear_weights_proj)
             elif ((layer == 48 || layer == 56 || layer == 64 || layer == 72)); then
