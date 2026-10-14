@@ -189,3 +189,30 @@ def build_controller_nsight_launch_options(config) -> dict:
         config.global_profiler.steps,
         config.global_profiler.profile_continuous_steps,
     )
+
+
+def _is_gpu_metrics_profile_enabled(config) -> bool:
+    """Return whether a dedicated Ray actor should collect system-wide GPU metrics."""
+    options = OmegaConf.select(
+        config,
+        "global_profiler.global_tool_config.nsys.gpu_metrics_nsight_options",
+        default={},
+    )
+    steps = OmegaConf.select(config, "global_profiler.steps")
+    return OmegaConf.select(config, "global_profiler.tool") == "nsys" and bool(steps) and bool(options)
+
+
+def _build_gpu_metrics_nsight_launch_options(config) -> dict:
+    """Build launch options for the sole GPU-metrics collection actor."""
+    options = OmegaConf.select(
+        config,
+        "global_profiler.global_tool_config.nsys.gpu_metrics_nsight_options",
+        default={},
+    )
+    if not options:
+        raise ValueError("gpu_metrics_nsight_options must not be empty when GPU metrics profiling is enabled")
+    if options.get("capture-range") != "cudaProfilerApi":
+        raise ValueError("GPU metrics profiling requires capture-range=cudaProfilerApi")
+    return _resolve_nsight_capture_options(
+        options, config.global_profiler.steps, config.global_profiler.profile_continuous_steps
+    )

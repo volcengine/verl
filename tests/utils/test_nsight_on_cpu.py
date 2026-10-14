@@ -21,9 +21,11 @@ from omegaconf import OmegaConf
 
 from verl.utils.profiler.config import ProfilerConfig
 from verl.utils.profiler.nsight import (
+    _build_gpu_metrics_nsight_launch_options,
     _build_rollout_ray_actor_nsight_launch_options,
     _config_select,
     _count_capture_ranges,
+    _is_gpu_metrics_profile_enabled,
     _profile_rank_selected,
     _ray_actor_profile_enabled,
     _render_nsight_output_name,
@@ -287,6 +289,72 @@ def test_build_controller_nsight_launch_options():
     ) as resolve_options:
         result = build_controller_nsight_launch_options(config)
     resolve_options.assert_called_once_with({}, [1], False)
+    assert result == {"o": "resolved"}
+
+
+@pytest.mark.parametrize(
+    "tool, steps, options, expected",
+    [
+        ("nsys", [1], {"gpu-metrics-devices": "all"}, True),
+        ("torch", [1], {"gpu-metrics-devices": "all"}, False),
+        ("nsys", [], {"gpu-metrics-devices": "all"}, False),
+        ("nsys", None, {"gpu-metrics-devices": "all"}, False),
+        ("nsys", [1], {}, False),
+        ("nsys", [1], None, False),
+    ],
+    ids=["enabled", "other-tool", "empty-steps", "null-steps", "empty-options", "null-options"],
+)
+def test_is_gpu_metrics_profile_enabled(tool, steps, options, expected):
+    config = OmegaConf.create(
+        {
+            "global_profiler": {
+                "tool": tool,
+                "steps": steps,
+                "global_tool_config": {"nsys": {"gpu_metrics_nsight_options": options}},
+            }
+        }
+    )
+    assert _is_gpu_metrics_profile_enabled(config) is expected
+
+
+def test_gpu_metrics_profiling_defaults_to_disabled():
+    assert _is_gpu_metrics_profile_enabled(OmegaConf.create({})) is False
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({}, "must not be empty"),
+        (None, "must not be empty"),
+        ({"gpu-metrics-devices": "all"}, "cudaProfilerApi"),
+        ({"capture-range": "nvtx"}, "cudaProfilerApi"),
+    ],
+    ids=["empty-options", "null-options", "missing-capture-range", "other-capture-range"],
+)
+def test_build_gpu_metrics_nsight_launch_options_rejects_invalid_options(options, message):
+    config = OmegaConf.create(
+        {"global_profiler": {"global_tool_config": {"nsys": {"gpu_metrics_nsight_options": options}}}}
+    )
+    with pytest.raises(ValueError, match=message):
+        _build_gpu_metrics_nsight_launch_options(config)
+
+
+def test_build_gpu_metrics_nsight_launch_options():
+    options = {"capture-range": "cudaProfilerApi", "gpu-metrics-devices": "all"}
+    config = OmegaConf.create(
+        {
+            "global_profiler": {
+                "steps": [1],
+                "profile_continuous_steps": False,
+                "global_tool_config": {"nsys": {"gpu_metrics_nsight_options": options}},
+            }
+        }
+    )
+    with patch(
+        "verl.utils.profiler.nsight._resolve_nsight_capture_options", return_value={"o": "resolved"}
+    ) as resolve_options:
+        result = _build_gpu_metrics_nsight_launch_options(config)
+    resolve_options.assert_called_once_with(options, [1], False)
     assert result == {"o": "resolved"}
 
 

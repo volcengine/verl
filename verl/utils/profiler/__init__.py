@@ -30,6 +30,7 @@ from .nsight import (
 )
 from .performance import GPUMemoryLogger, log_gpu_memory_usage, simple_timer
 from .profile import DistProfiler, DistProfilerExtension, ProfilerConfig, build_rollout_dist_profiler
+from .ray_profile import create_gpu_metrics_profiler
 
 # Select marker implementations by availability, but keep DistProfiler as our dispatcher
 if is_nvtx_available():
@@ -51,6 +52,7 @@ __all__ = [
     "ProfilerConfig",
     "build_rollout_dist_profiler",
     "build_ray_actor_nsight_launch_options",
+    "create_gpu_metrics_profiler",
     "is_controller_nsys_api_control_enabled",
     "build_controller_nsight_launch_options",
     "resolve_ray_actor_profiler_config",
