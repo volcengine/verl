@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from verl.utils.device import get_device_name
+from verl.utils.device import get_device_capability, get_device_name
 from verl.workers.rollout.utils import ensure_async_iterator
 
 SGLANG_LORA_NAME = "verl_actor_lora_name"
@@ -100,6 +100,21 @@ def sglang_lora_target_modules(target_modules: Any) -> list[str]:
             f"against the whole parameter key. Use `all-linear`, or list the module names."
         )
     return list(target_modules)
+
+
+def default_moe_runner_backend(quantization: Optional[str], engine_kwargs: dict) -> Optional[str]:
+    """MoE runner verl asks SGLang for when ``engine_kwargs`` names none; None keeps SGLang's ``auto``.
+
+    On Blackwell (compute capability 10.x) SGLang resolves ``auto`` to ``flashinfer_trtllm`` for unquantized
+    Qwen3-MoE-family checkpoints. That runner keeps bf16 expert weights in a block layout, and
+    ``update_weights_from_tensor`` restores the load-time shape only for ``flashinfer_trtllm_routed``, so the
+    first weight sync fails in ``FusedMoE._load_w13`` and the scheduler exits (sgl-project/sglang#27787, still
+    in sglang 0.5.21). The Triton runner takes weight updates, so verl uses it for bf16 rollouts on Blackwell.
+    """
+    if quantization is not None or "moe_runner_backend" in engine_kwargs or torch.version.hip is not None:
+        return None
+    major, _ = get_device_capability()
+    return "triton" if major == 10 else None
 
 
 def broadcast_pyobj(
