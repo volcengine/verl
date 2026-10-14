@@ -21,12 +21,17 @@ from omegaconf import OmegaConf
 
 from verl.utils.profiler.config import ProfilerConfig
 from verl.utils.profiler.nsight import (
+    _build_rollout_ray_actor_nsight_launch_options,
     _config_select,
     _count_capture_ranges,
     _profile_rank_selected,
+    _ray_actor_profile_enabled,
+    _render_nsight_output_name,
+    _render_ray_actor_nsight_options,
     _resolve_nsight_capture_options,
     _rollout_replica_ranks,
     build_controller_nsight_launch_options,
+    build_ray_actor_nsight_launch_options,
     is_controller_nsys_api_control_enabled,
     resolve_ray_actor_profiler_config,
 )
@@ -283,3 +288,128 @@ def test_build_controller_nsight_launch_options():
         result = build_controller_nsight_launch_options(config)
     resolve_options.assert_called_once_with({}, [1], False)
     assert result == {"o": "resolved"}
+
+
+@pytest.mark.parametrize(
+    "output, expected",
+    [
+        (None, "reward_loop_rank_2_%h_pid%p"),
+        ("trace_%h_pid%p", "reward_loop_rank_2_trace_%h_pid%p"),
+        ("{role}_rank_{rank}_%h_pid%p", "reward_loop_rank_2_%h_pid%p"),
+        ("{role}_%p", "reward_loop_%p"),
+        ("rank_{rank}_%p", "rank_2_%p"),
+        ("rank_%q{RANK}_%p", "reward_loop_rank_2_rank_2_%p"),
+        ("{role}_%q{RANK}_%p", "reward_loop_2_%p"),
+    ],
+    ids=["default", "prefix", "role-and-rank", "role-only", "rank-only", "rank-env", "role-and-rank-env"],
+)
+def test_render_nsight_output_name(output, expected):
+    assert _render_nsight_output_name(output, rank=2, role="reward_loop") == expected
+
+
+@pytest.mark.parametrize(
+    "config, expected",
+    [
+        (None, False),
+        (ProfilerConfig(tool="torch", enable=True), False),
+        (ProfilerConfig(tool="nsys", enable=False), False),
+        (ProfilerConfig(tool="nsys", enable=True), True),
+    ],
+)
+def test_ray_actor_profile_enabled(config, expected):
+    assert _ray_actor_profile_enabled(config) is expected
+
+
+@pytest.mark.parametrize(
+    "config, output, expected",
+    [
+        (
+            ProfilerConfig(ray_actor_nsight_options={"o": "template", "trace": "cuda"}),
+            "template",
+            {"o": "rendered", "trace": "cuda"},
+        ),
+        (
+            OmegaConf.create({"ray_actor_nsight_options": {"o": "template", "trace": "cuda"}}),
+            "template",
+            {"o": "rendered", "trace": "cuda"},
+        ),
+        (ProfilerConfig(ray_actor_nsight_options={}), None, {"o": "rendered"}),
+    ],
+    ids=["dataclass", "omegaconf", "default-output"],
+)
+def test_render_ray_actor_nsight_options(config, output, expected):
+    original_config = copy.deepcopy(config)
+    with patch("verl.utils.profiler.nsight._render_nsight_output_name", return_value="rendered") as render_output:
+        result = _render_ray_actor_nsight_options(config, rank=1, role="reward_loop")
+    render_output.assert_called_once_with(output, rank=1, role="reward_loop")
+    assert type(result) is dict
+    assert result == expected
+    result["o"] = "changed"
+    assert config == original_config
+
+
+def test_render_ray_actor_nsight_options_requires_options():
+    with pytest.raises(ValueError, match="options"):
+        _render_ray_actor_nsight_options(ProfilerConfig(), rank=0, role="reward_loop")
+
+
+@pytest.mark.parametrize(
+    "enabled, selected, expected",
+    [(False, True, None), (True, False, None), (True, True, {"o": "rendered"})],
+    ids=["disabled", "unselected-rank", "selected-rank"],
+)
+def test_build_ray_actor_nsight_launch_options(enabled, selected, expected):
+    config = ProfilerConfig(tool_config={})
+    with (
+        patch("verl.utils.profiler.nsight._ray_actor_profile_enabled", return_value=enabled) as profile_enabled,
+        patch("verl.utils.profiler.nsight._profile_rank_selected", return_value=selected) as select_rank,
+        patch("verl.utils.profiler.nsight._render_ray_actor_nsight_options", return_value={"o": "rendered"}) as render,
+    ):
+        result = build_ray_actor_nsight_launch_options(config, rank=1, role="reward_loop")
+    assert result == expected
+    if expected is not None:
+        profile_enabled.assert_any_call(config)
+        select_rank.assert_any_call(config, 1)
+        render.assert_called_once_with(config, rank=1, role="reward_loop")
+
+
+@pytest.mark.parametrize(
+    "enabled, selected, expected",
+    [(False, True, None), (True, False, None), (True, True, {"o": "rendered"})],
+    ids=["disabled", "unselected-replica", "selected-replica"],
+)
+def test_build_rollout_ray_actor_nsight_launch_options(enabled, selected, expected):
+    config = ProfilerConfig(ranks=[0], tool_config={})
+    with (
+        patch("verl.utils.profiler.nsight._ray_actor_profile_enabled", return_value=enabled) as profile_enabled,
+        patch("verl.utils.profiler.nsight._rollout_replica_ranks", return_value=[7]) as map_ranks,
+        patch("verl.utils.profiler.nsight._profile_rank_selected", return_value=selected) as select_rank,
+        patch("verl.utils.profiler.nsight._render_ray_actor_nsight_options", return_value={"o": "rendered"}) as render,
+    ):
+        result = _build_rollout_ray_actor_nsight_launch_options(
+            config, replica_rank=1, replica_world_size=2, role="rollout"
+        )
+    assert result == expected
+    if expected is not None:
+        profile_enabled.assert_any_call(config)
+        map_ranks.assert_any_call([0], 2)
+        select_rank.assert_any_call(config, 1, ranks=[7])
+        render.assert_called_once_with(config, rank=1, role="rollout")
+
+
+@pytest.mark.parametrize(
+    "build_options, rank_kwargs",
+    [
+        (build_ray_actor_nsight_launch_options, {"rank": 0}),
+        (_build_rollout_ray_actor_nsight_launch_options, {"replica_rank": 0, "replica_world_size": 1}),
+    ],
+    ids=["actor", "rollout"],
+)
+def test_ray_actor_launch_options_reject_discrete_mode(build_options, rank_kwargs):
+    config = ProfilerConfig(tool_config={"nsys": {"discrete": True}})
+    with (
+        patch("verl.utils.profiler.nsight._ray_actor_profile_enabled", return_value=True),
+        patch("verl.utils.profiler.nsight._profile_rank_selected", return_value=True),
+        pytest.raises(ValueError, match="discrete"),
+    ):
+        build_options(config, role="rollout", **rank_kwargs)

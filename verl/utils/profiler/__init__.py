@@ -24,6 +24,7 @@ from .config import (
 )
 from .nsight import (
     build_controller_nsight_launch_options,
+    build_ray_actor_nsight_launch_options,
     is_controller_nsys_api_control_enabled,
     resolve_ray_actor_profiler_config,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "DistProfilerExtension",
     "ProfilerConfig",
     "build_rollout_dist_profiler",
+    "build_ray_actor_nsight_launch_options",
     "is_controller_nsys_api_control_enabled",
     "build_controller_nsight_launch_options",
     "resolve_ray_actor_profiler_config",

@@ -39,6 +39,16 @@ def _resolve_nsight_capture_options(options, profile_steps, profile_continuous_s
     return options
 
 
+def _render_nsight_output_name(output, *, rank: int, role: str) -> str:
+    """Render role/rank in the output template, leaving Nsight host/PID placeholders intact."""
+    if output is None:
+        return f"{role}_rank_{rank}_%h_pid%p"
+    output = str(output).replace("%q{RANK}", str(rank))
+    if "{role}" in output or "{rank}" in output:
+        return output.replace("{role}", role).replace("{rank}", str(rank))
+    return f"{role}_rank_{rank}_{output}"
+
+
 def _config_select(config, path: str, default=None):
     """Select from DictConfig, mappings, or structured config objects."""
     if config is None:
@@ -55,6 +65,13 @@ def _config_select(config, path: str, default=None):
         if value is missing:
             return default
     return value
+
+
+def _ray_actor_profile_enabled(profiler_config) -> bool:
+    """Return whether Nsight profiling is enabled for a standalone actor."""
+    return _config_select(profiler_config, "tool") == "nsys" and _config_select(
+        profiler_config, "enable", default=False
+    )
 
 
 def _profile_rank_selected(profiler_config, rank: int, *, ranks=None) -> bool:
@@ -96,6 +113,57 @@ def resolve_ray_actor_profiler_config(profiler_config, config):
     else:
         resolved.ray_actor_nsight_options = options_template
     return resolved
+
+
+def _render_ray_actor_nsight_options(profiler_config, *, rank: int, role: str) -> dict:
+    """Copy shared options and render the output template for one actor."""
+    options_template = _config_select(profiler_config, "ray_actor_nsight_options")
+    if options_template is None:
+        raise ValueError("Nsight worker launch options are required for standalone Ray actor profiling")
+    options = copy.deepcopy(
+        OmegaConf.to_container(options_template) if OmegaConf.is_config(options_template) else options_template
+    )
+    options["o"] = _render_nsight_output_name(options.get("o"), rank=rank, role=role)
+    return options
+
+
+def build_ray_actor_nsight_launch_options(
+    profiler_config,
+    *,
+    rank: int,
+    role: str,
+) -> dict | None:
+    """Build Ray ``runtime_env.nsight`` options for a selected standalone actor.
+
+    Unlike a :class:`RayWorkerGroup`, reward-loop workers and rollout
+    servers are created as individual Ray actors. They therefore need the Nsight launch
+    options attached at their own ``.options(...)`` call. ``{role}`` and ``{rank}`` in the
+    configured output name are expanded for these actors. Managers resolve the global
+    capture window with ``resolve_ray_actor_profiler_config`` before calling this helper.
+    """
+    if not _ray_actor_profile_enabled(profiler_config) or not _profile_rank_selected(profiler_config, rank):
+        return None
+    if _config_select(profiler_config, "tool_config.nsys.discrete", default=False):
+        raise ValueError("Standalone Ray actor nsys profiling requires discrete=False")
+    return _render_ray_actor_nsight_options(profiler_config, rank=rank, role=role)
+
+
+def _build_rollout_ray_actor_nsight_launch_options(
+    profiler_config,
+    *,
+    replica_rank: int,
+    replica_world_size: int,
+    role: str,
+) -> dict | None:
+    """Build Nsight options for the server processes of one rollout replica."""
+    if not _ray_actor_profile_enabled(profiler_config):
+        return None
+    ranks = _rollout_replica_ranks(_config_select(profiler_config, "ranks", default=[]) or [], replica_world_size)
+    if not _profile_rank_selected(profiler_config, replica_rank, ranks=ranks):
+        return None
+    if _config_select(profiler_config, "tool_config.nsys.discrete", default=False):
+        raise ValueError("Standalone Ray actor nsys profiling requires discrete=False")
+    return _render_ray_actor_nsight_options(profiler_config, rank=replica_rank, role=role)
 
 
 def is_controller_nsys_api_control_enabled(config) -> bool:
