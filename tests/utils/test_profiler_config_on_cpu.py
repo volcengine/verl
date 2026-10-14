@@ -45,6 +45,7 @@ def test_config_init():
         cfg.actor_rollout_ref.rollout.profiler,
         cfg.actor_rollout_ref.ref.profiler,
         cfg.critic.profiler,
+        cfg.reward.profiler,
     ]:
         profiler_config = omega_conf_to_dataclass(config)
         assert isinstance(profiler_config, ProfilerConfig)
