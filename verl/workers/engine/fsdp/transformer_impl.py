@@ -34,6 +34,7 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl.models.transformers.monkey_patch import apply_monkey_patch
 from verl.trainer.config import CheckpointConfig
+from verl.utils import fsdp_sharded_init
 from verl.utils import tensordict_utils as tu
 from verl.utils.activation_offload import enable_activation_offloading
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
@@ -274,6 +275,8 @@ class FSDPEngine(BaseEngine):
         init_context = get_init_weight_context_manager(
             use_meta_tensor=not self.model_config.hf_config.tie_word_embeddings, mesh=self.device_mesh
         )
+        if fsdp_sharded_init.ENABLED:
+            init_context = lambda: torch.device("meta")  # noqa: E731
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -281,12 +284,19 @@ class FSDPEngine(BaseEngine):
             if self.model_config.model_type == "language_model":
                 auto_class = get_hf_auto_model_class(hf_config=self.model_config.hf_config)
 
-                module = auto_class.from_pretrained(
-                    pretrained_model_name_or_path=self.model_config.local_path,
-                    torch_dtype=torch_dtype,
-                    config=self.model_config.hf_config,
-                    trust_remote_code=self.model_config.trust_remote_code,
-                )
+                if fsdp_sharded_init.ENABLED:
+                    module = auto_class.from_config(
+                        self.model_config.hf_config,
+                        torch_dtype=torch_dtype,
+                        trust_remote_code=self.model_config.trust_remote_code,
+                    )
+                else:
+                    module = auto_class.from_pretrained(
+                        pretrained_model_name_or_path=self.model_config.local_path,
+                        torch_dtype=torch_dtype,
+                        config=self.model_config.hf_config,
+                        trust_remote_code=self.model_config.trust_remote_code,
+                    )
 
                 # Strip sub-modules listed in _verl_strip_modules (e.g.
                 # talker / code2wav for Qwen3-Omni Thinker-only training).
@@ -387,6 +397,8 @@ class FSDPEngine(BaseEngine):
                     )
                     for param in mismatched:
                         param.data = param.data.to(base_dtype)
+            if fsdp_sharded_init.ENABLED:
+                self._sharded_init_lora = fsdp_sharded_init.init_lora_on_cpu(module, base_dtype)
 
         return module
 
@@ -476,9 +488,15 @@ class FSDPEngine(BaseEngine):
                 "offload_policy": offload_policy,
                 "reshard_after_forward": self.engine_config.reshard_after_forward,
             }
-            full_state = module.state_dict()
-            apply_fsdp2(module, fsdp_kwargs, self.engine_config)
-            fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
+            if fsdp_sharded_init.ENABLED:
+                apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+                fsdp_sharded_init.load_sharded(
+                    module, self.model_config.local_path, self.__dict__.pop("_sharded_init_lora", {}), get_device_id()
+                )
+            else:
+                full_state = module.state_dict()
+                apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+                fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {self.engine_config.strategy}")
 
