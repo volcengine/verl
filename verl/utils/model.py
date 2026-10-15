@@ -193,6 +193,16 @@ def get_model_size(model: nn.Module, scale="auto"):
 #   vpm          — MiniCPM-o (language model registers as ``llm``)
 VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vision", "vpm")
 
+# Sibling modules that also run only on the visual path (image ranks only), so
+# they must be frozen and wrap-excluded together with the tower: a trainable
+# one left in the root FSDP unit receives gradients on image ranks only and
+# hangs FSDP1 (see mark_frozen_vision_tower_for_skip). Families differ in
+# layout — Qwen / GLM keep the projector (merger) inside the tower, so nothing
+# is found there; Mllama / LLaVA / InternVL / PaLiGemma / Aya-Vision register
+# ``multi_modal_projector`` beside the tower, MiniCPM-o / Kimi-VL use
+# ``resampler``.
+VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler")
+
 
 def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
     """Return the vision tower of a vision-language model, or None if absent.
@@ -215,6 +225,31 @@ def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
                 if hasattr(inner, attr):
                     return getattr(inner, attr)
     return None
+
+
+def get_vlm_visual_path_modules(model: nn.Module) -> list:
+    """Return the vision tower plus its visual-path siblings, or [] if absent.
+
+    The whole list must be frozen and kept out of per-module FSDP wrapping
+    together (see VISUAL_PATH_SIBLING_ATTRS): everything in it runs only when
+    the batch carries images, so any trainable member would receive gradients
+    on image ranks only (FSDPEngine marks the tower for the dummy-forward skip
+    only when the whole path is inert).
+    """
+    tower = get_vl_model_vision_tower(model)
+    if tower is None:
+        return []
+    modules = [tower]
+    seen = {id(tower)}
+    for candidate in (model, getattr(model, "model", None), getattr(model, "pretrained_model", None)):
+        if candidate is None:
+            continue
+        for attr in VISUAL_PATH_SIBLING_ATTRS:
+            sibling = getattr(candidate, attr, None)
+            if isinstance(sibling, nn.Module) and id(sibling) not in seen:
+                modules.append(sibling)
+                seen.add(id(sibling))
+    return modules
 
 
 def print_model_size(model: nn.Module, name: str = None):

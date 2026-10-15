@@ -225,27 +225,29 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     return auto_wrap_policy
 
 
-def mark_frozen_vision_tower_for_skip(vision_tower) -> bool:
-    """Mark a frozen vision tower so the multimodal adapters may skip the dummy
+def mark_frozen_vision_tower_for_skip(visual_path_modules) -> bool:
+    """Mark a frozen visual path so the multimodal adapters may skip the dummy
     visual forward on text-only batches (cf. #3496).
 
-    Returns True iff the tower was marked. Marking requires that the tower holds
-    no trainable params: with the tower wrap-excluded into the root FSDP unit,
-    a text-only rank never enters it while an image rank does, so a trainable
-    param inside would receive gradients on some ranks only — FSDP1's root-unit
-    gradient reduce does not support that (verified on torch 2.11: a 2-rank
-    mixed-modality backward hangs). Towers with trainable params inside (vision
-    LoRA, QAT linears) keep the dummy forward, which makes every rank enter the
+    ``visual_path_modules`` is the tower (the marked module) plus its
+    visual-path siblings (``get_vlm_visual_path_modules``). Returns True iff
+    the tower was marked. Marking requires no trainable params anywhere in the
+    path: with the path wrap-excluded into the root FSDP unit, a text-only rank
+    never enters it while an image rank does, so a trainable param would
+    receive gradients on some ranks only — FSDP1's root-unit gradient reduce
+    does not support that (verified on torch 2.11: a 2-rank mixed-modality
+    backward hangs). Paths with trainable params (vision LoRA, QAT linears, a
+    trained projector) keep the dummy forward, which makes every rank enter the
     tower once per step — the unmodified behavior.
     """
-    if any(p.requires_grad for p in vision_tower.parameters()):
+    if any(p.requires_grad for module in visual_path_modules for p in module.parameters()):
         logger.warning(
-            "freeze_vision_tower: trainable params found inside the vision tower "
+            "freeze_vision_tower: trainable params found inside the visual path "
             "(e.g. vision LoRA or QAT); keeping the dummy visual forward (#3496): ranks "
             "enter the tower asymmetrically on mixed-modality batches otherwise"
         )
         return False
-    vision_tower._verl_frozen_vision_tower = True
+    visual_path_modules[0]._verl_frozen_vision_tower = True
     return True
 
 

@@ -60,7 +60,11 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs, get_vl_model_vision_tower
+from verl.utils.model import (
+    convert_weight_keys,
+    extract_multi_modal_inputs,
+    get_vlm_visual_path_modules,
+)
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.seqlen_balancing import ceildiv
 from verl.utils.torch_functional import logprobs_from_logits
@@ -164,8 +168,8 @@ class FSDPEngine(BaseEngine):
         # Set in _build_fsdp_module when FSDP2 CPUOffloadPolicy is configured (see #5995).
         self._uses_fsdp2_cpu_offload_policy = False
         # Set in _build_model_optimizer when freeze_vision_tower applies; consumed by
-        # _build_fsdp_module to keep the frozen tower out of per-module wrapping.
-        self._frozen_vision_tower = None
+        # _build_fsdp_module to keep the frozen visual path out of per-module wrapping.
+        self._visual_path_modules = []
 
         # Defaults for mixed-precision state. _build_fsdp_module overrides these when it
         # runs; subclasses that bypass _build_fsdp_module (e.g. VeOmniEngine) keep the
@@ -390,35 +394,40 @@ class FSDPEngine(BaseEngine):
 
         return module
 
-    def _freeze_vision_tower(self, module):
-        """Apply ``engine_config.freeze_vision_tower``: freeze the vision tower
-        params and return the tower module (used later to keep it out of
-        per-module FSDP wrapping). Returns None when not applicable.
+    def _freeze_visual_path(self, module):
+        """Apply ``engine_config.freeze_vision_tower``: freeze the visual path
+        (the vision tower plus any sibling modules that also run only on the
+        visual path, e.g. Mllama's ``multi_modal_projector``) and return the
+        module list (used later to keep them out of per-module FSDP wrapping).
+        Returns [] when not applicable. The whole path must be inert together:
+        a trainable member left in the root FSDP unit gets gradients on image
+        ranks only, which FSDP1 does not support.
 
-        With the tower frozen and unwrapped, its params join the root FSDP unit,
+        With the path frozen and unwrapped, its params join the root FSDP unit,
         which all-gathers uniformly on every rank at model forward entry — so a
         frozen tower no longer needs the dummy visual forward on text-only
         batches to keep FSDP grads complete or vision-tower entry counts aligned
         across ranks (cf. #3491, #3496, #7323).
         """
         if not self.engine_config.freeze_vision_tower:
-            return None
-        vision_tower = get_vl_model_vision_tower(module)
-        if vision_tower is None:
+            return []
+        visual_path = get_vlm_visual_path_modules(module)
+        if not visual_path:
             logger.warning("freeze_vision_tower=True but the model has no vision tower; ignoring.")
-            return None
+            return []
         if self.engine_config.strategy not in ("fsdp", "fsdp2"):
             logger.warning(
                 "freeze_vision_tower froze the vision tower, but strategy=%s does not implement "
                 "per-module wrap exclusion; the dummy visual forward stays enabled.",
                 self.engine_config.strategy,
             )
-        vision_tower.requires_grad_(False)
+        for visual_module in visual_path:
+            visual_module.requires_grad_(False)
         # print (not logger.info): this module's logger defaults to WARN, and the
         # confirmation that the flag took effect should stay visible.
         if self.rank == 0:
             print("Vision tower is set to not trainable (freeze_vision_tower=True).")
-        return vision_tower
+        return visual_path
 
     def _build_fsdp_module(self, module):
         # TODO(ziheng): need to improve
@@ -448,10 +457,10 @@ class FSDPEngine(BaseEngine):
         else:
             self.scaler = None
 
-        # Keep the frozen vision tower out of per-module FSDP wrapping (both
+        # Keep the frozen visual path out of per-module FSDP wrapping (both
         # FSDP1 and FSDP2) so its params join the root FSDP unit — see
-        # _freeze_vision_tower.
-        exclude_modules = [self._frozen_vision_tower] if self._frozen_vision_tower is not None else None
+        # _freeze_visual_path.
+        exclude_modules = list(self._visual_path_modules) or None
 
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
@@ -534,7 +543,7 @@ class FSDPEngine(BaseEngine):
             min_num_params = self.engine_config.wrap_policy.get("min_num_params", 0)
             size_policy_blocks_exclusion = self.engine_config.strategy == "fsdp" and min_num_params > 0
             if not size_policy_blocks_exclusion:
-                mark_frozen_vision_tower_for_skip(self._frozen_vision_tower)
+                mark_frozen_vision_tower_for_skip(self._visual_path_modules)
 
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
@@ -658,11 +667,12 @@ class FSDPEngine(BaseEngine):
             self.pass_packed_cu_seqlens = False
 
         # Restore freeze_vision_tower (dropped from the pre-0.8 fsdp_workers.py),
-        # applied before LoRA/QAT/FSDP: PEFT adapters added on the tower afterwards
+        # applied before LoRA/QAT/FSDP on the whole visual path (tower + siblings
+        # that run only on images): PEFT adapters added on the tower afterwards
         # re-enable requires_grad for their own params, so "frozen tower + vision
         # LoRA" is a frozen base with trainable adapters — which keep the dummy
         # visual forward (mark_frozen_vision_tower_for_skip explains why).
-        self._frozen_vision_tower = self._freeze_vision_tower(module)
+        self._visual_path_modules = self._freeze_visual_path(module)
 
         # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:

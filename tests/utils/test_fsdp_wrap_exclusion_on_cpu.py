@@ -153,22 +153,70 @@ def test_fsdp1_lora_policy_without_exclusion_wraps_tower_leaves():
 
 
 def test_mark_frozen_vision_tower_for_skip_gates_on_trainable_params():
-    """The engine marks only towers with no trainable params inside: with the
-    tower wrap-excluded into the root FSDP unit, a trainable param inside would
-    get grads on image ranks only on mixed-modality batches, which FSDP1's
-    root-unit gradient reduce does not support (verified to hang)."""
+    """The engine marks only visual paths with no trainable params anywhere:
+    with the path wrap-excluded into the root FSDP unit, a trainable member
+    would get grads on image ranks only on mixed-modality batches, which FSDP1's
+    root-unit gradient reduce does not support (verified to hang). The tower
+    (first module) is the one marked."""
     from verl.utils.fsdp_utils import mark_frozen_vision_tower_for_skip
 
     tower = _MockVisionTower()
     tower.requires_grad_(False)
-    assert mark_frozen_vision_tower_for_skip(tower) is True
+    projector = nn.Linear(32, 32)  # frozen sibling, as the engine freezes it
+    projector.requires_grad_(False)
+    assert mark_frozen_vision_tower_for_skip([tower, projector]) is True
     assert getattr(tower, "_verl_frozen_vision_tower", False) is True
+    assert not hasattr(projector, "_verl_frozen_vision_tower")
 
     tower_with_adapter = _MockVisionTower()
     tower_with_adapter.requires_grad_(False)
-    _lora_leaf(tower_with_adapter)  # trainable leaf, as PEFT attaches
-    assert mark_frozen_vision_tower_for_skip(tower_with_adapter) is False
+    _lora_leaf(tower_with_adapter)  # trainable leaf inside the tower, as PEFT attaches
+    assert mark_frozen_vision_tower_for_skip([tower_with_adapter]) is False
     assert not hasattr(tower_with_adapter, "_verl_frozen_vision_tower")
+
+    # A trainable sibling (e.g. a trained multi_modal_projector) also blocks the mark.
+    frozen_tower = _MockVisionTower()
+    frozen_tower.requires_grad_(False)
+    assert mark_frozen_vision_tower_for_skip([frozen_tower, nn.Linear(32, 32)]) is False
+    assert not hasattr(frozen_tower, "_verl_frozen_vision_tower")
+
+
+def test_get_vlm_visual_path_modules_includes_frozen_siblings():
+    """The freeze/exclusion unit is the visual path: the tower plus sibling
+    modules that also run only on images (Mllama-style multi_modal_projector,
+    MiniCPM-style resampler). Qwen/GLM keep the projector inside the tower, so
+    nothing extra is found there."""
+    from verl.utils.model import get_vlm_visual_path_modules
+
+    tower = _MockVisionTower()
+    projector = nn.Linear(32, 32)
+
+    class _MllamaStyle(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision_model = tower
+            self.multi_modal_projector = projector
+            self.language_model = nn.Module()
+
+    class _MiniCPMSibling(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vpm = tower
+            self.resampler = projector
+            self.llm = nn.Module()
+
+    class _QwenStyle(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.visual = tower  # merger lives inside the tower
+
+    class _TextOnly(nn.Module):
+        pass
+
+    assert get_vlm_visual_path_modules(_MllamaStyle()) == [tower, projector]
+    assert get_vlm_visual_path_modules(_MiniCPMSibling()) == [tower, projector]
+    assert get_vlm_visual_path_modules(_QwenStyle()) == [tower]
+    assert get_vlm_visual_path_modules(_TextOnly()) == []
 
 
 def test_fsdp2_targets_exclude_frozen_vision_tower():
