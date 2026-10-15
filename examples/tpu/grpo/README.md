@@ -16,8 +16,7 @@ You need `gcloud`, `kubectl`, Docker with Buildx, the Ray CLI (`pip install "ray
 ```bash
 git clone https://github.com/verl-project/verl.git
 git clone https://github.com/verl-project/verl-hardware-plugin.git
-git -C verl-hardware-plugin fetch origin 9321c43d3ad4af467d834910f1b59506b01fedb3
-git -C verl-hardware-plugin checkout 9321c43d3ad4af467d834910f1b59506b01fedb3
+git -C verl-hardware-plugin checkout e5ab532ae41a582bd2e9183c5deaf2bd8876045f
 cd verl
 ```
 
