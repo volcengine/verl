@@ -1025,6 +1025,8 @@ class FSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
+                if base_sync_done and hasattr(peft_model.get_base_model(), "export_serving_lora"):
+                    return self._stream_serving_lora(peft_model, peft_config), peft_config.to_dict()
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,
@@ -1085,6 +1087,31 @@ class FSDPEngine(BaseEngine):
 
         peft_config_dict = peft_config.to_dict() if peft_config is not None else None
         return per_tensor_param, peft_config_dict
+
+    def _stream_serving_lora(self, peft_model, peft_config):
+        """Adapter-only sync of a model-native LoRA (``export_serving_lora``), gathered one LoRA module at a time."""
+        assert fsdp_version(self.module) == 2, "model-native LoRA export needs FSDP2"
+        from peft.utils.save_and_load import get_peft_model_state_dict
+
+        from verl.utils.torch_dtypes import PrecisionType
+
+        base_model = peft_model.get_base_model()
+        scaling = peft_config.lora_alpha / peft_config.r
+        dtype = PrecisionType.to_dtype(self.engine_config.model_dtype)
+        wrapped = getattr(self.module, "_fsdp_wrapped_module", self.module)
+        groups = {}
+        for name, param in get_peft_model_state_dict(peft_model).items():
+            groups.setdefault(name.split(".lora_")[0], []).append((name, param))
+        for items in groups.values():
+            full = {
+                name: (param.full_tensor() if isinstance(param, DTensor) else param).detach().float()
+                for name, param in items
+            }
+            out = convert_weight_keys(base_model.export_serving_lora(full, scaling), wrapped)
+            del full
+            for name, tensor in out.items():
+                yield name, tensor.to(dtype).contiguous()
+            del out
 
     def _merged_lora_per_tensor_param(self):
         """Stream merged (base + LoRA) weights for rollout weight sync.
