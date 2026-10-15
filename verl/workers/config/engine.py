@@ -271,8 +271,12 @@ class FSDPEngineConfig(EngineConfig):
         freeze_vision_tower (bool): Freeze the vision tower of a vision-language model:
             ``requires_grad_(False)`` on its params, keep it out of per-module FSDP wrapping
             (its params join the root FSDP unit), and skip the dummy visual forward on
-            text-only batches. Plumbed post-init from the worker-level configs (actor/ref
-            in ``engine_workers.py``, critic in ``trainer/ppo/v1/trainer_base.py``).
+            text-only batches. The skip itself additionally requires the exclusion to be
+            guaranteed (``fsdp_turbo`` and the size-based FSDP1 wrap policy keep the dummy
+            forward) and no trainable params inside the tower (vision LoRA / QAT keep it,
+            so every rank still enters the tower once). Plumbed post-init from the
+            worker-level configs (actor/ref in ``engine_workers.py``, critic in
+            ``trainer/ppo/v1/trainer_base.py`` and the legacy ``RayPPOTrainer`` path).
             default False
     """
 

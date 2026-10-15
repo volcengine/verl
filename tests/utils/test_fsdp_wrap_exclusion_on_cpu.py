@@ -227,6 +227,14 @@ def test_get_vl_model_vision_tower_layouts():
             super().__init__()
             self.model = _KimiStyle()
 
+    class _MllamaStyle(nn.Module):
+        """Mllama layout: the encoder is ``vision_model``."""
+
+        def __init__(self):
+            super().__init__()
+            self.vision_model = tower
+            self.language_model = nn.Module()
+
     class _TextOnly(nn.Module):
         pass
 
@@ -237,4 +245,6 @@ def test_get_vl_model_vision_tower_layouts():
     assert get_vl_model_vision_tower(_KimiStyle()) is tower
     assert get_vl_model_vision_tower(_KimiStyleNested()) is tower
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_KimiStyle())) is tower
+    assert get_vl_model_vision_tower(_MllamaStyle()) is tower
+    assert get_vl_model_vision_tower(_ValueHeadWrapper(_MllamaStyle())) is tower
     assert get_vl_model_vision_tower(_TextOnly()) is None
