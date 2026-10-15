@@ -660,7 +660,8 @@ class FSDPEngine(BaseEngine):
         # Restore freeze_vision_tower (dropped from the pre-0.8 fsdp_workers.py),
         # applied before LoRA/QAT/FSDP: PEFT adapters added on the tower afterwards
         # re-enable requires_grad for their own params, so "frozen tower + vision
-        # LoRA" degrades gracefully to a frozen base with trainable adapters.
+        # LoRA" is a frozen base with trainable adapters — which keep the dummy
+        # visual forward (mark_frozen_vision_tower_for_skip explains why).
         self._frozen_vision_tower = self._freeze_vision_tower(module)
 
         # Apply LoRA adapters if low-rank adaptation is enabled

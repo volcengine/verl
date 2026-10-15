@@ -67,6 +67,11 @@ def test_plumb_sets_supported_engine_and_warns_on_unsupported(caplog):
     plumb_freeze_vision_tower(fsdp, True, role="actor")
     assert fsdp.freeze_vision_tower is True
 
+    # Forward, never clear: a worker-level False must not silently turn off an
+    # engine-level freeze_vision_tower=true set directly in the yaml.
+    plumb_freeze_vision_tower(fsdp, False, role="actor")
+    assert fsdp.freeze_vision_tower is True
+
     mcore = McoreEngineConfig()
     with caplog.at_level(logging.WARNING):
         plumb_freeze_vision_tower(mcore, True, role="actor")

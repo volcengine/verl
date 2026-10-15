@@ -286,7 +286,9 @@ def _get_input_embeds(
         # The tower must also hold no trainable params: on mixed-modality batches
         # a trainable param inside the root unit would get grads on image ranks
         # only, which FSDP1's root-unit gradient reduce does not support (verified
-        # to hang), so vision LoRA / QAT towers keep the dummy forward.
+        # to hang), so vision LoRA / QAT towers keep the dummy forward. Re-checked
+        # here per forward on purpose: PEFT/QAT attach trainable params after the
+        # engine marked the tower, and this is the defense in depth.
         if not (
             getattr(model.visual, "_verl_frozen_vision_tower", False)
             and not any(p.requires_grad for p in model.visual.parameters())

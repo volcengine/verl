@@ -90,10 +90,11 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
             units fall back to the root unit, which all-gathers uniformly on
             every rank at model forward entry, so they impose no cross-rank
             invocation-count alignment requirement (cf. #3491, #7323). Matching
-            is by class name here (FSDP1's policy is class-based); the FSDP2
-            path (``apply_fsdp2``) matches by module identity. If the exclusion
-            removes every wrap class, no per-module policy is built and the
-            model trains in the root unit (as ``apply_fsdp2`` already does).
+            is by class name for transformer layers (FSDP1's policy is
+            class-based) and by module identity for the LoRA lambda policy and
+            the FSDP2 path (``apply_fsdp2``). If the exclusion removes every
+            wrap class, no per-module policy is built and the model trains in
+            the root unit (as ``apply_fsdp2`` already does).
     """
     if config is None:
         config = {}

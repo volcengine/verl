@@ -95,10 +95,14 @@ def plumb_freeze_vision_tower(engine_config, value: bool, role: str):
     """Forward a worker-level ``freeze_vision_tower`` into the engine config.
 
     Only the FSDP engine declares the field; other engines keep ignoring the
-    flag (with a warning when it is set), as they did before 0.8.
+    flag (with a warning when it is set), as they did before 0.8. The flag is
+    forwarded, never cleared: a worker-level ``true`` engages the freeze, and a
+    worker-level ``false`` must not silently turn off an engine-level
+    ``freeze_vision_tower=true`` set directly in the yaml (the SFT-style knob).
     """
     if "freeze_vision_tower" in {f.name for f in dataclasses.fields(engine_config)}:
-        engine_config.freeze_vision_tower = value
+        if value:
+            engine_config.freeze_vision_tower = True
     elif value:
         logger.warning(f"freeze_vision_tower is only implemented for the FSDP engine; ignoring on {role}.")
 

@@ -280,3 +280,21 @@ def test_get_vl_model_vision_tower_layouts():
     assert get_vl_model_vision_tower(_MiniCPMStyle()) is tower
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_MiniCPMStyle())) is tower
     assert get_vl_model_vision_tower(_TextOnly()) is None
+
+
+def test_fsdp1_size_based_policy_ignores_exclusion_and_warns(caplog):
+    """min_num_params > 0 selects the size policy, which cannot carry the
+    class-name exclusion: the exclusion is not applied and the caller is told
+    (the engine correspondingly never marks the tower, so the adapters keep
+    the dummy visual forward)."""
+    import logging as _logging
+
+    from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+
+    model = _MockVLM()
+    with caplog.at_level(_logging.WARNING, logger="verl.utils.fsdp_utils"):
+        policy = get_fsdp_wrap_policy(model, config={"min_num_params": 1000}, exclude_modules=[model.visual])
+    assert any("not applied under the size-based wrap policy" in r.message for r in caplog.records)
+    inner = policy.keywords["policies"]
+    assert len(inner) == 1, "only the size policy should be built"
+    assert inner[0].func is size_based_auto_wrap_policy
