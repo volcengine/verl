@@ -83,28 +83,24 @@ vLLM 可以覆盖全部组合；SGLang 只支持其中一部分，缺失部分�
 ```yaml
 actor_rollout_ref:
   rollout:
-    quantization:          # null 表示不做低精度推理
-      linear: mxfp8        # fp8 | mxfp8 | mxfp4 | nvfp4 | null | {weight, activation}
-      moe: mxfp4
+    quantization:          # linear / moe / config_file 全为 null 表示不做低精度推理
+      linear: FP8_BLOCK    # compressed-tensors preset，目前支持 FP8_BLOCK
+      moe: FP8_BLOCK
       ignore: []           # 额外跳过的层，支持精确层名或 "re:<regex>"
-    quantization_config_file: null   # 直接提供 compressed-tensors/HF JSON 时优先使用（QAT、torchao）
+      config_file: null    # 直接提供 compressed-tensors quantization_config JSON，与 linear/moe/ignore 互斥
 ```
 
-为了向后兼容，`quantization: fp8` 等价于 `{linear: fp8, moe: fp8}`。router（`mlp.gate`）和 `lm_head` 默认加入 ignore。
+只支持 compressed-tensors，不再支持 `quantization: fp8` 字符串和 torchao。router（`mlp.gate`）、`lm_head`、embedding、视觉塔和 MTP 默认加入 ignore，形状不能被 block 整除的层（如 Qwen3.5 `in_proj_a/b`）自动加入 ignore。
 
 #### 配置翻译规则
 
-verl 内部根据 `(engine, linear, moe, ignore)` 生成 override 用的 `quantization_config`：
+verl 内部（`verl/utils/qat/compressed_tensors.py`）生成 override 用的 compressed-tensors `quantization_config`，trainer 侧量化器使用同一份配置：
 
-1. **linear 和 moe 都是 fp8**：生成 HF FineGrainedFP8，沿用现有路径。
+1. **linear 和 moe 相同**：一个 `targets: ["Linear"]` 的 config group。
+2. **linear 和 moe 不同**：MoE 用 `re:.*mlp\.experts\..*` 单独成组，其余 `Linear` 一组；某一项为 null 时对应层保持高精度。
+3. **`config_file`**：JSON 可以是 `quantization_config` 本身，也可以是带 `quantization_config` 字段的 HF `config.json`，原样使用（不追加默认 ignore）。每个 config group 的数值配置必须与某个已支持的 preset 一致，否则报错；QAT mode 也据此校验。
 
-   ```json
-   {"quant_method": "fp8", "activation_scheme": "dynamic", "weight_block_size": [128, 128],
-    "ignored_layers": ["model.layers.0.mlp.gate", "..."]}
-   ```
-
-2. **linear 和 moe 都是 mxfp8**：SGLang 生成 `{"quant_method": "mxfp8", ...}`，vLLM 生成 compressed-tensors。
-3. **其他组合**：生成 compressed-tensors。
+   多精度组合（目前未支持）的配置示例：
 
    ```json
    {
@@ -132,7 +128,7 @@ verl 内部根据 `(engine, linear, moe, ignore)` 生成 override 用的 `quanti
 
    上例为 "linear MXFP8 + MoE MXFP4 (W4A16)"，MoE 部分与 Kimi-K3 自带的配置一致。各字段的具体取值需要与所用的 `compressed-tensors` 版本核对。
 
-4. **SGLang 校验**：生成的配置如果包含上述支持矩阵中 SGLang 不支持的组合，直接报错。
+4. **引擎**：目前只有 vLLM + Megatron 支持；SGLang / TRT-LLM 设置 `rollout.quantization` 会直接报错。
 
 #### 权重同步
 

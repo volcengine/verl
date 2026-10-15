@@ -51,10 +51,8 @@ from verl.utils.profiler import (
     relocate_rollout_traces,
     rollout_profiler_global_ranks,
 )
-from verl.utils.qat import build_compressed_tensors_config, is_compressed_tensors_quantization
 from verl.utils.tokenizer import normalize_token_ids
 from verl.utils.tracking import RLInsightLogger
-from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import (
@@ -319,7 +317,7 @@ class vLLMHttpServer:
 
             set_expandable_segments(True)
 
-        quantization, hf_overrides = self._apply_quantization()
+        hf_overrides = self._apply_quantization()
 
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
@@ -359,7 +357,6 @@ class vLLMHttpServer:
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "seed": self.replica_rank + self.config.seed,
             "override_generation_config": json.dumps(override_generation_config),
-            "quantization": quantization,
             "hf_overrides": hf_overrides,
             "scheduling_policy": self.config.scheduling_policy,
             "compilation_config": compilation_config,
@@ -1393,35 +1390,23 @@ class vLLMHttpServer:
             max_new_tokens=self.config.response_length,
         )
 
-    def _apply_quantization(self) -> tuple[Optional[str], dict]:
-        """Process quantization config. Returns (quantization_str, hf_overrides)."""
+    def _apply_quantization(self) -> dict:
+        """hf_overrides for a rollout quantization set in the rollout config.
+
+        Models shipping their own ``quantization_config`` need nothing here; either way the
+        workers install the refit patches from the resulting vLLM ``quant_config``.
+        """
         quantization = self.config.quantization
-        hf_overrides = {}
+        if not quantization.enabled:
+            return {}
 
-        if is_compressed_tensors_quantization(quantization):
-            # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
-            hf_overrides["quantization_config"] = build_compressed_tensors_config(
-                quantization, self.model_config.local_path
-            )
-            apply_vllm_quant_patches()
-            os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-            # The schemes carry fp32 block scales. DeepGEMM's E8M0 mode (vLLM's default) rounds weight and
-            # activation scales to powers of two, so the rollout would drift from what the trainer quantized.
-            os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
-            logger.info(f"Rollout compressed-tensors quantization_config: {hf_overrides['quantization_config']}")
-            return None, hf_overrides
-        if quantization == "fp8":
-            raise ValueError("rollout.quantization=fp8 is replaced by the mapping form, e.g. {linear: FP8_BLOCK, moe: FP8_BLOCK}")
-
-        model_quantization_config = getattr(self.model_config.hf_config, "quantization_config", {}) or {}
-        if quantization is None and model_quantization_config.get("quant_method") == "fp8":
-            apply_vllm_quant_patches()
-            os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-
-        if quantization is not None and self.config.quantization_config_file is not None:
-            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
-
-        return quantization, hf_overrides
+        # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
+        quantization_config = quantization.build_quantization_config(self.model_config.local_path)
+        # The schemes carry fp32 block scales. DeepGEMM's E8M0 mode (vLLM's default) rounds weight and
+        # activation scales to powers of two, so the rollout would drift from what the trainer quantized.
+        os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
+        logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
+        return {"quantization_config": quantization_config}
 
     def _get_worker_extension_cls(self) -> str:
         """Return the fully-qualified colocate worker extension class name."""

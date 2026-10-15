@@ -186,14 +186,14 @@ class vLLMColocateWorkerExtension:
             )
 
             register_verl_delta_weight_transfer_engine()
+
+        # 2. patch the refit of quantized weights, whether the quantization_config comes
+        # from the checkpoint (e.g. DeepSeek-V4) or from rollout.quantization via hf_overrides.
         quant_config = getattr(vllm_config, "quant_config", None) if vllm_config else None
         _is_nvfp4_packed = getattr(quant_config, "quant_format", None) == "nvfp4-pack-quantized"
-        # 2. patch online fp8 quant. Some models, including DeepSeek-V4, get
-        # fp8 from the HF config rather than an explicit rollout quantization arg.
-        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1" or (
-            is_quantized_model(vllm_config) and not _is_nvfp4_packed
-        ):
+        if is_quantized_model(vllm_config) and not _is_nvfp4_packed:
             apply_vllm_quant_patches()
+
         # 3. patch compressed-tensors NVFP4 for dynamic weight loading
         if _is_nvfp4_packed:
             from verl.utils.vllm.vllm_nvfp4_utils import apply_qat_patches

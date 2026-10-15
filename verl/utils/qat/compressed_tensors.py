@@ -13,14 +13,17 @@
 # limitations under the License.
 """Low-precision rollout expressed as a compressed-tensors ``quantization_config``.
 
-The rollout config selects a compressed-tensors preset scheme per layer kind::
+The rollout config either selects a compressed-tensors preset scheme per layer kind::
 
     quantization:
       linear: FP8_BLOCK  # dense linear layers (attention, dense MLP, shared experts)
       moe: FP8_BLOCK     # routed experts
       ignore: []         # extra "re:" patterns kept in high precision
 
-``build_compressed_tensors_config`` turns that into the HF ``quantization_config``
+or provides a complete ``quantization_config`` JSON via ``quantization.config_file``.
+
+``RolloutQuantizationConfig.build_quantization_config`` (via
+``build_compressed_tensors_config``) turns that into the HF ``quantization_config``
 the inference engine is started with (``load_format=dummy``), and
 ``CompressedTensorsWeightQuantizer`` quantizes the trainer's exported HF weights
 with exactly the same targets and ignore list, using the compressed-tensors
@@ -46,8 +49,7 @@ __all__ = [
     "SUPPORTED_SCHEMES",
     "CompressedTensorsWeightQuantizer",
     "build_compressed_tensors_config",
-    "is_compressed_tensors_quantization",
-    "qat_mode_for_scheme",
+    "qat_modes_for_config",
 ]
 
 # Matched against vLLM's unfused expert names (``...mlp.experts.0.gate_proj``),
@@ -76,25 +78,48 @@ DEFAULT_IGNORE = [
 _HIGH_PRECISION_DTYPES = (torch.bfloat16, torch.float16, torch.float32)
 
 
-def is_compressed_tensors_quantization(quantization: Any) -> bool:
-    """Whether the rollout ``quantization`` field selects this path (a mapping)."""
-    return isinstance(quantization, Mapping)
-
-
 def _check_scheme(kind: str, scheme: Optional[str]) -> Optional[str]:
     if scheme is None:
         return None
     scheme = scheme.upper()
     if scheme not in SUPPORTED_SCHEMES:
-        raise ValueError(
-            f"Unsupported rollout quantization {kind}={scheme!r}, choose from {sorted(SUPPORTED_SCHEMES)}"
-        )
+        raise ValueError(f"Unsupported rollout quantization {kind}={scheme!r}, choose from {sorted(SUPPORTED_SCHEMES)}")
     return scheme
 
 
-def qat_mode_for_scheme(scheme: str) -> Optional[str]:
-    """ModelOpt QAT mode whose fake quant matches the given rollout preset."""
-    return SUPPORTED_SCHEMES.get(scheme.upper())
+_NUMERIC_FIELDS = {"num_bits", "type", "symmetric", "group_size", "strategy", "block_structure", "dynamic"}
+
+
+def _numerics(args: Optional["QuantizationArgs"]) -> Optional[dict[str, Any]]:
+    return None if args is None else args.model_dump(include=_NUMERIC_FIELDS)
+
+
+def _preset_of(scheme: "QuantizationScheme") -> Optional[str]:
+    """The supported preset ``scheme`` quantizes like, ignoring observers and targets."""
+    from compressed_tensors.quantization import preset_name_to_scheme
+
+    for preset in SUPPORTED_SCHEMES:
+        reference = preset_name_to_scheme(preset, scheme.targets)
+        if all(
+            _numerics(getattr(scheme, kind)) == _numerics(getattr(reference, kind))
+            for kind in ("weights", "input_activations", "output_activations")
+        ):
+            return preset
+    return None
+
+
+def _group_schemes(ct_config: Mapping[str, Any]) -> list["QuantizationScheme"]:
+    from compressed_tensors.quantization import QuantizationScheme
+
+    return [
+        QuantizationScheme.model_validate({k: v for k, v in group.items() if k != "format"})
+        for group in ct_config["config_groups"].values()
+    ]
+
+
+def qat_modes_for_config(ct_config: Mapping[str, Any]) -> set[Optional[str]]:
+    """ModelOpt QAT modes whose fake quant matches the config groups of a rollout ``quantization_config``."""
+    return {SUPPORTED_SCHEMES[_preset_of(scheme)] for scheme in _group_schemes(ct_config)}
 
 
 def _matches(name: str, targets: Iterable[str]) -> bool:
@@ -166,16 +191,47 @@ def _config_group(targets: list[str], preset: str) -> dict[str, Any]:
     return group
 
 
-def build_compressed_tensors_config(quantization: Mapping, model_path: str) -> dict[str, Any]:
-    """Build the HF compressed-tensors ``quantization_config`` for the rollout engine."""
+def _load_config_file(config_file: str) -> dict[str, Any]:
+    """Read a compressed-tensors ``quantization_config`` (bare, or inside an HF ``config.json``)."""
+    with open(config_file) as f:
+        config = json.load(f)
+    config = config.get("quantization_config", config)
+    if config.get("quant_method") != "compressed-tensors" or not config.get("config_groups"):
+        raise ValueError(f"{config_file} is not a compressed-tensors quantization_config with config_groups")
+    for name, scheme in zip(config["config_groups"], _group_schemes(config), strict=True):
+        if _preset_of(scheme) is None:
+            raise ValueError(
+                f"{config_file}: config group {name!r} does not match any supported scheme {sorted(SUPPORTED_SCHEMES)}"
+            )
+    return config
+
+
+def build_compressed_tensors_config(
+    *,
+    linear: Optional[str],
+    moe: Optional[str],
+    ignore: Iterable[str],
+    config_file: Optional[str],
+    model_path: str,
+) -> dict[str, Any]:
+    """Build the HF compressed-tensors ``quantization_config`` for the rollout engine.
+
+    Prefer ``RolloutQuantizationConfig.build_quantization_config``; the arguments mirror its fields.
+    """
     from compressed_tensors.quantization import preset_name_to_scheme
 
-    linear = _check_scheme("linear", quantization.get("linear"))
-    moe = _check_scheme("moe", quantization.get("moe"))
+    ignore = list(ignore or [])
+    if config_file:
+        if linear or moe or ignore:
+            raise ValueError("rollout.quantization.config_file is exclusive with linear / moe / ignore")
+        return _load_config_file(config_file)
+
+    linear = _check_scheme("linear", linear)
+    moe = _check_scheme("moe", moe)
     if linear is None and moe is None:
         raise ValueError("rollout quantization needs at least one of `linear` / `moe`")
 
-    ignore = DEFAULT_IGNORE + list(quantization.get("ignore") or [])
+    ignore = DEFAULT_IGNORE + ignore
     for preset in {linear, moe} - {None}:
         tile = _weight_tile(preset_name_to_scheme(preset, ["Linear"]).weights)
         if tile is not None:
@@ -273,39 +329,33 @@ class CompressedTensorsWeightQuantizer:
     """Quantize exported HF weights to match a compressed-tensors rollout config.
 
     A weight is quantized iff it is a 2D ``*.weight`` whose module is not
-    ignored; routed experts take the MoE group's scheme when present, the rest
-    the ``Linear`` group's. Packed 3D experts are split per expert first.
-    Everything else passes through unchanged.
+    ignored and is targeted by a config group, resolved like compressed-tensors
+    does: a name / "re:" target wins over the ``Linear`` class target. Packed 3D
+    experts are split per expert first. Everything else passes through unchanged.
     """
 
     def __init__(self, ct_config: Mapping[str, Any]):
-        from compressed_tensors.quantization import QuantizationScheme
+        self.ignore = list(ct_config.get("ignore") or [])
+        self.schemes = _group_schemes(ct_config)
+        self.linear_scheme = next((s for s in self.schemes if "Linear" in s.targets), None)
 
-        self.ignore = list(ct_config["ignore"])
-        self.moe_scheme: Optional[QuantizationScheme] = None
-        self.linear_scheme: Optional[QuantizationScheme] = None
-        for group in ct_config["config_groups"].values():
-            scheme = QuantizationScheme.model_validate({k: v for k, v in group.items() if k != "format"})
-            if MOE_TARGET in scheme.targets:
-                self.moe_scheme = scheme
-            if "Linear" in scheme.targets:
-                self.linear_scheme = scheme
-        if self.moe_scheme is None and MOE_TARGET not in self.ignore:
-            self.moe_scheme = self.linear_scheme
+    def _module_scheme(self, module: str) -> Optional["QuantizationScheme"]:
+        if _matches(module, self.ignore):
+            return None
+        for scheme in self.schemes:
+            if _matches(module, scheme.targets):
+                return scheme
+        return self.linear_scheme
 
     def _scheme_for(self, name: str, tensor: torch.Tensor) -> Optional["QuantizationScheme"]:
         if not name.endswith(".weight") or tensor.ndim != 2 or tensor.dtype not in _HIGH_PRECISION_DTYPES:
             return None
-        module = name[: -len(".weight")]
-        if _matches(module, self.ignore):
-            return None
-        if _matches(module, [MOE_TARGET]):
-            return self.moe_scheme
-        return self.linear_scheme
+        return self._module_scheme(name[: -len(".weight")])
 
     def __call__(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
         for name, tensor in weights:
-            if tensor.ndim == 3 and self.moe_scheme is not None and _PACKED_EXPERTS.match(name):
+            packed = _PACKED_EXPERTS.match(name) if tensor.ndim == 3 else None
+            if packed and self._module_scheme(f"{packed['prefix']}.0.gate_proj") is not None:
                 yield from self(_unpack_experts(name, tensor))
                 continue
             scheme = self._scheme_for(name, tensor)

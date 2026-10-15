@@ -33,8 +33,8 @@ import numpy as np
 import pytest
 import ray
 import torch
-from omegaconf import DictConfig
 from hydra import compose, initialize_config_dir
+from omegaconf import DictConfig
 
 from tests.experimental.agent_loop.agent_utils import init_agent_loop_manager_and_workers
 from verl.protocol import DataProto
@@ -60,7 +60,6 @@ QAT_MODE = os.getenv("QAT_MODE")
 
 @pytest.fixture
 def init_config() -> DictConfig:
-
     with initialize_config_dir(config_dir=os.path.abspath("verl/trainer/config")):
         config = compose(
             config_name="ppo_trainer",
@@ -94,8 +93,8 @@ def init_config() -> DictConfig:
         )
 
     config.actor_rollout_ref.model.path = os.path.expanduser(os.getenv("MODEL_PATH", "~/models/Qwen3.5-35B-A3B"))
-    if QUANT_LINEAR or QUANT_MOE:
-        config.actor_rollout_ref.rollout.quantization = {"linear": QUANT_LINEAR, "moe": QUANT_MOE, "ignore": []}
+    config.actor_rollout_ref.rollout.quantization.linear = QUANT_LINEAR
+    config.actor_rollout_ref.rollout.quantization.moe = QUANT_MOE
     if QAT_MODE:
         config.actor_rollout_ref.actor.megatron.qat.enable = True
         config.actor_rollout_ref.actor.megatron.qat.mode = QAT_MODE

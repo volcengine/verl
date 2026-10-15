@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import secrets
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
@@ -301,16 +300,8 @@ class SGLangHttpServer:
         # (e.g. text "flashinfer" vs vision "flashinfer_cudnn"), so don't mirror it.
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
-        quantization = self.config.get("quantization", None)
-        if isinstance(quantization, Mapping):
-            raise NotImplementedError("rollout.quantization as a {linear, moe} mapping is only supported by vLLM")
-        if quantization is not None:
-            if quantization == "fp8":
-                from verl.utils.sglang.sglang_fp8_utils import build_sglang_fp8_quant_config
-
-                fp8_block_quant_kwargs = build_sglang_fp8_quant_config(self.model_config.hf_config)
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+        if self.config.quantization.enabled:
+            raise NotImplementedError("rollout.quantization is only supported by vLLM")
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,
@@ -333,10 +324,7 @@ class SGLangHttpServer:
             "attention_backend": attention_backend,
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
             "skip_server_warmup": True,
-            "quantization": quantization,
-            "json_model_override_args": json.dumps({"quantization_config": fp8_block_quant_kwargs})
-            if quantization == "fp8"
-            else json.dumps({}),
+            "json_model_override_args": json.dumps({}),
             "custom_weight_loader": custom_weight_loader or None,
             **engine_kwargs,
         }
