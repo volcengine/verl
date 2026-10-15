@@ -556,9 +556,7 @@ def union_tensor_dict(tensor_dict1: TensorDict, tensor_dict2: TensorDict) -> Ten
     return tensor_dict1
 
 
-def make_iterator(
-    tensordict: TensorDict, mini_batch_size, epochs, seed=None, dataloader_kwargs=None, shuffle_mini_batch_order=False
-):
+def make_iterator(tensordict: TensorDict, mini_batch_size, epochs, seed=None, dataloader_kwargs=None):
     """Create an iterator that yields mini-batches from a TensorDict.
 
     Wraps a TensorDict in a DataLoader-style iterator that yields mini-batches
@@ -572,8 +570,6 @@ def make_iterator(
         seed: Optional random seed for reproducible shuffling.
         dataloader_kwargs: Optional dict of additional kwargs to pass to
             the underlying DataLoader (e.g., shuffle=True, num_workers=4).
-        shuffle_mini_batch_order: If True, visit the contiguous mini-batches in
-            a new random order every epoch without changing their contents.
 
     Returns:
         An iterator that yields TensorDict mini-batches.
@@ -590,8 +586,6 @@ def make_iterator(
     from torch.utils.data import DataLoader
 
     assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
-    # Every DP rank must visit the same global mini-batch at each step, so the order must be seeded.
-    assert seed is not None or not shuffle_mini_batch_order, "shuffle_mini_batch_order requires a seed"
     # we can directly create a dataloader from TensorDict
     if dataloader_kwargs is None:
         dataloader_kwargs = {}
@@ -612,13 +606,8 @@ def make_iterator(
 
     def get_data():
         for _ in range(epochs):
-            if shuffle_mini_batch_order:
-                mini_batches = list(train_dataloader)
-                for i in torch.randperm(len(mini_batches), generator=generator).tolist():
-                    yield index_select_tensor_dict(tensordict, mini_batches[i])
-            else:
-                for idx in train_dataloader:
-                    yield index_select_tensor_dict(tensordict, idx)
+            for idx in train_dataloader:
+                yield index_select_tensor_dict(tensordict, idx)
 
     return iter(get_data())
 

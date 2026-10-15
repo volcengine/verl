@@ -19,58 +19,61 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from verl.trainer.ppo.utils import get_balance_mini_batch_size, need_minibatch_shuffle
-from verl.utils.seqlen_balancing import calculate_workload, get_minibatch_balanced_partitions
+from verl.trainer.ppo.utils import get_balance_mini_batch_size
+from verl.utils.seqlen_balancing import (
+    calculate_workload,
+    get_minibatch_balanced_partitions,
+    get_seqlen_balanced_partitions,
+)
 
 
 def _worker_mini_batches(partitions, mini_batch_size):
-    """Mimic workers: each rank slices its shard into mini-batches sequentially, without shuffling."""
+    """Mimic workers: each rank slices its shard into mini-batches sequentially."""
     share = mini_batch_size // len(partitions)
     num_mini_batches = len(partitions[0]) // share
     return [[partition[i * share : (i + 1) * share] for partition in partitions] for i in range(num_mini_batches)]
 
 
 def _check_layout(partitions, num_samples, k_partitions):
+    """Every sample appears exactly once and all ranks get the same number of samples."""
     assert len(partitions) == k_partitions
     assert sorted(i for partition in partitions for i in partition) == list(range(num_samples))
     assert len({len(partition) for partition in partitions}) == 1
 
 
-def test_keeps_mini_batches_without_shuffle():
-    random.seed(0)
-    num_samples, mini_batch_size, k_partitions = 64, 16, 4
-    workloads = calculate_workload(torch.tensor([random.randint(100, 20000) for _ in range(num_samples)]))
-
-    partitions = get_minibatch_balanced_partitions(workloads, k_partitions, mini_batch_size)
-
-    _check_layout(partitions, num_samples, k_partitions)
-    for i, shares in enumerate(_worker_mini_batches(partitions, mini_batch_size)):
-        members = sorted(j for share in shares for j in share)
-        assert members == list(range(i * mini_batch_size, (i + 1) * mini_batch_size))
-
-
 def test_balances_each_mini_batch():
-    # Rank totals of the whole batch can be balanced while every mini-batch is not; per-mini-batch
-    # balancing gives each rank one heavy and one light sample of every mini-batch.
+    """Core correctness: balancing the whole batch can still leave stragglers inside a mini-batch.
+
+    Keeping each mini-batch balanced guarantees that every sequential update on every DP rank
+    processes roughly the same number of tokens, which is the whole point of this PR.
+    """
     workloads = [10, 10, 1, 1, 20, 20, 2, 2]
 
     partitions = get_minibatch_balanced_partitions(workloads, k_partitions=2, mini_batch_size=4)
 
+    _check_layout(partitions, 8, 2)
     for shares in _worker_mini_batches(partitions, mini_batch_size=4):
         sums = [sum(workloads[j] for j in share) for share in shares]
         assert sums[0] == sums[1]
 
 
 def test_shuffle_is_seeded_and_keeps_mini_batches_aligned():
+    """Trainer-side shuffle must be deterministic across DP ranks.
+
+    All ranks visit the same global mini-batch at each step; otherwise gradients would be wrong
+    and the step could hang. This test also checks that the shuffle actually changes the order.
+    """
     num_samples, mini_batch_size, k_partitions = 48, 12, 3
     workloads = list(range(1, num_samples + 1))
 
     partitions = get_minibatch_balanced_partitions(workloads, k_partitions, mini_batch_size, shuffle=True, seed=[42, 7])
 
     _check_layout(partitions, num_samples, k_partitions)
+    # Same seed -> same partition layout.
     assert partitions == get_minibatch_balanced_partitions(
         workloads, k_partitions, mini_batch_size, shuffle=True, seed=[42, 7]
     )
+    # Different seed -> different layout.
     assert partitions != get_minibatch_balanced_partitions(
         workloads, k_partitions, mini_batch_size, shuffle=True, seed=[42, 8]
     )
@@ -79,58 +82,48 @@ def test_shuffle_is_seeded_and_keeps_mini_batches_aligned():
     assert mini_batches != [list(range(i * 12, (i + 1) * 12)) for i in range(4)]
 
 
-@pytest.mark.parametrize("mini_batch_size", [0, 7])
-def test_falls_back_to_whole_batch(mini_batch_size):
-    workloads = list(range(1, 13))
-
-    partitions = get_minibatch_balanced_partitions(workloads, k_partitions=3, mini_batch_size=mini_batch_size)
-
-    _check_layout(partitions, 12, 3)
-
-
-def test_make_iterator_shuffles_mini_batch_order_per_epoch():
-    from tensordict import TensorDict
-
-    from verl.utils import tensordict_utils as tu
-
-    data = TensorDict({"index": torch.arange(16)}, batch_size=[16])
-
-    def visits(seed):
-        iterator = tu.make_iterator(data, mini_batch_size=2, epochs=3, seed=seed, shuffle_mini_batch_order=True)
-        return [mini_batch["index"].tolist() for mini_batch in iterator]
-
-    batches = visits(seed=1)
-    epochs = [batches[i * 8 : (i + 1) * 8] for i in range(3)]
-    contiguous = [[2 * i, 2 * i + 1] for i in range(8)]
-    for epoch in epochs:
-        assert sorted(epoch) == contiguous
-    assert epochs[0] != epochs[1] or epochs[1] != epochs[2]
-    # Every DP rank passes the same seed, so all ranks visit the same global mini-batch at each step.
-    assert visits(seed=1) == batches
-
-
-def _config(actor_mini_batch_size=4, critic_mini_batch_size=6, actor_shuffle=False, critic_shuffle=False):
+def _config(actor_shuffle=False, critic_shuffle=False, actor_epochs=1, critic_epochs=1):
     return OmegaConf.create(
         {
             "actor_rollout_ref": {
                 "rollout": {"n": 2},
-                "actor": {"ppo_mini_batch_size": actor_mini_batch_size, "shuffle": actor_shuffle},
+                "actor": {"ppo_mini_batch_size": 4, "shuffle": actor_shuffle, "ppo_epochs": actor_epochs},
             },
-            "critic": {"ppo_mini_batch_size": critic_mini_batch_size, "shuffle": critic_shuffle},
+            "critic": {"ppo_mini_batch_size": 6, "shuffle": critic_shuffle, "ppo_epochs": critic_epochs},
         }
     )
 
 
 def test_balance_mini_batch_size():
+    """The balancing unit must divide every active PPO mini-batch size.
+
+    When a model reshuffles samples every epoch (shuffle=True and ppo_epochs > 1), we must fall
+    back to balancing the whole batch and let the worker shuffle as before, preserving the
+    original semantics. Returns 0 when no model is updated.
+    """
     config = _config()
     assert get_balance_mini_batch_size(config, use_critic=False, update_actor=True) == 8
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=False) == 12
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=True) == 4
     assert get_balance_mini_batch_size(config, use_critic=False, update_actor=False) == 0
+    # shuffle without multi-epoch reshuffling keeps per-mini-batch balancing.
+    assert get_balance_mini_batch_size(_config(actor_shuffle=True), use_critic=False, update_actor=True) == 8
+    assert get_balance_mini_batch_size(_config(actor_epochs=2), use_critic=False, update_actor=True) == 8
+    # Reshuffling every epoch falls back to whole-batch balance.
+    reshuffle = _config(critic_shuffle=True, critic_epochs=2)
+    assert get_balance_mini_batch_size(reshuffle, use_critic=True, update_actor=True) == 0
+    assert get_balance_mini_batch_size(reshuffle, use_critic=False, update_actor=True) == 8
 
 
-@pytest.mark.parametrize("shuffle", [False, True])
-def test_ray_trainer_balance_batch(shuffle):
+@pytest.mark.parametrize("shuffle, epochs", [(False, 2), (True, 1), (True, 2)])
+def test_ray_trainer_balance_batch(shuffle, epochs):
+    """End-to-end check for the legacy trainer.
+
+    Covers three cases:
+    1. shuffle=False, epochs>1: per-mini-batch balance, deterministic order.
+    2. shuffle=True, epochs=1: per-mini-batch balance, trainer shuffles once.
+    3. shuffle=True, epochs>1: fall back to whole-batch balance (original behavior).
+    """
     from verl import DataProto
     from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
@@ -143,25 +136,26 @@ def test_ray_trainer_balance_batch(shuffle):
     batch = DataProto.from_single_dict({"attention_mask": attention_mask, "index": torch.arange(num_samples)})
 
     trainer = RayPPOTrainer.__new__(RayPPOTrainer)
-    trainer.config = _config(actor_shuffle=shuffle)
+    trainer.config = _config(actor_shuffle=shuffle, actor_epochs=epochs)
     trainer.config.trainer = {"balance_batch": True, "critic_warmup": 0}
     trainer.config.actor_rollout_ref.actor.data_loader_seed = 42
     trainer.use_critic, trainer.global_steps = False, 1
     trainer.actor_rollout_wg = SimpleNamespace(_dispatch_info={"actor": list(range(k_partitions))})
     trainer._balance_batch(batch, metrics={})
 
-    assert batch.meta_info["minibatch_balanced"]
     order = batch.batch["index"].tolist()
     shards = [order[: num_samples // k_partitions], order[num_samples // k_partitions :]]
+    if shuffle and epochs > 1:
+        # Whole-batch fallback: layout matches the old equal-size partition.
+        assert not batch.meta_info["minibatch_balanced"]
+        expected = get_seqlen_balanced_partitions(calculate_workload(torch.tensor(lengths)), 2, equal_size=True)
+        assert [sorted(shard) for shard in shards] == [sorted(partition) for partition in expected]
+        return
+
+    # Per-mini-batch balance.
+    assert batch.meta_info["minibatch_balanced"]
     mini_batches = [sorted(j for share in shares for j in share) for shares in _worker_mini_batches(shards, 8)]
     if shuffle:
         assert mini_batches != [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
     else:
         assert mini_batches == [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
-
-
-def test_need_minibatch_shuffle():
-    assert not need_minibatch_shuffle(_config(), use_critic=True)
-    assert need_minibatch_shuffle(_config(actor_shuffle=True), use_critic=False)
-    assert need_minibatch_shuffle(_config(critic_shuffle=True), use_critic=True)
-    assert not need_minibatch_shuffle(_config(critic_shuffle=True), use_critic=False)

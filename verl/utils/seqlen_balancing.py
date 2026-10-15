@@ -273,8 +273,8 @@ def get_minibatch_balanced_partitions(
     Args:
         workload_list (List[int]): Workload of each sample, e.g. from ``calculate_workload``.
         k_partitions (int): Number of DP ranks.
-        mini_batch_size (int): Global mini-batch size in samples. Must be divisible by ``k_partitions``.
-            If it does not divide ``len(workload_list)``, the whole batch is balanced as one mini-batch.
+        mini_batch_size (int): Global mini-batch size in samples. Must divide ``len(workload_list)`` and be
+            divisible by ``k_partitions``.
         shuffle (bool): Randomly assign samples to mini-batches before balancing. Otherwise mini-batch ``i``
             holds samples ``[i * mini_batch_size, (i + 1) * mini_batch_size)``.
         seed: Seed for the shuffle, anything accepted by ``numpy.random.default_rng``.
@@ -285,8 +285,7 @@ def get_minibatch_balanced_partitions(
     if isinstance(workload_list, torch.Tensor):
         workload_list = workload_list.tolist()
     num_samples = len(workload_list)
-    if mini_batch_size <= 0 or num_samples % mini_batch_size != 0:
-        mini_batch_size = num_samples
+    assert num_samples % mini_batch_size == 0, f"{num_samples=} is not divisible by {mini_batch_size=}"
     assert mini_batch_size % k_partitions == 0, f"{mini_batch_size=} is not divisible by {k_partitions=}"
 
     order = np.random.default_rng(seed).permutation(num_samples).tolist() if shuffle else list(range(num_samples))

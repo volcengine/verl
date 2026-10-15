@@ -1184,6 +1184,8 @@ class RayPPOTrainer:
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix="global_seqlen"):
         """Shuffle samples into PPO mini-batches if enabled, then balance each mini-batch across DP ranks.
 
+        Falls back to balancing the whole batch when mini-batches can't be kept, see get_balance_mini_batch_size.
+
         When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
         the same uid together on the same rank for prefix sharing optimization.
         """
@@ -1226,13 +1228,14 @@ class RayPPOTrainer:
                 use_critic=self.use_critic,
                 update_actor=self.config.trainer.critic_warmup <= self.global_steps,
             )
-            if mini_batch_size <= 0 or batch_size % mini_batch_size != 0:
+            balanced = mini_batch_size > 0 and batch_size % mini_batch_size == 0
+            if not balanced:
                 mini_batch_size = batch_size
             global_partition_lst = get_minibatch_balanced_partitions(
                 workload_lst,
                 k_partitions=dp_size,
                 mini_batch_size=mini_batch_size,
-                shuffle=need_minibatch_shuffle(self.config, self.use_critic),
+                shuffle=balanced and need_minibatch_shuffle(self.config, self.use_critic),
                 seed=[self.config.actor_rollout_ref.actor.data_loader_seed, self.global_steps],
             )
             # Place smaller micro-batches at both ends to reduce the bubbles in pipeline parallel.
@@ -1245,7 +1248,7 @@ class RayPPOTrainer:
                     ordered_partition.extend(share[::2] + share[1::2][::-1])
                 global_partition_lst[idx] = ordered_partition
             # Already shuffled if enabled; a worker-side shuffle would break the per-mini-batch balance.
-            batch.meta_info["minibatch_balanced"] = True
+            batch.meta_info["minibatch_balanced"] = balanced
 
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         global_idx = torch.tensor([j for partition in global_partition_lst for j in partition])
@@ -1370,9 +1373,7 @@ class RayPPOTrainer:
             mini_batch_size=ppo_mini_batch_size,
             epochs=ppo_epochs,
             seed=seed,
-            # Shuffling samples on workers would break the per-mini-batch balance; reorder whole mini-batches.
             dataloader_kwargs={"shuffle": shuffle and not balanced},
-            shuffle_mini_batch_order=shuffle and balanced,
             compute_loss=True,
         )
         actor_output = self.actor_rollout_wg.update_actor(batch_td)
@@ -1400,9 +1401,7 @@ class RayPPOTrainer:
             mini_batch_size=ppo_mini_batch_size,
             epochs=ppo_epochs,
             seed=seed,
-            # Shuffling samples on workers would break the per-mini-batch balance; reorder whole mini-batches.
             dataloader_kwargs={"shuffle": shuffle and not balanced},
-            shuffle_mini_batch_order=shuffle and balanced,
         )
 
         output = self.critic_wg.train_mini_batch(batch_td)
@@ -1554,10 +1553,10 @@ class RayPPOTrainer:
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
-                    # Shuffle samples into PPO mini-batches if enabled, then balance the number of valid
-                    # tokens of each mini-batch across DP ranks.
+                    # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
-                    # which won't affect the advantage calculation (since it's based on uid).
+                    # which won't affect the advantage calculation (since it's based on uid),
+                    # but might affect the loss calculation (due to the change of mini-batching).
                     if self.config.trainer.balance_batch:
                         self._balance_batch(batch, metrics=metrics)
 

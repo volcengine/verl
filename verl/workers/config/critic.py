@@ -58,7 +58,7 @@ class CriticConfig(BaseConfig):
         ppo_max_token_len_per_gpu (int): Max tokens per GPU in one PPO batch.
         forward_max_token_len_per_gpu (int): Max token length per GPU in forward pass.
         ppo_epochs (int): Number of PPO epochs per batch.
-        shuffle (bool): Randomly assign samples to PPO mini-batches.
+        shuffle (bool): Shuffle training data across PPO epochs.
         cliprange_value (float): PPO value function clipping range.
         loss_agg_mode (str): Loss aggregation mode.
         loss_scale_factor (Optional[int]): Scale factor for 'seq-mean-token-sum-norm' loss aggregation mode.

@@ -118,8 +118,7 @@ kl_loss_type: low_var_kl
 # Number of PPO epochs per batch
 ppo_epochs: 1
 
-# Randomly assign samples to PPO mini-batches. With trainer.balance_batch, the trainer shuffles once per step
-# and balances each mini-batch across DP ranks; every PPO epoch then visits these mini-batches in a new order.
+# Shuffle training data across PPO epochs
 shuffle: false
 
 # The seed used to construct mini-batch

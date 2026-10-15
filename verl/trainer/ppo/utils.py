@@ -112,15 +112,14 @@ def get_balance_mini_batch_size(config: DictConfig, use_critic: bool, update_act
     """Return the largest global sample count that every PPO mini-batch of this step is a multiple of.
 
     Every actor and critic mini-batch is a run of consecutive chunks of this size, so balancing each chunk
-    across DP ranks balances all of them. Returns 0 if neither model is updated.
+    across DP ranks balances all of them. Returns 0, i.e. balance the whole batch, if no model is updated or
+    a model reshuffles its samples every epoch (``shuffle`` with ``ppo_epochs > 1``), which mixes the chunks.
     """
-    rollout_n = config.actor_rollout_ref.rollout.n
-    mini_batch_size = 0
-    if use_critic:
-        mini_batch_size = math.gcd(mini_batch_size, config.critic.ppo_mini_batch_size * rollout_n)
-    if update_actor:
-        mini_batch_size = math.gcd(mini_batch_size, config.actor_rollout_ref.actor.ppo_mini_batch_size * rollout_n)
-    return mini_batch_size
+    models = [config.critic] if use_critic else []
+    models += [config.actor_rollout_ref.actor] if update_actor else []
+    if any(model.shuffle and model.ppo_epochs > 1 for model in models):
+        return 0
+    return math.gcd(*(model.ppo_mini_batch_size * config.actor_rollout_ref.rollout.n for model in models))
 
 
 def need_minibatch_shuffle(config: DictConfig, use_critic: bool) -> bool:

@@ -258,7 +258,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
         epochs = tu.pop(data, key="epochs", default=1)
         seed = tu.pop(data, key="seed", default=42)
         dataloader_kwargs = tu.pop(data, key="dataloader_kwargs", default={})
-        shuffle_mini_batch_order = tu.pop(data, key="shuffle_mini_batch_order", default=False)
 
         assert mini_batch_size is not None or num_mini_batch is not None
 
@@ -276,10 +275,8 @@ class TrainingWorker(Worker, DistProfilerExtension):
             data,
             mini_batch_size=mini_batch_size_per_gpu,
             epochs=epochs,
-            # The i-th mini-batch of every DP rank must come from the same global mini-batch.
-            seed=seed if shuffle_mini_batch_order else seed + self.engine.get_data_parallel_rank(),
+            seed=seed + self.engine.get_data_parallel_rank(),
             dataloader_kwargs=dataloader_kwargs,
-            shuffle_mini_batch_order=shuffle_mini_batch_order,
         )
 
         with (
