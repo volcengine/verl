@@ -243,6 +243,28 @@ def test_get_vl_model_vision_tower_layouts():
             self.vpm = tower
             self.llm = nn.Module()
 
+    # Every family in verl.utils.model.VISION_TOWER_ATTRS gets one direct,
+    # one nested and one value-head-wrapped case — new families extend both
+    # the constant and this loop.
+    from verl.utils.model import VISION_TOWER_ATTRS
+
+    class _AttrTower(nn.Module):
+        def __init__(self, attr):
+            super().__init__()
+            setattr(self, attr, tower)
+            self.language_model = nn.Module()
+
+    class _NestedHolder(nn.Module):
+        def __init__(self, inner):
+            super().__init__()
+            self.model = inner
+
+    for _attr in VISION_TOWER_ATTRS:
+        _direct = _AttrTower(_attr)
+        assert get_vl_model_vision_tower(_direct) is tower, _attr
+        assert get_vl_model_vision_tower(_NestedHolder(_direct)) is tower, _attr
+        assert get_vl_model_vision_tower(_ValueHeadWrapper(_direct)) is tower, _attr
+
     class _TextOnly(nn.Module):
         pass
 

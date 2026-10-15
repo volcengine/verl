@@ -183,26 +183,34 @@ def get_model_size(model: nn.Module, scale="auto"):
     return n_params, scale
 
 
+# Attribute names under which generative VLMs in transformers register their
+# vision tower. New families: add the family's name here (and a layout case in
+# test_get_vl_model_vision_tower_layouts) — this is the single place to extend.
+#   visual       — Qwen2/2.5/3-VL, Qwen3.5, GLM-4V/Glm46V (nested), BridgeTower
+#   vision_tower — Kimi-VL, LLaVA, Gemma3/4, InternVL, Aya-Vision
+#   vision_model — Mllama, DeepSeek-VL, BLIP-2, PaLiGemma
+#   vpm          — MiniCPM-o (language model registers as ``llm``)
+VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vpm")
+
+
 def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
     """Return the vision tower of a vision-language model, or None if absent.
 
     Restored from the pre-0.8 ``fsdp_workers.py`` (dropped in the engine
-    refactor). Handles the attribute layouts across model families and
-    wrappers: ``model.visual`` (Qwen, GLM), ``model.vision_tower`` (Kimi-VL),
-    ``model.vision_model`` (Mllama), ``model.vpm`` (MiniCPM-o), the nested
-    ``model.model.*`` layout (transformers >= 4.52), and TRL value-head
+    refactor). Probes ``VISION_TOWER_ATTRS`` on the model, on the nested
+    ``model`` (transformers >= 4.52 layout), and through TRL value-head
     wrappers, which store the model under ``model.pretrained_model`` (so
     ``critic.freeze_vision_tower`` also reaches a value-head multimodal critic).
     """
     for candidate in (model, getattr(model, "pretrained_model", None)):
         if candidate is None:
             continue
-        for attr in ("visual", "vision_tower", "vision_model", "vpm"):
+        for attr in VISION_TOWER_ATTRS:
             if hasattr(candidate, attr):
                 return getattr(candidate, attr)
         inner = getattr(candidate, "model", None)
         if inner is not None:
-            for attr in ("visual", "vision_tower", "vision_model", "vpm"):
+            for attr in VISION_TOWER_ATTRS:
                 if hasattr(inner, attr):
                     return getattr(inner, attr)
     return None
