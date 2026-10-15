@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Rollout with vLLM, recompute old_log_probs with Megatron, and check the rollout-vs-actor log-prob gap.
+"""Rollout with vLLM / SGLang, recompute old_log_probs with Megatron, and check the rollout-vs-actor log-prob gap.
 
 Usage (8 GPUs):
     MODEL_PATH=~/models/Qwen3.5-0.8B EP=1 \
@@ -24,6 +24,9 @@ Usage (8 GPUs):
     # same, with Megatron ModelOpt QAT fake-quantizing to the rollout scheme
     MODEL_PATH=~/models/Qwen3.5-0.8B EP=1 QUANT_LINEAR=FP8_BLOCK QUANT_MOE=FP8_BLOCK QAT_MODE=fp8 \
         .venv/bin/python -m pytest -s tests/experimental/agent_loop/test_megatron_vllm_logprob_diff.py
+    # SGLang rollout
+    ENGINE=sglang MODEL_PATH=~/models/Qwen3.5-35B-A3B EP=8 QUANT_LINEAR=FP8_BLOCK QUANT_MOE=FP8_BLOCK \
+        .venv-sglang/bin/python -m pytest -s tests/experimental/agent_loop/test_megatron_vllm_logprob_diff.py
 """
 
 import json
@@ -49,6 +52,7 @@ CP = int(os.getenv("CP", 1))
 EP = int(os.getenv("EP", int(os.environ.get("EP", 1))))
 ETP = int(os.getenv("ETP", 1))
 GEN_TP = int(os.getenv("GEN_TP", 2))
+ENGINE = os.getenv("ENGINE", "vllm")
 N_GPUS = int(os.getenv("N_GPUS", 8))
 MAX_K3_KL = float(os.getenv("MAX_K3_KL", 1e-2))
 # Rollout compressed-tensors presets, e.g. QUANT_LINEAR=FP8_BLOCK QUANT_MOE=FP8_BLOCK; unset keeps the rollout in bf16.
@@ -80,7 +84,7 @@ def init_config() -> DictConfig:
                 "++actor_rollout_ref.actor.megatron.override_transformer_config.attention_backend=auto",
                 "+actor_rollout_ref.actor.megatron.override_transformer_config.moe_permute_fusion=True",
                 "+actor_rollout_ref.actor.megatron.override_transformer_config.moe_grouped_gemm=True",
-                "actor_rollout_ref.rollout.name=vllm",
+                f"actor_rollout_ref.rollout.name={ENGINE}",
                 "actor_rollout_ref.rollout.mode=async",
                 f"actor_rollout_ref.rollout.tensor_model_parallel_size={GEN_TP}",
                 "actor_rollout_ref.rollout.gpu_memory_utilization=0.6",

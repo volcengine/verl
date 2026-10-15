@@ -28,7 +28,7 @@ The rollout engine starts from a compressed-tensors `quantization_config` with d
   - Used in Deepseek, which is 1x128 quantization for activations and 128x128 quantization for model weights
 - Dense models and MoE models
 - Async rollout interfaces
-- vLLM rollout with the Megatron training backend; SGLang, TRT-LLM and FSDP are not supported
+- vLLM or SGLang rollout (SGLang validated on Hopper only) with the Megatron training backend; TRT-LLM and FSDP are not supported
 
 ### Usage
 

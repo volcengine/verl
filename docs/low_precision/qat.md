@@ -128,7 +128,7 @@ verl 内部（`verl/utils/qat/compressed_tensors.py`）生成 override 用的 co
 
    上例为 "linear MXFP8 + MoE MXFP4 (W4A16)"，MoE 部分与 Kimi-K3 自带的配置一致。各字段的具体取值需要与所用的 `compressed-tensors` 版本核对。
 
-4. **引擎**：目前只有 vLLM + Megatron 支持；SGLang / TRT-LLM 设置 `rollout.quantization` 会直接报错。
+4. **引擎**：vLLM 和 SGLang（训练侧目前只有 Megatron）支持；TRT-LLM 设置 `rollout.quantization` 会直接报错。SGLang 目前只验证了 Hopper 上的 FP8 block。
 
 #### 权重同步
 
@@ -141,7 +141,7 @@ verl 内部（`verl/utils/qat/compressed_tensors.py`）生成 override 用的 co
   2. **stage（权重同步前）**：把活跃参数暂存起来，为每个参数换上一个 checkpoint 布局的 staging buffer，并带上 `weight_loader` 等参数元数据，供 `load_weights` 写入。只要字节数相同，就直接 reinterpret 原有存储（例如 MXFP4 expert 权重在 DeepGEMM 和 Marlin 下都是这样），不额外分配显存；只有元素个数会变化的参数（主要是 block scale，大小约为权重的 1/16）才需要新分配。权重按 bucket 流式写入，不会把整层攒在一起。
   3. **process（全部 bucket 加载完之后）**：重新执行原有的 `process_weights_after_loading`，同时 patch `replace_parameter`，把后处理结果 `copy_` 回原来的活跃参数存储，CUDA graph 捕获的地址保持不变。这一步必须在 `replace_parameter` 调用时就写回，因为 MoE 的 `_setup_kernel` 末尾会用当时 layer 上的张量重建 `moe_quant_config` 和 `moe_kernel`。
 - 新增 compressed-tensors scheme（MXFP8、MXFP4、NVFP4 的 linear 和 MoE）时，按同样的模式实现各自的 stage/process：从 `create_weights` 推导出 checkpoint 布局，拦截对应模块里的 `replace_parameter`，并对不能原地写回的后端（如参数不以 Parameter 形式存放的 Triton MXFP4 后端）显式报错。注意 compressed-tensors MXFP4 MoE 会在后处理中把 `w13_weight_packed` 改名为 `w13_weight`，stage 时需要恢复成 checkpoint 中的参数名。
-- SGLang 侧沿用 trainer 侧量化后 `update_weights_from_tensor` 的方式。compressed-tensors 方案下是否会重新执行后处理，需要验证。
+- SGLang 侧沿用 trainer 侧量化后 `update_weights_from_tensor` 的方式，它只调用 `load_weights`，不会重新执行 `process_weights_after_loading`。Hopper 上 compressed-tensors FP8 block 的 linear 和 Triton MoE 后处理不改写 weight/scale 布局，因此可以直接写回，不需要 patch。Blackwell 上 DeepGEMM 会把 block scale 改写成 UE8M0、FlashInfer TRTLLM MoE 会交换 w13，届时需要像 vLLM 一样实现 stage/process。
 
 #### 注意事项
 

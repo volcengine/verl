@@ -300,8 +300,13 @@ class SGLangHttpServer:
         # (e.g. text "flashinfer" vs vision "flashinfer_cudnn"), so don't mirror it.
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
+        model_override_args = {}
         if self.config.quantization.enabled:
-            raise NotImplementedError("rollout.quantization is only supported by vLLM")
+            # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
+            # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
+            quantization_config = self.config.quantization.build_quantization_config(self.model_config.local_path)
+            model_override_args["quantization_config"] = quantization_config
+            logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,
@@ -324,7 +329,7 @@ class SGLangHttpServer:
             "attention_backend": attention_backend,
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
             "skip_server_warmup": True,
-            "json_model_override_args": json.dumps({}),
+            "json_model_override_args": json.dumps(model_override_args),
             "custom_weight_loader": custom_weight_loader or None,
             **engine_kwargs,
         }
