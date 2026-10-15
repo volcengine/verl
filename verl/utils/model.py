@@ -189,8 +189,9 @@ def get_model_size(model: nn.Module, scale="auto"):
 #   visual       — Qwen2/2.5/3-VL, Qwen3.5, GLM-4V/Glm46V (nested), BridgeTower
 #   vision_tower — Kimi-VL, LLaVA, Gemma3/4, InternVL, Aya-Vision
 #   vision_model — Mllama, DeepSeek-VL, BLIP-2, PaLiGemma
+#   vision       — DeepSeek-VL2 (remote code)
 #   vpm          — MiniCPM-o (language model registers as ``llm``)
-VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vpm")
+VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vision", "vpm")
 
 
 def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
