@@ -264,6 +264,11 @@ class FSDPEngine(BaseEngine):
         from verl.utils.model import get_hf_auto_model_class
         from verl.utils.torch_dtypes import PrecisionType
 
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import build_meta_model
+
+            return build_meta_model(self.model_config, self.engine_config)
+
         torch_dtype = self.engine_config.model_dtype
 
         if torch_dtype is None:
@@ -346,6 +351,11 @@ class FSDPEngine(BaseEngine):
         return module
 
     def _build_lora_module(self, module):
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import build_lora_model
+
+            return build_lora_model(module, self.model_config)
+
         module.enable_input_require_grads()
 
         lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
@@ -392,6 +402,14 @@ class FSDPEngine(BaseEngine):
         return module
 
     def _build_fsdp_module(self, module):
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import shard_and_load
+
+            # Step5 explicitly mixes BF16 projections with FP32 routing/norms.
+            self._autocast_dtype = torch.float32
+            self.scaler = None
+            return shard_and_load(module, self.model_config, self.engine_config, self.device_mesh)
+
         # TODO(ziheng): need to improve
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
 
@@ -1024,6 +1042,18 @@ class FSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
+                if not base_sync_done and self.model_config.hf_config.model_type == "step5":
+                    raise ValueError(
+                        "Step5 syncs adapters only; the rollout loads the base weights itself: "
+                        "set rollout.load_format=safetensors (not dummy) and checkpoint_engine.backend=naive"
+                    )
+                if base_sync_done and self.model_config.hf_config.model_type == "step5":
+                    # Adapter-only sync: stream per-expert BF16 tensors instead of staging every adapter on the host.
+                    from verl.models.transformers.step5.lora import stream_text_lora
+
+                    return stream_text_lora(
+                        peft_model, peft_config, self.model_config.hf_config.moe_num_experts, torch.bfloat16
+                    )
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,
@@ -1118,6 +1148,8 @@ class FSDPEngine(BaseEngine):
 
     def _get_hf_export_per_tensor_param(self):
         """Full HF-format weights for the checkpoint 'hf_model' export, with LoRA adapters merged."""
+        if self._is_lora and self.model_config.hf_config.model_type == "step5":
+            raise ValueError("Step5 LoRA cannot be merged into an hf_model checkpoint; save the adapter only")
         if self._is_lora:
             return self._merged_lora_per_tensor_param(), None
         return self.get_per_tensor_param()
