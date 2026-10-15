@@ -354,23 +354,49 @@ RUN printf 'verl\n' > README.md
 FROM deps AS prefetch
 # The git-sourced deps (VeOmni, Megatron) are large repos whose full-history
 # fetch is commonly reset by a middlebox (curl 56 / early EOF / invalid
-# index-pack) while receiving objects. uv only needs the single pinned commit,
-# and versions are read from committed files (veomni/_version.py, megatron's
-# package_info.py runs `git rev-parse --short HEAD`), so no history/tags are
-# needed. Install a transient git shim for THIS step only: shallow fetch over
-# HTTP/1.1 with retries, then remove it so the shim never ships in the image.
-RUN printf '%s\n' \
-        '#!/bin/sh' \
-        'if [ "$1" = "fetch" ]; then' \
-        '    shift; n=0' \
-        '    until [ $n -ge 6 ]; do' \
-        '        /usr/bin/git -c http.version=HTTP/1.1 fetch --depth 1 "$@" && exit 0' \
-        '        n=$((n+1)); echo "uv git fetch: retry $n after network reset" >&2' \
-        '        sleep $((n*3))' \
-        '    done; exit 1' \
-        'fi' \
-        'exec /usr/bin/git "$@"' > /usr/local/bin/git \
-    && chmod +x /usr/local/bin/git \
+# index-pack) while receiving objects. uv only needs the single pinned commit
+# and versions come from committed files (veomni/_version.py; megatron's
+# package_info.py runs `git rev-parse --short HEAD`), so no history is needed.
+# Install a THROWAWAY git shim for THIS step only: it recognises uv's fetch
+# (`git fetch <url> +<sha>:refs/commit/<sha>`) and replaces it with a shallow,
+# protocol-v2 fetch of exactly that commit (GitHub allows fetching an arbitrary
+# reachable SHA over v2, but NOT `--depth 1` with the SHA as a refspec source),
+# then writes the refs/commit/<sha> ref uv subsequently resets to. HTTP/1.1 plus
+# retries dodges the middlebox RST. Non-matching calls pass straight through.
+# The shim is removed afterwards so it never ships in the image.
+RUN cat > /usr/local/bin/git <<'EOF'
+#!/bin/sh
+G=/usr/bin/git
+if [ "$1" = "fetch" ]; then
+    shift
+    url=""; spec=""
+    for a in "$@"; do
+        case "$a" in
+            http://*|https://*) url=$a ;;
+            *:refs/commit/*)    spec=$a ;;
+        esac
+    done
+    dst=${spec##*:}
+    if [ -n "$url" ] && printf '%s' "$dst" | grep -Eq '^[0-9a-f]{40}$'; then
+        "$G" remote remove uvshim >/dev/null 2>&1
+        "$G" remote add uvshim "$url"
+        n=0
+        until [ "$n" -ge 6 ]; do
+            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 \
+                    fetch --depth 1 uvshim "$dst" >&2 \
+               && "$G" update-ref "refs/commit/$dst" "$dst"; then
+                exit 0
+            fi
+            n=$((n+1)); echo "uv shim git fetch: retry $n after network reset" >&2
+            sleep $((n*3))
+        done
+        exit 1
+    fi
+    exec "$G" fetch "$@"
+fi
+exec "$G" "$@"
+EOF
+RUN chmod +x /usr/local/bin/git \
     && UV_GIT_FETCH_WITH_CLI=true python3 manage_envs.py prefetch cu130 dev -- --frozen; \
     rc=$?; rm -f /usr/local/bin/git; exit $rc
 
