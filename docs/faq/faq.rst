@@ -1,7 +1,7 @@
 Frequently Asked Questions
 ====================================
 
-Last updated: 09/24/2025.
+Last updated: 10/13/2026.
 
 Ray related
 ------------
@@ -143,6 +143,16 @@ https://verl.readthedocs.io/en/latest/examples/config.html to disable just-in-ti
 
 What is the meaning of train batch size, mini batch size, and micro batch size?
 ------------------------------------------------------------------------------------------
+
+``data.train_batch_size`` counts global prompts. The configured actor
+``ppo_mini_batch_size`` is also in global prompt-equivalent units; multiply
+it by ``actor_rollout_ref.rollout.n`` to obtain training trajectories per
+optimizer update. In contrast, ``ppo_micro_batch_size_per_gpu`` counts
+local trajectories per forward/backward pass in fixed-size batching.
+
+See the :ref:`GRPO batching example <grpo-batch-size-example>` for an 8-DP-rank
+example, gradient-accumulation and ``ppo_epochs`` calculations, and the
+differences from dynamic and forward-only micro-batching.
 
 This figure illustrates the relationship between different batch size configurations.
 

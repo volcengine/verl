@@ -3,7 +3,7 @@
 Config Explanation
 ===================
 
-Last updated: 08/24/2026.
+Last updated: 10/13/2026.
 
 ppo_trainer.yaml for RL FSDP Backend
 -------------------------------------
@@ -276,9 +276,11 @@ Actor/Rollout/Reference Policy
 - ``actor_rollout_ref.actor.strategy``: fsdp or megatron. In this
   example, we use fsdp backend.
 
-- ``actor_rollout_ref.actor.ppo_mini_batch_size``: One sample is split
-  into multiple sub-batches with batch_size=ppo_mini_batch_size for PPO
-  updates. The ppo_mini_batch_size is a global num across all workers/gpus
+- ``actor_rollout_ref.actor.ppo_mini_batch_size``: Global actor mini-batch size
+  in prompt-equivalent units. The trainer multiplies it by
+  ``actor_rollout_ref.rollout.n`` to get the trajectory count per optimizer
+  update, then partitions it across actor data-parallel ranks. See the
+  :ref:`GRPO batching example <grpo-batch-size-example>` for a worked calculation.
 
 - ``actor_rollout_ref.actor.ppo_micro_batch_size``: [Will be deprecated, use ppo_micro_batch_size_per_gpu] 
   Similar to gradient accumulation, the micro_batch_size_per_gpu for one forward pass,
