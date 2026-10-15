@@ -88,11 +88,15 @@ class BucketedWeightSender:
         zmq_handle: str,
         bucket_size_mb: int = 512,
         use_shm: bool = False,
+        unique_names: bool = False,
     ):
         self.zmq_handle = zmq_handle
         self.bucket_size_mb = bucket_size_mb
         self.bucket_size = int(bucket_size_mb) << 20
         self.use_shm = use_shm
+        # Refuse a repeated name (a LoRA adapter has one tensor per name). Off by default: other callers may
+        # legitimately send a name again, which then loads twice in order.
+        self.unique_names = unique_names
 
         self.zmq_context = zmq.Context.instance()
         self.socket = None
@@ -115,8 +119,15 @@ class BucketedWeightSender:
             # send bucket weights
             offset = 0
             bucket_meta: dict[str, TensorMetadata] = {}
+            # With unique_names, a repeated name is refused here, where the error reaches the trainer: within a
+            # bucket bucket_meta would collapse it, so the receiver cannot see it reliably.
+            sent: set[str] = set()
             # dtype = PrecisionType.to_dtype(self.config.dtype)
             async for name, weight in ensure_async_iterator(weights):
+                if self.unique_names:
+                    if name in sent:
+                        raise ValueError(f"weight {name} was sent more than once in one sync")
+                    sent.add(name)
                 # model parameters are in fp32 full precision
                 # (vermouth1992) we should not force cast weight here because some parameters
                 # (such as moe gate) have to keep fp32 precision. If a weight is bf16 in the rollout side,

@@ -237,6 +237,8 @@ class ServerAdapter(BaseRollout):
             zmq_handle=self.zmq_handle,
             bucket_size_mb=bucket_size_mb,
             use_shm=self.use_shm,
+            # A LoRA adapter sync: the receiver keys tensors by name, so a repeat would replace one silently.
+            unique_names=bool(kwargs.get("peft_config")) and bool(kwargs.get("base_sync_done")),
         )
         await sender.async_send_weights(weights)
 

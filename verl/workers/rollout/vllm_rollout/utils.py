@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional, get_args
 import torch
 from vllm.outputs import RequestOutput
 
-from verl.utils.device import get_device_name, is_npu_available
+from verl.utils.device import get_device_name, get_torch_device, is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, resolve_weight_name
 from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.rocm_vllm_moe_expert_map import restore_moe_expert_maps
@@ -44,6 +44,7 @@ from verl.workers.rollout.vllm_rollout.weight_update_utils import (
     apply_buffer_updates,
     drop_tied_alias_updates,
     split_buffer_updates,
+    stage_lora_bucket,
 )
 
 logger = logging.getLogger(__file__)
@@ -144,6 +145,29 @@ def monkey_patch_compute_logits(model, vocab_size: int, banned_token_ids: Option
         return logits
 
     model.compute_logits = MethodType(compute_logits, model)
+
+
+class _DroppedHostCopy(dict):
+    """Stands in for ``LoRAModel.loras`` after the host tensors were released.
+
+    Reading, copying or updating it raises; ``len()`` and ``bool()`` still report an empty mapping."""
+
+    def _dropped(self, *args, **kwargs):
+        raise RuntimeError("the host copy of this adapter was released after it was loaded onto the GPU")
+
+    get = __getitem__ = __contains__ = __iter__ = values = items = keys = pop = _dropped
+    copy = setdefault = update = __or__ = __ror__ = __ior__ = _dropped
+
+
+def _release_pinned_host_cache():
+    """Return torch's cached pinned host blocks to the OS.
+
+    Blocks with pending copies (vLLM copies adapter weights to the GPU without blocking) are skipped by the
+    allocator, so wait for the device first."""
+    empty_host_cache = getattr(torch._C, "_host_emptyCache", None)
+    if empty_host_cache is not None:
+        get_torch_device().synchronize()
+        empty_host_cache()
 
 
 class vLLMColocateWorkerExtension:
@@ -316,17 +340,29 @@ class vLLMColocateWorkerExtension:
         # the bucketed transport may split one across buckets. Accumulate and
         # apply only after ``is_last``; standard base weights load per bucket.
         lora_weights: dict[str, torch.Tensor] | None = {} if (peft_config and base_sync_done) else None
+        lora_dtype = None
+        if lora_weights is not None:
+            lora_config = getattr(getattr(self.model_runner, "lora_manager", None), "lora_config", None)
+            lora_dtype = getattr(lora_config, "lora_dtype", None)
 
         def on_bucket_received(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
             if lora_weights is not None:
-                # Clone: add_lora keeps these past the callback (reused IPC buffer, #6454).
-                lora_weights.update((name, tensor.clone()) for name, tensor in weights)
+                # Copy out of the reused IPC buffer (add_lora keeps the tensors past the
+                # callback, #6454): one host block per bucket, in the adapter dtype.
+                # Names are unique: the sender refuses a repeated one.
+                # vLLM stacks the expert factors into new tensors and keeps every other view: separate blocks,
+                # so the expert block is freed once stacked instead of being held by a small view sharing it.
+                experts = [item for item in weights if ".experts." in item[0]]
+                others = [item for item in weights if ".experts." not in item[0]]
+                lora_weights.update(stage_lora_bucket(experts, lora_dtype))
+                lora_weights.update(stage_lora_bucket(others, lora_dtype))
                 if not is_last:
                     return
                 self._update_weights(
                     list(lora_weights.items()),
                     peft_config=peft_config,
                     base_sync_done=base_sync_done,
+                    weights_owned=True,
                 )
                 lora_weights.clear()
                 return
@@ -337,6 +373,10 @@ class vLLMColocateWorkerExtension:
             )
 
         receiver.receive_weights(on_bucket_received=on_bucket_received)
+        if lora_weights is not None and getattr(self, "_lora_host_copy_dropped", False):
+            # Only now is every staged bucket released (the callback has returned): hand the pinned blocks of the
+            # staged buckets and of the dropped host copy back to the OS instead of torch's host cache.
+            _release_pinned_host_cache()
 
         # =========================== step 3: process weights after loading ===========================
         if self._is_qat_model:
@@ -376,16 +416,46 @@ class vLLMColocateWorkerExtension:
             apply_buffer_updates(model, buffer_updates)
         return loaded
 
+    def _drop_lora_host_copy(self, lora_id: int):
+        """Free the host tensors of an adapter that is active on the GPU.
+
+        vLLM keeps every registered adapter on pinned host memory so it can be moved into a GPU slot again
+        after an eviction. With one adapter that is replaced on every sync this copy is never read again,
+        and for a per-expert MoE LoRA it is tens of GB of unevictable memory per TP worker, next to the
+        level-1 sleep backup of the base weights. The registered entry stays (vLLM still lists the
+        adapter); its tensors are replaced by a mapping that raises, so an unexpected second activation
+        fails loudly instead of loading an empty adapter. With room for more than one adapter (on the GPU or
+        in vLLM's host cache) another adapter can evict this one and its reactivation reads the host copy,
+        so the copy is kept then.
+        """
+        lora_config = self.model_runner.lora_manager.lora_config
+        slots = (lora_config.max_loras, getattr(lora_config, "max_cpu_loras", None) or lora_config.max_loras)
+        if max(slots) > 1:
+            logger.warning(
+                "VERL_LORA_DROP_HOST_COPY=1 ignored: max_loras=%d, max_cpu_loras=%d allow an eviction", *slots
+            )
+            return False
+        manager = self.model_runner.lora_manager._adapter_manager
+        manager.activate_adapter(lora_id)  # no-op when add_lora already activated it
+        if lora_id not in manager.lora_index_to_id:
+            raise RuntimeError(f"adapter {lora_id} is not active on the GPU, keeping its host copy")
+        adapter = manager.get_adapter(lora_id)
+        adapter.loras = _DroppedHostCopy()
+        logger.info("released the host copy of adapter %d", lora_id)
+        return True
+
     def _update_weights(
         self,
         weights: list[tuple[str, torch.Tensor]],
         peft_config: dict,
         base_sync_done: bool,
+        weights_owned: bool = False,
     ):
         if peft_config and base_sync_done:
-            # Clone out of the receiver's reused IPC bucket buffer: add_lora keeps these tensors
-            # past this callback, so views into the freed/overwritten buffer crash later (#6454).
-            weights = {name: tensor.clone() for name, tensor in weights}
+            # add_lora keeps these tensors past this callback, so views into the receiver's
+            # reused IPC bucket buffer crash later (#6454). ``weights_owned``: the caller
+            # already copied them out.
+            weights = dict(weights) if weights_owned else {name: tensor.clone() for name, tensor in weights}
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,
@@ -395,6 +465,9 @@ class vLLMColocateWorkerExtension:
             )
             self.add_lora(lora_request)
             logger.info(f"vLLM load weights, loaded_params: {len(weights)}")
+            del weights, lora_request
+            if os.environ.get("VERL_LORA_DROP_HOST_COPY", "0") == "1":
+                self._lora_host_copy_dropped = self._drop_lora_host_copy(VLLM_LORA_INT_ID)
         else:
             param_updates, buffer_updates, named_buffers = split_buffer_updates(self.model_runner.model, weights)
             # Add the FP8 related logic here as sharding manager has been deprecated.
