@@ -82,8 +82,15 @@ class RouterReplay:
         for router in RouterReplay.router_instances:
             router.clear_indices()
 
-    def __init__(self):
-        """Initializes a RouterReplay instance for a specific layer."""
+    def __init__(self, is_mtp_layer: bool = False):
+        """Initializes a RouterReplay instance for a specific layer.
+
+        ``Megatron-LM`` passes this marker when constructing routers so that
+        replay state can distinguish base-model and MTP routers.  Keep the
+        marker even though the legacy verl replay helpers do not currently
+        filter on it.
+        """
+        self.is_mtp_layer = is_mtp_layer
         self.target_topk_idx = None  # For replay
         self.target_replay_mask = None
         self.recorded_topk_idx = None  # For recording
