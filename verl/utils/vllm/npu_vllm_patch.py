@@ -428,6 +428,7 @@ def apply_npu_vllm_patches() -> None:
     import vllm
     from packaging import version
 
+    # Raw parse on purpose: these patches target one release window, and an untagged build cannot be placed in it.
     _VLLM_VERSION = version.parse(getattr(vllm, "__version__", "0.0.0"))
     if version.parse("0.23.0") <= _VLLM_VERSION < version.parse("0.24.0"):
         # On ARM hosts (e.g. Atlas A2) the scheduler busy-wait with sched_yield degrades badly.
