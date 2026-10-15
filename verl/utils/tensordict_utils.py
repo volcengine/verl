@@ -590,6 +590,8 @@ def make_iterator(
     from torch.utils.data import DataLoader
 
     assert tensordict.batch_size[0] % mini_batch_size == 0, f"{tensordict.batch_size[0]} % {mini_batch_size} != 0"
+    # Every DP rank must visit the same global mini-batch at each step, so the order must be seeded.
+    assert seed is not None or not shuffle_mini_batch_order, "shuffle_mini_batch_order requires a seed"
     # we can directly create a dataloader from TensorDict
     if dataloader_kwargs is None:
         dataloader_kwargs = {}
