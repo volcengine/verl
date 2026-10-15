@@ -352,7 +352,27 @@ RUN printf 'verl\n' > README.md
 # `uv run` / `uv sync` then resolves from it offline.
 # ---------------------------------------------------------------------------
 FROM deps AS prefetch
-RUN python3 manage_envs.py prefetch cu130 dev -- --frozen
+# The git-sourced deps (VeOmni, Megatron) are large repos whose full-history
+# fetch is commonly reset by a middlebox (curl 56 / early EOF / invalid
+# index-pack) while receiving objects. uv only needs the single pinned commit,
+# and versions are read from committed files (veomni/_version.py, megatron's
+# package_info.py runs `git rev-parse --short HEAD`), so no history/tags are
+# needed. Install a transient git shim for THIS step only: shallow fetch over
+# HTTP/1.1 with retries, then remove it so the shim never ships in the image.
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'if [ "$1" = "fetch" ]; then' \
+        '    shift; n=0' \
+        '    until [ $n -ge 6 ]; do' \
+        '        /usr/bin/git -c http.version=HTTP/1.1 fetch --depth 1 "$@" && exit 0' \
+        '        n=$((n+1)); echo "uv git fetch: retry $n after network reset" >&2' \
+        '        sleep $((n*3))' \
+        '    done; exit 1' \
+        'fi' \
+        'exec /usr/bin/git "$@"' > /usr/local/bin/git \
+    && chmod +x /usr/local/bin/git \
+    && UV_GIT_FETCH_WITH_CLI=true python3 manage_envs.py prefetch cu130 dev -- --frozen; \
+    rc=$?; rm -f /usr/local/bin/git; exit $rc
 
 # ---------------------------------------------------------------------------
 # source / lock: full source tree, used only to (re)generate uv.lock. Build
