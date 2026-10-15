@@ -145,7 +145,8 @@ def monkey_patch_compute_logits(
                 banned_index = banned_index.to(logits.device)
             logits.index_fill_(-1, banned_index, float("-inf"))
         if logits_temperature != 1.0:
-            logits.div_(logits_temperature)
+            # Promote before division; vLLM's later float32 log-softmax cannot undo overflow.
+            logits = logits.float().div_(logits_temperature)
         return logits
 
     model.compute_logits = MethodType(compute_logits, model)

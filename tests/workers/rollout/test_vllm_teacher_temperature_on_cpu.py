@@ -64,11 +64,28 @@ def test_teacher_logprobs_match_student_temperature(temperature, monkeypatch):
     torch.testing.assert_close(teacher_logprobs.gather(-1, observed_ids), student_logprobs.gather(-1, observed_ids))
 
 
-def test_default_temperature_preserves_rollout_logits():
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_low_precision_teacher_scores_at_small_temperature(dtype):
+    """Temperature scaling must not overflow or round logits in the model dtype."""
     model = FakeModel()
-    logits = torch.tensor([[0.0, 1.0, 2.0, 3.0, 4.0]])
+    temperature = 0.0001
+    logits = torch.tensor([[20.0, 19.0, -20.0, 80.0, 100.0]], dtype=dtype)
+    utils.monkey_patch_compute_logits(model, vocab_size=4, banned_token_ids=[3], logits_temperature=temperature)
+    logprobs = Sampler.compute_logprobs(model.compute_logits(logits))
+
+    assert torch.isfinite(logprobs[:, :3]).all()
+    assert torch.isneginf(logprobs[:, 3:]).all()
+    expected = (logits[:, :3].float() / temperature).log_softmax(-1)
+    torch.testing.assert_close(logprobs[:, :3], expected)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+def test_default_temperature_preserves_rollout_logits(dtype):
+    model = FakeModel()
+    logits = torch.tensor([[0.0, 1.0, 2.0, 3.0, 4.0]], dtype=dtype)
     utils.monkey_patch_compute_logits(model, vocab_size=4)
     output = model.compute_logits(logits)
+    assert output.dtype == dtype
     assert torch.equal(output[:, :4], logits[:, :4])
     assert torch.isneginf(output[:, 4]).all()
 
