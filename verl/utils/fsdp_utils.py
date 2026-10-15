@@ -91,7 +91,9 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
             every rank at model forward entry, so they impose no cross-rank
             invocation-count alignment requirement (cf. #3491, #7323). Matching
             is by class name here (FSDP1's policy is class-based); the FSDP2
-            path (``apply_fsdp2``) matches by module identity.
+            path (``apply_fsdp2``) matches by module identity. If the exclusion
+            removes every wrap class, no per-module policy is built and the
+            model trains in the root unit (as ``apply_fsdp2`` already does).
     """
     if config is None:
         config = {}
@@ -128,8 +130,16 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     # LoRA lambda policy, but only when min_num_params == 0: mixing it with the
     # size policy nests FSDP units whose allgather order can diverge (NCCL deadlock).
     if is_lora and min_num_params == 0:
+        # Trainable LoRA leaves inside a wrap-excluded module (e.g. a frozen vision
+        # tower with vision LoRA) must stay out of per-module wrapping too: a rank
+        # that skips the tower would never enter those units and desynchronize the
+        # collective order across ranks (#3491). They join the root FSDP unit,
+        # which all-gathers on every rank at model forward entry.
+        excluded_leaf_ids = {id(sub) for m in (exclude_modules or []) for sub in m.modules()}
 
         def lambda_policy_fn(module):
+            if id(module) in excluded_leaf_ids:
+                return False
             return bool(
                 len(list(module.named_children())) == 0
                 and getattr(module, "weight", None) is not None
@@ -145,6 +155,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     elif fsdp_transformer_layer_cls_to_wrap is not None:
         transformer_cls_to_wrap = set()
         missing_classes = []
+        excluded = set()
         for layer_class in fsdp_transformer_layer_cls_to_wrap:
             transformer_cls = get_module_class_from_name(module, layer_class)
             if transformer_cls is None:
@@ -179,7 +190,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
                     sorted(c.__name__ for c in excluded),
                 )
 
-        if not transformer_cls_to_wrap:
+        if not transformer_cls_to_wrap and not excluded:
             raise Exception(
                 f"Could not find any of the transformer layer classes to wrap in the model: "
                 f"{list(fsdp_transformer_layer_cls_to_wrap)}"
@@ -191,16 +202,50 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
                 sorted(c.__name__ for c in transformer_cls_to_wrap),
             )
 
-        transformer_policy = functools.partial(
-            transformer_auto_wrap_policy,
-            transformer_layer_cls=transformer_cls_to_wrap,
-        )
-        policies.append(transformer_policy)
+        if transformer_cls_to_wrap:
+            transformer_policy = functools.partial(
+                transformer_auto_wrap_policy,
+                transformer_layer_cls=transformer_cls_to_wrap,
+            )
+            policies.append(transformer_policy)
+        else:
+            # Exclusion removed every wrap class (e.g. a model whose
+            # _no_split_modules lists only vision-block classes): wrap nothing
+            # per-module and let the root FSDP unit hold everything, as the FSDP2
+            # path (apply_fsdp2) already does.
+            logger.info(
+                "FSDP wrap policy: exclusion removed all wrap classes (%s); the model trains in the root FSDP unit",
+                list(fsdp_transformer_layer_cls_to_wrap),
+            )
 
     if len(policies) > 0:
         auto_wrap_policy = functools.partial(_or_policy, policies=policies)
 
     return auto_wrap_policy
+
+
+def mark_frozen_vision_tower_for_skip(vision_tower) -> bool:
+    """Mark a frozen vision tower so the multimodal adapters may skip the dummy
+    visual forward on text-only batches (cf. #3496).
+
+    Returns True iff the tower was marked. Marking requires that the tower holds
+    no trainable params: with the tower wrap-excluded into the root FSDP unit,
+    a text-only rank never enters it while an image rank does, so a trainable
+    param inside would receive gradients on some ranks only — FSDP1's root-unit
+    gradient reduce does not support that (verified on torch 2.11: a 2-rank
+    mixed-modality backward hangs). Towers with trainable params inside (vision
+    LoRA, QAT linears) keep the dummy forward, which makes every rank enter the
+    tower once per step — the unmodified behavior.
+    """
+    if any(p.requires_grad for p in vision_tower.parameters()):
+        logger.warning(
+            "freeze_vision_tower: trainable params found inside the vision tower "
+            "(e.g. vision LoRA or QAT); keeping the dummy visual forward (#3496): ranks "
+            "enter the tower asymmetrically on mixed-modality batches otherwise"
+        )
+        return False
+    vision_tower._verl_frozen_vision_tower = True
+    return True
 
 
 @torch.no_grad()

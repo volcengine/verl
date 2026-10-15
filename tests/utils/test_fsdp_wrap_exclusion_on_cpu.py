@@ -98,14 +98,77 @@ def test_fsdp1_policy_without_exclusion_wraps_vision_blocks():
     assert classes == {_MockDecoderLayer, _MockVisionBlock}, f"expected both classes, got {classes}"
 
 
-def test_fsdp1_policy_raises_when_exclusion_removes_all_classes():
-    """Excluding the only wrap class must raise, not silently no-op."""
+def test_fsdp1_policy_allows_exclusion_removing_all_classes():
+    """Excluding the only wrap class wraps nothing per-module (root unit holds
+    everything), matching the FSDP2 path; genuinely missing classes still raise."""
     import pytest
 
     model = _VisionOnlyVLM()
     assert get_fsdp_wrap_policy(model) is not None, "without exclusion the policy should build"
+    assert get_fsdp_wrap_policy(model, exclude_modules=[model.visual]) is None, (
+        "exclusion removing all wrap classes must build no per-module policy, not raise"
+    )
+
+    class _MissingClassVLM(_MockVLM):
+        _no_split_modules = ["_NoSuchLayerClass"]
+
     with pytest.raises(Exception, match="Could not find any of the transformer layer classes"):
-        get_fsdp_wrap_policy(model, exclude_modules=[model.visual])
+        get_fsdp_wrap_policy(_MissingClassVLM())
+
+
+def _lora_leaf(where):
+    """Attach a trainable LoRA-like linear leaf, as PEFT does."""
+    leaf = nn.Linear(32, 32)
+    where.lora_A = leaf
+    return leaf
+
+
+def _lambda_fn_from_policy(policy):
+    """Extract the LoRA lambda_fn from the FSDP1 policy partial chain."""
+    lambda_policy = policy.keywords["policies"][0]
+    return lambda_policy.keywords["lambda_fn"]
+
+
+def test_fsdp1_lora_policy_excludes_leaves_inside_excluded_tower():
+    """Trainable LoRA leaves inside the frozen, wrap-excluded tower must not be
+    wrapped individually: a rank that skips the tower would never enter those
+    units and desynchronize collective order (#3491). They join the root unit."""
+    model = _MockVLM()
+    model.visual.requires_grad_(False)
+    tower_leaf = _lora_leaf(model.visual)
+    lang_leaf = _lora_leaf(model.layers[0])
+
+    lambda_fn = _lambda_fn_from_policy(get_fsdp_wrap_policy(model, is_lora=True, exclude_modules=[model.visual]))
+    assert lambda_fn(tower_leaf) is False, "tower LoRA leaf must not be individually wrapped"
+    assert lambda_fn(lang_leaf) is True, "language LoRA leaf must stay individually wrapped"
+
+
+def test_fsdp1_lora_policy_without_exclusion_wraps_tower_leaves():
+    """Without exclusion (freeze off) the LoRA policy is unchanged."""
+    model = _MockVLM()
+    tower_leaf = _lora_leaf(model.visual)
+
+    lambda_fn = _lambda_fn_from_policy(get_fsdp_wrap_policy(model, is_lora=True))
+    assert lambda_fn(tower_leaf) is True, "no exclusion: LoRA leaves are wrapped as before"
+
+
+def test_mark_frozen_vision_tower_for_skip_gates_on_trainable_params():
+    """The engine marks only towers with no trainable params inside: with the
+    tower wrap-excluded into the root FSDP unit, a trainable param inside would
+    get grads on image ranks only on mixed-modality batches, which FSDP1's
+    root-unit gradient reduce does not support (verified to hang)."""
+    from verl.utils.fsdp_utils import mark_frozen_vision_tower_for_skip
+
+    tower = _MockVisionTower()
+    tower.requires_grad_(False)
+    assert mark_frozen_vision_tower_for_skip(tower) is True
+    assert getattr(tower, "_verl_frozen_vision_tower", False) is True
+
+    tower_with_adapter = _MockVisionTower()
+    tower_with_adapter.requires_grad_(False)
+    _lora_leaf(tower_with_adapter)  # trainable leaf, as PEFT attaches
+    assert mark_frozen_vision_tower_for_skip(tower_with_adapter) is False
+    assert not hasattr(tower_with_adapter, "_verl_frozen_vision_tower")
 
 
 def test_fsdp2_targets_exclude_frozen_vision_tower():

@@ -499,7 +499,14 @@ def _get_input_embeds(
         # params join the root unit — FSDPEngine marks such towers with
         # _verl_frozen_vision_tower and only that marker may skip the forward
         # (requires_grad alone is not safe: PEFT clears it on every LoRA run).
-        if not getattr(model.visual, "_verl_frozen_vision_tower", False):
+        # The tower must also hold no trainable params: on mixed-modality batches
+        # a trainable param inside the root unit would get grads on image ranks
+        # only, which FSDP1's root-unit gradient reduce does not support (verified
+        # to hang), so vision LoRA / QAT towers keep the dummy forward.
+        if not (
+            getattr(model.visual, "_verl_frozen_vision_tower", False)
+            and not any(p.requires_grad for p in model.visual.parameters())
+        ):
             config = model.config.vision_config
             patch_dim = config.in_channels * config.temporal_patch_size * config.patch_size**2
             pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)

@@ -53,6 +53,7 @@ from verl.utils.fsdp_utils import (
     init_fn,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
+    mark_frozen_vision_tower_for_skip,
     merged_lora_context,
     normalize_peft_param_name,
     offload_fsdp_model_to_cpu,
@@ -526,12 +527,14 @@ class FSDPEngine(BaseEngine):
         # positive "frozen AND kept out of per-module FSDP units" signal may turn
         # the dummy forward off (cf. #3491). Paths that cannot guarantee the
         # exclusion (size-based wrap policy, strategies overriding the wrapping)
-        # never set it, and the adapters keep the dummy forward.
+        # never set it, and the adapters keep the dummy forward. The marker also
+        # requires no trainable params inside the tower (vision LoRA / QAT):
+        # mark_frozen_vision_tower_for_skip explains why.
         if exclude_modules is not None:
             min_num_params = self.engine_config.wrap_policy.get("min_num_params", 0)
             size_policy_blocks_exclusion = self.engine_config.strategy == "fsdp" and min_num_params > 0
             if not size_policy_blocks_exclusion:
-                self._frozen_vision_tower._verl_frozen_vision_tower = True
+                mark_frozen_vision_tower_for_skip(self._frozen_vision_tower)
 
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing

@@ -17,12 +17,14 @@
 Every multimodal adapter runs a dummy visual forward on text-only batches so
 that vision params stay in the autograd graph and every rank enters the vision
 tower the same number of times under FSDP (#3496). The forward may only be
-skipped for a tower that is fully frozen AND kept out of per-module FSDP
-wrapping — FSDPEngine marks such towers with ``_verl_frozen_vision_tower``.
-``requires_grad`` alone must never trigger the skip: PEFT clears it on the
-whole non-adapter model for every LoRA run, while the tower stays per-module
-wrapped (#3491 alignment). These tests pin all of that with a mock tower, for
-all four adapter families.
+skipped for a tower that is fully frozen, holds no trainable params, AND is
+kept out of per-module FSDP wrapping — FSDPEngine marks such towers with
+``_verl_frozen_vision_tower``. ``requires_grad`` alone must never trigger the
+skip: PEFT clears it on the whole non-adapter model for every LoRA run, while
+the tower stays per-module wrapped (#3491 alignment). And trainable params
+inside the tower (vision LoRA, QAT) must keep the dummy: the root FSDP unit
+cannot take per-rank-asymmetric gradients (FSDP1 hangs). These tests pin all
+of that with a mock tower, for all four adapter families.
 """
 
 from types import SimpleNamespace
@@ -132,10 +134,12 @@ def test_peft_frozen_tower_without_marker_keeps_dummy_visual_forward(family):
 
 
 @pytest.mark.parametrize("family", sorted(ADAPTERS))
-def test_marked_frozen_tower_with_trainable_adapter_skips_dummy_visual_forward(family):
-    """A marked tower with trainable adapter params (vision LoRA on a frozen,
-    wrap-excluded base) still skips safely: the adapter params join the root
-    FSDP unit, which all-gathers uniformly on every rank."""
+def test_marked_frozen_tower_with_trainable_params_keeps_dummy_visual_forward(family):
+    """A trainable param inside the tower (vision LoRA, QAT linears) must keep
+    the dummy even if the marker is set: on mixed-modality batches the root FSDP
+    unit would receive gradients on image ranks only, which FSDP1's root-unit
+    gradient reduce does not support (verified to hang). The engine never sets
+    the marker in this state; this pins the adapters' defense in depth."""
     adapter = ADAPTERS[family]
     model = _MockVLM()
     model.visual.requires_grad_(False)
@@ -146,4 +150,4 @@ def test_marked_frozen_tower_with_trainable_adapter_skips_dummy_visual_forward(f
 
     _text_only_embeds(adapter, model, input_ids)
 
-    assert model.visual.calls == 0, "marked tower must skip even with trainable adapter params"
+    assert model.visual.calls == 1, "trainable params inside the tower must keep the dummy forward"
