@@ -235,6 +235,14 @@ def test_get_vl_model_vision_tower_layouts():
             self.vision_model = tower
             self.language_model = nn.Module()
 
+    class _MiniCPMStyle(nn.Module):
+        """MiniCPM-o layout: the encoder is ``vpm``, the language model ``llm``."""
+
+        def __init__(self):
+            super().__init__()
+            self.vpm = tower
+            self.llm = nn.Module()
+
     class _TextOnly(nn.Module):
         pass
 
@@ -247,4 +255,6 @@ def test_get_vl_model_vision_tower_layouts():
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_KimiStyle())) is tower
     assert get_vl_model_vision_tower(_MllamaStyle()) is tower
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_MllamaStyle())) is tower
+    assert get_vl_model_vision_tower(_MiniCPMStyle()) is tower
+    assert get_vl_model_vision_tower(_ValueHeadWrapper(_MiniCPMStyle())) is tower
     assert get_vl_model_vision_tower(_TextOnly()) is None
