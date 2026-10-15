@@ -30,7 +30,8 @@ from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5DecoderLayer, Qw
 from verl.models.transformers.qwen3_5 import qwen3_5_decoder_layer_forward
 
 
-def test_full_attention_layer_forward():
+@pytest.mark.parametrize("attr_name", ["layer_type", "block_type"])
+def test_full_attention_layer_forward(attr_name):
     config = Qwen3_5TextConfig(
         hidden_size=64,
         intermediate_size=128,
@@ -42,6 +43,15 @@ def test_full_attention_layer_forward():
     )
     config._attn_implementation = "sdpa"
     layer = Qwen3_5DecoderLayer(config, layer_idx=1)
+
+    # Force the layer to expose only `attr_name`, mirroring either side of the
+    # transformers 5.13 rename regardless of which attribute the installed
+    # transformers actually uses, so both fallback branches get exercised.
+    value = getattr(layer, "layer_type", None) or layer.block_type
+    for name in ("layer_type", "block_type"):
+        if hasattr(layer, name):
+            delattr(layer, name)
+    setattr(layer, attr_name, value)
 
     x = torch.randn(1, 8, 64)
     position_ids = torch.arange(8)[None]
