@@ -129,15 +129,12 @@ ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
 # cuDNN / NCCL — see https://developer.nvidia.com/cudnn-downloads
-# These ARGs control the apt deb versions installed below and MUST match
-# whatever uv resolves into uv.lock. The backend extras don't pin cuDNN /
-# NCCL — torch's wheel pins them transitively (e.g. torch 2.13.0+cu130 ->
-# nvidia-cudnn-cu13==9.20.0.48, nvidia-nccl-cu13==2.29.7). After bumping a
-# torch pin and re-running `python manage_envs.py lock`, grep the resolved
-# versions out of the lockfile and update these ARGs:
-#
-#     grep -E 'nvidia-(cudnn|nccl)-cu13' uv.lock
-ARG NCCL_VERSION=2.29.7-1
+# System apt NCCL is on a separate track from the pip wheel (nvidia-nccl-cu13
+# 2.29.7, which torch/vllm load via RPATH), so they need not match. 2.29.7-1
+# ships no +cuda13.0 build (only cuda12.9 / cuda13.2), so pin the newest flavor
+# that exists on this 13.0.2 base; bump back to 2.29.7-1 when the base moves to
+# CUDA 13.2. This matches the published verlai/verl:uv.cu130.dev3 image.
+ARG NCCL_VERSION=2.28.9-1
 
 # Source to build from. Override VERL_REF for tags / commits.
 ARG VERL_REPO=https://github.com/verl-project/verl.git
