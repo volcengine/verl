@@ -214,6 +214,19 @@ def test_get_vl_model_vision_tower_layouts():
             super().__init__()
             self.pretrained_model = inner
 
+    class _KimiStyle(nn.Module):
+        """Kimi-VL layout: the encoder is ``vision_tower``, the text model ``model``."""
+
+        def __init__(self):
+            super().__init__()
+            self.vision_tower = tower
+            self.model = nn.Module()  # text model, no tower inside
+
+    class _KimiStyleNested(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = _KimiStyle()
+
     class _TextOnly(nn.Module):
         pass
 
@@ -221,4 +234,7 @@ def test_get_vl_model_vision_tower_layouts():
     assert get_vl_model_vision_tower(_Nested()) is tower
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_TopLevel())) is tower
     assert get_vl_model_vision_tower(_ValueHeadWrapper(_Nested())) is tower
+    assert get_vl_model_vision_tower(_KimiStyle()) is tower
+    assert get_vl_model_vision_tower(_KimiStyleNested()) is tower
+    assert get_vl_model_vision_tower(_ValueHeadWrapper(_KimiStyle())) is tower
     assert get_vl_model_vision_tower(_TextOnly()) is None

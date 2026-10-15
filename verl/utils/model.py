@@ -188,17 +188,23 @@ def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
 
     Restored from the pre-0.8 ``fsdp_workers.py`` (dropped in the engine
     refactor). Handles the attribute layouts across model families and
-    wrappers: ``model.visual``, ``model.model.visual`` (transformers >= 4.52),
-    and TRL value-head wrappers, which store the model under
+    wrappers: ``model.visual`` / ``model.vision_tower``, the nested
+    ``model.model.(vision_tower|visual)`` layout (transformers >= 4.52,
+    Kimi-VL), and TRL value-head wrappers, which store the model under
     ``model.pretrained_model`` (so ``critic.freeze_vision_tower`` also reaches
     a value-head multimodal critic).
     """
     for candidate in (model, getattr(model, "pretrained_model", None)):
-        if hasattr(candidate, "visual"):
-            return candidate.visual
+        if candidate is None:
+            continue
+        for attr in ("visual", "vision_tower"):
+            if hasattr(candidate, attr):
+                return getattr(candidate, attr)
         inner = getattr(candidate, "model", None)
-        if inner is not None and hasattr(inner, "visual"):
-            return inner.visual
+        if inner is not None:
+            for attr in ("visual", "vision_tower"):
+                if hasattr(inner, attr):
+                    return getattr(inner, attr)
     return None
 
 

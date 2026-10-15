@@ -118,6 +118,16 @@ def main():
     rank = torch.distributed.get_rank()
     world_size = torch.distributed.get_world_size()
     assert world_size == 2, "this test needs exactly 2 ranks"
+    from verl.utils.device import get_device_name
+
+    if get_device_name() != "cuda":
+        # tests/special_distributed/run_all.sh also runs on NPU-only Ascend CI;
+        # this CUDA-oriented test is not validated there, so skip cleanly
+        # instead of aborting the shared suite (all ranks take this branch).
+        if rank == 0:
+            print(f"SKIP: {__file__} requires CUDA")
+        torch.distributed.destroy_process_group()
+        return
     torch.cuda.set_device(rank)
     device = torch.device("cuda", rank)
 
