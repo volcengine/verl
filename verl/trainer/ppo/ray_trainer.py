@@ -809,6 +809,11 @@ class RayPPOTrainer:
             engine_config: EngineConfig = orig_critic_cfg.engine
             engine_config.infer_max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
             engine_config.max_token_len_per_gpu = critic_cfg.ppo_max_token_len_per_gpu
+            # Same freeze plumbing as the v1 trainer (trainer_base.py), so
+            # critic.freeze_vision_tower also reaches the engine on this path.
+            from verl.workers.engine_workers import plumb_freeze_vision_tower
+
+            plumb_freeze_vision_tower(engine_config, critic_cfg.freeze_vision_tower, role="critic")
 
             # Build the critic profiler config via the hydra path (same as the actor / ref / SFT),
             # so its tool_config entries are real dataclass instances the torch/nsys/npu backends can

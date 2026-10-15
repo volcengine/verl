@@ -187,13 +187,18 @@ def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
     """Return the vision tower of a vision-language model, or None if absent.
 
     Restored from the pre-0.8 ``fsdp_workers.py`` (dropped in the engine
-    refactor). Handles both attribute layouts: ``model.visual`` and
-    ``model.model.visual`` (transformers >= 4.52).
+    refactor). Handles the attribute layouts across model families and
+    wrappers: ``model.visual``, ``model.model.visual`` (transformers >= 4.52),
+    and TRL value-head wrappers, which store the model under
+    ``model.pretrained_model`` (so ``critic.freeze_vision_tower`` also reaches
+    a value-head multimodal critic).
     """
-    if hasattr(model, "visual"):
-        return model.visual
-    if hasattr(model, "model") and hasattr(model.model, "visual"):
-        return model.model.visual
+    for candidate in (model, getattr(model, "pretrained_model", None)):
+        if hasattr(candidate, "visual"):
+            return candidate.visual
+        inner = getattr(candidate, "model", None)
+        if inner is not None and hasattr(inner, "visual"):
+            return inner.visual
     return None
 
 

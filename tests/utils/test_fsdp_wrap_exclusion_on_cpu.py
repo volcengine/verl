@@ -207,9 +207,18 @@ def test_get_vl_model_vision_tower_layouts():
             super().__init__()
             self.model = _TopLevel()
 
+    class _ValueHeadWrapper(nn.Module):
+        """TRL-style wrapper: the model lives under ``pretrained_model``."""
+
+        def __init__(self, inner):
+            super().__init__()
+            self.pretrained_model = inner
+
     class _TextOnly(nn.Module):
         pass
 
     assert get_vl_model_vision_tower(_TopLevel()) is tower
     assert get_vl_model_vision_tower(_Nested()) is tower
+    assert get_vl_model_vision_tower(_ValueHeadWrapper(_TopLevel())) is tower
+    assert get_vl_model_vision_tower(_ValueHeadWrapper(_Nested())) is tower
     assert get_vl_model_vision_tower(_TextOnly()) is None
