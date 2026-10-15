@@ -117,6 +117,9 @@ class ActorConfig(BaseConfig):
         clip_ratio (float): PPO clipping ratio for policy loss.
         clip_ratio_low (float): Lower bound for PPO clipping ratio.
         clip_ratio_high (float): Upper bound for PPO clipping ratio.
+        freeze_vision_tower (bool): Freeze the vision tower of a multimodal model and skip
+            the dummy visual forward on text-only batches. Implemented for the FSDP/FSDP2
+            engines; other engines ignore it with a warning. default False
         policy_loss (PolicyLossConfig): Configuration for policy loss computation.
         clip_ratio_c (float): Clipping ratio for critic loss.
         loss_agg_mode (str): Loss aggregation mode, including 'token-mean', 'token-sum', and sequence modes.

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import dataclasses
 import functools
 import logging
 import os
@@ -88,6 +89,18 @@ def _plan_liger_flsce_capacity(config: DictConfig, role: str) -> Optional[tuple[
     if not tokens:
         raise ValueError("Liger requires existing max-token limits for its colocated Megatron consumers")
     return max(tokens), min(tp_sizes)
+
+
+def plumb_freeze_vision_tower(engine_config, value: bool, role: str):
+    """Forward a worker-level ``freeze_vision_tower`` into the engine config.
+
+    Only the FSDP engine declares the field; other engines keep ignoring the
+    flag (with a warning when it is set), as they did before 0.8.
+    """
+    if "freeze_vision_tower" in {f.name for f in dataclasses.fields(engine_config)}:
+        engine_config.freeze_vision_tower = value
+    elif value:
+        logger.warning(f"freeze_vision_tower is only implemented for the FSDP engine; ignoring on {role}.")
 
 
 def _with_routing_replay_flag(enabled: bool):
@@ -622,6 +635,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if isinstance(ref_training_config.engine_config, McoreEngineConfig):
                 ref_training_config.engine_config._liger_flsce_capacity = liger_capacity
 
+            plumb_freeze_vision_tower(ref_training_config.engine_config, ref_config.freeze_vision_tower, role="ref")
+
             self.ref = self.ref_worker_cls(config=ref_training_config)
             self.ref.reset()
             self.set_dispatch_collect(mesh_name="ref", **self.ref.get_dispatch_collect())
@@ -668,6 +683,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             actor_training_config.engine_config.use_remove_padding = model_config.get("use_remove_padding", False)
             if isinstance(actor_training_config.engine_config, McoreEngineConfig):
                 actor_training_config.engine_config._liger_flsce_capacity = liger_capacity
+
+            plumb_freeze_vision_tower(
+                actor_training_config.engine_config, actor_config.freeze_vision_tower, role="actor"
+            )
 
             if self.config.actor.use_dynamic_bsz:
                 assert self.config.rollout.log_prob_max_token_len_per_gpu is not None

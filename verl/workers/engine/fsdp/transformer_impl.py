@@ -59,7 +59,7 @@ from verl.utils.fsdp_utils import (
     offload_fsdp_optimizer,
     replace_lora_wrapper,
 )
-from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs
+from verl.utils.model import convert_weight_keys, extract_multi_modal_inputs, get_vl_model_vision_tower
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.seqlen_balancing import ceildiv
 from verl.utils.torch_functional import logprobs_from_logits
@@ -162,6 +162,9 @@ class FSDPEngine(BaseEngine):
         self._is_lora = self.model_config.lora_rank > 0
         # Set in _build_fsdp_module when FSDP2 CPUOffloadPolicy is configured (see #5995).
         self._uses_fsdp2_cpu_offload_policy = False
+        # Set in _build_model_optimizer when freeze_vision_tower applies; consumed by
+        # _build_fsdp_module to keep the frozen tower out of per-module wrapping.
+        self._frozen_vision_tower = None
 
         # Defaults for mixed-precision state. _build_fsdp_module overrides these when it
         # runs; subclasses that bypass _build_fsdp_module (e.g. VeOmniEngine) keep the
@@ -386,6 +389,36 @@ class FSDPEngine(BaseEngine):
 
         return module
 
+    def _freeze_vision_tower(self, module):
+        """Apply ``engine_config.freeze_vision_tower``: freeze the vision tower
+        params and return the tower module (used later to keep it out of
+        per-module FSDP wrapping). Returns None when not applicable.
+
+        With the tower frozen and unwrapped, its params join the root FSDP unit,
+        which all-gathers uniformly on every rank at model forward entry — so a
+        frozen tower no longer needs the dummy visual forward on text-only
+        batches to keep FSDP grads complete or vision-tower entry counts aligned
+        across ranks (cf. #3491, #3496, #7323).
+        """
+        if not self.engine_config.freeze_vision_tower:
+            return None
+        vision_tower = get_vl_model_vision_tower(module)
+        if vision_tower is None:
+            logger.warning("freeze_vision_tower=True but the model has no vision tower; ignoring.")
+            return None
+        if self.engine_config.strategy not in ("fsdp", "fsdp2"):
+            logger.warning(
+                "freeze_vision_tower froze the vision tower, but strategy=%s does not implement "
+                "per-module wrap exclusion; the dummy visual forward stays enabled.",
+                self.engine_config.strategy,
+            )
+        vision_tower.requires_grad_(False)
+        # print (not logger.info): this module's logger defaults to WARN, and the
+        # confirmation that the flag took effect should stay visible.
+        if self.rank == 0:
+            print("Vision tower is set to not trainable (freeze_vision_tower=True).")
+        return vision_tower
+
     def _build_fsdp_module(self, module):
         # TODO(ziheng): need to improve
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
@@ -414,10 +447,16 @@ class FSDPEngine(BaseEngine):
         else:
             self.scaler = None
 
+        # Keep the frozen vision tower out of per-module FSDP wrapping (both
+        # FSDP1 and FSDP2) so its params join the root FSDP unit — see
+        # _freeze_vision_tower.
+        exclude_modules = [self._frozen_vision_tower] if self._frozen_vision_tower is not None else None
+
         auto_wrap_policy = get_fsdp_wrap_policy(
             module=module,
             config=self.engine_config.wrap_policy,
             is_lora=self.model_config.lora_rank > 0,
+            exclude_modules=exclude_modules,
         )
 
         fsdp_mesh = self.device_mesh
@@ -448,7 +487,10 @@ class FSDPEngine(BaseEngine):
                 sync_module_states=True,
                 device_mesh=self.device_mesh,
                 forward_prefetch=self.engine_config.forward_prefetch,
-                use_orig_params=self.engine_config.use_orig_params,
+                # A frozen tower mixes requires_grad=False params into the root
+                # FSDP1 unit, which the flat-parameter mode does not support;
+                # use_orig_params=True does (pre-0.8 fsdp_workers.py did the same).
+                use_orig_params=self.engine_config.use_orig_params or exclude_modules is not None,
                 cpu_offload=cpu_offload,
             )
         elif self.engine_config.strategy == "fsdp2":
@@ -473,10 +515,23 @@ class FSDPEngine(BaseEngine):
                 "reshard_after_forward": self.engine_config.reshard_after_forward,
             }
             full_state = module.state_dict()
-            apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+            apply_fsdp2(module, fsdp_kwargs, self.engine_config, exclude_modules=exclude_modules)
             fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {self.engine_config.strategy}")
+
+        # Mark the frozen tower as safe to skip in the adapters' dummy visual
+        # forward. requires_grad alone is not a safe skip criterion — PEFT clears
+        # it on the whole non-adapter model for every LoRA run — so only this
+        # positive "frozen AND kept out of per-module FSDP units" signal may turn
+        # the dummy forward off (cf. #3491). Paths that cannot guarantee the
+        # exclusion (size-based wrap policy, strategies overriding the wrapping)
+        # never set it, and the adapters keep the dummy forward.
+        if exclude_modules is not None:
+            min_num_params = self.engine_config.wrap_policy.get("min_num_params", 0)
+            size_policy_blocks_exclusion = self.engine_config.strategy == "fsdp" and min_num_params > 0
+            if not size_policy_blocks_exclusion:
+                self._frozen_vision_tower._verl_frozen_vision_tower = True
 
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
@@ -598,6 +653,13 @@ class FSDPEngine(BaseEngine):
             self.pass_packed_cu_seqlens = "cu_seqlens" in signature(module.forward).parameters
         except (TypeError, ValueError):
             self.pass_packed_cu_seqlens = False
+
+        # Restore freeze_vision_tower (dropped from the pre-0.8 fsdp_workers.py),
+        # applied before LoRA/QAT/FSDP: PEFT adapters added on the tower afterwards
+        # re-enable requires_grad for their own params, so "frozen tower + vision
+        # LoRA" degrades gracefully to a frozen base with trainable adapters.
+        self._frozen_vision_tower = self._freeze_vision_tower(module)
+
         # Apply LoRA adapters if low-rank adaptation is enabled
         if self._is_lora:
             module = self._build_lora_module(module)

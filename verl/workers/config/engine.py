@@ -268,10 +268,17 @@ class FSDPEngineConfig(EngineConfig):
             within-budget micro-batch onto a single shape. Only read when ``pad_to_length=True``.
             default 1024
         qat (QATEngineConfig): QAT configuration, default disabled
+        freeze_vision_tower (bool): Freeze the vision tower of a vision-language model:
+            ``requires_grad_(False)`` on its params, keep it out of per-module FSDP wrapping
+            (its params join the root FSDP unit), and skip the dummy visual forward on
+            text-only batches. Plumbed post-init from the worker-level configs (actor/ref
+            in ``engine_workers.py``, critic in ``trainer/ppo/v1/trainer_base.py``).
+            default False
     """
 
     # ulysses_sequence_parallel_size is mutable for backward compatibility
-    _mutable_fields = EngineConfig._mutable_fields | {"ulysses_sequence_parallel_size"}
+    # freeze_vision_tower is plumbed post-init from the worker-level configs
+    _mutable_fields = EngineConfig._mutable_fields | {"ulysses_sequence_parallel_size", "freeze_vision_tower"}
 
     # fsdp specific flags
     wrap_policy: dict[str, Any] = field(default_factory=dict)
@@ -291,6 +298,7 @@ class FSDPEngineConfig(EngineConfig):
     strategy: str = "fsdp"
     pad_to_length: bool = False
     pad_to_length_bucket: int = 1024
+    freeze_vision_tower: bool = False
     qat: QATEngineConfig = field(default_factory=QATEngineConfig)
     turbo_config: dict[str, Any] = field(default_factory=dict)
 

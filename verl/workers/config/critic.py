@@ -60,6 +60,8 @@ class CriticConfig(BaseConfig):
         ppo_epochs (int): Number of PPO epochs per batch.
         shuffle (bool): Shuffle training data across PPO epochs.
         cliprange_value (float): PPO value function clipping range.
+        freeze_vision_tower (bool): Freeze the vision tower of a multimodal value
+            model, mirroring ``actor.freeze_vision_tower``. default False
         loss_agg_mode (str): Loss aggregation mode.
         loss_scale_factor (Optional[int]): Scale factor for 'seq-mean-token-sum-norm' loss aggregation mode.
         checkpoint (Dict[str, Any]): Checkpoint configuration.
@@ -90,6 +92,7 @@ class CriticConfig(BaseConfig):
     data_loader_seed: int = 42
     shuffle: bool = True
     cliprange_value: float = 0.5
+    freeze_vision_tower: bool = False
     loss_agg_mode: str = "token-mean"
     loss_scale_factor: Optional[int] = None
     ppo_micro_batch_size: Optional[int] = None

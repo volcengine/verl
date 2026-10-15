@@ -77,13 +77,21 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
 
 # Copyright 2020-present the HuggingFace Inc. team.
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
-def get_fsdp_wrap_policy(module, config=None, is_lora=False):
+def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=None):
     """Get FSDP wrap policy for the module.
 
     Args:
         module: The module to get wrap policy for
         config: Configuration for wrap policy
         is_lora: Whether to enable lambda policy for LoRA modules
+        exclude_modules: Optional modules (e.g. a frozen vision tower) whose
+            submodules should not be wrapped individually. Used with
+            ``actor.freeze_vision_tower``: modules kept out of per-module FSDP
+            units fall back to the root unit, which all-gathers uniformly on
+            every rank at model forward entry, so they impose no cross-rank
+            invocation-count alignment requirement (cf. #3491, #7323). Matching
+            is by class name here (FSDP1's policy is class-based); the FSDP2
+            path (``apply_fsdp2``) matches by module identity.
     """
     if config is None:
         config = {}
@@ -105,6 +113,13 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
     )
     min_num_params = _get_attr("min_num_params", 0)
     auto_wrap_policy = None
+
+    if exclude_modules and min_num_params > 0:
+        logger.warning(
+            "exclude_modules is not applied under the size-based wrap policy (min_num_params > 0): "
+            "submodules of the excluded modules stay in per-module FSDP units, and the adapters "
+            "therefore keep the dummy visual forward enabled (cf. #3491)"
+        )
 
     policies = []
 
@@ -140,6 +155,29 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False):
                 missing_classes.append(layer_class)
             else:
                 transformer_cls_to_wrap.add(transformer_cls)
+
+        if exclude_modules:
+            excluded_cls_names = {sub.__class__.__name__ for m in exclude_modules for sub in m.modules()}
+            excluded = {cls for cls in transformer_cls_to_wrap if cls.__name__ in excluded_cls_names}
+            if excluded:
+                excluded_ids = {id(sub) for m in exclude_modules for sub in m.modules()}
+                outside = [
+                    name
+                    for name, sub in module.named_modules()
+                    if isinstance(sub, tuple(excluded)) and id(sub) not in excluded_ids
+                ]
+                if outside:
+                    logger.warning(
+                        "FSDP wrap policy: excluded class(es) %s also occur outside exclude_modules "
+                        "(e.g. %s); those modules lose per-module wrapping too (class-name matching)",
+                        sorted(c.__name__ for c in excluded),
+                        outside[:3],
+                    )
+                transformer_cls_to_wrap -= excluded
+                logger.info(
+                    "FSDP wrap policy: excluded %s (inside exclude_modules) from per-module wrapping",
+                    sorted(c.__name__ for c in excluded),
+                )
 
         if not transformer_cls_to_wrap:
             raise Exception(
@@ -537,7 +575,7 @@ def maybe_patch_fsdp_module(model):
         fully_shard_module.FSDPModule = orig_fsdp_module
 
 
-def _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap):
+def _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap, exclude_modules=None):
     """Select modules to wrap individually with fully_shard in FSDP2.
 
     Matches transformer layers by class name, and embed_tokens/lm_head by name
@@ -545,12 +583,19 @@ def _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap):
     embed_tokens in ModulesToSaveWrapper, breaking isinstance(module, nn.Embedding).
     When tie_word_embeddings is True, embed_tokens and lm_head share weights and
     must not be wrapped separately.
+
+    ``exclude_modules`` (e.g. a frozen vision tower, see ``apply_fsdp2``) filters
+    by module identity: any module inside them is left unwrapped and its params
+    fall back to the root FSDP unit.
     """
     _tie = getattr(model.config, "tie_word_embeddings", False)
     _wrap_by_name = set() if _tie else {"embed_tokens", "lm_head"}
+    excluded_ids = {id(sub) for m in exclude_modules or [] for sub in m.modules()}
 
     modules = []
     for name, module in model.named_modules():
+        if id(module) in excluded_ids:
+            continue
         leaf_name = name.rsplit(".", 1)[-1] if "." in name else name
         if (
             module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap
@@ -561,8 +606,15 @@ def _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap):
     return modules
 
 
-def apply_fsdp2(model, fsdp_kwargs, config):
-    """model: AutoModelForCausalLM"""
+def apply_fsdp2(model, fsdp_kwargs, config, exclude_modules=None):
+    """model: AutoModelForCausalLM
+
+    ``exclude_modules``: optional modules (e.g. a frozen vision tower, set by
+    ``actor.freeze_vision_tower``) whose submodules are not wrapped into
+    per-module FSDP2 units. Their params join the root FSDP unit instead, which
+    all-gathers uniformly on every rank at model forward entry — so they impose
+    no cross-rank invocation-count alignment requirement (cf. #3491, #7323).
+    """
     assert CPUOffloadPolicy is not None, "PyTorch version >= 2.4 is required for using fully_shard API (FSDP2)"
 
     default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
@@ -577,7 +629,12 @@ def apply_fsdp2(model, fsdp_kwargs, config):
         fsdp_transformer_layer_cls_to_wrap = list(fsdp_transformer_layer_cls_to_wrap)
     assert len(fsdp_transformer_layer_cls_to_wrap) > 0 and fsdp_transformer_layer_cls_to_wrap[0] is not None
 
-    modules = _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap)
+    modules = _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap, exclude_modules=exclude_modules)
+    if exclude_modules:
+        excluded_cls_names = {sub.__class__.__name__ for m in exclude_modules for sub in m.modules()}
+        excluded = sorted({name for name in fsdp_transformer_layer_cls_to_wrap if name in excluded_cls_names})
+        if excluded:
+            logger.info("FSDP2 wrap: excluded %s (inside exclude_modules) from per-module wrapping", excluded)
 
     for idx, module in enumerate(modules):
         # if torch.distributed.is_initialized() and torch.distributed.get_rank() == 0:

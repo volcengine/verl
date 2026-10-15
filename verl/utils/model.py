@@ -183,6 +183,20 @@ def get_model_size(model: nn.Module, scale="auto"):
     return n_params, scale
 
 
+def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
+    """Return the vision tower of a vision-language model, or None if absent.
+
+    Restored from the pre-0.8 ``fsdp_workers.py`` (dropped in the engine
+    refactor). Handles both attribute layouts: ``model.visual`` and
+    ``model.model.visual`` (transformers >= 4.52).
+    """
+    if hasattr(model, "visual"):
+        return model.visual
+    if hasattr(model, "model") and hasattr(model.model, "visual"):
+        return model.model.visual
+    return None
+
+
 def print_model_size(model: nn.Module, name: str = None):
     n_params, scale = get_model_size(model, scale="auto")
     if name is None:

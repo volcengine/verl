@@ -86,7 +86,12 @@ from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_
 from verl.utils.skip import SkipManager
 from verl.utils.tracking import DapoFilteredRewardTableLogger, Tracking, ValidationGenerationsLogger
 from verl.workers.config import CriticConfig, DistillationConfig, HFModelConfig
-from verl.workers.engine_workers import ActorRolloutRefWorker, TrainingWorker, TrainingWorkerConfig
+from verl.workers.engine_workers import (
+    ActorRolloutRefWorker,
+    TrainingWorker,
+    TrainingWorkerConfig,
+    plumb_freeze_vision_tower,
+)
 from verl.workers.rollout.llm_server import LLMServerClient, LLMServerManager
 from verl.workers.utils.losses import value_loss
 from verl.workers.utils.padding import response_from_nested, response_to_nested
@@ -266,6 +271,7 @@ class PPOTrainer(ABC):
             critic_cfg: CriticConfig = omega_conf_to_dataclass(self.config.critic)
             critic_cfg.engine.infer_max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
             critic_cfg.engine.max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
+            plumb_freeze_vision_tower(critic_cfg.engine, critic_cfg.freeze_vision_tower, role="critic")
 
             # Wire the critic profiler config via the hydra path (real dataclass tool_config), so the
             # standalone critic TrainingWorker gets a working DistProfiler instead of a silent no-op.
