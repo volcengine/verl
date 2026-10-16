@@ -43,6 +43,7 @@ class TorchProfilerScheduleConfig(BaseConfig):
     cycles through ``skip_first`` -> (``wait`` -> ``warmup`` -> ``active``) x ``repeat``.
     Scheduling is only enabled when ``active > 0``; otherwise the profiler runs in
     continuous mode (collect everything between start and stop).
+    In supported training engines, one schedule step is one completed micro-batch.
 
     Shared by ``TorchProfilerToolConfig`` and ``NPUToolConfig`` because both backends
     accept the same ``wait``/``warmup``/``active``/``repeat``/``skip_first`` kwargs.
@@ -97,7 +98,7 @@ class TorchProfilerToolConfig(BaseConfig):
     # None means collect until the end.
     profile_token_end: Optional[int] = None
     # Optional torch.profiler.schedule (wait/warmup/active/repeat/skip_first).
-    # When set with active > 0, DistProfiler.step() drives the schedule per mini-batch.
+    # When set with active > 0, DistProfiler.step() drives the schedule per training micro-batch.
     schedule: Optional[TorchProfilerScheduleConfig] = None
     name: str = "torch"
 
@@ -188,7 +189,7 @@ class NPUToolConfig(NsightToolConfig):
     # None means collect until the end.
     profile_token_end: Optional[int] = None
     # Optional torch_npu.profiler.schedule (wait/warmup/active/repeat/skip_first).
-    # When set with active > 0, DistProfiler.step() drives the schedule per mini-batch.
+    # When set with active > 0, DistProfiler.step() drives the schedule per training micro-batch.
     schedule: Optional[TorchProfilerScheduleConfig] = None
 
     name: str = "npu"

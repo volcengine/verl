@@ -127,7 +127,7 @@ def get_torch_profiler(
             ``torch.distributed`` is not initialized).
         schedule: Optional kwargs for ``torch.profiler.schedule``
             (``wait``/``warmup``/``active``/``repeat``/``skip_first``). When provided, the
-            caller must drive ``prof.step()`` once per step to advance the schedule.
+            caller must drive ``prof.step()`` once per training micro-batch.
     """
     save_dir = os.path.join(save_path, role) if role else save_path
 
@@ -188,7 +188,7 @@ class Profiler(DistProfiler):
     _define_count = 0
     # Process-global handle to the currently running torch profiler. torch.profiler is
     # process-wide, so a step() issued by one Profiler instance (e.g. the inner actor
-    # TrainingWorker running the mini-batch loop) must advance the profiler that another
+    # TrainingWorker's engine running the micro-batch loop) must advance the profiler that another
     # instance started (e.g. the outer ActorRolloutRefWorker).
     _active_prof = None
 
@@ -241,23 +241,23 @@ class Profiler(DistProfiler):
             Profiler._define_count += 1
 
     def step(self):
-        """Advance the process-global active profiler by one step (per mini-batch).
+        """Advance the process-global active profiler by one training micro-batch.
 
-        No-op when no torch profiler is currently running.
+        No-op without a schedule or when no torch profiler is currently running.
         """
-        if Profiler._active_prof is not None:
+        if self._schedule_kwargs and Profiler._active_prof is not None:
             Profiler._active_prof.step()
 
     def stop(self):
         if not self.discrete and Profiler._define_count == 1:
-            # Continuous mode emits a trailing step to flush the final window; when a
-            # schedule is configured, stepping is driven per mini-batch instead.
-            if not self._schedule_kwargs:
-                self.step()
+            # stop() flushes the final window; do not count an extra micro-batch.
             print(f"[Profiler] stopped for rank {self.rank}")
-            self.prof.stop()
-            Profiler._active_prof = None
-            Profiler._define_count -= 1
+            try:
+                self.prof.stop()
+            finally:
+                self.prof = None
+                Profiler._active_prof = None
+                Profiler._define_count -= 1
 
     def annotate(self, message: Optional[str] = None, role: Optional[str] = None, **kwargs_outer) -> Callable:
         """Decorate a Worker member function to profile the current rank in the current training step.
@@ -277,8 +277,8 @@ class Profiler(DistProfiler):
             def wrapper(*args, **kwargs_inner):
                 profile_name = message or func.__name__
 
-                if not self.discrete:
-                    # In continuous mode, we just record function, profiler started globally
+                if not self.discrete or Profiler._active_prof is not None:
+                    # Nested annotations share the active profiler and its schedule.
                     with torch.profiler.record_function(profile_name):
                         return func(*args, **kwargs_inner)
 
@@ -293,13 +293,18 @@ class Profiler(DistProfiler):
                     role=role,
                     save_file_prefix=self.save_file_prefix,
                     rank=self.rank,
+                    schedule=self._schedule_kwargs,
                 )
                 prof.start()
+                Profiler._active_prof = prof
                 try:
                     with torch.profiler.record_function(profile_name):
                         return func(*args, **kwargs_inner)
                 finally:
-                    prof.stop()
+                    try:
+                        prof.stop()
+                    finally:
+                        Profiler._active_prof = None
 
             return wrapper
 

@@ -89,7 +89,7 @@ profiler:
       discrete: false
 
       # Optional torch.profiler.schedule. Enabled only when active > 0, in which case
-      # profiler.step() advances wait/warmup/active/repeat once per mini-batch.
+      # Only training micro-batches advance schedules; reference inference does not.
       schedule:
 
         # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs

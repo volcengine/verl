@@ -74,11 +74,12 @@ class TestTorchProfile(unittest.TestCase):
 
         # Test Step
         profiler.step()
-        mock_prof_instance.step.assert_called_once()
+        mock_prof_instance.step.assert_not_called()
 
         # Test Stop
         profiler.stop()
         mock_prof_instance.stop.assert_called_once()
+        mock_prof_instance.step.assert_not_called()
 
     @patch("verl.utils.profiler.torch_profile.get_torch_profiler")
     def test_discrete_mode(self, mock_get_profiler):
@@ -241,7 +242,7 @@ class TestTorchProfile(unittest.TestCase):
         profiler.step()
         self.assertEqual(mock_prof_instance.step.call_count, 2)
 
-        # With a schedule, stop must NOT emit an extra implicit step (stepping is per mini-batch).
+        # With a schedule, stop must NOT emit an extra implicit step (stepping is per micro-batch).
         profiler.stop()
         self.assertEqual(mock_prof_instance.step.call_count, 2)
         mock_prof_instance.stop.assert_called_once()
@@ -326,7 +327,9 @@ class TestTorchProfile(unittest.TestCase):
         mock_prof_instance = MagicMock()
         mock_get_profiler.return_value = mock_prof_instance
 
-        tool_config = TorchProfilerToolConfig(contents=["cpu"], discrete=False)
+        tool_config = TorchProfilerToolConfig(
+            contents=["cpu"], discrete=False, schedule=TorchProfilerScheduleConfig(active=1)
+        )
         config = ProfilerConfig(
             tool="torch", enable=True, all_ranks=True, save_path="/tmp/test", tool_config=tool_config
         )

@@ -216,7 +216,7 @@ profiler:
       discrete: False
 
       # Optional torch_npu.profiler.schedule. Enabled only when active > 0, in which case
-      # profiler.step() advances wait/warmup/active/repeat once per mini-batch.
+      # Supported training engines advance the schedule once per completed micro-batch.
       schedule:
 
         # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -251,7 +251,7 @@ profiler:
       discrete: false
 
       # Optional torch.profiler.schedule. Enabled only when active > 0, in which case
-      # profiler.step() advances wait/warmup/active/repeat once per mini-batch.
+      # Supported training engines advance the schedule once per completed micro-batch.
       schedule:
 
         # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
@@ -354,4 +354,3 @@ qat:
 
   # Path to vLLM quantization config JSON file
   quantization_config_path: null
-

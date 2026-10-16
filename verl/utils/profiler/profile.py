@@ -183,7 +183,7 @@ class DistProfiler:
             return getattr(self._impl, "stop", lambda: None)()
 
     def step(self):
-        """Advance the profiler schedule by one step, intended to be called per mini-batch.
+        """Advance the profiler schedule by one completed training micro-batch.
 
         Delegates to the backend `step` when the tool supports scheduling (currently the
         torch / npu profilers with a configured `wait/warmup/active/repeat` schedule); for
@@ -210,6 +210,7 @@ class DistProfiler:
 
         The wrapped function is executed directly if profiling is disabled,
         not selected for current rank/step, or backend annotate fails.
+        ``schedule_only=True`` adds a scope only when an active schedule is configured.
         """
 
         def decorator(func):
@@ -224,6 +225,11 @@ class DistProfiler:
                 ):
                     if not profiler.check_enable() or not profiler.check_this_step() or not profiler.check_this_rank():
                         return func(self_instance, *args, **kwargs_inner)
+
+                    if kwargs_outer.get("schedule_only", False):
+                        schedule = getattr(profiler.tool_config, "schedule", None)
+                        if schedule is None or not schedule.enabled:
+                            return func(self_instance, *args, **kwargs_inner)
 
                     impl = profiler._impl
                     if hasattr(impl, "annotate"):
@@ -286,5 +292,5 @@ class DistProfilerExtension:
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def step_profile(self) -> None:
-        """Advance the profiler schedule by one step (typically once per mini-batch)."""
+        """Manually advance the schedule; engines already step after each training micro-batch."""
         self.profiler.step()

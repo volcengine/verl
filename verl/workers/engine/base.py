@@ -35,6 +35,26 @@ class BaseEngine:
     Engine implementations must subclass BaseEngine and provide concrete behavior for all methods.
     """
 
+    supports_micro_batch_callback: bool = False
+    # Some engines bypass BaseEngine.__init__; keep the default safe without initialization.
+    _micro_batch_callback: Optional[Callable[[], None]] = None
+
+    def set_micro_batch_callback(self, callback: Optional[Callable[[], None]]) -> None:
+        """Register (or clear) a callback for successful training micro-batches.
+
+        Supporting engines call ``on_micro_batch_end`` after forward/backward and
+        before the next micro-batch, on every rank. Inference and failed
+        micro-batches must not invoke it.
+        """
+        if callback is not None and not self.supports_micro_batch_callback:
+            raise NotImplementedError(f"{type(self).__name__} does not support training micro-batch callbacks.")
+        self._micro_batch_callback = callback
+
+    def on_micro_batch_end(self) -> None:
+        """Notify the registered callback; a no-op when no callback is registered."""
+        if self._micro_batch_callback is not None:
+            self._micro_batch_callback()
+
     def initialize(self):
         """
         Instantiate or load the model, optimizer, and learning rate scheduler.

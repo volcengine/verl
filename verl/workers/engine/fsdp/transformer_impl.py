@@ -90,6 +90,8 @@ class FSDPEngine(BaseEngine):
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
 
+    supports_micro_batch_callback = True
+
     def __init__(
         self,
         model_config: HFModelConfig,
@@ -678,6 +680,8 @@ class FSDPEngine(BaseEngine):
                     meta_info.pop("model_output", None)
 
             output_lst.append(meta_info)
+            if not forward_only:
+                self.on_micro_batch_end()
 
         # postprocess and return
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)

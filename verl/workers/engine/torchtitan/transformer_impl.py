@@ -78,6 +78,8 @@ class TorchTitanEngine(BaseEngine):
     LoRA, and sequence parallelism following the TorchTitan design.
     """
 
+    supports_micro_batch_callback = True
+
     def __init__(
         self,
         model_config: HFModelConfig,
@@ -364,6 +366,8 @@ class TorchTitanEngine(BaseEngine):
                 if not forward_only:
                     loss.backward()
             output_lst.append(output)
+            if not forward_only:
+                self.on_micro_batch_end()
 
         return postprocess_batch_func(output_lst=output_lst, indices=indices, data=data)
 

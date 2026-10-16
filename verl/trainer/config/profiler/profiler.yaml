@@ -44,7 +44,7 @@ tool_config:
     profile_token_end: null
 
     # Optional torch_npu.profiler.schedule. Enabled only when active > 0, in which case
-    # profiler.step() advances wait/warmup/active/repeat once per mini-batch.
+    # Supported training engines advance the schedule once per completed micro-batch.
     schedule:
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.TorchProfilerScheduleConfig
@@ -96,7 +96,7 @@ tool_config:
     profile_token_end: null
 
     # Optional torch.profiler.schedule. Enabled only when active > 0, in which case
-    # profiler.step() advances wait/warmup/active/repeat once per mini-batch.
+    # Supported training engines advance the schedule once per completed micro-batch.
     schedule:
       # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
       _target_: verl.utils.profiler.config.TorchProfilerScheduleConfig

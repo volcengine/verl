@@ -1,6 +1,6 @@
 # PyTorch Profiling in verl
 
-Last updated: 01/13/2026.
+Last updated: 10/16/2026.
 
 This guide explains how to use the native [PyTorch Profiler](https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html) for profiling verl training runs.
 
@@ -36,7 +36,7 @@ You can customize the PyTorch Profiler behavior using the following fields under
     *   **`stack`**: Record source code file and line number.
 * **`profile_token_start`**: Effective only for the rollout role; defines the start response-token index for rollout decoding collection. It is applied only when valid (0-based, `profile_token_end > profile_token_start`, and within response length).
 * **`profile_token_end`**: Effective only for the rollout role; defines the stop response-token index (exclusive) for rollout decoding collection. It is applied only when valid (0-based, `profile_token_end > profile_token_start`, and within response length).
-* **`schedule`**: (Advanced) Enables [`torch.profiler.schedule`](https://pytorch.org/docs/stable/profiler.html#torch.profiler.schedule) so that only part of each profiling window is recorded. It only takes effect when `active > 0`; otherwise the profiler collects continuously (the default). verl advances the schedule by calling `profiler.step()` once per mini-batch in the Actor update loop (and once per step in SFT), so a scheduled cycle is measured in mini-batches. The fields mirror the official PyTorch API:
+* **`schedule`**: (Advanced) Enables [`torch.profiler.schedule`](https://pytorch.org/docs/stable/profiler.html#torch.profiler.schedule) so that only part of each profiling window is recorded. It only takes effect when `active > 0`; otherwise the profiler collects continuously (the default). Supported training engines call `profiler.step()` after each successful training micro-batch in Actor/Critic updates and SFT. The fields mirror the official PyTorch API, with steps measured in micro-batches:
     *   **`skip_first`**: Number of initial steps to ignore before the first cycle begins.
     *   **`wait`**: Steps to idle (no collection) at the start of each cycle.
     *   **`warmup`**: Steps to trace but discard, letting the profiler stabilize, each cycle.
@@ -115,9 +115,13 @@ When Rollout runs in [Agent Loop](../advance/agent_loop.rst) mode, performance d
 
 ### 3. Scheduled Collection (`wait`/`warmup`/`active`/`repeat`)
 
-For long update loops with many mini-batches (e.g. large gradient accumulation), you usually don't need to trace every mini-batch. A `schedule` records only a few mini-batches per cycle, keeping traces small while still capturing steady-state behavior. verl calls `profiler.step()` once per mini-batch so the schedule advances automatically.
+For long update loops with many micro-batches (e.g. large gradient accumulation), a `schedule` records only a few micro-batches per cycle, keeping traces small while capturing steady-state behavior. FSDP, AutoModel, TorchTitan and VeOmni advance it after each successful micro-batch's forward/backward. Megatron/MindSpeed do not yet support these callbacks; enabling a training schedule raises an error. Use `active: 0` for continuous collection on those engines.
 
 ```yaml
+global_profiler:
+  steps: [10]
+  profile_continuous_steps: False
+
 actor_rollout_ref:
   actor:
     profiler:
@@ -128,17 +132,17 @@ actor_rollout_ref:
           discrete: False
           contents: [cpu, cuda]
           schedule:
-            skip_first: 1  # ignore the very first mini-batch
-            wait: 1        # then idle 1 mini-batch at the start of each cycle
-            warmup: 1      # warm up 1 mini-batch (traced but discarded)
-            active: 3      # record 3 mini-batches
+            skip_first: 1  # ignore the very first micro-batch
+            wait: 1        # then idle 1 micro-batch at the start of each cycle
+            warmup: 1      # warm up 1 micro-batch (traced but discarded)
+            active: 3      # record 3 micro-batches
             repeat: 2      # capture 2 such cycles, then stop collecting
   # rollout & ref follow actor settings
 ```
 
-With the configuration above, within each profiled training step verl skips the first mini-batch, then runs two cycles of `wait(1) -> warmup(1) -> active(3)`, producing two trace files (the second suffixed with `_cycle1`). If a training step has fewer mini-batches than the schedule needs, only the mini-batches that were reached are recorded.
+With the configuration above, at global step 10 verl skips the first micro-batch, then runs two cycles of `wait(1) -> warmup(1) -> active(3)`, producing two trace files (the second suffixed with `_cycle1`) if enough micro-batches are available. Counts span mini-batches and update epochs within the profiling scope. With `discrete: True`, each annotated stage has its own schedule; nested annotations share that stage's profiler. Otherwise the schedule spans the whole start/stop window. `profile_continuous_steps: False` resets the profiler at each selected global step; with `True`, non-discrete collection continues counting across adjacent selected global steps.
 
-`schedule` only applies to the training update loop (Actor RL update and SFT). It is a no-op for the rollout engine side, which uses `profile_token_start`/`profile_token_end` instead.
+Inference does not advance this schedule. In non-discrete mode, other work within an active interval (including batch preparation, inference or optimizer work) may also appear in the trace. For a training-stage scope, use discrete mode. Rollout engines use `profile_token_start`/`profile_token_end` instead. SFT uses its existing start/end profiling steps and now also counts micro-batches. See [Micro-batch Profiler Schedule](../advance/micro_batch_profiler_schedule.md) for migration details.
 
 ## Output file naming
 

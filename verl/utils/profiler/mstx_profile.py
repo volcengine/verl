@@ -116,7 +116,7 @@ def get_npu_profiler(
         schedule (dict, optional):
             Optional kwargs for ``torch_npu.profiler.schedule``
             (``wait``/``warmup``/``active``/``repeat``/``skip_first``). When provided, the
-            caller must drive ``prof.step()`` once per mini-batch to advance the schedule.
+            caller must drive ``prof.step()`` once per training micro-batch.
     """
     if profile_level == "level_none":
         level = torch_npu.profiler.ProfilerLevel.Level_none
@@ -177,7 +177,7 @@ class NPUProfiler(DistProfiler):
 
     _define_count = 0
     # Process-global handle to the currently running NPU profiler. start/stop may
-    # happen on the outer ActorRolloutRefWorker while mini-batch step() is issued by
+    # happen on the outer ActorRolloutRefWorker while micro-batch step() is issued by
     # the inner TrainingWorker; a class-level handle keeps them on the same backend
     # (same pattern as torch Profiler._active_prof).
     _active_prof = None
@@ -223,18 +223,20 @@ class NPUProfiler(DistProfiler):
 
     def stop(self):
         if not self.discrete and NPUProfiler._define_count == 1:
-            self.profile_npu.stop()
-            self.profile_npu = None
-            NPUProfiler._active_prof = None
-            NPUProfiler._define_count -= 1
+            try:
+                self.profile_npu.stop()
+            finally:
+                self.profile_npu = None
+                NPUProfiler._active_prof = None
+                NPUProfiler._define_count -= 1
 
     def step(self):
-        """Advance the process-global active profiler by one mini-batch.
+        """Advance the process-global active profiler by one training micro-batch.
 
         Uses ``NPUProfiler._active_prof`` so an inner TrainingWorker can advance the
         profiler started by the outer ActorRolloutRefWorker. No-op when no profiler is
         active, or when schedule is not configured (continuous collection does not need
-        per-mini-batch stepping). Must still be defined here: without it, the
+        per-micro-batch stepping). Must still be defined here: without it, the
         dispatcher's ``getattr(self._impl, "step", lambda: None)`` resolves to the
         inherited ``DistProfiler.step`` and raises ``AttributeError``.
         """
@@ -258,11 +260,10 @@ class NPUProfiler(DistProfiler):
             @functools.wraps(func)
             def wrapper(*args, **kwargs_inner):
                 profile_name = message or func.__name__
-                discrete_mode = self.discrete
+                # Nested annotations must not start another process-wide profiler.
+                discrete_mode = self.discrete and NPUProfiler._active_prof is None
 
-                if not discrete_mode:
-                    mark_range = mark_start_range(message=profile_name)
-                else:
+                if discrete_mode:
                     self.profile_npu = get_npu_profiler(
                         contents=self.profile_contents,
                         profile_level=self.profile_level,
@@ -273,19 +274,20 @@ class NPUProfiler(DistProfiler):
                     )
                     self.profile_npu.start()
                     NPUProfiler._active_prof = self.profile_npu
+
+                try:
                     mark_range = mark_start_range(message=profile_name)
-
-                result = func(*args, **kwargs_inner)
-
-                if not discrete_mode:
-                    mark_end_range(mark_range)
-                else:
-                    mark_end_range(mark_range)
-                    self.profile_npu.stop()
-                    self.profile_npu = None
-                    NPUProfiler._active_prof = None
-
-                return result
+                    try:
+                        return func(*args, **kwargs_inner)
+                    finally:
+                        mark_end_range(mark_range)
+                finally:
+                    if discrete_mode:
+                        try:
+                            self.profile_npu.stop()
+                        finally:
+                            self.profile_npu = None
+                            NPUProfiler._active_prof = None
 
             return wrapper
 

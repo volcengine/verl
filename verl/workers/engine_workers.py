@@ -141,6 +141,23 @@ class TrainingWorker(Worker, DistProfilerExtension):
             checkpoint_config=self.checkpoint_config,
         )
 
+        # Register on every training rank; DistProfiler handles enable/rank filtering.
+        # Only scheduled torch/npu profiling needs micro-batch notifications.
+        if (
+            not self.engine_config.forward_only
+            and self.profiler_config is not None
+            and self.profiler_config.enable
+            and self.profiler_config.tool in ("torch", "npu")
+        ):
+            schedule = getattr(self.profiler_tool_config, "schedule", None)
+            if schedule is not None and schedule.enabled:
+                if not self.engine.supports_micro_batch_callback:
+                    raise NotImplementedError(
+                        f"Micro-batch profiler scheduling is not supported by {type(self.engine).__name__}. "
+                        "Set profiler.tool_config.<tool>.schedule.active=0 for continuous collection."
+                    )
+                self.engine.set_micro_batch_callback(self.profiler.step)
+
         # build dispatch info
         self._register_dispatch_collect_info(
             mesh_name="train",
@@ -239,6 +256,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
         return final_output
 
     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="train"), blocking=False)
+    @DistProfiler.annotate(color="red", role="train_mini_batch", schedule_only=True)
     def train_mini_batch(self, data: TensorDict) -> TensorDict:
         """Split a batch into N mini-batches run for multiple epochs
 
@@ -309,9 +327,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
                 )
                 actor_output = self.train_batch(mini_batch_td)
                 output_lst.append(actor_output)
-                # Advance the profiler schedule once per mini-batch. No-op unless a
-                # torch/npu profiler schedule (wait/warmup/active/repeat) is active.
-                self.profiler.step()
 
             if self.engine.is_mp_src_rank_with_outputs():
                 actor_output = [tu.get(output, "metrics") for output in output_lst]
@@ -500,7 +515,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # Keep the raw (un-dataclassed) role profiler config so the inner actor
         # TrainingWorker can build a matching DistProfiler in init_model. This lets
-        # train_mini_batch drive the (process-global) torch profiler schedule via
+        # the engine's micro-batch callback drive the process-global schedule via
         # profiler.step(), even though start/stop happen on this outer worker.
         # NOTE: we must rebuild via the hydra path (omega_conf_to_dataclass without
         # dataclass_type) so that tool_config entries are real dataclasses with
@@ -593,7 +608,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             # Build the inner actor profiler config via the hydra path (same as SFT), so
             # its tool_config entries are real dataclass instances the torch profiler can
             # read. This gives the inner TrainingWorker a DistProfiler that shares the
-            # process-global torch profiler, so per-mini-batch profiler.step() works.
+            # process-global torch profiler, so per-micro-batch profiler.step() works.
             actor_profiler_config = (
                 omega_conf_to_dataclass(self._omega_profiler_config) if self._omega_profiler_config else None
             )

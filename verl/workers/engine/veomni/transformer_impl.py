@@ -434,6 +434,9 @@ class VeOmniEngine(FSDPEngine):
                     if len(output_lst) < len(micro_batches):
                         self._router_replay.advance_record_microbatch()
 
+                if not forward_only:
+                    self.on_micro_batch_end()
+
             if rr_active and self._router_replay.action is RouterReplayAction.RECORD:
                 # ``collect_recorded`` already checks pad_size_per_mb internally;
                 # cu_seqlens_per_mb is engine-local, so we cross-check here for
