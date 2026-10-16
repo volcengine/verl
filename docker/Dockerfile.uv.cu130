@@ -352,23 +352,32 @@ RUN printf 'verl\n' > README.md
 # `uv run` / `uv sync` then resolves from it offline.
 # ---------------------------------------------------------------------------
 FROM deps AS prefetch
-# The git-sourced deps (VeOmni, Megatron) are large repos whose FULL-history
-# fetch is reset by a middlebox while receiving objects (curl 56 / early EOF /
-# invalid index-pack), so it never finishes. uv needs just the single pinned
-# commit and versions come from committed files (veomni/_version.py;
+# The git-sourced deps (VeOmni, Megatron) break two ways behind a filtering
+# egress proxy/middlebox, and a FULL-history fetch is reset while receiving
+# objects (curl 56 / early EOF / invalid index-pack). uv needs just the single
+# pinned commit and versions come from committed files (veomni/_version.py;
 # megatron's package_info.py runs `git rev-parse --short HEAD`), so no history
 # is required. Install a THROWAWAY git shim for THIS step only (written with
 # printf, NOT a Dockerfile heredoc, for compatibility across BuildKit
-# frontends): it recognises uv's `git fetch <url> +<sha>:refs/commit/<sha>` and
-# replaces it with `fetch --depth 1 --no-tags <remote> <sha>` over protocol v2
-# (GitHub serves an arbitrary reachable SHA this way; it cannot be done with
-# the SHA as a refspec source), then writes refs/commit/<sha>. HTTP/1.1 plus
-# retries dodges middlebox RST, and a matched git source NEVER falls back to a
-# full fetch. Any other git call passes through. The shim is removed afterwards
-# so it never ships in the image.
+# frontends). It recognises uv's `git fetch <url> +<sha>:refs/commit/<sha>`.
+#
+# A protocol-v2 fetch starts with ls-refs; GitHub advertises thousands of
+# refs/pull/* for Megatron-LM (~8.2k refs), which the proxy truncates, so the
+# pkt stream is malformed ("expected flush after ref listing") and git then
+# asks for credentials ("could not read Username ... terminal prompts
+# disabled"). The shim avoids that listing: v2 ls-remote asks for
+# refs/heads/* + refs/tags/* ONLY (server-side ref-prefix filter; Megatron then
+# returns ~747 refs). If the pinned SHA is a branch/tag tip it shallow-fetches
+# that ADVERTISED REF (most proxy/version tolerant); otherwise it shallow
+# fetches the SHA directly, which GitHub v2 serves for any reachable commit (a
+# bare SHA cannot be used as a refspec source). It then writes refs/commit/<sha>
+# and verifies the object exists. v2 + HTTP/1.1, retries, GIT_TERMINAL_PROMPT=0;
+# a matched source NEVER falls back to a full fetch. Other git calls pass
+# through. Removed afterwards so the shim never ships in the image.
 RUN printf '%s\n' \
     '#!/bin/sh' \
     'G=/usr/bin/git' \
+    'export GIT_TERMINAL_PROMPT=0' \
     'if [ "$1" = "fetch" ]; then' \
     '    shift; url=; spec=' \
     '    for a in "$@"; do' \
@@ -377,18 +386,22 @@ RUN printf '%s\n' \
     '            *:refs/commit/*)    spec=$a ;;' \
     '        esac' \
     '    done' \
+    '    src=${spec%%:*}; src=${src#+}' \
     '    dst=${spec##*:}' \
-    '    if [ -n "$url" ] && printf %s "$dst" | grep -Eq "^[0-9a-f]{40}$"; then' \
-    '        echo "=== uv-git-shim: shallow v2 fetch $dst from $url ===" >&2' \
+    '    if [ -n "$url" ] && printf %s "$src" | grep -Eq "^[0-9a-f]{40}$"; then' \
+    '        echo "=== uv-git-shim: shallow fetch pinned $src from $url ===" >&2' \
     '        "$G" remote remove uvshim >/dev/null 2>&1' \
     '        "$G" remote add uvshim "$url"' \
     '        n=0' \
     '        until [ "$n" -ge 6 ]; do' \
-    '            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 fetch --no-tags --depth 1 uvshim "$dst" >&2 && "$G" update-ref "refs/commit/$dst" "$dst"; then exit 0; fi' \
-    '            n=$((n+1)); echo "=== uv-git-shim retry $n after network reset ===" >&2' \
+    '            refs=$("$G" -c protocol.version=2 -c http.version=HTTP/1.1 ls-remote --refs "$url" "refs/heads/*" "refs/tags/*" 2>/dev/null)' \
+    '            ref=$(printf "%s\n" "$refs" | while read -r o r; do if [ "$o" = "$src" ]; then printf "%s" "$r"; break; fi; done)' \
+    '            if [ -n "$ref" ]; then echo "=== uv-git-shim: advertised ref $ref ===" >&2; want=$ref; else echo "=== uv-git-shim: not a head/tag tip; v2 fetch by SHA ===" >&2; want=$src; fi' \
+    '            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 fetch -q --no-tags --depth 1 uvshim "$want" >&2 && "$G" update-ref "$dst" "$src" && "$G" cat-file -e "${src}^{commit}"; then exit 0; fi' \
+    '            n=$((n+1)); echo "=== uv-git-shim retry $n after network failure ===" >&2' \
     '            sleep $((n*3))' \
     '        done' \
-    '        echo "=== uv-git-shim FATAL: shallow fetch of $dst failed; refusing full clone ===" >&2' \
+    '        echo "=== uv-git-shim FATAL: shallow fetch of $src failed; refusing full clone ===" >&2' \
     '        exit 1' \
     '    fi' \
     '    exec "$G" fetch "$@"' \
