@@ -113,12 +113,12 @@ def get_balance_mini_batch_size(config: DictConfig, use_critic: bool, update_act
 
     Every actor and critic mini-batch is a run of consecutive chunks of this size, so balancing each chunk
     across DP ranks balances all of them. Returns 0, i.e. balance the whole batch, if no model is updated or
-    any model enables ``shuffle``. Shuffling is performed by workers inside each DP rank and mixes the
-    balanced mini-batches, so we fall back to whole-batch balancing in that case.
+    any model enables ``shuffle`` with ``ppo_epochs > 1``. Worker-side reshuffling across epochs mixes
+    the balanced mini-batches, so we fall back to whole-batch balancing in that case.
     """
     models = [config.critic] if use_critic else []
     models += [config.actor_rollout_ref.actor] if update_actor else []
-    if any(model.shuffle for model in models):
+    if any(model.shuffle and model.ppo_epochs > 1 for model in models):
         return 0
     return math.gcd(*(model.ppo_mini_batch_size * config.actor_rollout_ref.rollout.n for model in models))
 

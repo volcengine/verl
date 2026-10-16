@@ -1185,8 +1185,8 @@ class RayPPOTrainer:
         """Shuffle samples into PPO mini-batches if enabled, then balance each mini-batch across DP ranks.
 
         Falls back to balancing the whole batch when mini-batches can't be kept, see
-        get_balance_mini_batch_size. Enabling worker-side shuffle disables per-mini-batch
-        balancing because workers remix the balanced chunks inside each DP rank.
+        get_balance_mini_batch_size. Enabling worker-side shuffle with ppo_epochs > 1 disables
+        per-mini-batch balancing because workers remix the balanced chunks inside each DP rank.
 
         When use_prefix_grouper is enabled, uses group-level balancing to keep samples with
         the same uid together on the same rank for prefix sharing optimization.

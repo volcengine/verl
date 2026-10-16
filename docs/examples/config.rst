@@ -307,10 +307,11 @@ Actor/Rollout/Reference Policy
   issue. if ``actor_rollout_ref.actor.shuffle`` is not null, this must be set.
 
 - ``actor_rollout_ref.actor.shuffle``: Whether to shuffle training data
-  before constructing PPO mini-batches in every epoch. When enabled,
-  mini-batch-level DP balancing is disabled and the whole train batch is
-  balanced across DP ranks; each rank then shuffles its local shard
-  independently.
+  before constructing PPO mini-batches in every epoch. When enabled with
+  ``actor_rollout_ref.actor.ppo_epochs > 1``, mini-batch-level DP balancing
+  is disabled and the whole train batch is balanced across DP ranks;
+  each rank then shuffles its local shard independently. With a single
+  PPO epoch, trainer-side shuffle preserves mini-batch-level DP balancing.
 
 - ``actor_rollout_ref.actor.optim``: Actor's optimizer parameters
 

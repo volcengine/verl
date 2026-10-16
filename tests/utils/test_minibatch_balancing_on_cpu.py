@@ -97,9 +97,8 @@ def _config(actor_shuffle=False, critic_shuffle=False, actor_epochs=1, critic_ep
 def test_balance_mini_batch_size():
     """The balancing unit must divide every active PPO mini-batch size.
 
-    Enabling ``shuffle`` on any model disables per-mini-batch balancing because workers
-    reshuffle samples inside each DP rank, which mixes the balanced chunks. In that case we
-    fall back to balancing the whole batch and let the worker shuffle as before.
+    Enabling ``shuffle`` with multiple PPO epochs on an active model disables per-mini-batch
+    balancing because workers reshuffle samples inside each DP rank across epochs.
     Returns 0 when no model is updated.
     """
     config = _config()
@@ -107,10 +106,15 @@ def test_balance_mini_batch_size():
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=False) == 12
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=True) == 4
     assert get_balance_mini_batch_size(config, use_critic=False, update_actor=False) == 0
-    # shuffle always disables per-mini-batch balancing.
-    assert get_balance_mini_batch_size(_config(actor_shuffle=True), use_critic=False, update_actor=True) == 0
+    # Single-epoch shuffle and multiple epochs without shuffle retain per-mini-batch balancing.
+    assert get_balance_mini_batch_size(_config(actor_shuffle=True), use_critic=False, update_actor=True) == 8
+    assert get_balance_mini_batch_size(_config(critic_shuffle=True), use_critic=True, update_actor=True) == 4
     assert get_balance_mini_batch_size(_config(actor_epochs=2), use_critic=False, update_actor=True) == 8
-    # Enabling critic shuffle also falls back to whole-batch balance.
+    assert get_balance_mini_batch_size(_config(critic_epochs=2), use_critic=True, update_actor=False) == 12
+    # Only active models that shuffle over multiple epochs trigger whole-batch balancing.
+    actor_reshuffle = _config(actor_shuffle=True, actor_epochs=2)
+    assert get_balance_mini_batch_size(actor_reshuffle, use_critic=False, update_actor=True) == 0
+    assert get_balance_mini_batch_size(actor_reshuffle, use_critic=True, update_actor=False) == 12
     reshuffle = _config(critic_shuffle=True, critic_epochs=2)
     assert get_balance_mini_batch_size(reshuffle, use_critic=True, update_actor=True) == 0
     assert get_balance_mini_batch_size(reshuffle, use_critic=False, update_actor=True) == 8
@@ -122,7 +126,7 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
 
     Covers three cases:
     1. shuffle=False, epochs>1: per-mini-batch balance, deterministic order.
-    2. shuffle=True, epochs=1: fall back to whole-batch balance because shuffle is enabled.
+    2. shuffle=True, epochs=1: per-mini-batch balance, seeded shuffle.
     3. shuffle=True, epochs>1: fall back to whole-batch balance (original behavior).
     """
     from verl import DataProto
@@ -146,7 +150,7 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
 
     order = batch.batch["index"].tolist()
     shards = [order[: num_samples // k_partitions], order[num_samples // k_partitions :]]
-    if shuffle:
+    if shuffle and epochs > 1:
         # Whole-batch fallback: layout matches the old equal-size partition.
         assert not batch.meta_info["minibatch_balanced"]
         expected = get_seqlen_balanced_partitions(calculate_workload(torch.tensor(lengths)), 2, equal_size=True)
@@ -156,5 +160,18 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
     # Per-mini-batch balance.
     assert batch.meta_info["minibatch_balanced"]
     mini_batches = [sorted(j for share in shares for j in share) for shares in _worker_mini_batches(shards, 8)]
-    # Deterministic order; mini-batches are still balanced.
-    assert mini_batches == [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
+    expected = get_minibatch_balanced_partitions(
+        calculate_workload(torch.tensor(lengths)),
+        k_partitions,
+        mini_batch_size=8,
+        shuffle=shuffle,
+        seed=[42, trainer.global_steps],
+    )
+    for actual_shares, expected_shares in zip(
+        _worker_mini_batches(shards, 8), _worker_mini_batches(expected, 8), strict=True
+    ):
+        assert [sorted(share) for share in actual_shares] == [sorted(share) for share in expected_shares]
+    if not shuffle:
+        assert mini_batches == [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
+    else:
+        assert mini_batches != [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
