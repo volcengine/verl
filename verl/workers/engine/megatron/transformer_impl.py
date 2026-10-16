@@ -21,6 +21,7 @@ from typing import Any, Callable, ContextManager, Iterator
 import torch
 import torch.distributed
 from megatron.core import parallel_state as mpu
+from megatron.core.distributed import DistributedDataParallel
 from megatron.core.package_info import __version__
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from omegaconf import OmegaConf
@@ -739,6 +740,16 @@ class MegatronEngine(BaseEngine):
         origin_module_device = get_megatron_module_device(self.module)
         if self._is_offload_param or origin_module_device == "cpu":
             load_megatron_model_to_gpu(self.module, load_grad=True)
+        # Distributed optimizer parameter gathers may still be pending without a forward pre-hook.
+        # Publish the updated parameters before either checkpoint backend reads them.
+        with torch.no_grad():
+            for model_chunk in self.module:
+                if (
+                    isinstance(model_chunk, DistributedDataParallel)
+                    and model_chunk.ddp_config.use_distributed_optimizer
+                    and model_chunk.ddp_config.overlap_param_gather
+                ):
+                    model_chunk.start_param_sync(force_sync=True)
         self.checkpoint_mananager.save_checkpoint(
             local_path=local_path, hdfs_path=hdfs_path, global_step=global_step, max_ckpt_to_keep=max_ckpt_to_keep
         )
