@@ -43,6 +43,8 @@ def calculate_workload(seqlen_list: torch.Tensor) -> torch.Tensor:
     Note:
         The returned values are relative workloads, not actual FLOP counts.
         Useful for balancing computation across data parallel ranks.
+        The constants are currently hard-coded for a 7B model; using model-specific
+        hidden sizes would improve the estimate for other model scales.
     """
     return 24576 * seqlen_list + seqlen_list**2
 

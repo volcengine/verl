@@ -1618,7 +1618,10 @@ class PPOTrainer(ABC):
     def _balance_batch(self, batch: KVBatchMeta, metrics, logging_prefix="global_seqlen"):
         """Shuffle samples into PPO mini-batches if enabled, then balance each mini-batch across DP ranks.
 
-        Falls back to balancing the whole batch when mini-batches can't be kept, see get_balance_mini_batch_size.
+        Falls back to balancing the whole batch when mini-batches can't be kept, see
+        get_balance_mini_batch_size. In particular, enabling worker-side shuffle disables
+        per-mini-batch balancing because workers would remix the balanced chunks inside
+        each DP rank.
         """
         # get actor dp size
         role, worker_group = "actor", self.actor_rollout_wg

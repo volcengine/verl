@@ -97,19 +97,20 @@ def _config(actor_shuffle=False, critic_shuffle=False, actor_epochs=1, critic_ep
 def test_balance_mini_batch_size():
     """The balancing unit must divide every active PPO mini-batch size.
 
-    When a model reshuffles samples every epoch (shuffle=True and ppo_epochs > 1), we must fall
-    back to balancing the whole batch and let the worker shuffle as before, preserving the
-    original semantics. Returns 0 when no model is updated.
+    Enabling ``shuffle`` on any model disables per-mini-batch balancing because workers
+    reshuffle samples inside each DP rank, which mixes the balanced chunks. In that case we
+    fall back to balancing the whole batch and let the worker shuffle as before.
+    Returns 0 when no model is updated.
     """
     config = _config()
     assert get_balance_mini_batch_size(config, use_critic=False, update_actor=True) == 8
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=False) == 12
     assert get_balance_mini_batch_size(config, use_critic=True, update_actor=True) == 4
     assert get_balance_mini_batch_size(config, use_critic=False, update_actor=False) == 0
-    # shuffle without multi-epoch reshuffling keeps per-mini-batch balancing.
-    assert get_balance_mini_batch_size(_config(actor_shuffle=True), use_critic=False, update_actor=True) == 8
+    # shuffle always disables per-mini-batch balancing.
+    assert get_balance_mini_batch_size(_config(actor_shuffle=True), use_critic=False, update_actor=True) == 0
     assert get_balance_mini_batch_size(_config(actor_epochs=2), use_critic=False, update_actor=True) == 8
-    # Reshuffling every epoch falls back to whole-batch balance.
+    # Enabling critic shuffle also falls back to whole-batch balance.
     reshuffle = _config(critic_shuffle=True, critic_epochs=2)
     assert get_balance_mini_batch_size(reshuffle, use_critic=True, update_actor=True) == 0
     assert get_balance_mini_batch_size(reshuffle, use_critic=False, update_actor=True) == 8
@@ -121,7 +122,7 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
 
     Covers three cases:
     1. shuffle=False, epochs>1: per-mini-batch balance, deterministic order.
-    2. shuffle=True, epochs=1: per-mini-batch balance, trainer shuffles once.
+    2. shuffle=True, epochs=1: fall back to whole-batch balance because shuffle is enabled.
     3. shuffle=True, epochs>1: fall back to whole-batch balance (original behavior).
     """
     from verl import DataProto
@@ -145,7 +146,7 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
 
     order = batch.batch["index"].tolist()
     shards = [order[: num_samples // k_partitions], order[num_samples // k_partitions :]]
-    if shuffle and epochs > 1:
+    if shuffle:
         # Whole-batch fallback: layout matches the old equal-size partition.
         assert not batch.meta_info["minibatch_balanced"]
         expected = get_seqlen_balanced_partitions(calculate_workload(torch.tensor(lengths)), 2, equal_size=True)
@@ -155,7 +156,5 @@ def test_ray_trainer_balance_batch(shuffle, epochs):
     # Per-mini-batch balance.
     assert batch.meta_info["minibatch_balanced"]
     mini_batches = [sorted(j for share in shares for j in share) for shares in _worker_mini_batches(shards, 8)]
-    if shuffle:
-        assert mini_batches != [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
-    else:
-        assert mini_batches == [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
+    # Deterministic order; mini-batches are still balanced.
+    assert mini_batches == [list(range(i * 8, (i + 1) * 8)) for i in range(4)]
