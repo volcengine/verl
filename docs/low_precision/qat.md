@@ -126,7 +126,7 @@ actor_rollout_ref:
         mode: fp8   # must match rollout.quantization (FP8_BLOCK -> fp8, MXFP8 -> mxfp8)
 ```
 
-QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization.
+QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only.
 Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them aligned with the rollout ignore list; for Qwen3.5 MXFP8, add `*linear_attn.in_proj_a` and `*linear_attn.in_proj_b`.
 
 ### Engine notes
@@ -177,7 +177,7 @@ Blackwell reference `k3_kl` for vLLM MXFP8:
 | Qwen3.5-0.8B | BF16 | 0.00066 |
 | | MXFP8 linear | 0.01391 |
 | Qwen3.5-35B-A3B (EP=8, rollout TP=2) | MXFP8 linear + MoE | 0.00148 |
-| | MXFP8 linear + MoE + MXFP8 QAT | 0.00288 |
+| | MXFP8 linear + MoE + MXFP8 QAT | 0.00315 |
 
 ## Limitations
 
