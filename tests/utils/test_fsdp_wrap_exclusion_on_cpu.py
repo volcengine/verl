@@ -406,3 +406,20 @@ def test_fsdp1_size_based_policy_ignores_exclusion_and_warns(caplog):
     inner = policy.keywords["policies"]
     assert len(inner) == 1, "only the size policy should be built"
     assert inner[0].func is size_based_auto_wrap_policy
+
+
+def test_wrap_policy_get_tolerates_none_and_attribute_configs():
+    """The marker gate reads min_num_params from the same config shapes
+    get_fsdp_wrap_policy accepts: None (yaml ``wrap_policy: null``), dicts, and
+    attribute-style objects; a stored None falls back to the default (a direct
+    ``.get`` on these crashed or diverged from the policy builder)."""
+    from verl.utils.fsdp_utils import _wrap_policy_get
+
+    class _AttrConfig:
+        min_num_params = 4096
+
+    assert _wrap_policy_get(None, "min_num_params", 0) == 0
+    assert _wrap_policy_get({"min_num_params": 1000}, "min_num_params", 0) == 1000
+    assert _wrap_policy_get({"min_num_params": None}, "min_num_params", 0) == 0
+    assert _wrap_policy_get(_AttrConfig(), "min_num_params", 0) == 4096
+    assert _wrap_policy_get(_AttrConfig(), "absent_key", 7) == 7

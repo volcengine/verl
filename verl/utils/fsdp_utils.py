@@ -77,6 +77,35 @@ def get_init_weight_context_manager(use_meta_tensor=True, mesh: DeviceMesh = Non
 
 # Copyright 2020-present the HuggingFace Inc. team.
 # Adapted from https://github.com/huggingface/transformers/src/transformers/trainer.py
+def _excluded_subtree_scan(exclude_modules):
+    """Single traversal of every module inside ``exclude_modules``.
+
+    Returns ``(ids, cls_names)`` — module identities for identity-based
+    filtering (LoRA lambda policy, FSDP2 target selection) and class names for
+    the class-based FSDP1 policy and its logging. Callers that need only one of
+    the two still pay one traversal.
+    """
+    ids, cls_names = set(), set()
+    for m in exclude_modules or []:
+        for sub in m.modules():
+            ids.add(id(sub))
+            cls_names.add(sub.__class__.__name__)
+    return ids, cls_names
+
+
+def _wrap_policy_get(config, attr_name, default_value=None):
+    """Read a wrap-policy setting with the same tolerance ``get_fsdp_wrap_policy``
+    applies to its ``config``: ``None``, a dict/DictConfig (``.get``), or an
+    attribute-style object. A stored ``None`` falls back to the default."""
+    if config is None:
+        return default_value
+    if hasattr(config, "get"):
+        value = config.get(attr_name, default_value)
+    else:
+        value = getattr(config, attr_name, default_value)
+    return default_value if value is None else value
+
+
 def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=None):
     """Get FSDP wrap policy for the module.
 
@@ -136,7 +165,7 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
         # that skips the tower would never enter those units and desynchronize the
         # collective order across ranks (#3491). They join the root FSDP unit,
         # which all-gathers on every rank at model forward entry.
-        excluded_leaf_ids = {id(sub) for m in (exclude_modules or []) for sub in m.modules()}
+        excluded_leaf_ids, _ = _excluded_subtree_scan(exclude_modules)
 
         def lambda_policy_fn(module):
             if id(module) in excluded_leaf_ids:
@@ -169,10 +198,9 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
                 transformer_cls_to_wrap.add(transformer_cls)
 
         if exclude_modules:
-            excluded_cls_names = {sub.__class__.__name__ for m in exclude_modules for sub in m.modules()}
+            excluded_ids, excluded_cls_names = _excluded_subtree_scan(exclude_modules)
             excluded = {cls for cls in transformer_cls_to_wrap if cls.__name__ in excluded_cls_names}
             if excluded:
-                excluded_ids = {id(sub) for m in exclude_modules for sub in m.modules()}
                 outside = [
                     name
                     for name, sub in module.named_modules()
@@ -638,7 +666,7 @@ def _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap, exclud
     """
     _tie = getattr(model.config, "tie_word_embeddings", False)
     _wrap_by_name = set() if _tie else {"embed_tokens", "lm_head"}
-    excluded_ids = {id(sub) for m in exclude_modules or [] for sub in m.modules()}
+    excluded_ids, _ = _excluded_subtree_scan(exclude_modules)
 
     modules = []
     for name, module in model.named_modules():
@@ -679,7 +707,7 @@ def apply_fsdp2(model, fsdp_kwargs, config, exclude_modules=None):
 
     modules = _select_fsdp2_wrap_targets(model, fsdp_transformer_layer_cls_to_wrap, exclude_modules=exclude_modules)
     if exclude_modules:
-        excluded_cls_names = {sub.__class__.__name__ for m in exclude_modules for sub in m.modules()}
+        _, excluded_cls_names = _excluded_subtree_scan(exclude_modules)
         excluded = sorted({name for name in fsdp_transformer_layer_cls_to_wrap if name in excluded_cls_names})
         if excluded:
             logger.info("FSDP2 wrap: excluded %s (inside exclude_modules) from per-module wrapping", excluded)

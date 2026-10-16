@@ -43,6 +43,7 @@ from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     FSDPModule,
     MixedPrecisionPolicy,
+    _wrap_policy_get,
     apply_fsdp2,
     collect_lora_params,
     fsdp2_clip_grad_norm_,
@@ -462,13 +463,6 @@ class FSDPEngine(BaseEngine):
         # _freeze_visual_path.
         exclude_modules = list(self._visual_path_modules) or None
 
-        auto_wrap_policy = get_fsdp_wrap_policy(
-            module=module,
-            config=self.engine_config.wrap_policy,
-            is_lora=self.model_config.lora_rank > 0,
-            exclude_modules=exclude_modules,
-        )
-
         fsdp_mesh = self.device_mesh
         sharding_strategy = get_sharding_strategy(fsdp_mesh, zero3_enable=self.engine_config.reshard_after_forward)
 
@@ -486,6 +480,17 @@ class FSDPEngine(BaseEngine):
                 cpu_offload = CPUOffload(offload_params=True)
                 self._is_offload_param = False
                 self._is_offload_optimizer = False
+
+            # Only FSDP1 consumes the class-based policy (FSDP2 selects wrap
+            # targets itself inside apply_fsdp2); building it here would also
+            # fire the FSDP1-only min_num_params warning on fsdp2 runs, where
+            # the identity-based exclusion does apply.
+            auto_wrap_policy = get_fsdp_wrap_policy(
+                module=module,
+                config=self.engine_config.wrap_policy,
+                is_lora=self.model_config.lora_rank > 0,
+                exclude_modules=exclude_modules,
+            )
 
             module = FSDP(
                 module,
@@ -540,7 +545,9 @@ class FSDPEngine(BaseEngine):
         # requires no trainable params inside the tower (vision LoRA / QAT):
         # mark_frozen_vision_tower_for_skip explains why.
         if exclude_modules is not None:
-            min_num_params = self.engine_config.wrap_policy.get("min_num_params", 0)
+            # Same tolerance as get_fsdp_wrap_policy: wrap_policy may be None
+            # (yaml `wrap_policy: null`) or an attribute-style config object.
+            min_num_params = _wrap_policy_get(self.engine_config.wrap_policy, "min_num_params", 0)
             size_policy_blocks_exclusion = self.engine_config.strategy == "fsdp" and min_num_params > 0
             if not size_policy_blocks_exclusion:
                 mark_frozen_vision_tower_for_skip(self._visual_path_modules)
@@ -1079,6 +1086,20 @@ class FSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
+                # Trainable params inside the wrap-excluded visual path (vision
+                # LoRA / QAT) sit in the root FSDP unit, which
+                # layered_summon_lora_params deliberately skips — a layered sync
+                # would silently drop them from the rollout. Fall back to a full
+                # summon for this (rare) combination.
+                if layered_summon and any(
+                    p.requires_grad for m in self._visual_path_modules for p in m.parameters()
+                ):
+                    logger.warning(
+                        "layered_summon disabled for this step: trainable params inside the wrap-excluded "
+                        "visual path (e.g. vision LoRA) live in the root FSDP unit, which the layered LoRA "
+                        "summon skips; falling back to a full summon so the rollout still sees them"
+                    )
+                    layered_summon = False
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,
