@@ -59,6 +59,11 @@ MOE_TARGET = r"re:.*mlp\.experts\..*"
 SUPPORTED_SCHEMES: dict[str, Optional[str]] = {
     "FP8_BLOCK": "fp8",
     "MXFP8": "mxfp8",
+    # There is no compressed-tensors preset for this combination.  verl's
+    # MXFP4 mode deliberately means MXFP4 expert weights with dynamically
+    # quantized MXFP8 expert inputs, rather than the upstream MXFP4 W4A4
+    # preset.
+    "MXFP4": "mxfp4",
 }
 
 # Layers that stay in high precision regardless of model. Patterns must start
@@ -104,10 +109,9 @@ def _numerics(args: Optional["QuantizationArgs"]) -> Optional[dict[str, Any]]:
 
 def _preset_of(scheme: "QuantizationScheme") -> Optional[str]:
     """The supported preset ``scheme`` quantizes like, ignoring observers and targets."""
-    from compressed_tensors.quantization import preset_name_to_scheme
 
     for preset in SUPPORTED_SCHEMES:
-        reference = preset_name_to_scheme(preset, scheme.targets)
+        reference = _scheme_for_preset(preset, scheme.targets)
         if all(
             _numerics(getattr(scheme, kind)) == _numerics(getattr(reference, kind))
             for kind in ("weights", "input_activations", "output_activations")
@@ -127,7 +131,10 @@ def _group_schemes(ct_config: Mapping[str, Any]) -> list["QuantizationScheme"]:
 
 def qat_modes_for_config(ct_config: Mapping[str, Any]) -> set[Optional[str]]:
     """ModelOpt QAT modes whose fake quant matches the config groups of a rollout ``quantization_config``."""
-    return {SUPPORTED_SCHEMES[_preset_of(scheme)] for scheme in _group_schemes(ct_config)}
+    presets = {_preset_of(scheme) for scheme in _group_schemes(ct_config)}
+    if presets == {"MXFP4", "MXFP8"}:
+        return {"mxfp4_mxfp8"}
+    return {SUPPORTED_SCHEMES[preset] for preset in presets}
 
 
 def _matches(name: str, targets: Iterable[str]) -> bool:
@@ -140,11 +147,21 @@ def _matches(name: str, targets: Iterable[str]) -> bool:
     return False
 
 
-def _config_group(targets: list[str], preset: str) -> dict[str, Any]:
-    from compressed_tensors.compressors.format import infer_module_format
+def _scheme_for_preset(preset: str, targets: list[str]) -> "QuantizationScheme":
+    """Resolve verl presets, including the MXFP4-weight/MXFP8-input combination."""
     from compressed_tensors.quantization import preset_name_to_scheme
 
     scheme = preset_name_to_scheme(preset, targets)
+    if preset == "MXFP4":
+        mxfp8 = preset_name_to_scheme("MXFP8", targets)
+        scheme = scheme.model_copy(update={"input_activations": mxfp8.input_activations})
+    return scheme
+
+
+def _config_group(targets: list[str], preset: str) -> dict[str, Any]:
+    from compressed_tensors.compressors.format import infer_module_format
+
+    scheme = _scheme_for_preset(preset, targets)
     group = scheme.model_dump(mode="json", exclude_none=True)
     group["format"] = infer_module_format(torch.nn.Linear, scheme).value
     return group
@@ -185,6 +202,8 @@ def build_compressed_tensors_config(
 
     linear = _check_scheme("linear", linear)
     moe = _check_scheme("moe", moe)
+    if linear == "MXFP4":
+        raise ValueError("MXFP4 is supported only for routed MoE experts; use BF16 or MXFP8 dense linear layers")
     if linear is None and moe is None:
         raise ValueError("rollout quantization needs at least one of `linear` / `moe`")
 

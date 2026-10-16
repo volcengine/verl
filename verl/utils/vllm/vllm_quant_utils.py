@@ -49,6 +49,7 @@ except ImportError:
 
 from verl.utils.kernel.fp8_kernel import scaled_fp8_blockwise
 from verl.utils.vllm.vllm_fp4_utils import (
+    install_mxfp4_mxfp8_compressed_tensors_patch,
     is_deepseek_v4_model,
     iter_deepseek_v4_weights,
     process_mxfp4_moe_weights_after_loading,
@@ -501,10 +502,11 @@ def apply_vllm_quant_patches():
 
     These have to be in place before the engine builds, because recording each
     layer's checkpoint layout happens inside the patched hook during the
-    initial load. The mxfp4 path needs no startup patch -- it derives the
-    checkpoint layout from the quant method and patches ``replace_parameter``
-    only for the duration of its own post-processing call.
+    initial load. The MXFP4 refit path derives the checkpoint layout from the
+    quant method; its startup patch only makes compressed-tensors honor MXFP8
+    activations.
     """
+    install_mxfp4_mxfp8_compressed_tensors_patch()
     if fp8_state.vllm_patches:
         logger.debug("vLLM quantization patches already applied")
         return

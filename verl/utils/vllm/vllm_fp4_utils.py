@@ -32,6 +32,7 @@ count, need an allocation, and those are a sixteenth of the weights.
 """
 
 import logging
+from dataclasses import replace
 from unittest.mock import patch
 
 import torch
@@ -40,6 +41,105 @@ logger = logging.getLogger(__name__)
 
 _MXFP4_SF_BLOCK = 32
 _MXFP4_LIVE_ATTR = "_verl_mxfp4_live_params"
+
+
+def install_mxfp4_mxfp8_compressed_tensors_patch():
+    """Teach vLLM compressed-tensors to honor MXFP8 expert activations.
+
+    vLLM 0.29 recognizes MXFP4 compressed-tensors weights but ignores their
+    input-activation scheme and unconditionally constructs its W4A4 method on
+    Blackwell.  Reuse vLLM's canonical MXFP4 method so its oracle can select an
+    actual MXFP4×MXFP8 backend while retaining the compressed-tensors packed
+    parameter names expected by the loader.
+    """
+    from vllm.model_executor.layers.fused_moe import FusedMoEMethodBase
+    from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import (
+        kMxfp8Dynamic,
+        select_mxfp4_moe_backend,
+    )
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        CompressedTensorsMoEMethod,
+        compressed_tensors_moe_w4a4_mxfp4,
+    )
+    from vllm.model_executor.layers.quantization.mxfp4 import Mxfp4MoEMethod
+
+    CompressedTensorsW4A4Mxfp4MoEMethod = compressed_tensors_moe_w4a4_mxfp4.CompressedTensorsW4A4Mxfp4MoEMethod
+    if getattr(CompressedTensorsMoEMethod, "_verl_mxfp4_mxfp8_patch", False):
+        return
+
+    class CompressedTensorsW4A8Mxfp4MoEMethod(Mxfp4MoEMethod):
+        """Compressed-tensors MXFP4 weights with dynamic MXFP8 activations."""
+
+        _verl_uses_packed_checkpoint_names = True
+
+        def __init__(self, moe):
+            FusedMoEMethodBase.__init__(self, moe)
+            self.weight_dtype = "mxfp4"
+            self.group_size = _MXFP4_SF_BLOCK
+            # TRTLLM's MXFP4×MXFP8 path is numerically incorrect for Qwen3.5
+            # on vLLM 0.29, while FlashInfer CUTLASS matches the BF16 and
+            # DeepGEMM references. Keep explicit user choices intact, but make
+            # the verified backend the default for verl's MXFP4 preset.
+            selection_moe = replace(moe, moe_backend="flashinfer_cutlass") if moe.moe_backend == "auto" else moe
+            self.mxfp4_backend, self.experts_cls = select_mxfp4_moe_backend(selection_moe, activation_key=kMxfp8Dynamic)
+            self.max_capture_size = moe.max_capture_size
+            self._cache_permute_indices = {}
+            self.moe_kernel = None
+            self.w13_precision_config = None
+            self.w2_precision_config = None
+
+        def create_weights(
+            self,
+            layer,
+            num_experts,
+            hidden_size,
+            intermediate_size_per_partition,
+            params_dtype,
+            **extra_weight_attrs,
+        ):
+            CompressedTensorsW4A4Mxfp4MoEMethod.create_weights(
+                self,
+                layer,
+                num_experts,
+                hidden_size,
+                intermediate_size_per_partition,
+                params_dtype,
+                **extra_weight_attrs,
+            )
+            self.num_experts = num_experts
+            self.intermediate_size = intermediate_size_per_partition
+            self.hidden_size = hidden_size
+
+        def process_weights_after_loading(self, layer):
+            # The compressed-tensors loader uses ``*_packed`` only for the
+            # initial load.  Refit staging restores the canonical names.
+            if hasattr(layer, "w13_weight_packed"):
+                layer.w13_weight = torch.nn.Parameter(layer.w13_weight_packed.data, requires_grad=False)
+                delattr(layer, "w13_weight_packed")
+                layer.w2_weight = torch.nn.Parameter(layer.w2_weight_packed.data, requires_grad=False)
+                delattr(layer, "w2_weight_packed")
+            return super().process_weights_after_loading(layer)
+
+    original = CompressedTensorsMoEMethod.get_moe_method
+
+    def get_moe_method(quant_config, layer, layer_name):
+        quant_config._add_fused_moe_to_target_scheme_map()
+        schemes = [
+            quant_config.get_scheme_dict(layer, layer_name + projection)
+            for projection in (".0.gate_proj", ".0.up_proj", ".0.down_proj")
+        ]
+        scheme = schemes[-1]
+        if not all(candidate == scheme for candidate in schemes):
+            return original(quant_config, layer, layer_name)
+        weight_quant = None if scheme is None else scheme.get("weights")
+        input_quant = None if scheme is None else scheme.get("input_activations")
+        if quant_config._is_mxfp4(weight_quant) and quant_config._is_mxfp8(input_quant):
+            logger.info("Using MXFP4 weights with dynamic MXFP8 activations for compressed-tensors MoE")
+            return CompressedTensorsW4A8Mxfp4MoEMethod(layer.moe_config)
+        return original(quant_config, layer, layer_name)
+
+    CompressedTensorsMoEMethod.get_moe_method = staticmethod(get_moe_method)
+    CompressedTensorsMoEMethod._verl_mxfp4_mxfp8_patch = True
 
 
 def is_deepseek_v4_model(model):
@@ -90,6 +190,7 @@ def _refittable_mxfp4_backends():
     from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import Mxfp4MoeBackend
 
     return (
+        Mxfp4MoeBackend.FLASHINFER_CUTLASS_MXFP4_MXFP8,
         Mxfp4MoeBackend.DEEPGEMM_MXFP4,
         Mxfp4MoeBackend.MARLIN,
         Mxfp4MoeBackend.BATCHED_MARLIN,
@@ -160,6 +261,7 @@ def _stage_mxfp4_moe_params(module):
     backend's conversion and folds the result back into the live storage.
     """
     live = {}
+    uses_packed_names = getattr(module.quant_method, "_verl_uses_packed_checkpoint_names", False)
     for name, (shape, dtype, scale_kind) in _mxfp4_checkpoint_layout(module).items():
         param = getattr(module, name, None)
         if not isinstance(param, torch.nn.Parameter):
@@ -170,7 +272,8 @@ def _stage_mxfp4_moe_params(module):
         staged.weight_loader = module.weight_loader
         if scale_kind is not None:
             staged.quant_method = scale_kind
-        setattr(module, name, staged)
+        checkpoint_name = f"{name}_packed" if uses_packed_names and name in ("w13_weight", "w2_weight") else name
+        setattr(module, checkpoint_name, staged)
 
     setattr(module, _MXFP4_LIVE_ATTR, live)
 

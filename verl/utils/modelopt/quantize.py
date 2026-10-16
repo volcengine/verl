@@ -38,6 +38,7 @@ _NVFP4_W4A16_QUANTIZER_CFG = {
 }
 
 _FP8_BLOCK_BACKEND = "verl_fp8_block"
+_MXFP4_BACKEND = "verl_mxfp4"
 _FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
 
 
@@ -67,8 +68,44 @@ def _fp8_block_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
     return _FP8BlockFakeQuant.apply(inputs, block_rows, block_cols)
 
 
+class _Mxfp4FakeQuant(torch.autograd.Function):
+    """compressed-tensors-compatible MXFP4 fake quantization with STE."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        from compressed_tensors.quantization import QuantizationArgs
+        from compressed_tensors.quantization.lifecycle.forward import fake_quantize
+        from compressed_tensors.quantization.utils import calculate_qparams
+
+        args = QuantizationArgs(
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            group_size=32,
+            strategy="group",
+            dynamic=False,
+            scale_dtype="torch.uint8",
+        )
+        shape = x.shape
+        x2d = x.reshape(-1, shape[-1])
+        groups = x2d.unflatten(-1, (-1, 32))
+        min_vals, max_vals = groups.amin(dim=-1), groups.amax(dim=-1)
+        scale, zero_point = calculate_qparams(min_vals.float(), max_vals.float(), args)
+        return fake_quantize(x2d, scale, zero_point, args).reshape(shape).to(x.dtype)
+
+    @staticmethod
+    def backward(ctx, grad):
+        return grad
+
+
+def _mxfp4_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
+    return _Mxfp4FakeQuant.apply(inputs)
+
+
 if not is_registered_quant_backend(_FP8_BLOCK_BACKEND):
     register_quant_backend(_FP8_BLOCK_BACKEND, _fp8_block_backend)
+if not is_registered_quant_backend(_MXFP4_BACKEND):
+    register_quant_backend(_MXFP4_BACKEND, _mxfp4_backend)
 
 # Mirrors the compressed-tensors "fp8" rollout scheme: 128x128 weight blocks and
 # dynamic 1x128 activation groups, both with fp32 scales. Only linear GEMMs the
@@ -96,7 +133,48 @@ _QUANTIZER_CFGS = {
     "w4a16": _NVFP4_W4A16_QUANTIZER_CFG,
     "fp8": _FP8_BLOCK_QUANTIZER_CFG,
 }
-_SUPPORTED_QAT_MODES = {*_QUANTIZER_CFGS, "mxfp8"}
+_SUPPORTED_QAT_MODES = {*_QUANTIZER_CFGS, "mxfp8", "mxfp4", "mxfp4_mxfp8"}
+
+_ROUTED_EXPERT_WEIGHT_QUANTIZER = "*mlp.experts*weight_quantizer"
+_ROUTED_EXPERT_INPUT_QUANTIZER = "*mlp.experts*input_quantizer"
+
+
+def _modelopt_quantizer_cfg(preset: dict, quantizer_name: str) -> dict:
+    """Copy one quantizer's numeric config from a native ModelOpt preset."""
+    entries = mtq.normalize_quant_cfg_list(copy.deepcopy(preset["quant_cfg"]))
+    return copy.deepcopy(next(entry["cfg"] for entry in entries if entry["quantizer_name"] == quantizer_name))
+
+
+def _mxfp4_quantize_config(*, dense_mxfp8: bool) -> tuple[list[dict], None]:
+    """MXFP4 routed-expert weights with MXFP8 activations.
+
+    ModelOpt has native MXFP4/MXFP4 and MXFP8/MXFP8 presets but no MXFP4/MXFP8
+    preset. Their quantizers are independent, so combine the weight numerics
+    from the former with the input numerics from the latter.
+    """
+    if dense_mxfp8:
+        quant_cfg = mtq.normalize_quant_cfg_list(copy.deepcopy(mtq.MXFP8_DEFAULT_CFG["quant_cfg"]))
+    else:
+        quant_cfg = [{"quantizer_name": "*", "enable": False}]
+
+    weight_cfg = _modelopt_quantizer_cfg(mtq.MXFP4_DEFAULT_CFG, "*weight_quantizer")
+    # ModelOpt and compressed-tensors use different E2M1 tie handling for a
+    # small subset of values. Export is compressed-tensors, so QAT must use the
+    # same QDQ implementation to remain numerically identical.
+    weight_cfg["backend"] = _MXFP4_BACKEND
+    quant_cfg.extend(
+        [
+            {
+                "quantizer_name": _ROUTED_EXPERT_WEIGHT_QUANTIZER,
+                "cfg": weight_cfg,
+            },
+            {
+                "quantizer_name": _ROUTED_EXPERT_INPUT_QUANTIZER,
+                "cfg": _modelopt_quantizer_cfg(mtq.MXFP8_DEFAULT_CFG, "*input_quantizer"),
+            },
+        ]
+    )
+    return quant_cfg, None
 
 
 def _ignore_patterns_to_quant_cfg(ignore_patterns: list[str]) -> list[dict]:
@@ -133,6 +211,8 @@ def build_quantize_config(
         modelopt_config = copy.deepcopy(mtq.MXFP8_DEFAULT_CFG)
         quant_cfg = mtq.normalize_quant_cfg_list(modelopt_config["quant_cfg"])
         algorithm = modelopt_config["algorithm"]
+    elif qat_mode in ("mxfp4", "mxfp4_mxfp8"):
+        quant_cfg, algorithm = _mxfp4_quantize_config(dense_mxfp8=qat_mode == "mxfp4_mxfp8")
     else:
         quant_cfg = mtq.normalize_quant_cfg_list(copy.deepcopy(_QUANTIZER_CFGS[qat_mode]))
         disabled_cfg = copy.deepcopy(_default_disabled_quantizer_cfg)
