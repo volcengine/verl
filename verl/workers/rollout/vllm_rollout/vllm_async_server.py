@@ -663,7 +663,7 @@ class vLLMHttpServer:
 
         self._preprocess_sampling_params(sampling_params)
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
-        prompt_ids = qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
+        engine_prompt_ids = qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         multi_modal_data = {}
         if image_data is not None:
             multi_modal_data["image"] = image_data
@@ -672,7 +672,7 @@ class vLLMHttpServer:
         if audio_data is not None:
             multi_modal_data["audio"] = audio_data
 
-        prompt_kwargs = {"prompt_token_ids": prompt_ids, "multi_modal_data": multi_modal_data}
+        prompt_kwargs = {"prompt_token_ids": engine_prompt_ids, "multi_modal_data": multi_modal_data}
         if mm_processor_kwargs:
             prompt_kwargs["mm_processor_kwargs"] = mm_processor_kwargs
         try:
@@ -755,6 +755,17 @@ class vLLMHttpServer:
 
         routed_experts = None
         if self.config.enable_rollout_routing_replay:
+            # Routed experts have one row per token vLLM ran, after its multimodal processor expanded
+            # the placeholders. Replaying them is only correct if those are the tokens we train on.
+            engine_prompt = final_res.prompt_token_ids
+            if engine_prompt != prompt_ids:
+                n = min(len(engine_prompt), len(prompt_ids))
+                pos = next((i for i in range(n) if engine_prompt[i] != prompt_ids[i]), n)
+                raise ValueError(
+                    f"Rollout routing replay for request {request_id}: the prompt vLLM ran ({len(engine_prompt)} "
+                    f"tokens) differs from the trainer's prompt ({len(prompt_ids)} tokens) from position {pos}. "
+                    "Multimodal placeholders must expand to the same tokens on both sides."
+                )
             routed_experts = final_res.outputs[0].routed_experts
 
         # Determine stop reason from finish_reason

@@ -23,13 +23,17 @@ They also pin abort_all_requests(reject_request=True), which fails late arrivals
 instead of parking them when the server is leaving the load balancer and no
 resume_generation() is coming soon.
 
-Finally, they pin where generate() runs the request hooks relative to the gate:
+They pin where generate() runs the request hooks relative to the gate:
 _preprocess_sampling_params before admission, _postprocess_output after release.
+
+Finally, they pin that routing replay only accepts routed experts computed on the
+prompt the trainer will replay them on.
 """
 
 import asyncio
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 pytest.importorskip("ray")
@@ -55,11 +59,13 @@ class _FakeEngine:
         self.reset_prefix_calls = 0
         self.outputs = []
         self.sampling_params = []
+        self.prompts = []
 
     async def generate(
         self, prompt, sampling_params, request_id, lora_request=None, priority=0, data_parallel_rank=None
     ):
         self.sampling_params.append(sampling_params)
+        self.prompts.append(prompt["prompt_token_ids"])
         for output in self.outputs:
             yield output
 
@@ -320,11 +326,13 @@ def _make_generating_server(monkeypatch, cls, outputs):
     return server
 
 
-def _request_output(token_ids, rows=None):
+def _request_output(token_ids, rows=None, prompt_token_ids=None, routed_experts=None):
     completion = SimpleNamespace(
-        token_ids=token_ids, logprobs=rows, finish_reason="stop", routed_experts=None, num_preempted=0
+        token_ids=token_ids, logprobs=rows, finish_reason="stop", routed_experts=routed_experts, num_preempted=0
     )
-    return SimpleNamespace(outputs=[completion], num_cached_tokens=0, prompt_logprobs=None)
+    return SimpleNamespace(
+        outputs=[completion], num_cached_tokens=0, prompt_logprobs=None, prompt_token_ids=prompt_token_ids
+    )
 
 
 def test_default_request_hooks_leave_generate_output_unchanged(monkeypatch):
@@ -379,5 +387,51 @@ def test_output_hook_runs_for_requests_aborted_with_empty_outputs(monkeypatch):
         assert output.stop_reason == "aborted" and output.token_ids == []
         assert output.extra_fields["selected_logprobs"] == []
         assert server._admitting == 0
+
+    asyncio.run(main())
+
+
+class Qwen2VLImageProcessor:
+    """Stand-in matched by name: qwen2_5_vl_dedup_image_tokens keys off the image processor class."""
+
+
+IMAGE = 9
+QWEN_VL_PROCESSOR = SimpleNamespace(image_processor=Qwen2VLImageProcessor(), image_token_id=IMAGE, video_token_id=-1)
+TRAINED_PROMPT = [1, IMAGE, IMAGE, IMAGE, 2]
+
+
+@pytest.mark.parametrize(
+    "processor,engine_prompt",
+    [
+        (None, TRAINED_PROMPT),
+        # The server sends one placeholder per image; vLLM re-expands it to the trained span.
+        (QWEN_VL_PROCESSOR, TRAINED_PROMPT),
+        # vLLM expanded the image to more placeholders than the trainer's prompt holds.
+        (None, [1, IMAGE, IMAGE, IMAGE, IMAGE, 2]),
+        # Same length, different tokens.
+        (None, [1, IMAGE, IMAGE, 7, 2]),
+    ],
+    ids=["same-prompt", "qwen-vl-dedup-reexpanded", "engine-expanded-further", "same-length-other-tokens"],
+)
+def test_routing_replay_requires_engine_to_run_the_trained_prompt(monkeypatch, processor, engine_prompt):
+    async def main():
+        routing = np.arange(len(engine_prompt) + 1, dtype=np.uint8).reshape(-1, 1, 1)
+        server = _make_generating_server(
+            monkeypatch,
+            vllm_async_server.vLLMHttpServer,
+            [_request_output([5, 6], prompt_token_ids=engine_prompt, routed_experts=routing)],
+        )
+        server.config = RolloutConfig(
+            name="vllm", max_model_len=64, prompt_length=32, response_length=16, enable_rollout_routing_replay=True
+        )
+        server.model_config.processor = processor
+
+        if engine_prompt == TRAINED_PROMPT:
+            output = await server.generate(TRAINED_PROMPT, {}, "r")
+            assert server.engine.prompts == [[1, IMAGE, 2] if processor else TRAINED_PROMPT]
+            np.testing.assert_array_equal(output.routed_experts, routing)
+        else:
+            with pytest.raises(ValueError, match="Rollout routing replay"):
+                await server.generate(TRAINED_PROMPT, {}, "r")
 
     asyncio.run(main())
