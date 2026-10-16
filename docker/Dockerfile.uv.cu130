@@ -370,10 +370,15 @@ FROM deps AS prefetch
 # returns ~747 refs). If the pinned SHA is a branch/tag tip it shallow-fetches
 # that ADVERTISED REF (most proxy/version tolerant); otherwise it shallow
 # fetches the SHA directly, which GitHub v2 serves for any reachable commit (a
-# bare SHA cannot be used as a refspec source). It then writes refs/commit/<sha>
-# and verifies the object exists. v2 + HTTP/1.1, retries, GIT_TERMINAL_PROMPT=0;
-# a matched source NEVER falls back to a full fetch. Other git calls pass
-# through. Removed afterwards so the shim never ships in the image.
+# bare SHA cannot be used as a refspec source). It writes refs/commit/<sha>,
+# and ALSO a lightweight tag refs/tags/uvshim-pinned-<sha>: uv next runs
+# `git clone --local <db> <checkout>` (which copies only refs/heads + refs/tags,
+# not refs/commit) and then `git reset --hard <sha>` in the checkout; without a
+# head/tag the shallow object is not carried over and reset fails with
+# "Could not parse object". Finally it verifies ${src}^{commit}. v2 + HTTP/1.1,
+# retries, GIT_TERMINAL_PROMPT=0; a matched source NEVER falls back to a full
+# fetch. Other git calls pass through. Removed afterwards so the shim never
+# ships in the image.
 RUN printf '%s\n' \
     '#!/bin/sh' \
     'G=/usr/bin/git' \
@@ -397,7 +402,7 @@ RUN printf '%s\n' \
     '            refs=$("$G" -c protocol.version=2 -c http.version=HTTP/1.1 ls-remote --refs "$url" "refs/heads/*" "refs/tags/*" 2>/dev/null)' \
     '            ref=$(printf "%s\n" "$refs" | while read -r o r; do if [ "$o" = "$src" ]; then printf "%s" "$r"; break; fi; done)' \
     '            if [ -n "$ref" ]; then echo "=== uv-git-shim: advertised ref $ref ===" >&2; want=$ref; else echo "=== uv-git-shim: not a head/tag tip; v2 fetch by SHA ===" >&2; want=$src; fi' \
-    '            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 fetch -q --no-tags --depth 1 uvshim "$want" >&2 && "$G" update-ref "$dst" "$src" && "$G" cat-file -e "${src}^{commit}"; then exit 0; fi' \
+    '            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 fetch -q --no-tags --depth 1 uvshim "$want" >&2 && "$G" update-ref "$dst" "$src" && "$G" update-ref "refs/tags/uvshim-pinned-$src" "$src" && "$G" cat-file -e "${src}^{commit}"; then exit 0; fi' \
     '            n=$((n+1)); echo "=== uv-git-shim retry $n after network failure ===" >&2' \
     '            sleep $((n*3))' \
     '        done' \
