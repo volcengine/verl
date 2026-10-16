@@ -1063,7 +1063,9 @@ def normalize_3d_position_ids(data: TensorDict) -> None:
         return
 
     # Unknown layout: keep the legacy unbind fall-through (inconsistent metadata fails
-    # loudly downstream) rather than guessing.
+    # loudly downstream) rather than guessing. Assert first so inconsistent metadata
+    # reports the key and offset mismatch instead of a low-level split error.
+    assert_nested_layout_consistency(pos, key="position_ids")
     data["position_ids"] = _repack_3d_position_ids_as_ragged2(list(pos.unbind(dim=0)))
 
 
