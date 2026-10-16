@@ -353,15 +353,16 @@ class RolloutConfig(BaseConfig):
         if self.topk_log_probs:
             if self.name != "vllm":
                 raise ValueError("rollout.topk_log_probs is supported by the vLLM rollout only.")
+            untruncated = self.top_p == 1.0 and self.top_k == -1
             if (
                 not self.calculate_log_probs
-                or self.top_p != 1.0
-                or self.top_k != -1
                 or self.logprobs_mode != "processed_logprobs"
+                or not (untruncated or 0 < self.top_k <= self.topk_log_probs)
             ):
                 raise ValueError(
-                    "rollout.topk_log_probs needs calculate_log_probs=True, top_p=1.0, top_k=-1 and "
-                    "logprobs_mode='processed_logprobs' so the returned head is the sampling distribution."
+                    "rollout.topk_log_probs needs calculate_log_probs=True, logprobs_mode='processed_logprobs' and "
+                    "either top_p=1.0, top_k=-1 or 0 < top_k <= topk_log_probs, so the returned head holds the "
+                    "sampling distribution."
                 )
             vllm_kwargs = self.engine_kwargs.setdefault("vllm", {})
             vllm_kwargs["max_logprobs"] = max(vllm_kwargs.get("max_logprobs", 0), self.topk_log_probs)

@@ -15,6 +15,8 @@
 
 The sampler's top-k head is exact; its tail is modeled as the trainer's tail rescaled to the
 sampler's tail mass, so the centering term only needs the k head log-probs of the trainer.
+Under truncated sampling (top-p/top-k) the head holds the whole sampling support instead, and the
+trainer is renormalized over it.
 """
 
 import math
@@ -80,16 +82,35 @@ def pad_rollout_topk(
     return full_ids, full_log_probs
 
 
+def _vocab_start(vocab_size: int, process_group) -> int:
+    if process_group is None:
+        return 0
+    return torch.distributed.get_rank(process_group) * vocab_size
+
+
+def _all_reduce(tensor: torch.Tensor, op, process_group) -> None:
+    if process_group is not None and torch.distributed.get_world_size(process_group) > 1:
+        torch.distributed.all_reduce(tensor, op=op, group=process_group)
+
+
+def _local_ids(token_ids: torch.Tensor, vocab_start: int, vocab_size: int) -> tuple[torch.Tensor, torch.Tensor]:
+    local_mask = (token_ids >= vocab_start) & (token_ids < vocab_start + vocab_size)
+    return (token_ids - vocab_start).clamp(0, vocab_size - 1), local_mask
+
+
 class _TopKLogProbsFromLogits(torch.autograd.Function):
     """log_softmax(logits).gather(ids) with a bounded fp32 workspace in forward and backward.
 
     Only the original logits, the ids and two scalars per row are saved; the softmax is
-    recomputed per chunk in backward.
+    recomputed per chunk in backward. Under vocab parallelism each rank holds a contiguous
+    vocab shard: the row maximum and normalizer are all-reduced across the group and ids
+    outside the local shard contribute zero to the summed gather.
     """
 
     @staticmethod
-    def forward(ctx, logits, token_ids, chunk_size):
-        n = logits.shape[0]
+    def forward(ctx, logits, token_ids, chunk_size, process_group):
+        n, vocab_size = logits.shape
+        vocab_start = _vocab_start(vocab_size, process_group)
         chunk_size = chunk_size if chunk_size > 0 else max(n, 1)
         output = torch.empty(token_ids.shape, device=logits.device, dtype=torch.float32)
         maxima = torch.empty((n, 1), device=logits.device, dtype=torch.float32)
@@ -98,22 +119,27 @@ class _TopKLogProbsFromLogits(torch.autograd.Function):
             end = min(start + chunk_size, n)
             work = logits[start:end].to(dtype=torch.float32, copy=True)
             maximum = work.max(dim=-1, keepdim=True).values
-            targets = work.gather(-1, token_ids[start:end])
+            _all_reduce(maximum, torch.distributed.ReduceOp.MAX, process_group)
+            local_ids, local_mask = _local_ids(token_ids[start:end], vocab_start, vocab_size)
+            targets = work.gather(-1, local_ids).masked_fill_(~local_mask, 0.0)
+            _all_reduce(targets, torch.distributed.ReduceOp.SUM, process_group)
             work.sub_(maximum).exp_()
             denominator = work.sum(dim=-1, keepdim=True)
+            _all_reduce(denominator, torch.distributed.ReduceOp.SUM, process_group)
             output[start:end] = (targets - maximum) - denominator.log()
             maxima[start:end] = maximum
             denominators[start:end] = denominator
             del work
         ctx.save_for_backward(logits, token_ids, maxima, denominators)
         ctx.chunk_size = chunk_size
+        ctx.vocab_start = vocab_start
         return output
 
     @staticmethod
     @torch.autograd.function.once_differentiable
     def backward(ctx, grad_output):
         logits, token_ids, maxima, denominators = ctx.saved_tensors
-        n = logits.shape[0]
+        n, vocab_size = logits.shape
         grad_input = torch.empty_like(logits)
         for start in range(0, n, ctx.chunk_size):
             end = min(start + ctx.chunk_size, n)
@@ -121,14 +147,19 @@ class _TopKLogProbsFromLogits(torch.autograd.Function):
             work.sub_(maxima[start:end]).exp_().div_(denominators[start:end])
             grad = grad_output[start:end].float()
             work.mul_(-grad.sum(dim=-1, keepdim=True))
-            work.scatter_add_(-1, token_ids[start:end], grad)
+            local_ids, local_mask = _local_ids(token_ids[start:end], ctx.vocab_start, vocab_size)
+            work.scatter_add_(-1, local_ids, grad.masked_fill(~local_mask, 0.0))
             grad_input[start:end] = work
             del work
-        return grad_input, None, None
+        # every rank differentiates the same replicated output, so no all-reduce here
+        return grad_input, None, None, None
 
 
 def topk_log_probs_from_logits(
-    logits: torch.Tensor, token_ids: torch.Tensor, chunk_size: int = TOPK_LOG_PROB_CHUNK_SIZE
+    logits: torch.Tensor,
+    token_ids: torch.Tensor,
+    chunk_size: int = TOPK_LOG_PROB_CHUNK_SIZE,
+    process_group: Optional[torch.distributed.ProcessGroup] = None,
 ) -> torch.Tensor:
     """Compute full-vocab-normalized log-probs of ``logits`` at ``token_ids``, chunked for memory.
 
@@ -137,15 +168,17 @@ def topk_log_probs_from_logits(
     forward and backward, bounding the extra fp32 workspace to (chunk_size, V).
 
     Args:
-        logits: Trainer logits, shape (N, V), any float dtype.
-        token_ids: Token ids to gather, shape (N, k), any integer dtype.
+        logits: Trainer logits, shape (N, V), any float dtype. With ``process_group``, the
+            local vocab shard of rank r covers global ids ``[r * V, (r + 1) * V)``.
+        token_ids: Global token ids to gather, shape (N, k), any integer dtype.
         chunk_size: Number of rows processed per chunk. Default: 4096.
+        process_group: Vocab-parallel group the logits are sharded over, default None (full vocab).
 
     Returns:
         Log-probs of ``token_ids`` under the full-vocab softmax of ``logits``, shape (N, k),
-        dtype float32, with gradient to ``logits``.
+        dtype float32, with gradient to ``logits``, identical on every rank of the group.
     """
-    return _TopKLogProbsFromLogits.apply(logits, token_ids.long(), chunk_size)
+    return _TopKLogProbsFromLogits.apply(logits, token_ids.long(), chunk_size, process_group)
 
 
 def score_centering_weight_fn(
@@ -214,16 +247,58 @@ def score_centering_correction(
     return correction, q_mass, p_mass
 
 
+def score_centering_support_correction(
+    train_head_log_probs: torch.Tensor,
+    sampler_head_log_probs: torch.Tensor,
+    weight_fn: Callable[[torch.Tensor], torch.Tensor],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute the centering term over the sampler's support held in the head.
+
+    Slots with ``-inf`` sampler log-prob lie outside the support S. The trainer is renormalized
+    over S, ``p^S = p / p(S)``, and the term is ``sum_S sg[q w - (sum_S q w) p^S] log p^S``, whose
+    gradient is the exact centering term of the policy restricted to S.
+
+    Args:
+        train_head_log_probs: Trainer's full-vocab-normalized log-probs at the head ids,
+            shape (N, k), any float dtype, with gradient to the trainer logits.
+        sampler_head_log_probs: Sampler's support-normalized log-probs at the same head ids,
+            ``-inf`` outside the support, shape (N, k), any float dtype.
+        weight_fn: IS weight rule applied to the ratio p^S/q on the support, as returned by
+            ``score_centering_weight_fn``.
+
+    Returns:
+        Tuple containing:
+            correction: Centering term to subtract from the policy-gradient loss, shape (N,),
+                dtype float32, with gradient to the trainer logits.
+            log_support_mass: ``log p(S)``, shape (N,), dtype float32, with gradient to the
+                trainer logits; subtracted from the sampled token's log-prob to score it under p^S.
+            sampler_head_mass: Sampler's head probability mass, shape (N,), dtype float32.
+    """
+    sampler_head_log_probs = sampler_head_log_probs.float()
+    in_support = sampler_head_log_probs.isfinite()
+    train_head_log_probs = train_head_log_probs.float().masked_fill(~in_support, float("-inf"))
+    log_support_mass = train_head_log_probs.logsumexp(-1)
+    train_support_log_probs = (train_head_log_probs - log_support_mass.unsqueeze(-1)).masked_fill(~in_support, 0.0)
+    with torch.no_grad():
+        q = sampler_head_log_probs.exp()
+        ratio = torch.where(in_support, (train_support_log_probs - sampler_head_log_probs).exp(), torch.ones_like(q))
+        weighted = q * weight_fn(ratio)
+        residual = weighted - weighted.sum(-1, keepdim=True) * train_support_log_probs.exp() * in_support
+    correction = (residual * train_support_log_probs).sum(-1)
+    return correction, log_support_mass, q.sum(-1)
+
+
 def score_centering_logits_processor(
     student_logits: torch.Tensor, data: TensorDict, config: ActorConfig, data_format: str = "thd"
 ) -> dict[str, torch.Tensor]:
     """Per-token centering term from the trainer logits, in the engine's logits-processor slot.
 
     Args:
-        student_logits: Trainer logits, already temperature-scaled, shape (1, nnz/sp, V).
+        student_logits: Trainer logits, already temperature-scaled, shape (1, nnz/sp, V); under the
+            megatron strategy the local vocab-parallel shard, shape (1, nnz/cp, V/tp).
         data: Micro input batch, holding the nested ``rollout_topk_ids``/``rollout_topk_log_probs``
             sampler heads of shape [B, j, k].
-        config: Actor configuration, used for ``policy_loss.rollout_correction``.
+        config: Actor configuration, used for ``strategy`` and ``policy_loss.rollout_correction``.
         data_format: "thd" or "bshd". Only "thd" is supported.
 
     Returns:
@@ -231,19 +306,43 @@ def score_centering_logits_processor(
             sc_correction: Centering term, with gradient to ``student_logits``.
             sc_sampler_head_mass: Sampler's head probability mass, detached.
             sc_train_head_mass: Trainer's head probability mass, detached.
+            sc_log_support_mass: Only with ``score_centering_support``: trainer's log mass on the
+                sampler's support, with gradient to ``student_logits``.
     """
     if data_format != "thd":
         raise NotImplementedError("score centering supports the thd (remove padding) format only.")
-    topk_ids = data["rollout_topk_ids"].values().unsqueeze(0)
-    topk_log_probs = data["rollout_topk_log_probs"].values().unsqueeze(0)
-    if get_ulysses_sequence_parallel_world_size() > 1:
-        topk_ids = slice_input_tensor(topk_ids, dim=1)
-        topk_log_probs = slice_input_tensor(topk_log_probs, dim=1)
+    process_group = None
+    if config.strategy == "megatron":
+        from megatron.core.parallel_state import get_tensor_model_parallel_group
+
+        from verl.models.mcore.util import preprocess_thd_engine
+
+        topk_ids, *_ = preprocess_thd_engine(data["rollout_topk_ids"], pre_process=True)
+        topk_log_probs, *_ = preprocess_thd_engine(data["rollout_topk_log_probs"], pre_process=True)
+        process_group = get_tensor_model_parallel_group()
+    else:
+        topk_ids = data["rollout_topk_ids"].values().unsqueeze(0)
+        topk_log_probs = data["rollout_topk_log_probs"].values().unsqueeze(0)
+        if get_ulysses_sequence_parallel_world_size() > 1:
+            topk_ids = slice_input_tensor(topk_ids, dim=1)
+            topk_log_probs = slice_input_tensor(topk_log_probs, dim=1)
     rollout_correction = config.policy_loss.rollout_correction
     weight_fn = score_centering_weight_fn(
         rollout_correction.get("rollout_is", None), rollout_correction.get("rollout_is_threshold", 2.0)
     )
-    train_head_log_probs = topk_log_probs_from_logits(student_logits.squeeze(0), topk_ids.squeeze(0))
+    train_head_log_probs = topk_log_probs_from_logits(
+        student_logits.squeeze(0), topk_ids.squeeze(0), process_group=process_group
+    )
+    if rollout_correction.get("score_centering_support", False):
+        correction, log_support_mass, sampler_head_mass = score_centering_support_correction(
+            train_head_log_probs, topk_log_probs.squeeze(0), weight_fn
+        )
+        return {
+            "sc_correction": correction.unsqueeze(0),
+            "sc_sampler_head_mass": sampler_head_mass.unsqueeze(0),
+            "sc_train_head_mass": log_support_mass.detach().exp().unsqueeze(0),
+            "sc_log_support_mass": log_support_mass.unsqueeze(0),
+        }
     correction, sampler_head_mass, train_head_mass = score_centering_correction(
         train_head_log_probs, topk_log_probs.squeeze(0), weight_fn
     )
@@ -287,4 +386,8 @@ def score_centering_ppo_loss(
             "score centering is enabled but the logits processor did not run: the trainer must set the "
             "score_centering micro-batch flag (supported by the v1 trainer only)."
         )
+    if "sc_log_support_mass" in model_output:
+        # score the sampled token under the trainer renormalized over the sampler's support
+        model_output = dict(model_output)
+        model_output["log_probs"] = model_output["log_probs"] - model_output.pop("sc_log_support_mass")
     return ppo_loss(config, model_output, data, dp_group)

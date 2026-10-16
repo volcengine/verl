@@ -99,7 +99,7 @@ def _validate_score_centering_config(config: DictConfig) -> None:
 
     # the actor-side mirror is a plain mapping, so run the dataclass checks on it here
     RolloutCorrectionConfig(**actor_rc)
-    for key in ("bypass_mode", "loss_type", "rollout_is", "rollout_is_threshold"):
+    for key in ("bypass_mode", "loss_type", "rollout_is", "rollout_is_threshold", "score_centering_support"):
         if actor_rc.get(key) != algorithm_rc.get(key):
             raise ValueError(
                 f"score centering requires actor_rollout_ref.actor.policy_loss.rollout_correction.{key} to match "
@@ -107,12 +107,19 @@ def _validate_score_centering_config(config: DictConfig) -> None:
             )
     if not config.trainer.get("use_v1", True):
         raise ValueError("score centering requires the v1 trainer (trainer.use_v1=True).")
-    if config.actor_rollout_ref.actor.get("strategy") not in ("fsdp", "fsdp2"):
-        raise ValueError("score centering requires actor_rollout_ref.actor.strategy=fsdp or fsdp2.")
+    if config.actor_rollout_ref.actor.get("strategy") not in ("fsdp", "fsdp2", "megatron"):
+        raise ValueError("score centering requires actor_rollout_ref.actor.strategy=fsdp, fsdp2 or megatron.")
     if config.actor_rollout_ref.rollout.get("name") != "vllm":
         raise ValueError("score centering requires actor_rollout_ref.rollout.name=vllm.")
     if not config.actor_rollout_ref.rollout.get("topk_log_probs", 0):
         raise ValueError("score centering requires actor_rollout_ref.rollout.topk_log_probs > 0.")
+    rollout = config.actor_rollout_ref.rollout
+    truncated = rollout.get("top_p", 1.0) < 1.0 or rollout.get("top_k", -1) > 0
+    if bool(actor_rc.get("score_centering_support", False)) != truncated:
+        raise ValueError(
+            "score_centering_support must be set exactly when the rollout truncates sampling "
+            "(actor_rollout_ref.rollout.top_p < 1 or top_k > 0)."
+        )
     if (config.get("distillation") or {}).get("enabled", False):
         raise ValueError("score centering cannot be combined with distillation.")
 
