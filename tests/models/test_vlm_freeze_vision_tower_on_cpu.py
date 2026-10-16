@@ -151,3 +151,22 @@ def test_marked_frozen_tower_with_trainable_params_keeps_dummy_visual_forward(fa
     _text_only_embeds(adapter, model, input_ids)
 
     assert model.visual.calls == 1, "trainable params inside the tower must keep the dummy forward"
+
+
+@pytest.mark.parametrize("family", sorted(ADAPTERS))
+def test_marked_frozen_tower_with_trainable_sibling_keeps_dummy_visual_forward(family):
+    """A trainable visual-path SIBLING (e.g. a projector whose training is
+    re-enabled after the engine marked the path) must keep the dummy exactly
+    like a trainable param inside the tower: the shared gate scans the whole
+    visual path, not just model.visual — a trainable sibling in the root FSDP
+    unit would receive gradients on image ranks only (the FSDP1 hang)."""
+    adapter = ADAPTERS[family]
+    model = _MockVLM()
+    model.visual.requires_grad_(False)
+    model.visual._verl_frozen_vision_tower = True
+    model.multi_modal_projector = torch.nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE)  # trainable sibling
+    input_ids = torch.randint(3, VOCAB_SIZE, (2, 7))
+
+    _text_only_embeds(adapter, model, input_ids)
+
+    assert model.visual.calls == 1, "a trainable visual-path sibling must keep the dummy forward"

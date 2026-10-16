@@ -28,6 +28,7 @@ from transformers.models.qwen3_5.modeling_qwen3_5 import (
     Qwen3_5ForConditionalGeneration,
 )
 
+from verl.utils.model import may_skip_dummy_visual_forward
 from verl.utils.ulysses import (
     get_ulysses_sequence_parallel_group,
     get_ulysses_sequence_parallel_world_size,
@@ -494,21 +495,13 @@ def _get_input_embeds(
     if pixel_values is None and pixel_values_videos is None:
         # The dummy visual forward keeps vision params in the autograd graph (FSDP
         # grad completeness) and equalizes cross-rank vision-tower entry counts
-        # (FSDP2 per-module all-gather alignment, #3496). Both concerns vanish once
-        # the tower is fully frozen and out of per-module FSDP wrapping, so its
-        # params join the root unit — FSDPEngine marks such towers with
-        # _verl_frozen_vision_tower and only that marker may skip the forward
-        # (requires_grad alone is not safe: PEFT clears it on every LoRA run).
-        # The tower must also hold no trainable params: on mixed-modality batches
-        # a trainable param inside the root unit would get grads on image ranks
-        # only, which FSDP1's root-unit gradient reduce does not support (verified
-        # to hang), so vision LoRA / QAT towers keep the dummy forward. Re-checked
-        # here per forward on purpose: PEFT/QAT attach trainable params after the
-        # engine marked the tower, and this is the defense in depth.
-        if not (
-            getattr(model.visual, "_verl_frozen_vision_tower", False)
-            and not any(p.requires_grad for p in model.visual.parameters())
-        ):
+        # (FSDP2 per-module all-gather alignment, #3496). Both concerns vanish
+        # once the visual path is fully frozen and out of per-module FSDP
+        # wrapping. may_skip_dummy_visual_forward (shared with the other VLM
+        # adapters) holds the full rule: the engine's frozen-and-excluded marker
+        # plus no trainable params anywhere in the visual path, re-checked per
+        # forward as defense in depth (PEFT/QAT attach after marking).
+        if not may_skip_dummy_visual_forward(model):
             config = model.config.vision_config
             patch_dim = config.in_channels * config.temporal_patch_size * config.patch_size**2
             pixel_values = torch.zeros((16, patch_dim), dtype=inputs_embeds.dtype, device=inputs_embeds.device)

@@ -79,3 +79,30 @@ def test_plumb_sets_supported_engine_and_warns_on_unsupported(caplog):
     # no inert attribute on the unsupported engine
     assert "freeze_vision_tower" not in {f.name for f in dataclasses.fields(mcore)}
     assert not hasattr(mcore, "freeze_vision_tower")
+
+
+def test_worker_config_post_init_forwards_the_flag(caplog):
+    """The choke point: every engine-bearing worker config forwards the
+    worker-level flag in __post_init__ (next to the strategy sync), so all
+    construction paths — current and future — pick it up. Non-FSDP engines
+    warn when the flag is set instead of silently ignoring it."""
+    from verl.workers.config.actor import FSDPActorConfig, McoreActorConfig
+    from verl.workers.config.critic import FSDPCriticConfig
+
+    actor = FSDPActorConfig(freeze_vision_tower=True, rollout_n=1, ppo_micro_batch_size=8)
+    assert actor.engine.freeze_vision_tower is True
+
+    critic = FSDPCriticConfig(freeze_vision_tower=True, ppo_micro_batch_size=1)
+    assert critic.engine.freeze_vision_tower is True
+
+    # Forward, never clear: a worker-level False must not turn off an
+    # engine-level true set directly in the yaml (the SFT-style knob).
+    engine = FSDPEngineConfig(freeze_vision_tower=True)
+    actor = FSDPActorConfig(freeze_vision_tower=False, rollout_n=1, ppo_micro_batch_size=8, fsdp_config=engine)
+    assert actor.engine.freeze_vision_tower is True
+
+    # Non-FSDP engines: the flag warns and does not grow a field.
+    with caplog.at_level(logging.WARNING, logger="verl.workers.config.engine"):
+        mcore = McoreActorConfig(freeze_vision_tower=True, rollout_n=1, ppo_micro_batch_size=8)
+    assert any("only implemented for the FSDP engine" in r.message for r in caplog.records)
+    assert not hasattr(mcore.engine, "freeze_vision_tower")

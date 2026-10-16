@@ -269,6 +269,30 @@ def get_vlm_visual_path_modules(model: nn.Module) -> list:
     return modules
 
 
+def may_skip_dummy_visual_forward(model: nn.Module) -> bool:
+    """Whether the multimodal adapters may skip the dummy visual forward for
+    ``model`` on a text-only batch.
+
+    True iff the engine marked the visual path frozen — ``freeze_vision_tower``
+    with guaranteed wrap exclusion, see ``mark_frozen_vision_tower_for_skip`` —
+    AND the whole path (tower plus visual-path siblings) still holds no
+    trainable params. ``requires_grad`` alone is not a safe criterion: PEFT
+    clears it on the whole non-adapter model for every LoRA run, and the tower
+    stays per-module wrapped there — skipping would deadlock mixed-modality
+    batches. The per-forward re-check is the defense in depth: PEFT/QAT attach
+    trainable params after the engine marked the path, and a sibling whose
+    requires_grad is re-enabled post-marking would receive gradients on image
+    ranks only inside the root FSDP unit (the FSDP1 hang the marker's contract
+    forbids). Shared by all VLM adapters so the rule exists once.
+    """
+    path = get_vlm_visual_path_modules(model)
+    if not path:
+        return False
+    if not getattr(path[0], "_verl_frozen_vision_tower", False):
+        return False
+    return not any(p.requires_grad for module in path for p in module.parameters())
+
+
 def print_model_size(model: nn.Module, name: str = None):
     n_params, scale = get_model_size(model, scale="auto")
     if name is None:

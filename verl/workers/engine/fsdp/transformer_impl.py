@@ -1091,9 +1091,7 @@ class FSDPEngine(BaseEngine):
                 # layered_summon_lora_params deliberately skips — a layered sync
                 # would silently drop them from the rollout. Fall back to a full
                 # summon for this (rare) combination.
-                if layered_summon and any(
-                    p.requires_grad for m in self._visual_path_modules for p in m.parameters()
-                ):
+                if layered_summon and any(p.requires_grad for m in self._visual_path_modules for p in m.parameters()):
                     logger.warning(
                         "layered_summon disabled for this step: trainable params inside the wrap-excluded "
                         "visual path (e.g. vision LoRA) live in the root FSDP unit, which the layered LoRA "

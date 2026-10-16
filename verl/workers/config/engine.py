@@ -16,7 +16,7 @@ import logging
 import math
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Callable, Literal, Optional
 
 from verl.base_config import BaseConfig
@@ -274,9 +274,11 @@ class FSDPEngineConfig(EngineConfig):
             text-only batches. The skip itself additionally requires the exclusion to be
             guaranteed (``fsdp_turbo`` and the size-based FSDP1 wrap policy keep the dummy
             forward) and no trainable params inside the tower (vision LoRA / QAT keep it,
-            so every rank still enters the tower once). Plumbed post-init from the
-            worker-level configs (actor/ref in ``engine_workers.py``, critic in
-            ``trainer/ppo/v1/trainer_base.py`` and the legacy ``RayPPOTrainer`` path).
+            so every rank still enters the tower once). Plumbed from the worker-level flag
+            in the config ``__post_init__``s (``FSDPActorConfig`` / ``FSDPCriticConfig`` and
+            the other engine-bearing worker configs — the choke point every construction
+            path goes through); the ref worker (``engine_workers.py``) and the separation
+            trainer's critic plumb explicitly (their engine objects differ).
             default False
     """
 
@@ -710,3 +712,28 @@ class TrainingWorkerConfig(BaseConfig):
     # Users can pass in a higher-order function to take more parameters
     auto_select_engine_optim_fn: Callable[["HFModelConfig", str], tuple["EngineConfig", "OptimizerConfig"]] = None
     extra_context: dict = field(default_factory=dict)
+
+
+def plumb_freeze_vision_tower(engine_config, value: bool, role: str):
+    """Forward a worker-level ``freeze_vision_tower`` into the engine config.
+
+    Lives next to the configs (not in engine_workers) so the worker-level
+    configs can call it from their ``__post_init__`` — the choke point every
+    construction path (both trainers, engine_workers) goes through, where a
+    future path cannot forget it. The remaining explicit call sites are the ref
+    worker (engine_workers) and the separation trainer's critic, whose engine
+    config object is not the CriticConfig engine.
+
+    Only the FSDP engine declares the field; other engines keep ignoring the
+    flag (with a warning when it is set), as they did before 0.8. The flag is
+    forwarded, never cleared: a worker-level ``true`` engages the freeze, and a
+    worker-level ``false`` must not silently turn off an engine-level
+    ``freeze_vision_tower=true`` set directly in the yaml (the SFT-style knob).
+    """
+    if "freeze_vision_tower" in {f.name for f in fields(engine_config)}:
+        if value:
+            engine_config.freeze_vision_tower = True
+    elif value:
+        logging.getLogger(__name__).warning(
+            f"freeze_vision_tower is only implemented for the FSDP engine; ignoring on {role}."
+        )

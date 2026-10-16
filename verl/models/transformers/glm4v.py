@@ -30,6 +30,7 @@ from transformers.models.glm4v.modeling_glm4v import (
 from transformers.utils import is_flash_attn_2_available, is_flash_attn_greater_or_equal_2_10
 
 from verl.utils.device import is_npu_available
+from verl.utils.model import may_skip_dummy_visual_forward
 from verl.utils.transformers_compat import unpack_visual_output
 from verl.utils.ulysses import (
     gather_heads_scatter_seq,
@@ -382,21 +383,13 @@ def _get_input_embeds(
     if pixel_values is None and pixel_values_videos is None:  # handle mixed text-image data
         # The dummy visual forward keeps vision params in the autograd graph (FSDP
         # grad completeness) and equalizes cross-rank vision-tower entry counts
-        # (FSDP2 per-module all-gather alignment, #3496). Both concerns vanish once
-        # the tower is fully frozen and out of per-module FSDP wrapping, so its
-        # params join the root unit — FSDPEngine marks such towers with
-        # _verl_frozen_vision_tower and only that marker may skip the forward
-        # (requires_grad alone is not safe: PEFT clears it on every LoRA run).
-        # The tower must also hold no trainable params: on mixed-modality batches
-        # a trainable param inside the root unit would get grads on image ranks
-        # only, which FSDP1's root-unit gradient reduce does not support (verified
-        # to hang), so vision LoRA / QAT towers keep the dummy forward. Re-checked
-        # here per forward on purpose: PEFT/QAT attach trainable params after the
-        # engine marked the tower, and this is the defense in depth.
-        if not (
-            getattr(model.visual, "_verl_frozen_vision_tower", False)
-            and not any(p.requires_grad for p in model.visual.parameters())
-        ):
+        # (FSDP2 per-module all-gather alignment, #3496). Both concerns vanish
+        # once the visual path is fully frozen and out of per-module FSDP
+        # wrapping. may_skip_dummy_visual_forward (shared with the other VLM
+        # adapters) holds the full rule: the engine's frozen-and-excluded marker
+        # plus no trainable params anywhere in the visual path, re-checked per
+        # forward as defense in depth (PEFT/QAT attach after marking).
+        if not may_skip_dummy_visual_forward(model):
             pixel_values = torch.zeros((16, 1176), dtype=inputs_embeds.dtype, device=inputs_embeds.device)
             image_grid_thw = torch.tensor([[1, 4, 4]], dtype=torch.long, device=inputs_embeds.device)
             image_embeds, _ = unpack_visual_output(model.visual(pixel_values, grid_thw=image_grid_thw))

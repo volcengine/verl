@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import dataclasses
 import functools
 import logging
 import os
@@ -94,17 +93,15 @@ def _plan_liger_flsce_capacity(config: DictConfig, role: str) -> Optional[tuple[
 def plumb_freeze_vision_tower(engine_config, value: bool, role: str):
     """Forward a worker-level ``freeze_vision_tower`` into the engine config.
 
-    Only the FSDP engine declares the field; other engines keep ignoring the
-    flag (with a warning when it is set), as they did before 0.8. The flag is
-    forwarded, never cleared: a worker-level ``true`` engages the freeze, and a
-    worker-level ``false`` must not silently turn off an engine-level
-    ``freeze_vision_tower=true`` set directly in the yaml (the SFT-style knob).
+    Moved to ``verl.workers.config.engine`` (next to the configs, where
+    FSDPActorConfig / FSDPCriticConfig ``__post_init__`` call it as the single
+    choke point); re-exported here for the remaining explicit call sites (the
+    ref worker below, the separation trainer's critic) and for backward
+    compatibility of imports. See the config-side docstring for semantics.
     """
-    if "freeze_vision_tower" in {f.name for f in dataclasses.fields(engine_config)}:
-        if value:
-            engine_config.freeze_vision_tower = True
-    elif value:
-        logger.warning(f"freeze_vision_tower is only implemented for the FSDP engine; ignoring on {role}.")
+    from verl.workers.config.engine import plumb_freeze_vision_tower as _impl
+
+    return _impl(engine_config, value, role)
 
 
 def _with_routing_replay_flag(enabled: bool):
@@ -688,9 +685,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             if isinstance(actor_training_config.engine_config, McoreEngineConfig):
                 actor_training_config.engine_config._liger_flsce_capacity = liger_capacity
 
-            plumb_freeze_vision_tower(
-                actor_training_config.engine_config, actor_config.freeze_vision_tower, role="actor"
-            )
+            # freeze_vision_tower is forwarded inside FSDPActorConfig.__post_init__
+            # (omega_conf_to_dataclass above already ran it), not here.
 
             if self.config.actor.use_dynamic_bsz:
                 assert self.config.rollout.log_prob_max_token_len_per_gpu is not None

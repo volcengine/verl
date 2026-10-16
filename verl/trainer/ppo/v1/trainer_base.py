@@ -90,7 +90,6 @@ from verl.workers.engine_workers import (
     ActorRolloutRefWorker,
     TrainingWorker,
     TrainingWorkerConfig,
-    plumb_freeze_vision_tower,
 )
 from verl.workers.rollout.llm_server import LLMServerClient, LLMServerManager
 from verl.workers.utils.losses import value_loss
@@ -271,8 +270,8 @@ class PPOTrainer(ABC):
             critic_cfg: CriticConfig = omega_conf_to_dataclass(self.config.critic)
             critic_cfg.engine.infer_max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
             critic_cfg.engine.max_token_len_per_gpu = critic_cfg.ppo_infer_max_token_len_per_gpu
-            plumb_freeze_vision_tower(critic_cfg.engine, critic_cfg.freeze_vision_tower, role="critic")
-
+            # critic.freeze_vision_tower is forwarded inside
+            # FSDPCriticConfig.__post_init__ (ran inside omega_conf_to_dataclass).
             # Wire the critic profiler config via the hydra path (real dataclass tool_config), so the
             # standalone critic TrainingWorker gets a working DistProfiler instead of a silent no-op.
             critic_omega_profiler_config = self.config.critic.get("profiler", {})
