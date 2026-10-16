@@ -219,6 +219,66 @@ def test_get_vlm_visual_path_modules_includes_frozen_siblings():
     assert get_vlm_visual_path_modules(_TextOnly()) == []
 
 
+def test_get_vlm_visual_path_modules_finds_nested_sibling_through_value_head_wrapper():
+    """A projector nested one level deeper than the tower must be found too:
+    TRL value-head critic over a Gemma3-style layout keeps both tower and
+    projector under ``pretrained_model.model``. A missed sibling would stay
+    trainable outside the visual-path list while the tower is still marked for
+    the dummy-forward skip — the asymmetric-trainable-param hang this PR
+    documents."""
+    from verl.utils.model import get_vlm_visual_path_modules
+
+    tower = _MockVisionTower()
+    projector = nn.Linear(32, 32)
+
+    class _Gemma3Backbone(nn.Module):
+        # transformers >= 4.52 Gemma3ForConditionalGeneration layout
+        def __init__(self):
+            super().__init__()
+            self.vision_tower = tower
+            self.multi_modal_projector = projector
+            self.language_model = nn.Module()
+
+    class _Gemma3ForConditionalGeneration(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = _Gemma3Backbone()
+
+    class _ValueHeadWrapper(nn.Module):
+        # TRL AutoModelForCausalLMWithValueHead layout
+        def __init__(self, inner):
+            super().__init__()
+            self.pretrained_model = inner
+            self.v_head = nn.Linear(32, 32)
+
+    model = _ValueHeadWrapper(_Gemma3ForConditionalGeneration())
+    assert get_vlm_visual_path_modules(model) == [tower, projector]
+
+
+def test_get_vl_model_vision_tower_skips_non_module_attributes():
+    """The generic probe names (``vision``, ``visual``) may carry non-module
+    values (config strings, paths) on some models; only nn.Module values are
+    tower hits — a non-module must be skipped, not returned and later crashed
+    on by requires_grad_()."""
+    from verl.utils.model import get_vl_model_vision_tower
+
+    tower = _MockVisionTower()
+
+    class _StrAttrBeforeTower(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision = "some/config/path"  # probed before vision_tower, not a Module
+            self.vision_tower = tower
+
+    class _OnlyStrAttr(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.visual = {"remote": "code"}
+
+    assert get_vl_model_vision_tower(_StrAttrBeforeTower()) is tower
+    assert get_vl_model_vision_tower(_OnlyStrAttr()) is None
+
+
 def test_fsdp2_targets_exclude_frozen_vision_tower():
     model = _MockVLM()
     targets = _select_fsdp2_wrap_targets(

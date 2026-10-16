@@ -204,26 +204,42 @@ VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vision", "vpm")
 VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler")
 
 
+def _visual_path_probe_candidates(model: nn.Module) -> list:
+    """Surfaces probed for the vision tower and its siblings, in order: the
+    model itself, the nested ``model`` (transformers >= 4.52 layout), the TRL
+    value-head wrapper's ``pretrained_model``, and one more ``model`` level
+    under it (Gemma3-style layouts nest tower and projector inside
+    ``pretrained_model.model``). Only ``nn.Module`` values count as hits, so a
+    generic attribute name (``vision``, ``visual``) carrying a config string or
+    path is skipped rather than returned.
+    """
+    candidates = []
+    for top in (model, getattr(model, "pretrained_model", None)):
+        if top is None:
+            continue
+        candidates.append(top)
+        inner = getattr(top, "model", None)
+        if inner is not None and inner is not top:
+            candidates.append(inner)
+    return candidates
+
+
 def get_vl_model_vision_tower(model: nn.Module) -> Optional[nn.Module]:
     """Return the vision tower of a vision-language model, or None if absent.
 
     Restored from the pre-0.8 ``fsdp_workers.py`` (dropped in the engine
-    refactor). Probes ``VISION_TOWER_ATTRS`` on the model, on the nested
-    ``model`` (transformers >= 4.52 layout), and through TRL value-head
-    wrappers, which store the model under ``model.pretrained_model`` (so
+    refactor). Probes ``VISION_TOWER_ATTRS`` over ``_visual_path_probe_candidates``
+    (the model, the nested ``model``, and TRL value-head wrappers, which store
+    the model under ``model.pretrained_model`` — so
     ``critic.freeze_vision_tower`` also reaches a value-head multimodal critic).
+    Only ``nn.Module`` attribute values match, so the generic names in
+    ``VISION_TOWER_ATTRS`` cannot surface a non-module attribute.
     """
-    for candidate in (model, getattr(model, "pretrained_model", None)):
-        if candidate is None:
-            continue
+    for candidate in _visual_path_probe_candidates(model):
         for attr in VISION_TOWER_ATTRS:
-            if hasattr(candidate, attr):
-                return getattr(candidate, attr)
-        inner = getattr(candidate, "model", None)
-        if inner is not None:
-            for attr in VISION_TOWER_ATTRS:
-                if hasattr(inner, attr):
-                    return getattr(inner, attr)
+            tower = getattr(candidate, attr, None)
+            if isinstance(tower, nn.Module):
+                return tower
     return None
 
 
@@ -234,16 +250,17 @@ def get_vlm_visual_path_modules(model: nn.Module) -> list:
     together (see VISUAL_PATH_SIBLING_ATTRS): everything in it runs only when
     the batch carries images, so any trainable member would receive gradients
     on image ranks only (FSDPEngine marks the tower for the dummy-forward skip
-    only when the whole path is inert).
+    only when the whole path is inert). Siblings are probed over the same
+    candidate surfaces as the tower: a projector nested one level deeper than
+    the tower (Gemma3 under a value-head wrapper) must be found too, or it
+    would stay trainable outside the list while the tower is still marked.
     """
     tower = get_vl_model_vision_tower(model)
     if tower is None:
         return []
     modules = [tower]
     seen = {id(tower)}
-    for candidate in (model, getattr(model, "model", None), getattr(model, "pretrained_model", None)):
-        if candidate is None:
-            continue
+    for candidate in _visual_path_probe_candidates(model):
         for attr in VISUAL_PATH_SIBLING_ATTRS:
             sibling = getattr(candidate, attr, None)
             if isinstance(sibling, nn.Module) and id(sibling) not in seen:
