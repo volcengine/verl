@@ -58,6 +58,7 @@ from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutpu
 from verl.workers.rollout.sglang_rollout.sglang_rollout import _set_envs_and_config
 from verl.workers.rollout.sglang_rollout.utils import (
     SGLANG_LORA_NAME,
+    default_moe_runner_backend,
     lora_rank_of,
     lora_served_as_adapter,
     sglang_lora_target_modules,
@@ -336,6 +337,15 @@ class SGLangHttpServer:
             "custom_weight_loader": custom_weight_loader or None,
             **engine_kwargs,
         }
+        # bf16 weight updates crash SGLang's default MoE runner on Blackwell (see default_moe_runner_backend)
+        moe_runner_backend = default_moe_runner_backend(quantization, engine_kwargs, self.model_config.hf_config)
+        if moe_runner_backend is not None:
+            args["moe_runner_backend"] = moe_runner_backend
+            logger.info(
+                "sglang moe_runner_backend=%s: SGLang's default on Blackwell cannot take bf16 weight updates "
+                "(sgl-project/sglang#27787); set engine_kwargs.sglang.moe_runner_backend to override",
+                moe_runner_backend,
+            )
 
         # update lora-related args
         if self.lora_as_adapter:
