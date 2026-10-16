@@ -1,6 +1,6 @@
 # Low-Precision Rollout and Quantization-Aware Training
 
-Last updated: 10/15/2026
+Last updated: 10/16/2026
 
 In RL training, rollout usually dominates the step time, and for large MoE models it is bound by memory capacity and bandwidth. Running rollout in low precision:
 
@@ -42,12 +42,12 @@ Your HuggingFace checkpoint stays in BF16; no offline quantization or calibratio
 
 The trainer must be Megatron (FSDP is not yet supported for this feature; see [NVFP4 QAT](nvfp4_qat.md) for FSDP). The rollout engine can be vLLM or SGLang; TRT-LLM raises an error if `rollout.quantization` is set. The engine columns list the compressed-tensors scheme each engine implements.
 
-| Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | Status in verl |
-|---|---|---|---|---|---|---|---|---|
-| FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8` | `W8A8Fp8MoE` | ✅ Hopper (vLLM, SGLang); Blackwell not yet verified |
-| MXFP8 | - | - | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | ❌ (only whole-model `quant_method: mxfp8`) | ❌ | Planned |
-| MXFP4 | - | - | Blackwell | `W4A4Mxfp4` | `W4A4Mxfp4MoE` | ❌ | `Mxfp4MoEMethod` | Planned |
-| NVFP4 | - | - | Blackwell | W4A4 / W4A16 | W4A4 / W4A16 | W4A4 only | W4A4 | Planned |
+| Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | vLLM status in verl | SGLang status in verl |
+|---|---|---|---|---|---|---|---|---|---|
+| FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8` | `W8A8Fp8MoE` | ✅ Hopper; Blackwell under verification | ✅ Hopper; Blackwell not yet verified |
+| MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | ❌ (only whole-model `quant_method: mxfp8`) | ❌ | ✅ Blackwell | Blocked by engine support |
+| MXFP4 | - | - | Blackwell | `W4A4Mxfp4` | `W4A4Mxfp4MoE` | ❌ | `Mxfp4MoEMethod` | Planned | Planned |
+| NVFP4 | - | - | Blackwell | W4A4 / W4A16 | W4A4 / W4A16 | W4A4 only | W4A4 | Planned | Planned |
 
 MXFP8, MXFP4 and NVFP4 need Blackwell (SM100). On Hopper, vLLM falls back to Marlin weight-only kernels for these formats, whose numerics differ from Blackwell W8A8 / W4A4; verl does not support that path.
 
@@ -67,14 +67,22 @@ actor_rollout_ref:
 
 - When `linear`, `moe` and `config_file` are all `null` (the default), the rollout runs in the model's native precision.
 - `linear` and `moe` can be set independently. Setting one of them to `null` keeps those layers in BF16, e.g. `linear: null, moe: FP8_BLOCK` quantizes only the routed experts.
-- The following layers are always kept in BF16: `lm_head`, embeddings, MoE routers (`mlp.gate`, `shared_expert_gate`), vision towers and MTP layers. Layers whose shapes are not divisible by the block size (e.g. Qwen3.5 `linear_attn.in_proj_a/b`) are skipped automatically.
-- `ignore` adds more layers on top of these, using HuggingFace layer names.
+- The following layers are always kept in BF16: `lm_head`, embeddings, MoE routers (`mlp.gate`, `shared_expert_gate`), vision towers and MTP layers.
+- `ignore` adds more layers on top of these, using HuggingFace layer names. Layers incompatible with the selected scheme are not detected automatically: list them explicitly. For example, MXFP8 on Qwen3.5 requires `["re:.*linear_attn\\.in_proj_[ab]$"]` because these projections are too small for the vLLM kernel.
 
 From the command line:
 
 ```bash
 actor_rollout_ref.rollout.quantization.linear=FP8_BLOCK \
 actor_rollout_ref.rollout.quantization.moe=FP8_BLOCK
+```
+
+For Qwen3.5 MXFP8:
+
+```bash
+actor_rollout_ref.rollout.quantization.linear=MXFP8 \
+actor_rollout_ref.rollout.quantization.moe=MXFP8 \
+'actor_rollout_ref.rollout.quantization.ignore=["re:.*linear_attn\\.in_proj_[ab]$"]'
 ```
 
 ### Custom `quantization_config`
@@ -115,14 +123,15 @@ actor_rollout_ref:
     megatron:
       qat:
         enable: true
-        mode: fp8   # must match rollout.quantization (FP8_BLOCK -> fp8)
+        mode: fp8   # must match rollout.quantization (FP8_BLOCK -> fp8, MXFP8 -> mxfp8)
 ```
 
 QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization.
+Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them aligned with the rollout ignore list; for Qwen3.5 MXFP8, add `*linear_attn.in_proj_a` and `*linear_attn.in_proj_b`.
 
 ### Engine notes
 
-- **vLLM**: `VLLM_USE_DEEP_GEMM_E8M0` defaults to `0` when rollout quantization is enabled, so block scales stay in FP32.
+- **vLLM**: `VLLM_USE_DEEP_GEMM_E8M0` defaults to `0` for `FP8_BLOCK`, so its block scales stay in FP32. MX formats retain the E8M0 path.
 - **SGLang**: the first launch of a quantized MoE model can take several minutes while Triton compiles FP8 MoE kernels during CUDA graph capture. Later launches use the cache.
 
 ## Example
@@ -161,8 +170,17 @@ Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arg
 | FP8_BLOCK | 0.0039 | 0.0036 |
 | FP8_BLOCK + FP8 QAT | 0.0033 | 0.0033 |
 
+Blackwell reference `k3_kl` for vLLM MXFP8:
+
+| Model | Rollout | k3_kl |
+|---|---|---|
+| Qwen3.5-0.8B | BF16 | 0.00066 |
+| | MXFP8 linear | 0.01391 |
+| Qwen3.5-35B-A3B (EP=8, rollout TP=2) | MXFP8 linear + MoE | 0.00148 |
+| | MXFP8 linear + MoE + MXFP8 QAT | 0.00288 |
+
 ## Limitations
 
-- Only the `FP8_BLOCK` preset on Hopper is supported today.
+- `FP8_BLOCK` is supported on Hopper. `MXFP8` with vLLM is supported on Blackwell; SGLang has no per-layer MXFP8 support.
 - Checkpoints that already ship a `quantization_config` (e.g. FP8 or compressed-tensors checkpoints) are not supported as a training target together with low-precision rollout yet; use a BF16 checkpoint.
-- Megatron QAT and the rollout use separate ignore lists. ModelOpt may fake-quantize a few layers that the rollout keeps in BF16 (e.g. Qwen3.5 `in_proj_a/b`); this slightly overestimates the quantization error for those layers but does not affect correctness.
+- Megatron QAT and the rollout use separate ignore lists and naming conventions. Users must keep them aligned.

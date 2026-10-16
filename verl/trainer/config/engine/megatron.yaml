@@ -140,8 +140,8 @@ qat:
   _target_: verl.workers.config.QATEngineConfig
   # Whether to enable QAT
   enable: false
-  # Quantization mode: "w4a16" (weight-only FP4), or "fp8" (128x128 block weights, 1x128 dynamic
-  # activations) to train against a rollout.quantization={linear: FP8_BLOCK, moe: FP8_BLOCK} rollout
+  # Quantization mode: "w4a16" (weight-only FP4), "fp8" (FP8_BLOCK rollout), or "mxfp8"
+  # (MXFP8 rollout with group-of-32 E8M0-scaled weights and activations)
   mode: "w4a16"
   # Group size for blockwise quantization (NVFP4 requires 16)
   group_size: 16

@@ -38,6 +38,7 @@ _NVFP4_W4A16_QUANTIZER_CFG = {
 }
 
 _FP8_BLOCK_BACKEND = "verl_fp8_block"
+_MXFP8_BACKEND = "verl_mxfp8"
 _FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
 
 
@@ -67,8 +68,45 @@ def _fp8_block_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
     return _FP8BlockFakeQuant.apply(inputs, block_rows, block_cols)
 
 
+class _MXFP8FakeQuant(torch.autograd.Function):
+    """Dynamic MXFP8 fake quantization over groups on the last dimension, with E8M0 scales."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, group_size: int) -> torch.Tensor:
+        if x.shape[-1] % group_size:
+            raise ValueError(
+                f"MXFP8 requires the last dimension ({x.shape[-1]}) to be divisible by group_size={group_size}; "
+                "add this layer to the QAT and rollout ignore lists"
+            )
+
+        groups = x.float().unflatten(-1, (-1, group_size))
+        amax = groups.abs().amax(dim=-1, keepdim=True)
+
+        # compressed-tensors rounds each group amax to E8M0 before applying the
+        # FP8 E4M3 element-format offset (2**8). Its power-of-two rounding moves
+        # to the next exponent at a 1.75 significand.
+        base_exp = torch.floor(torch.log2(amax))
+        base = torch.exp2(base_exp)
+        rounded_exp = base_exp + (amax >= 1.75 * base)
+        encoded_exp = (127 + rounded_exp - 8).clamp(0, 255)
+        scale = torch.exp2(encoded_exp - 127)
+
+        dq = (groups / scale).clamp(-_FP8_MAX, _FP8_MAX).to(torch.float8_e4m3fn).float() * scale
+        return dq.flatten(start_dim=-2).to(x.dtype)
+
+    @staticmethod
+    def backward(ctx, grad):
+        return grad, None
+
+
+def _mxfp8_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
+    return _MXFP8FakeQuant.apply(inputs, quantizer.backend_extra_args["group_size"])
+
+
 if not is_registered_quant_backend(_FP8_BLOCK_BACKEND):
     register_quant_backend(_FP8_BLOCK_BACKEND, _fp8_block_backend)
+if not is_registered_quant_backend(_MXFP8_BACKEND):
+    register_quant_backend(_MXFP8_BACKEND, _mxfp8_backend)
 
 # Mirrors the compressed-tensors "fp8" rollout scheme: 128x128 weight blocks and
 # dynamic 1x128 activation groups, both with fp32 scales. Only linear GEMMs the
@@ -92,7 +130,31 @@ _FP8_BLOCK_QUANTIZER_CFG = {
     "*vision_model*": {"enable": False},
 }
 
-_QUANTIZER_CFGS = {"w4a16": _NVFP4_W4A16_QUANTIZER_CFG, "fp8": _FP8_BLOCK_QUANTIZER_CFG}
+# Mirrors compressed-tensors MXFP8: FP8 E4M3 values in groups of 32 with
+# dynamic E8M0 scales for both weights and activations.
+_MXFP8_QUANTIZER_CFG = {
+    "*": {"enable": False},
+    "*weight_quantizer": {
+        "num_bits": (4, 3),
+        "backend": _MXFP8_BACKEND,
+        "backend_extra_args": {"group_size": 32},
+        "enable": True,
+    },
+    "*input_quantizer": {
+        "num_bits": (4, 3),
+        "backend": _MXFP8_BACKEND,
+        "backend_extra_args": {"group_size": 32},
+        "enable": True,
+    },
+    "*conv1d*": {"enable": False},
+    "*vision_model*": {"enable": False},
+}
+
+_QUANTIZER_CFGS = {
+    "w4a16": _NVFP4_W4A16_QUANTIZER_CFG,
+    "fp8": _FP8_BLOCK_QUANTIZER_CFG,
+    "mxfp8": _MXFP8_QUANTIZER_CFG,
+}
 
 
 def _ignore_patterns_to_quant_cfg(ignore_patterns: list[str]) -> list[dict]:

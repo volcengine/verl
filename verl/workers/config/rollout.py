@@ -168,7 +168,11 @@ class RolloutQuantizationConfig(BaseConfig):
         from verl.utils.qat.compressed_tensors import build_compressed_tensors_config
 
         return build_compressed_tensors_config(
-            linear=self.linear, moe=self.moe, ignore=self.ignore, config_file=self.config_file, model_path=model_path
+            linear=self.linear,
+            moe=self.moe,
+            ignore=self.ignore,
+            config_file=self.config_file,
+            model_path=model_path,
         )
 
 

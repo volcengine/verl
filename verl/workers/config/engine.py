@@ -129,7 +129,7 @@ class QATEngineConfig(BaseConfig):
 
     Args:
         enable (bool): Whether to enable QAT, default False
-        mode (str): Quantization mode, "w4a16", "w4a4" or "fp8" (Megatron only), default "w4a16"
+        mode (str): Quantization mode, "w4a16", "w4a4", "fp8" or "mxfp8" (Megatron only), default "w4a16"
         group_size (int): Group size for blockwise quantization, default 16
         ignore_patterns (list[str]): Module name patterns to exclude from quantization
         activation_observer (str): Observer strategy for activation global_scale (W4A4 only)

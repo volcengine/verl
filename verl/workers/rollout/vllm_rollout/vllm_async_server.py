@@ -1402,9 +1402,16 @@ class vLLMHttpServer:
 
         # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
         quantization_config = quantization.build_quantization_config(self.model_config.local_path)
-        # The schemes carry fp32 block scales. DeepGEMM's E8M0 mode (vLLM's default) rounds weight and
-        # activation scales to powers of two, so the rollout would drift from what the trainer quantized.
-        os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
+        # FP8_BLOCK carries FP32 block scales. DeepGEMM's E8M0 mode (vLLM's default) would round them
+        # to powers of two and drift from the trainer. MX formats carry E8M0 scales natively and must
+        # retain vLLM's E8M0 path.
+        uses_fp32_block_scales = any(
+            group.get("weights", {}).get("strategy") == "block"
+            and group.get("weights", {}).get("scale_dtype") in {None, "torch.float32"}
+            for group in quantization_config.get("config_groups", {}).values()
+        )
+        if uses_fp32_block_scales:
+            os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
         logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
         return {"quantization_config": quantization_config}
 

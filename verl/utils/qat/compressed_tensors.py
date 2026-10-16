@@ -31,9 +31,7 @@ compressors, so every refit ships tensors in the layout the engine loads.
 """
 
 import json
-import os
 import re
-import struct
 from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -60,6 +58,7 @@ MOE_TARGET = r"re:.*mlp\.experts\..*"
 # has been validated, mapped to the ModelOpt QAT mode that fake-quantizes identically.
 SUPPORTED_SCHEMES: dict[str, Optional[str]] = {
     "FP8_BLOCK": "fp8",
+    "MXFP8": "mxfp8",
 }
 
 # Layers that stay in high precision regardless of model. Patterns must start
@@ -87,7 +86,16 @@ def _check_scheme(kind: str, scheme: Optional[str]) -> Optional[str]:
     return scheme
 
 
-_NUMERIC_FIELDS = {"num_bits", "type", "symmetric", "group_size", "strategy", "block_structure", "dynamic"}
+_NUMERIC_FIELDS = {
+    "num_bits",
+    "type",
+    "symmetric",
+    "group_size",
+    "strategy",
+    "block_structure",
+    "dynamic",
+    "scale_dtype",
+}
 
 
 def _numerics(args: Optional["QuantizationArgs"]) -> Optional[dict[str, Any]]:
@@ -132,55 +140,6 @@ def _matches(name: str, targets: Iterable[str]) -> bool:
     return False
 
 
-def _iter_checkpoint_shapes(model_path: str) -> Iterator[tuple[str, list[int]]]:
-    """Yield ``(name, shape)`` from safetensors headers without reading tensor data."""
-    index_file = os.path.join(model_path, "model.safetensors.index.json")
-    if os.path.exists(index_file):
-        with open(index_file) as f:
-            files = sorted(set(json.load(f)["weight_map"].values()))
-    else:
-        files = [f for f in sorted(os.listdir(model_path)) if f.endswith(".safetensors")]
-    for file in files:
-        with open(os.path.join(model_path, file), "rb") as f:
-            (header_len,) = struct.unpack("<Q", f.read(8))
-            header = json.loads(f.read(header_len))
-        for name, meta in header.items():
-            if name != "__metadata__":
-                yield name, meta["shape"]
-
-
-def _module_pattern(module_name: str) -> str:
-    """``model.layers.3.linear_attn.in_proj_a`` -> ``re:.*linear_attn\\.in_proj_a$``."""
-    suffix = re.split(r"\.\d+\.", module_name)[-1]
-    return "re:.*" + re.escape(suffix) + "$"
-
-
-def _weight_tile(args: "QuantizationArgs") -> Optional[tuple[int, int]]:
-    """(rows, cols) a weight's shape must be a multiple of, if the strategy tiles it."""
-    from compressed_tensors.quantization import QuantizationStrategy
-
-    if args.strategy == QuantizationStrategy.BLOCK:
-        return tuple(args.block_structure)
-    if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        return 1, args.group_size
-    return None
-
-
-def _incompatible_shape_ignores(model_path: str, ignore: list[str], tile: tuple[int, int]) -> list[str]:
-    """Patterns for 2D weights whose shape is not a multiple of the weight tile."""
-    patterns: list[str] = []
-    for name, shape in _iter_checkpoint_shapes(model_path):
-        if not name.endswith(".weight") or len(shape) != 2:
-            continue
-        if shape[0] % tile[0] == 0 and shape[1] % tile[1] == 0:
-            continue
-        module = name[: -len(".weight")]
-        if _matches(module, ignore + patterns):
-            continue
-        patterns.append(_module_pattern(module))
-    return patterns
-
-
 def _config_group(targets: list[str], preset: str) -> dict[str, Any]:
     from compressed_tensors.compressors.format import infer_module_format
     from compressed_tensors.quantization import preset_name_to_scheme
@@ -212,14 +171,12 @@ def build_compressed_tensors_config(
     moe: Optional[str],
     ignore: Iterable[str],
     config_file: Optional[str],
-    model_path: str,
+    model_path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build the HF compressed-tensors ``quantization_config`` for the rollout engine.
 
     Prefer ``RolloutQuantizationConfig.build_quantization_config``; the arguments mirror its fields.
     """
-    from compressed_tensors.quantization import preset_name_to_scheme
-
     ignore = list(ignore or [])
     if config_file:
         if linear or moe or ignore:
@@ -232,10 +189,6 @@ def build_compressed_tensors_config(
         raise ValueError("rollout quantization needs at least one of `linear` / `moe`")
 
     ignore = DEFAULT_IGNORE + ignore
-    for preset in {linear, moe} - {None}:
-        tile = _weight_tile(preset_name_to_scheme(preset, ["Linear"]).weights)
-        if tile is not None:
-            ignore += _incompatible_shape_ignores(model_path, ignore, tile)
 
     config_groups: dict[str, Any] = {}
     if linear == moe:

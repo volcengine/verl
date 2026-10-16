@@ -21,6 +21,13 @@ Examples (8 GPUs):
     # fp8 blockwise rollout on a MoE model
     .venv/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK
+    # MXFP8 rollout on Blackwell (linear only for a dense model, linear + MoE for a MoE model)
+    .venv-vllm/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-0.8B \\
+        --quant-linear MXFP8 --quant-ignore 're:.*linear_attn\\.in_proj_[ab]$'
+    .venv-vllm/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
+        --quant-linear MXFP8 --quant-moe MXFP8 --qat-mode mxfp8 \\
+        --quant-ignore 're:.*linear_attn\\.in_proj_[ab]$' \\
+        --qat-ignore '*linear_attn.in_proj_a' --qat-ignore '*linear_attn.in_proj_b'
     # same, with Megatron ModelOpt QAT fake-quantizing to the rollout scheme
     .venv/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK --qat-mode fp8
@@ -83,9 +90,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ep", type=int, default=1, help="Megatron expert parallel size")
     parser.add_argument("--etp", type=int, default=1, help="Megatron expert tensor parallel size")
     parser.add_argument("--gen-tp", type=int, default=2, help="rollout tensor parallel size")
-    parser.add_argument("--quant-linear", default=None, help="rollout.quantization.linear preset, e.g. FP8_BLOCK")
-    parser.add_argument("--quant-moe", default=None, help="rollout.quantization.moe preset, e.g. FP8_BLOCK")
-    parser.add_argument("--qat-mode", default=None, help="Megatron ModelOpt QAT mode matching the rollout, e.g. fp8")
+    parser.add_argument(
+        "--quant-linear", default=None, help="rollout.quantization.linear preset, e.g. FP8_BLOCK or MXFP8"
+    )
+    parser.add_argument("--quant-moe", default=None, help="rollout.quantization.moe preset, e.g. FP8_BLOCK or MXFP8")
+    parser.add_argument(
+        "--quant-ignore",
+        action="append",
+        default=[],
+        help='extra rollout ignore pattern; repeat as needed, e.g. "re:.*linear_attn\\\\.in_proj_[ab]$"',
+    )
+    parser.add_argument("--qat-mode", default=None, help="Megatron ModelOpt QAT mode matching the rollout")
+    parser.add_argument(
+        "--qat-ignore",
+        action="append",
+        default=[],
+        help="extra Megatron ModelOpt fnmatch ignore pattern; repeat as needed",
+    )
     parser.add_argument("--max-k3-kl", type=float, default=1e-2)
     parser.add_argument("overrides", nargs="*", help="extra Hydra overrides, e.g. actor_rollout_ref.rollout.n=8")
     return parser.parse_args()
@@ -129,9 +150,14 @@ def build_config(args: argparse.Namespace) -> DictConfig:
     config.actor_rollout_ref.model.path = os.path.expanduser(args.model_path)
     config.actor_rollout_ref.rollout.quantization.linear = args.quant_linear
     config.actor_rollout_ref.rollout.quantization.moe = args.quant_moe
+    config.actor_rollout_ref.rollout.quantization.ignore = args.quant_ignore
     if args.qat_mode:
         config.actor_rollout_ref.actor.megatron.qat.enable = True
         config.actor_rollout_ref.actor.megatron.qat.mode = args.qat_mode
+        config.actor_rollout_ref.actor.megatron.qat.ignore_patterns = [
+            *config.actor_rollout_ref.actor.megatron.qat.ignore_patterns,
+            *args.qat_ignore,
+        ]
     return config
 
 
