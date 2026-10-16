@@ -862,6 +862,11 @@ class StreamingDataloaderAsync(StreamingDataloader):
                 f"train_batch_size={train_batch_size} and rollout.n={self.default_rollout_n}"
             )
 
+        # Colocated rollout runs only while the trainer blocks in sample, so unconsumed groups stay below two
+        # watermarks and the cap has nothing to bound.
+        if self.trainer_mode != "separate_async":
+            self.max_outstanding_groups = None
+            return
         # When rollout outpaces training, unconsumed groups pile up and their staleness grows with the pile.
         max_outstanding_batches = mode_config.get("max_outstanding_batches", 4)
         if max_outstanding_batches is None:

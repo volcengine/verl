@@ -179,16 +179,16 @@ def test_async_wait_strategy_requires_threshold_above_one(threshold, rejected):
         assert actor.watermark_sessions == 4
 
 
-def _refill_policy_stub(*, watermark_batches=2, max_outstanding_batches=4, threshold=8):
+def _refill_policy_stub(*, watermark_batches=2, max_outstanding_batches=4, threshold=8, trainer_mode="separate_async"):
     actor = _async_stub()
-    actor.trainer_mode = "separate_async"
+    actor.trainer_mode = trainer_mode
     actor.max_off_policy_strategy = "drop"
     actor.max_off_policy_threshold = threshold
     actor.config = OmegaConf.create(
         {
             "trainer": {
                 "v1": {
-                    "separate_async": {
+                    trainer_mode: {
                         "watermark_batches": watermark_batches,
                         "max_outstanding_batches": max_outstanding_batches,
                     }
@@ -206,6 +206,12 @@ def test_outstanding_cap_resolves_to_prompt_groups(max_outstanding_batches, expe
     actor = _refill_policy_stub(max_outstanding_batches=max_outstanding_batches)
     actor._init_refill_policy()
     assert actor.max_outstanding_groups == expected
+
+
+def test_colocate_async_has_no_outstanding_cap():
+    actor = _refill_policy_stub(trainer_mode="colocate_async", watermark_batches=3, max_outstanding_batches=2)
+    actor._init_refill_policy()
+    assert actor.max_outstanding_groups is None
 
 
 def test_outstanding_cap_must_cover_watermark():

@@ -985,7 +985,6 @@ trainer:
     sync: {}
     colocate_async:
       watermark_batches: 2
-      max_outstanding_batches: 4
     separate_async:
       watermark_batches: 2
       max_outstanding_batches: 4
