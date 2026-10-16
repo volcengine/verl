@@ -324,6 +324,7 @@ class TRTLLMHttpServer:
         video_data: Optional[list[Any]] = None,
         audio_data: Optional[list[Any]] = None,
         mm_processor_kwargs: Optional[dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> TokenOutput:
         from tensorrt_llm.llmapi import SamplingParams
 
@@ -652,7 +653,7 @@ class TRTLLMReplica(RolloutReplica):
             ),
             runtime_env={"env_vars": _server_env_vars},
             name=name,
-            max_concurrency=self.max_concurrency,
+            max_concurrency=self.config.ray_actor_max_concurrency,
         ).remote(
             config=self.config,
             model_config=self.model_config,
