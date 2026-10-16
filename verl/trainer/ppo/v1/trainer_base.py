@@ -318,7 +318,7 @@ class PPOTrainer(ABC):
 
         # 9. initialize agent loop manager
         # Trainers that opt out of colocated rollout replicas on the training
-        # GPUs (v1 separate_async with actor_rollout_ref.hybrid_engine=False)
+        # GPUs (v1 separate_async with hybrid_rollout.enable_switch=False)
         # set ``self._enable_hybrid_replicas = False`` before super()._setup();
         # they get an empty manager here and serve rollout from their
         # standalone replicas only.

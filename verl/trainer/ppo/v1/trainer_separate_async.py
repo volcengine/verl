@@ -16,7 +16,6 @@ import os
 import time
 from collections import deque
 from copy import deepcopy
-from dataclasses import replace
 from enum import Enum
 
 import ray
@@ -83,19 +82,10 @@ class PPOTrainerSeparateAsync(PPOTrainer):
         # steady-state training and only ever serve warmup and validation, while
         # permanently costing engine init, a startup weight sync, and the offload /
         # memory headroom their wake-ups require. They are therefore created only
-        # when enable_switch=True. actor_rollout_ref.hybrid_engine=False (the v0
-        # fully-async convention) keeps its "no colocated replicas" meaning and
-        # wins over a conflicting enable_switch=True, which is ignored with a
-        # warning instead of failing startup.
+        # when enable_switch=True.
         self.hybrid_rollout_config: HybridRolloutSwitchConfig = omega_conf_to_dataclass(
             self.config.trainer.v1.separate_async.hybrid_rollout
         )
-        if not bool(config.actor_rollout_ref.get("hybrid_engine", True)) and self.hybrid_rollout_config.enable_switch:
-            logger.warning(
-                "trainer.v1.separate_async.hybrid_rollout.enable_switch is ignored because "
-                "actor_rollout_ref.hybrid_engine=False; disabling hybrid switching"
-            )
-            self.hybrid_rollout_config = replace(self.hybrid_rollout_config, enable_switch=False)
         # Read by PPOTrainer._setup() (triggered by init()).
         self._enable_hybrid_replicas = self.hybrid_rollout_config.enable_switch
         if self.hybrid_rollout_config.enable_switch:

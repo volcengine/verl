@@ -53,10 +53,10 @@ defaults:
 actor_rollout_ref:
 
   # Whether actor and rollout colocate on the same GPUs (hybrid engine).
-  # Set to False only with the v1 separate_async trainer: no colocated
-  # rollout replicas are created on the training GPUs and rollout is served
-  # exclusively by the standalone rollout pool.
-  # All other trainers require True.
+  # This is used by non-V1 trainers; the V1 separate_async trainer ignores
+  # this knob and uses trainer.v1.separate_async.hybrid_rollout.enable_switch
+  # instead to decide whether colocated rollout replicas are created.
+  # All non-V1 trainers require True.
   hybrid_engine: true
 
   # Timeout for operations executed against the process group

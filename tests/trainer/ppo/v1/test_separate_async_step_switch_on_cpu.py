@@ -160,23 +160,19 @@ def _construct_trainer(
     *,
     enable_switch: bool = True,
     disaggregation: bool = False,
-    hybrid_engine: bool | None = True,
 ):
-    actor_rollout_ref = {
-        "actor": {"ppo_mini_batch_size": 16},
-        "rollout": {
-            "nnodes": 1,
-            "n_gpus_per_node": 8,
-            "checkpoint_engine": {"backend": "nccl"},
-            "disaggregation": {"enabled": disaggregation},
-        },
-    }
-    if hybrid_engine is not None:
-        actor_rollout_ref["hybrid_engine"] = hybrid_engine
     config = OmegaConf.create(
         {
             "data": {"train_batch_size": 64},
-            "actor_rollout_ref": actor_rollout_ref,
+            "actor_rollout_ref": {
+                "actor": {"ppo_mini_batch_size": 16},
+                "rollout": {
+                    "nnodes": 1,
+                    "n_gpus_per_node": 8,
+                    "checkpoint_engine": {"backend": "nccl"},
+                    "disaggregation": {"enabled": disaggregation},
+                },
+            },
             "trainer": {
                 "nnodes": 1,
                 "n_gpus_per_node": 8,
@@ -442,31 +438,10 @@ def test_disabled_switching_does_not_create_hybrid_replicas(monkeypatch):
     assert trainer._enable_hybrid_replicas is False
 
 
-@pytest.mark.parametrize("hybrid_engine", [True, None], ids=["explicit_true", "legacy_config_without_key"])
-def test_enable_switch_creates_hybrid_replicas(monkeypatch, hybrid_engine):
-    trainer = _construct_trainer(
-        monkeypatch,
-        enable_switch=True,
-        hybrid_engine=hybrid_engine,
-    )
+def test_enable_switch_creates_hybrid_replicas(monkeypatch):
+    trainer = _construct_trainer(monkeypatch, enable_switch=True)
 
     assert trainer._enable_hybrid_replicas is True
-
-
-def test_hybrid_engine_false_wins_over_enable_switch(monkeypatch, caplog):
-    # hybrid_engine=False (the v0 fully-async convention) keeps its "no colocated
-    # replicas on the training GPUs" meaning and wins over a conflicting
-    # enable_switch=True, which is ignored with a warning instead of failing startup.
-    with caplog.at_level("WARNING", logger=trainer_module.__name__):
-        trainer = _construct_trainer(
-            monkeypatch,
-            enable_switch=True,
-            hybrid_engine=False,
-        )
-
-    assert trainer._enable_hybrid_replicas is False
-    assert trainer.hybrid_rollout_config.enable_switch is False
-    assert "hybrid_engine" in caplog.text
 
 
 def test_adaptive_threshold_increases_after_trainer_idle():
@@ -614,7 +589,6 @@ def test_setup_standalone_memory_from_hydra_override(monkeypatch, model_engine, 
     trainer, created_configs, _ = _memory_budget_setup(monkeypatch, hybrid_enabled, None)
     overrides = [
         f"model_engine={model_engine}",
-        f"actor_rollout_ref.hybrid_engine={hybrid_enabled}",
         "actor_rollout_ref.rollout.gpu_memory_utilization=0.45",
     ]
     if standalone_memory != "default":

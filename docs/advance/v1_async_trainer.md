@@ -237,16 +237,8 @@ Temporarily, step switching cannot be combined with rollout PD disaggregation.
 
 - No inference engine is initialized on the training GPUs; rollout (including warmup and validation) is served exclusively by the standalone rollout pool.
 - The mode-switch hooks (`switch_to_rollout` / `switch_to_trainer`) and load-balancer updates are no-ops.
-- Combining `actor_rollout_ref.hybrid_engine=False` with `hybrid_rollout.enable_switch=True` keeps the `hybrid_engine=False` behavior: the conflicting `enable_switch` is ignored with a warning instead of failing startup.
 
 Without hybrid replicas, warmup takes longer (standalone pool only) and validation runs on the standalone pool while it keeps producing training data. In exchange, every training step avoids the colocated engine's costs: no engine init, no startup weight sync, and no `param_offload` / `optimizer_offload` or GPU headroom reserved for replica wake-ups.
-
-`actor_rollout_ref.hybrid_engine=False` (the v0 fully-async convention) is accepted and behaves the same as the default, so v0 fully-async commands work unchanged:
-
-```bash
-actor_rollout_ref.hybrid_engine=False \
-trainer.v1.trainer_mode=separate_async
-```
 
 ## Configuration
 
@@ -289,7 +281,7 @@ actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
 actor_rollout_ref.rollout.standalone_gpu_memory_utilization=0.85
 ```
 
-Choose both fractions for the memory available on their respective GPU pools. By default, `standalone_gpu_memory_utilization` follows `gpu_memory_utilization`. Setting it to `null` also falls back to `gpu_memory_utilization`. The override also applies when `actor_rollout_ref.hybrid_engine=False`, and does not change the trainer's or hybrid replicas' configuration.
+Choose both fractions for the memory available on their respective GPU pools. By default, `standalone_gpu_memory_utilization` follows `gpu_memory_utilization`. Setting it to `null` also falls back to `gpu_memory_utilization`. The override applies whether or not hybrid replicas are enabled, and does not change the trainer's or hybrid replicas' configuration.
 
 `separate_async` requires a non-`naive` checkpoint-engine backend such as `nccl`, `nixl`, or `mooncake` for standalone rollout weight synchronization.
 
