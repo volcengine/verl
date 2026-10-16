@@ -48,7 +48,7 @@ def test_actor_flag_resolves_through_the_trainer_config():
     assert cfg.actor_rollout_ref.ref.freeze_vision_tower is True
 
     # the FSDP engine section (fsdp_config) declares the field; the value is
-    # plumbed post-init by engine_workers, not set in the yaml
+    # forwarded by the worker config __post_init__s, not set in the yaml
     assert cfg.actor_rollout_ref.actor.fsdp_config.freeze_vision_tower is False
 
     # default is off everywhere
