@@ -27,7 +27,8 @@ Examples (8 GPUs):
     .venv-vllm/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-linear MXFP8 --quant-moe MXFP8 --qat-mode mxfp8 \\
         --quant-ignore 're:.*linear_attn\\.in_proj_[ab]$' \\
-        --qat-ignore '*linear_attn.in_proj_a' --qat-ignore '*linear_attn.in_proj_b'
+        --qat-ignore '*linear_attn.in_proj_a' --qat-ignore '*linear_attn.in_proj_b' \\
+        --r3-router-replay
     # same, with Megatron ModelOpt QAT fake-quantizing to the rollout scheme
     .venv/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK --qat-mode fp8
@@ -107,6 +108,11 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="extra Megatron ModelOpt fnmatch ignore pattern; repeat as needed",
     )
+    parser.add_argument(
+        "--r3-router-replay",
+        action="store_true",
+        help="replay rollout expert choices in the Megatron log-prob recomputation",
+    )
     parser.add_argument("--max-k3-kl", type=float, default=1e-2)
     parser.add_argument("overrides", nargs="*", help="extra Hydra overrides, e.g. actor_rollout_ref.rollout.n=8")
     return parser.parse_args()
@@ -158,6 +164,9 @@ def build_config(args: argparse.Namespace) -> DictConfig:
             *config.actor_rollout_ref.actor.megatron.qat.ignore_patterns,
             *args.qat_ignore,
         ]
+    if args.r3_router_replay:
+        config.actor_rollout_ref.actor.megatron.router_replay.mode = "R3"
+        config.actor_rollout_ref.rollout.enable_rollout_routing_replay = True
     return config
 
 
