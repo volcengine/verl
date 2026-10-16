@@ -76,6 +76,17 @@ from verl.workers.rollout.vllm_rollout.utils import (
 
 _VLLM_VERSION = version.parse(vllm.__version__)
 
+# vLLM args that verl sets from its own config, and the config that controls each one.
+# rollout.engine_kwargs.vllm passes everything else through but may not set these.
+_VERL_MANAGED_VLLM_ARGS = {
+    "tensor_parallel_size": "rollout.tensor_model_parallel_size",
+    "data_parallel_size": "rollout.data_parallel_size",
+    "enable_expert_parallel": "rollout.expert_parallel_size (= tensor_model_parallel_size * data_parallel_size)",
+    "enable_lora": "actor_rollout_ref.model.lora",
+    "max_lora_rank": "actor_rollout_ref.model.lora",
+    "enable_return_routed_experts": "rollout.enable_rollout_routing_replay",
+}
+
 # Max wait for admissions already past the submission gate to reach the engine.
 _GATE_BARRIER_TIMEOUT_S = 60.0
 
@@ -1276,6 +1287,12 @@ class vLLMHttpServer:
 
     def _preprocess_engine_kwargs(self, engine_kwargs: dict) -> None:
         """Mutate engine_kwargs in-place before the CLI args dict is built."""
+        managed = [key for key in engine_kwargs if key.replace("-", "_") in _VERL_MANAGED_VLLM_ARGS]
+        if managed:
+            raise ValueError(
+                "rollout.engine_kwargs.vllm may not set args that verl derives from its config: "
+                + "; ".join(f"{key} (set {_VERL_MANAGED_VLLM_ARGS[key.replace('-', '_')]})" for key in managed)
+            )
         if _VLLM_VERSION < version.parse("0.22.0"):
             # Work around multimodal processor cache desync across pause/resume.
             # See: https://github.com/vllm-project/vllm/pull/43001/
@@ -1297,19 +1314,11 @@ class vLLMHttpServer:
                 raise NotImplementedError("delta_sharded with vLLM requires data_parallel_size=1")
             if self.config.disaggregation.enabled:
                 raise NotImplementedError("delta_sharded with vLLM does not support PD disaggregation")
-            # config.pipeline_model_parallel_size > 1 is already rejected globally;
-            # engine_kwargs is forwarded verbatim to vLLM, so close topology
-            # override paths that would bypass VERL's worker and IPC mapping.
-            if int(engine_kwargs.get("data_parallel_size") or 1) > 1:
-                raise NotImplementedError("delta_sharded with vLLM requires data_parallel_size=1")
+            # config.pipeline_model_parallel_size > 1 is already rejected globally and
+            # engine_kwargs cannot set TP/DP (see _VERL_MANAGED_VLLM_ARGS); close the
+            # remaining pipeline override that would bypass VERL's worker and IPC mapping.
             if int(engine_kwargs.get("pipeline_parallel_size") or 1) > 1:
                 raise NotImplementedError("delta_sharded with vLLM requires pipeline_parallel_size=1")
-            engine_tp_size = engine_kwargs.get("tensor_parallel_size")
-            if engine_tp_size is not None and int(engine_tp_size) != self.config.tensor_model_parallel_size:
-                raise NotImplementedError(
-                    "delta_sharded with vLLM requires engine_kwargs tensor_parallel_size to match "
-                    "rollout.tensor_model_parallel_size"
-                )
 
             if is_moe_model(self.model_config.hf_config):
                 moe_backend = engine_kwargs.get("moe_backend")
