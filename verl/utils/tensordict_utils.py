@@ -177,7 +177,17 @@ def nested_tensor_from_tensor_list(tensors: list[torch.Tensor], ragged_idx: int 
     offsets = torch.zeros(len(tensors) + 1, dtype=torch.long, device=values.device)
     torch.cumsum(lengths, dim=0, out=offsets[1:])
 
-    nested_tensor = torch.nested.nested_tensor_from_jagged(values=values, offsets=offsets)
+    # jagged_dim=ragged_idx makes the public shape match the declared ragged axis,
+    # e.g. (B, num_components, j) for ragged_idx=2. Without it the public constructor
+    # defaults to the values dim-0 extent, giving (B, j, num_components) — contents are
+    # right but shape[1] misreports the ragged dim, breaking downstream shape logic.
+    try:
+        nested_tensor = torch.nested.nested_tensor_from_jagged(
+            values=values, offsets=offsets, jagged_dim=ragged_idx
+        )
+    except TypeError:
+        # older torch without the jagged_dim argument: build the (B, j, ...) variant
+        nested_tensor = torch.nested.nested_tensor_from_jagged(values=values, offsets=offsets)
     nested_tensor._ragged_idx = ragged_idx
     return nested_tensor
 
@@ -967,8 +977,12 @@ def normalize_3d_position_ids(data: TensorDict) -> None:
       values.shape[0] > _MAX_PLAUSIBLE_COMPONENTS.
 
     The two signatures are mutually exclusive except on squares (values.shape[0] ==
-    values.shape[1]); there the tie-break is _MAX_PLAUSIBLE_COMPONENTS: a dim-0 size > 8 cannot
-    be an mRoPE component count, so the tensor must be coordinate-packed.
+    values.shape[1]); there the tie-break prefers the coordinate-packed reading: the
+    tensor's own offsets define its dim-0 rows (a valid ragged@1), and the alternative
+    sequence-packed reading would need the whole batch to sum to
+    _MAX_PLAUSIBLE_COMPONENTS tokens. Non-square dim-0 sizes > _MAX_PLAUSIBLE_COMPONENTS
+    are likewise unambiguously coordinate-packed (an mRoPE component count cannot be
+    that large).
 
     Blindly overwriting _ragged_idx (the old workaround) made a self-consistent ragged_idx=1 tensor
     internally inconsistent and crashed unbind() downstream; rebuilding keeps values/offsets/lengths
@@ -1020,10 +1034,18 @@ def normalize_3d_position_ids(data: TensorDict) -> None:
 
     # Branch B (coordinate-packed quirk, any component count): offsets describe the dim-0
     # axis with constant step C. A dim-0 size > _MAX_PLAUSIBLE_COMPONENTS cannot be a
-    # component count, so the tensor is unambiguously B*C-packed — this also covers the
-    # square corner where both signatures match (e.g. values=(512,512) with steps=4).
+    # component count, so the tensor is unambiguously B*C-packed. The SQUARE corner
+    # (values.shape[0] == values.shape[1], where Branch A's signature matches too) also
+    # goes here: the offsets the tensor already carries define its dim-0 rows — a valid
+    # ragged@1 whose unbind preserves every row — so rebuilding along the producer's own
+    # grouping is the faithful reading. The alternative reading (sequence-packed with a
+    # component count equal to the whole batch's total sequence length) requires the
+    # batch to sum to <= _MAX_PLAUSIBLE_COMPONENTS tokens, which does not occur in
+    # practice, whereas the as_nested_tensor equal-length quirk hits this shape whenever
+    # L == B*C (e.g. two equal-length (4, 8) samples).
     coord_match, batch = _coordinate_packed_pattern(values, offsets)
-    if coord_match and values.shape[0] > _MAX_PLAUSIBLE_COMPONENTS:
+    if coord_match and (values.shape[0] > _MAX_PLAUSIBLE_COMPONENTS
+                        or int(values.shape[0]) == int(values.shape[1])):
         data["position_ids"] = _repack_3d_position_ids_as_ragged2(list(values.chunk(batch, dim=0)))
         return
 

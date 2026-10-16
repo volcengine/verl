@@ -13,7 +13,7 @@
 # limitations under the License.
 """Red-green regression tests for the 3D (mRoPE) position_ids nested-layout fix.
 
-Eight distilled cases; every one fails on unfixed master and passes with the fix:
+Ten distilled cases; every one fails on unfixed master and passes with the fix:
 
 - the equal-length `as_nested_tensor` quirk (uniform inputs yield a ragged@1 layout)
   combined with the blind `_ragged_idx = 2` workaround in `maybe_fix_3d_position_ids`,
@@ -24,7 +24,12 @@ Eight distilled cases; every one fails on unfixed master and passes with the fix
 - `concat_nested_tensors` silently rebuilding mixed-layout inputs with the first
   tensor's tag (case 5);
 - `normalize_3d_position_ids` itself: component-count-agnostic repair (case 7) and
-  zero-cost idempotent passthrough for canonical input (case 8).
+  zero-cost idempotent passthrough for canonical input (case 8);
+- the small square quirk corner (values.shape[0] == values.shape[1]) rebuilt along the
+  producer's own dim-0 grouping instead of being re-read as sequence-packed (case 9,
+  community report 2026-10-15);
+- the builder's public shape matching the declared ragged axis, (B, C, j) for
+  ragged_idx=2 (case 10, community report 2026-10-15).
 
 All fixtures are CPU-only integer tensors; every expectation is a bitwise comparison.
 """
@@ -209,3 +214,32 @@ def test_8_canonical_passthrough_idempotent():
     tu.normalize_3d_position_ids(data1)
     assert data1["position_ids"] is nt1
     assert torch.equal(list(data1["position_ids"].unbind())[0], single)
+
+
+def test_9_small_square_quirk_rows_preserved():
+    """Square quirk corner (values.shape[0] == values.shape[1]): the (B, C, L) = (2, 4, 8)
+    quirk input must be rebuilt along the producer's own dim-0 grouping. Re-reading it as
+    sequence-packed (component count == the batch's total length) transposes the rows
+    (community report, 2026-10-15)."""
+    nt, samples = _quirky_uniform(length=8, batch=2, num_components=4)
+    assert getattr(nt, "_ragged_idx", None) == 1
+    values, offsets = nt._values, nt._offsets
+    assert int(values.shape[0]) == int(values.shape[1])  # square: both signatures match
+    assert offsets.tolist() == [0, 4, 8]
+    data = _wrap(nt, 2)
+    tu.maybe_fix_3d_position_ids(data)
+    selected = _select(data, [1, 0, 1])["position_ids"]
+    for actual, index in zip(selected.unbind(), [1, 0, 1]):
+        assert actual.shape == samples[index].shape
+        assert torch.equal(actual, samples[index])
+
+
+def test_10_builder_public_shape_matches_ragged_idx():
+    """The builder's public shape must place the fixed component axis at dim 1 for
+    ragged_idx=2 — (B, C, j), not (B, j, C) (community report, 2026-10-15)."""
+    samples = [torch.arange(68).reshape(4, 17) + i * 1000 for i in range(2)]
+    nt = tu.nested_tensor_from_tensor_list(samples, ragged_idx=2)
+    assert nt.shape[1] == 4
+    assert tuple(nt.values().shape) == (4, 34)
+    assert nt.offsets().tolist() == [0, 17, 34]
+    assert all(torch.equal(a, b) for a, b in zip(nt.unbind(), samples))
