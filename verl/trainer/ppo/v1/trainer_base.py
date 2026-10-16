@@ -1649,6 +1649,16 @@ class PPOTrainer(ABC):
             shuffle=balanced and need_minibatch_shuffle(self.config, self.use_critic),
             seed=[self.config.actor_rollout_ref.actor.data_loader_seed, self.global_steps, self.local_trigger_step],
         )
+        # Match V0: place smaller micro-batches at both ends to reduce pipeline bubbles.
+        # This mainly benefits fixed-size micro-batches; dynamic batching rebuilds and orders them.
+        # Sort only within each balancing unit to preserve actor and critic mini-batch boundaries.
+        share_size = (mini_batch_size if balanced else len(workload_lst)) // dp_size
+        for idx, partition in enumerate(global_partition_lst):
+            ordered_partition = []
+            for start in range(0, len(partition), share_size):
+                share = sorted(partition[start : start + share_size], key=lambda x: (workload_lst[x], x))
+                ordered_partition.extend(share[::2] + share[1::2][::-1])
+            global_partition_lst[idx] = ordered_partition
         batch.reorder([j for partition in global_partition_lst for j in partition])
         global_balance_stats = log_seqlen_unbalance(
             seqlen_list=global_seqlen_lst.tolist(), partitions=global_partition_lst, prefix=logging_prefix
