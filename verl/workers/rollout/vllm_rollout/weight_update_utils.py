@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+import os
+
 import torch
 from vllm.model_executor.layers.vocab_parallel_embedding import VocabParallelEmbedding
+
+logger = logging.getLogger(__name__)
 
 WeightUpdate = tuple[str, torch.Tensor]
 
@@ -115,3 +120,59 @@ def apply_buffer_updates(
         loaded += 1
 
     return loaded
+
+
+@torch.no_grad()
+def stage_lora_bucket(weights: list[WeightUpdate], dtype: torch.dtype | str | None = None) -> list[WeightUpdate]:
+    """Copy one received bucket of adapter tensors into a single host block.
+
+    Returns ``(name, view)`` pairs that own their memory (they do not alias the
+    transport's reused bucket buffer), on CPU, in ``dtype``, pinned when the
+    source is on CUDA. ``dtype`` may be a torch dtype name (vLLM's
+    ``LoRAConfig.lora_dtype`` is a string before it is resolved); anything that is
+    not a dtype, such as ``"auto"``, keeps the source dtype and leaves the cast to
+    vLLM. One device-to-host copy and one pinned allocation per bucket replace a
+    device clone per tensor; a per-expert MoE LoRA has tens of thousands of
+    tensors, and per-tensor allocations dominated its sync time. vLLM then keeps
+    these views (its ``.to("cpu", dtype)`` and ``.pin_memory()`` are no-ops on
+    them; fused projections only collect them in lists), except MoE expert
+    factors, which it stacks into new tensors: stage those in a block of their
+    own, so the block is freed once stacked. A model whose loader keeps views of
+    some expert factors holds the whole expert block until the adapter is
+    replaced. With a cast, the per-tensor casts
+    and their concatenation briefly take about twice the bucket in device memory.
+    """
+    if not weights:
+        return []
+    if isinstance(dtype, str):
+        dtype = getattr(torch, dtype, None)
+    if not isinstance(dtype, torch.dtype):
+        sources = {tensor.dtype for _, tensor in weights}
+        if len(sources) > 1:
+            # No target dtype: every tensor keeps its own, one block per source dtype.
+            staged = [None] * len(weights)
+            for source in sources:
+                index = [i for i, (_, tensor) in enumerate(weights) if tensor.dtype == source]
+                for i, item in zip(index, stage_lora_bucket([weights[i] for i in index], source), strict=True):
+                    staged[i] = item
+            return staged
+        dtype = weights[0][1].dtype
+    target = dtype
+    flat = torch.cat([tensor.reshape(-1).to(target) for _, tensor in weights])
+    pin = flat.is_cuda and os.environ.get("VERL_LORA_STAGE_PIN", "1") != "0"
+    try:
+        block = torch.empty(flat.numel(), dtype=target, pin_memory=pin)
+    except RuntimeError:
+        if not pin:
+            raise
+        # Page-locking can fail under host memory pressure. Pageable staging is slower, and vLLM may still pin
+        # these tensors one by one later, which can fail under the same pressure.
+        logger.warning("pinned allocation of %d bytes failed, staging pageable", flat.numel() * flat.element_size())
+        block = torch.empty(flat.numel(), dtype=target)
+    block.copy_(flat)
+    staged, offset = [], 0
+    for name, tensor in weights:
+        count = tensor.numel()
+        staged.append((name, block[offset : offset + count].view(tensor.shape)))
+        offset += count
+    return staged

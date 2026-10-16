@@ -35,7 +35,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from packaging import version
 
 try:
     from vllm.model_executor.layers.linear import LinearBase
@@ -64,7 +63,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_vllm_version():
-    return version.parse(importlib.metadata.version("vllm"))
+    from verl.third_party.vllm import parse_vllm_version
+
+    return parse_vllm_version(importlib.metadata.version("vllm"))
 
 
 # Ref: https://github.com/NVIDIA-NeMo/RL/commit/bc24887c72a6e1b2699a228bc87c588546dfe6b7

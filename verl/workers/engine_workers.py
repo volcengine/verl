@@ -535,6 +535,16 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             rr_mode = self.config.actor.megatron.router_replay.mode
         elif actor_strategy == "veomni":
             rr_mode = self.config.actor.veomni.router_replay.mode
+        elif actor_strategy in ("fsdp", "fsdp2"):
+            # Configs saved before the FSDP router_replay section existed have no such key: replay is off.
+            rr_mode = self.config.actor.fsdp_config.get("router_replay", {}).get("mode", "disabled")
+            rollout_config = self.config.get("rollout", None)
+            records = rollout_config is None or rollout_config.get("enable_rollout_routing_replay", False)
+            if rr_mode == "R3" and not records:
+                raise ValueError(
+                    "actor.fsdp_config.router_replay.mode=R3 replays the rollout's routing: "
+                    "set rollout.enable_rollout_routing_replay=True"
+                )
         else:
             rr_mode = "disabled"
         self.enable_routing_replay = rr_mode != "disabled"
@@ -743,6 +753,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @DistProfiler.annotate(color="blue", role="actor_compute_log_prob")
     @_with_routing_replay_flag(enabled=True)
     def compute_log_prob(self, data: TensorDict) -> TensorDict:
+        if self.enable_routing_replay and tu.get(data, key="no_lora_adapter", default=False):
+            # Reference log-probs through the actor engine (LoRA with the adapter disabled): the reference routes
+            # natively, as a separate reference worker does, instead of replaying the actor's rollout.
+            tu.assign_non_tensor_data(data, "enable_routing_replay", False)
         output = self.actor.infer_batch(data)
 
         return output.cpu() if output is not None else None

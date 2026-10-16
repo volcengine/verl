@@ -13,6 +13,7 @@
 # limitations under the License.
 """Utils for tokenization."""
 
+import os
 import types
 import warnings
 
@@ -174,9 +175,182 @@ def hf_tokenizer(name_or_path, correct_pad_token=True, correct_gemma2=True, **kw
         kwargs["eos_token"] = "<end_of_turn>"
         kwargs["eos_token_id"] = 107
     tokenizer = AutoTokenizer.from_pretrained(name_or_path, **kwargs)
+    tokenizer = _honor_tokenizer_json(tokenizer, name_or_path, kwargs)
     if correct_pad_token:
         set_pad_token_id(tokenizer)
     return tokenizer
+
+
+# spaces (single, double, trailing), newlines, a tab, digits, non-ASCII and CJK text, a decomposed accent and a
+# ligature (normalizer differences)
+_TOKENIZER_PROBE = (
+    "Solve the  following step by step.\n\nThe last line: x = 3\t(12345.678) caf\u00e9 cafe\u0301 \ufb01ne "
+    "\u4f60\u597d {7}  "
+)
+# ASCII text whose spacing a byte-level tokenizer reproduces exactly: double and trailing spaces, newlines, a tab
+_SPACING_PROBE = "Solve the  following step by step.\n\nThe last line: x = 3\t(12345) {7}  "
+# from_pretrained arguments that select which tokenizer.json is loaded
+_TOKENIZER_FILE_KWARGS = ("subfolder", "revision", "cache_dir", "token", "local_files_only")
+
+
+def _plain_ids(tokenizer, text=_TOKENIZER_PROBE):
+    return tokenizer(text, add_special_tokens=False)["input_ids"]
+
+
+def _spacing_round_trip(tokenizer):
+    return tokenizer.decode(_plain_ids(tokenizer, _SPACING_PROBE), clean_up_tokenization_spaces=False)
+
+
+def _only_whitespace_removed(text, original=_SPACING_PROBE):
+    """``text`` is ``original`` with some of its whitespace deleted and nothing else changed."""
+    if text == original:
+        return False
+    position = 0
+    for char in original:
+        if position < len(text) and text[position] == char:
+            position += 1
+        elif not char.isspace():
+            return False
+    return position == len(text)
+
+
+def _loses_whitespace(tokenizer):
+    """The failure this repair targets: the text comes back with some of its whitespace deleted."""
+    return _only_whitespace_removed(_spacing_round_trip(tokenizer))
+
+
+class _TokenizerRefused(ValueError):
+    """The loaded tokenizer is wrong and the tokenizer file cannot replace it."""
+
+
+def _special_layout(tokenizer):
+    """The ids a tokenizer adds before and after plain text by default (single-sequence inputs)."""
+    text = _plain_ids(tokenizer)
+    full = tokenizer(_TOKENIZER_PROBE)["input_ids"]
+    for start in range(len(full) - len(text) + 1):
+        if full[start : start + len(text)] == text:
+            return full[:start], full[start + len(text) :]
+    raise ValueError(f"{type(tokenizer).__name__} does not keep the text ids intact when adding special tokens")
+
+
+def _added_tokens(tokenizer):
+    return {
+        index: (token.content, token.special, token.single_word, token.lstrip, token.rstrip, token.normalized)
+        for index, token in tokenizer.added_tokens_decoder.items()
+    }
+
+
+def _tokenizer_json_path(tokenizer, name_or_path, kwargs):
+    """The tokenizer file from_pretrained read: as recorded by the tokenizer, else tokenizer.json in the local
+    directory (with its subfolder) or the Hub cache."""
+    recorded = getattr(tokenizer, "init_kwargs", {}).get("tokenizer_file")
+    if recorded and os.path.isfile(str(recorded)):
+        return str(recorded)
+    file_kwargs = {key: kwargs[key] for key in _TOKENIZER_FILE_KWARGS if key in kwargs}
+    if os.path.isdir(str(name_or_path)):
+        local = os.path.join(str(name_or_path), file_kwargs.get("subfolder") or "", "tokenizer.json")
+        return local if os.path.isfile(local) else None
+    from transformers.utils import cached_file
+
+    return cached_file(
+        name_or_path,
+        "tokenizer.json",
+        _raise_exceptions_for_missing_entries=False,
+        _raise_exceptions_for_connection_errors=False,
+        **file_kwargs,
+    )
+
+
+def _swap_problem(tokenizer, faithful):
+    """Why ``faithful`` cannot replace ``tokenizer``, or None: only the text pipeline may change."""
+    for name in (
+        "bos_token",
+        "eos_token",
+        "pad_token",
+        "unk_token",
+        "bos_token_id",
+        "eos_token_id",
+        "pad_token_id",
+        "unk_token_id",
+        "chat_template",
+    ):
+        if getattr(faithful, name, None) != getattr(tokenizer, name, None):
+            return f"{name} would change"
+    if sorted(faithful.all_special_tokens) != sorted(tokenizer.all_special_tokens):
+        return "the special tokens would change"
+    if len(faithful) != len(tokenizer) or _added_tokens(faithful) != _added_tokens(tokenizer):
+        return "the vocabulary or the added tokens would change"
+    if _special_layout(faithful) != _special_layout(tokenizer):
+        return "the default special tokens around the text would change"
+    return None
+
+
+def _honor_tokenizer_json(tokenizer, name_or_path, kwargs):
+    """Repair a tokenizer that loses whitespace although its tokenizer.json keeps it.
+
+    transformers 5 rebuilds some tokenizer classes (LlamaTokenizer among them) from the class recipe and ignores
+    the pre-tokenizer stored in tokenizer.json. For a byte-level BPE vocabulary filed under such a class every
+    space and newline is then dropped without any error, and the model is trained and evaluated on run-together
+    text. Only that signature is acted on: the loaded tokenizer returns a probe with nothing but its whitespace
+    deleted, while the file keeps it and, loaded as stored, encodes the probes like the file.
+    Then the file as stored is used, with padding side, truncation side and maximum length carried over, if
+    nothing else changes (special and added tokens with their matching rules, vocabulary size, chat template,
+    the special tokens around plain text); otherwise loading fails, since training on the loaded tokenizer
+    would be wrong. Every other tokenizer, an explicit ``use_fast=False``, and a check that cannot run leave
+    the loaded tokenizer as it is (the last with a warning). Text sent to the rollout server as text (not as
+    token ids) is tokenized by the server's own tokenizer and is not covered, and versioned tokenizer files
+    (``fast_tokenizer_files``) are not looked up."""
+    if kwargs.get("use_fast") is False:
+        return tokenizer
+    path = None
+    try:
+        if not _loses_whitespace(tokenizer):
+            return tokenizer
+        path = _tokenizer_json_path(tokenizer, name_or_path, kwargs)
+        if path is None:
+            warnings.warn(f"{type(tokenizer).__name__} loses whitespace and no tokenizer.json was found", stacklevel=3)
+            return tokenizer
+        from tokenizers import Tokenizer
+        from transformers import PreTrainedTokenizerFast
+
+        reference = Tokenizer.from_file(path)
+        # Truncation or padding stored in the file is not applied by from_pretrained calls without those options.
+        reference.no_truncation()
+        reference.no_padding()
+        stored = reference.decode(reference.encode(_SPACING_PROBE, add_special_tokens=False).ids)
+        if stored != _SPACING_PROBE:
+            return tokenizer  # the file itself does not keep the whitespace: the tokenizer is as stored
+        faithful = PreTrainedTokenizerFast.from_pretrained(name_or_path, **kwargs)
+        reproduces = all(
+            _plain_ids(faithful, text) == reference.encode(text, add_special_tokens=False).ids
+            for text in (_TOKENIZER_PROBE, _SPACING_PROBE)
+        )
+        if not reproduces or _spacing_round_trip(faithful) != _SPACING_PROBE:
+            warnings.warn(
+                f"{type(tokenizer).__name__} loses whitespace and {path} as stored does not repair it; keeping it",
+                stacklevel=3,
+            )
+            return tokenizer
+        problem = _swap_problem(tokenizer, faithful)
+    except Exception as error:  # the check is a repair, never a new way to fail
+        warnings.warn(
+            f"could not check {type(tokenizer).__name__} against {path or name_or_path}, keeping it: "
+            f"{type(error).__name__}: {error}",
+            stacklevel=3,
+        )
+        return tokenizer
+    if problem is not None:
+        raise _TokenizerRefused(
+            f"{type(tokenizer).__name__} loses whitespace, and {path} as stored cannot replace it because "
+            f"{problem}; fix the tokenizer files (e.g. a tokenizer_class that loads tokenizer.json as stored)"
+        )
+    for name in ("padding_side", "truncation_side", "model_max_length"):
+        setattr(faithful, name, getattr(tokenizer, name))
+    warnings.warn(
+        f"{type(tokenizer).__name__} loses whitespace; using {path} as stored ({type(faithful).__name__}) instead.",
+        stacklevel=3,
+    )
+    return faithful
 
 
 def hf_processor(name_or_path, **kwargs):
@@ -199,6 +373,8 @@ def hf_processor(name_or_path, **kwargs):
         # Treat it as "no multimodal processor" and let callers use hf_tokenizer.
         if isinstance(processor, PreTrainedTokenizerBase):
             return None
+        if isinstance(getattr(processor, "tokenizer", None), PreTrainedTokenizerBase):
+            processor.tokenizer = _honor_tokenizer_json(processor.tokenizer, name_or_path, kwargs)
 
         config = AutoConfig.from_pretrained(name_or_path, **kwargs)
 
@@ -239,6 +415,8 @@ def hf_processor(name_or_path, **kwargs):
             processor.get_rope_index = types.MethodType(model_class.get_rope_index, processor)
             if hasattr(model_class, "get_vision_position_ids"):
                 processor.get_vision_position_ids = types.MethodType(model_class.get_vision_position_ids, processor)
+    except _TokenizerRefused:
+        raise
     except Exception as e:
         processor = None
         # TODO(haibin.lin): try-catch should be removed after adding transformer version req to setup.py to avoid

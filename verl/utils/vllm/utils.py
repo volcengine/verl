@@ -25,7 +25,7 @@ from vllm.lora.request import LoRARequest
 from vllm.lora.utils import get_adapter_absolute_path
 from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 
-from verl.third_party.vllm import get_version
+from verl.third_party.vllm import get_version, parse_vllm_version
 
 
 class TensorLoRARequest(LoRARequest):
@@ -131,7 +131,9 @@ class VLLMHijack:
 
 def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
     """check if the package version is greater than or equal to the minimum version"""
-    return vs.parse(get_version(pkg)) >= vs.parse(minver)
+    installed = get_version(pkg)
+    parsed = parse_vllm_version(installed) if pkg == "vllm" else vs.parse(installed)
+    return parsed >= vs.parse(minver)
 
 
 # Whether the installed vLLM ships ``BaseLayerWithLoRA.load_weights`` (landed in

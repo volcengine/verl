@@ -15,6 +15,7 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
+import inspect
 import logging
 import os
 import warnings
@@ -109,6 +110,10 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
+
+    # Set by _build_model_optimizer for router_replay.mode=R3: the rollout's routing then reaches the model as
+    # the forward argument `routed_experts`. Engines that build their model elsewhere keep it off.
+    _routed_experts_as_model_input: bool = False
 
     def __init__(
         self,
@@ -259,6 +264,11 @@ class FSDPEngine(BaseEngine):
         from verl.utils.model import get_hf_auto_model_class
         from verl.utils.torch_dtypes import PrecisionType
 
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import build_meta_model
+
+            return build_meta_model(self.model_config, self.engine_config)
+
         torch_dtype = self.engine_config.model_dtype
 
         if torch_dtype is None:
@@ -341,6 +351,11 @@ class FSDPEngine(BaseEngine):
         return module
 
     def _build_lora_module(self, module):
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import build_lora_model
+
+            return build_lora_model(module, self.model_config)
+
         module.enable_input_require_grads()
 
         lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
@@ -387,6 +402,14 @@ class FSDPEngine(BaseEngine):
         return module
 
     def _build_fsdp_module(self, module):
+        if self.model_config.hf_config.model_type == "step5":
+            from verl.models.transformers.step5.loading import shard_and_load
+
+            # Step5 explicitly mixes BF16 projections with FP32 routing/norms.
+            self._autocast_dtype = torch.float32
+            self.scaler = None
+            return shard_and_load(module, self.model_config, self.engine_config, self.device_mesh)
+
         # TODO(ziheng): need to improve
         from torch.distributed.fsdp import CPUOffload, MixedPrecision
 
@@ -629,6 +652,22 @@ class FSDPEngine(BaseEngine):
         self.module = module
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+
+        replay_mode = self.engine_config.router_replay.mode
+        if replay_mode != "disabled":
+            model = getattr(module, "module", module)
+            model = model.get_base_model() if hasattr(model, "get_base_model") else model
+            if replay_mode != "R3" or "routed_experts" not in inspect.signature(model.forward).parameters:
+                raise NotImplementedError(
+                    f"FSDP router replay supports mode R3 with a model whose forward takes `routed_experts`; "
+                    f"got mode {replay_mode} and {type(model).__name__}"
+                )
+            # Checked here as well as per micro-batch, so a wrong layout fails at startup, not after a rollout.
+            if not self.use_remove_padding or self.use_ulysses_sp:
+                raise NotImplementedError(
+                    "FSDP router replay (R3) needs use_remove_padding=True and ulysses_sequence_parallel_size=1"
+                )
+            self._routed_experts_as_model_input = True
 
     def train_mode(self, **kwargs):
         """
@@ -1003,6 +1042,18 @@ class FSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
+                if not base_sync_done and self.model_config.hf_config.model_type == "step5":
+                    raise ValueError(
+                        "Step5 syncs adapters only; the rollout loads the base weights itself: "
+                        "set rollout.load_format=safetensors (not dummy) and checkpoint_engine.backend=naive"
+                    )
+                if base_sync_done and self.model_config.hf_config.model_type == "step5":
+                    # Adapter-only sync: stream per-expert BF16 tensors instead of staging every adapter on the host.
+                    from verl.models.transformers.step5.lora import stream_text_lora
+
+                    return stream_text_lora(
+                        peft_model, peft_config, self.model_config.hf_config.moe_num_experts, torch.bfloat16
+                    )
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,
@@ -1097,6 +1148,8 @@ class FSDPEngine(BaseEngine):
 
     def _get_hf_export_per_tensor_param(self):
         """Full HF-format weights for the checkpoint 'hf_model' export, with LoRA adapters merged."""
+        if self._is_lora and self.model_config.hf_config.model_type == "step5":
+            raise ValueError("Step5 LoRA cannot be merged into an hf_model checkpoint; save the adapter only")
         if self._is_lora:
             return self._merged_lora_per_tensor_param(), None
         return self.get_per_tensor_param()
@@ -1336,10 +1389,46 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 # mirrors what the veomni engine already does for fused kernels.
                 extra_args["shift_labels"] = output_args["input_ids_rmpad_rolled"].unsqueeze(0)
 
+        if self._routed_experts_as_model_input and tu.get_non_tensor_data(
+            data=micro_batch, key="enable_routing_replay", default=False
+        ):
+            model_inputs["routed_experts"] = self._pack_routed_experts(micro_batch, output_args, use_remove_padding)
+
         model_inputs.update(multi_modal_inputs)
         model_inputs.update(extra_args)
 
         return model_inputs, output_args
+
+    def _pack_routed_experts(self, micro_batch: TensorDict, output_args: dict, use_remove_padding: bool):
+        """R3: the rollout's top-k expert indices, packed like ``input_ids``.
+
+        Returns ``(1, total_nnz + pad_size, num_layers, topk)`` int64. Rows without a recorded choice
+        (the pad suffix, tokens the rollout did not route) are all zero: the model routes them natively.
+        """
+        model = getattr(self.module, "module", self.module)
+        model = model.get_base_model() if hasattr(model, "get_base_model") else model
+        routed = micro_batch.get("routed_experts", None)
+        if (
+            not use_remove_padding
+            or self.use_ulysses_sp
+            or routed is None
+            or "routed_experts" not in inspect.signature(model.forward).parameters
+        ):
+            raise NotImplementedError(
+                "FSDP router replay (R3) needs use_remove_padding=True, ulysses_sequence_parallel_size=1, "
+                "rollout.enable_rollout_routing_replay=True and a model whose forward takes `routed_experts`."
+            )
+        input_ids = micro_batch["input_ids"]
+        if input_ids.is_nested and (
+            not routed.is_nested or not torch.equal(routed.offsets().cpu().long(), input_ids.offsets().cpu().long())
+        ):
+            raise ValueError("routed_experts rows do not line up with input_ids sample by sample")
+        if routed.size(-1) < 2:
+            # An all-zero row means "not recorded": with one expert per token it cannot be told from expert 0.
+            raise NotImplementedError("FSDP router replay (R3) needs top-k >= 2 routing")
+        routed = routed.values().to(torch.int64)  # (total_nnz, num_layers, topk)
+        pad = routed.new_zeros((int(output_args["pad_size"]), *routed.shape[1:]))
+        return torch.cat([routed, pad]).unsqueeze(0)
 
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict, logits_processor_func):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)

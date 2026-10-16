@@ -171,11 +171,9 @@ def stateless_init_process_group(master_address, master_port, rank, world_size, 
             listen_socket = None
             listen_fd = None
 
-        import vllm
-        from packaging import version
-
-        _VLLM_VERSION = version.parse(vllm.__version__)
-        if _VLLM_VERSION >= version.parse("0.19.0"):
+        # vLLM 0.19 dropped the socket field (the store owns the listening socket): ask the class, not the
+        # version string, which an untagged source build does not date.
+        if "socket" not in getattr(StatelessProcessGroup, "__dataclass_fields__", {}):
             store = create_tcp_store(
                 host=host,
                 port=port,

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 
 from packaging import version as vs
@@ -25,6 +27,32 @@ def get_version(pkg):
         return version(pkg)
     except PackageNotFoundError:
         return None
+
+
+logger = logging.getLogger(__name__)
+
+
+@lru_cache
+def parse_vllm_version(raw: str) -> vs.Version:
+    """Parse a vLLM version, treating untagged source builds as the newest API.
+
+    A vLLM built from a checkout without release tags reports setuptools-scm's
+    fallback ``0.1.devN`` (optionally with a local ``+...`` suffix), which would
+    otherwise compare as older than every release. The string does not tell how old
+    the checkout is, so this is an assumption: an untagged build of an old vLLM
+    passes the gates that use this parser (minimum versions, the profiler arguments,
+    the routing-replay minimum) and can fail later, inside vLLM. It is logged once.
+    Gates where the old path is the safe one keep the raw version.
+    """
+    parsed = vs.parse(raw)
+    if parsed.is_devrelease and parsed.release == (0, 1) and parsed.pre is None and parsed.post is None:
+        logger.warning(
+            "vLLM %s is an untagged source build; verl assumes it has the newest vLLM API, "
+            "so minimum-version checks pass it: build from a tagged checkout to have them apply.",
+            raw,
+        )
+        return vs.parse("9999")
+    return parsed
 
 
 package_name = "vllm"
@@ -43,7 +71,7 @@ elif is_npu_available:
     VLLM_SLEEP_LEVEL = 1
     from vllm import LLM
     from vllm.distributed import parallel_state
-elif vs.parse(package_version) >= vs.parse("0.18.0"):
+elif parse_vllm_version(package_version) >= vs.parse("0.18.0"):
     vllm_version = package_version
     VLLM_SLEEP_LEVEL = 2
     from vllm import LLM

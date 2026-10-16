@@ -42,6 +42,7 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.metrics.loggers import PrometheusStatLogger
 
 from verl.plugin.platform import get_platform
+from verl.third_party.vllm import parse_vllm_version
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.device import get_resource_name, get_visible_devices_keyword, is_torch_npu_available
 from verl.utils.net_utils import get_free_port, is_valid_ipv6_address
@@ -74,7 +75,7 @@ from verl.workers.rollout.vllm_rollout.utils import (
     get_vllm_max_lora_rank,
 )
 
-_VLLM_VERSION = version.parse(vllm.__version__)
+_VLLM_VERSION = parse_vllm_version(vllm.__version__)
 
 # Max wait for admissions already past the submission gate to reach the engine.
 _GATE_BARRIER_TIMEOUT_S = 60.0
@@ -1276,7 +1277,9 @@ class vLLMHttpServer:
 
     def _preprocess_engine_kwargs(self, engine_kwargs: dict) -> None:
         """Mutate engine_kwargs in-place before the CLI args dict is built."""
-        if _VLLM_VERSION < version.parse("0.22.0"):
+        # Raw version on purpose: the workaround is harmless on fixed builds and needed on older ones, so an
+        # untagged build (whose age is unknown) keeps it.
+        if version.parse(vllm.__version__) < version.parse("0.22.0"):
             # Work around multimodal processor cache desync across pause/resume.
             # See: https://github.com/vllm-project/vllm/pull/43001/
             engine_kwargs.setdefault("mm_processor_cache_gb", 0)
