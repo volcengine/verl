@@ -159,16 +159,20 @@ Use `actor_rollout_ref.rollout.name=sglang` for SGLang. For complete scripts, se
 
 ```bash
 python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \
-    --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK --qat-mode fp8
+    --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK \
+    --quant-ignore 're:.*linear_attn\.in_proj_[ab]$' \
+    --qat-mode fp8 \
+    --qat-ignore '*linear_attn.in_proj_a' --qat-ignore '*linear_attn.in_proj_b' \
+    --r3-router-replay
 ```
 
-Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arguments. Reference `k3_kl` on Qwen3.5-35B-A3B (EP=8, rollout TP=2, H-series GPUs):
+Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arguments. Reference `k3_kl` on Qwen3.5-35B-A3B (EP=8, rollout TP=2, H-series GPUs), with R3 router replay enabled:
 
-| Rollout | vLLM | SGLang |
+| Rollout | vLLM + R3 | SGLang + R3 |
 |---|---|---|
-| BF16 | ~0.0014 | - |
-| FP8_BLOCK | 0.0039 | 0.0036 |
-| FP8_BLOCK + FP8 QAT | 0.0033 | 0.0033 |
+| BF16 | 0.00031 | 0.00031 |
+| FP8_BLOCK | 0.00225 | 0.00231 |
+| FP8_BLOCK + FP8 QAT | 0.00187 | 0.00188 |
 
 Blackwell reference `k3_kl` for vLLM MXFP8:
 

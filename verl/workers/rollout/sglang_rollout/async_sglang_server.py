@@ -658,22 +658,21 @@ class SGLangHttpServer:
 
         routed_experts = None
         if self.config.enable_rollout_routing_replay:
-            if self.config.skip_tokenizer_init:
-                # convert to numpy
-                captured = output.get("meta_info", {}).get("routed_experts", None)
-                routed_experts = captured.numpy() if captured is not None else None
-            else:
-                from sglang.srt.layers.moe.routed_experts_capturer import extract_routed_experts_from_meta_info
+            captured = output.get("meta_info", {}).get("routed_experts", None)
+            if captured is not None:
+                from sglang.srt.state_capturer.routed_experts import extract_routed_experts_from_meta_info
+
+                routed_experts = extract_routed_experts_from_meta_info(output)
 
                 hf_config = self.model_config.hf_config
-                if not hasattr(hf_config, "num_hidden_layers") or not hasattr(hf_config, "num_experts_per_tok"):
+                text_config = getattr(hf_config, "text_config", hf_config)
+                if not hasattr(text_config, "num_hidden_layers") or not hasattr(text_config, "num_experts_per_tok"):
                     raise AttributeError(
-                        "enable_rollout_routing_replay is set, but hf_config is missing "
-                        "'num_hidden_layers' or 'num_experts_per_tok'. This feature requires an MoE model "
-                        "configuration that defines these attributes."
+                        "enable_rollout_routing_replay requires an MoE model config with "
+                        "`num_hidden_layers` and `num_experts_per_tok`"
                     )
-                routed_experts = extract_routed_experts_from_meta_info(output).reshape(
-                    -1, hf_config.num_hidden_layers, hf_config.num_experts_per_tok
+                routed_experts = routed_experts.reshape(
+                    -1, text_config.num_hidden_layers, text_config.num_experts_per_tok
                 )
 
         extra_fields = {"global_steps": self.global_steps}
