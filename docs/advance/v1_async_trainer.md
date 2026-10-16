@@ -81,8 +81,6 @@ Monitor both forms of off-policy behavior:
 
 TransferQueue is the replay storage, and `StreamingDataloaderAsync` owns its control plane: it registers submitted prompts, polls prompt/session metadata, evicts terminal groups, reissues in-flight prompts on restore, and checkpoints TransferQueue state. The key and tag protocol shared with AgentLoop workers and the trainer lives in `verl/trainer/ppo/v1/tq_schema.py`. Each coordinator pass runs one non-blocking `poll_once(global_steps, partition_id, target_count)` and, once a request is ready, `materialize_sampleable(...)`. 
 
-Custom samplers (`trainer.v1.sampler.custom_sampler`) subclass `StreamingDataloader` for `sync` or `StreamingDataloaderAsync` for async modes. They override sampling hooks such as `_terminal_eviction_reasons` and `_select_prompt_uids` (async subclasses may also override `poll_once` and `materialize_sampleable`), keeping the coordinator-owned watermark contract.
-
 On each pass the coordinator synchronizes TransferQueue metadata and classifies terminal groups. A training group is evicted when any of the following applies:
 
 - Its prompt age exceeds `max_off_policy_threshold` while `max_off_policy_strategy=drop`.
@@ -91,7 +89,7 @@ On each pass the coordinator synchronizes TransferQueue metadata and classifies 
 
 The reasons are unioned before eviction, so a group matching multiple conditions is removed only once. Terminal-group eviction does not create refill credit: its sessions already released their in-flight slots as they completed.
 
-The coordinator continuously dispatches new prompts as session slots become free. If a completed group is rejected, the pending sample request waits for another terminal group instead of issuing a one-for-one prompt replacement. Session-watermark refill applies to the training partition; validation does not dispatch replacement prompts.
+The coordinator continuously dispatches new prompts as session slots become free. Session-watermark refill applies to the training partition; validation does not dispatch replacement prompts.
 
 With `max_off_policy_strategy=wait`, stale groups are not evicted. Instead, sampling blocks when an in-flight prompt reaches the threshold, allowing it to finish and remain trainable. DAPO-filtered and failed terminal groups are still evicted normally.
 
@@ -115,15 +113,19 @@ trainer:
       max_outstanding_batches: 4
 ```
 
-The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests. Trainer code uses these actor methods:
+The actor owns the train `StatefulDataLoader`, the TransferQueue replay control plane, and `AgentLoopManagerTQ`. Every mode runs a single-concurrency asyncio coordinator; only the refill policy differs. `sync` uses `StreamingDataloader`, which dispatches prompts only while a sample request is pending (one batch, plus DAPO/failure replacements) and leaves nothing in flight once the request is fulfilled. Both async modes use its `StreamingDataloaderAsync` subclass, which keeps the session watermark in flight between requests.
+
+Custom samplers (`trainer.v1.sampler.custom_sampler`) subclass `StreamingDataloader` for `sync` or `StreamingDataloaderAsync` for async modes. They override sampling hooks such as `_terminal_eviction_reasons` and `_select_prompt_uids` (async subclasses may also override `poll_once` and `materialize_sampleable`), keeping the coordinator-owned watermark contract.
+
+Trainer code uses these actor methods:
 
 - `sample` submits a request and blocks on its future until the coordinator can return enough prompt groups.
 - `save_checkpoint` saves the dataloader cursor and, in async modes, a TransferQueue snapshot while the coordinator is paused.
 - `load_checkpoint` restores both before the coordinator resumes normal operation.
-- Async only: `count_sampleable` and `wait_sampleable` report or wait for sampleable train groups without consuming them. `separate_async` uses them to decide when lent Hybrid GPUs return to training. Each is served by a regular coordinator pass, so it also applies that pass's evictions; `count_sampleable` leaves accrued eviction metrics for the next `sample` or `wait_sampleable`.
+- Separate Async only: `count_sampleable` and `wait_sampleable` report or wait for sampleable train groups without consuming them. `separate_async` uses them to decide when lent Hybrid GPUs return to training. Each is served by a regular coordinator pass, so it also applies that pass's evictions; `count_sampleable` leaves accrued eviction metrics for the next `sample` or `wait_sampleable`.
 
 Model and optimizer checkpointing remain in the trainer. The latest-checkpoint marker is updated only after both the model save and the actor's dataloader/TransferQueue save succeed.
-Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. Async restore requires `data.pt` (sync only warns if it is missing); when the installed TransferQueue lacks checkpoint APIs or the snapshot is missing, only the dataloader cursor is restored and in-flight rollout state is dropped.
+Sync checkpoints contain only `data.pt`. Async checkpoints additionally contain the TransferQueue snapshot and reissue pending/running prompts. Async restore requires `data.pt` to keep the dataloader cursor consistent with restored TransferQueue state.
 The actor is hard-affined to the TaskRunner node so local datasets, `data.pt`, and the latest-checkpoint marker share the same filesystem view.
 `skip.rollout_tq.enable` is rejected until submit/sample cache semantics are implemented inside the actor; silently bypassing those hooks would execute real rollout during a skipped step.
 
