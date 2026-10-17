@@ -61,8 +61,9 @@ Operational settings such as cache location and dataloader worker count are
 not part of dataset identity.
 
 The trainer writes ``data_manifest.json`` next to ``data.pt``. The sidecar is
-replaced atomically before the trainer publishes its checkpoint tracker or
-calls the checkpoint callback. Preserve both files when moving a checkpoint.
+replaced atomically after saving the dataloader and, in asynchronous trainer
+modes, the TransferQueue state, before publishing the checkpoint tracker or
+calling the checkpoint callback. Preserve both files when moving a checkpoint.
 Before overwriting an existing step directory, the trainer removes its old
 sidecar, even with checking disabled. A disabled or failed save must not leave
 an older identity certifying newly written or partially replaced checkpoint files.

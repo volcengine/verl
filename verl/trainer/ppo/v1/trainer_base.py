@@ -1010,7 +1010,6 @@ class PPOTrainer(ABC):
         local_mkdir_safe(local_global_step_folder)
         dataloader_local_path = os.path.join(local_global_step_folder, "data.pt")
         torch.save(self.train_dataloader.state_dict(), dataloader_local_path)
-        write_data_manifest(local_global_step_folder, data_manifest)
 
         # save TransferQueue state for async modes so in-flight prompts (already fetched from the
         # dataloader but not yet trained into this checkpoint's weights) survive a restart:
@@ -1020,6 +1019,9 @@ class PPOTrainer(ABC):
                 os.path.join(local_global_step_folder, "transfer_queue"),
                 metadata={"global_steps": self.global_steps},
             )
+
+        # Do not certify a replacement dataset while an old prompt queue remains.
+        write_data_manifest(local_global_step_folder, data_manifest)
 
         # write latest checkpointed iteration tracker for atomic resume
         actor_ckpt_cfg = self.config.actor_rollout_ref.actor.get("checkpoint", {})

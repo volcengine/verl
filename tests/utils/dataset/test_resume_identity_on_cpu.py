@@ -242,6 +242,44 @@ def test_split_does_not_reuse_parent_identity(tmp_path):
             get_data_manifest(_loader(split), "error")
 
 
+@pytest.mark.parametrize("policy", ["warn", "error"])
+def test_split_skips_identity_scans_without_changing_parent(tmp_path, monkeypatch, caplog, policy):
+    source = tmp_path / "data.jsonl"
+    _write_rows(source)
+    scans = {"sources": 0, "rows": 0}
+    snapshot_sources = resume_identity.snapshot_sources
+    build_signature = resume_identity.build_rlhf_signature
+
+    def counted_snapshot(paths):
+        scans["sources"] += 1
+        return snapshot_sources(paths)
+
+    def counted_signature(dataset, sources):
+        scans["rows"] += 1
+        return build_signature(dataset, sources)
+
+    monkeypatch.setattr(resume_identity, "snapshot_sources", counted_snapshot)
+    monkeypatch.setattr(resume_identity, "build_rlhf_signature", counted_signature)
+    dataset = _dataset(str(source), resume_check=policy)
+    original_signature = dataset.get_resume_signature()
+    original_config = OmegaConf.to_container(dataset.config, resolve=True)
+    assert scans == {"sources": 1, "rows": 1}
+
+    splits = dataset.split(3)
+
+    assert scans == {"sources": 1, "rows": 1}
+    assert dataset.get_resume_signature() == original_signature
+    assert OmegaConf.to_container(dataset.config, resolve=True) == original_config
+    assert len(splits) == 3
+    for index, split in enumerate(splits):
+        assert list(split.dataframe["row_id"]) == list(range(index * 4, (index + 1) * 4))
+        assert split.config.resume_check == policy
+        assert get_data_manifest(_loader(split), "warn")["dataset"] is None
+        with pytest.raises(ValueError, match="Split datasets"):
+            get_data_manifest(_loader(split), "error")
+    assert "Split datasets must provide their own resume identity" in caplog.text
+
+
 def _resume_in_fresh_process(source, checkpoint):
     loader = _loader(_dataset(source, max_samples=8, shuffle=True))
     check_data_manifest(checkpoint, loader, "error")

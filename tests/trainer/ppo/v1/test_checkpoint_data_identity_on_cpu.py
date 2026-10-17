@@ -134,6 +134,67 @@ def test_async_trainer_checks_identity_before_transfer_queue_restore(tmp_path, m
     trainer.actor_rollout_wg.load_checkpoint.assert_not_called()
 
 
+@pytest.mark.parametrize("async_save", [False, True])
+def test_manifest_is_published_after_transfer_queue_save(tmp_path, monkeypatch, async_save):
+    from verl.trainer.ppo.v1 import trainer_base
+
+    trainer = _trainer(tmp_path, async_save=async_save)
+    trainer.trainer_mode = "async"
+    checkpoint = tmp_path / "global_step_3"
+    transfer_queue = MagicMock()
+    monkeypatch.setattr(trainer_base, "tq", transfer_queue)
+
+    def save_queue(*args, **kwargs):
+        assert (checkpoint / "data.pt").is_file()
+        assert not (checkpoint / resume_identity.MANIFEST_NAME).exists()
+
+    transfer_queue.save_checkpoint.side_effect = save_queue
+    trainer._save_checkpoint()
+    transfer_queue.save_checkpoint.assert_called_once()
+    assert json.loads((checkpoint / resume_identity.MANIFEST_NAME).read_text())["dataset"] == {"rows": "original"}
+    trainer.checkpoint_callback.on_save.assert_called_once()
+
+
+@pytest.mark.parametrize("async_save", [False, True])
+def test_failed_queue_overwrite_cannot_certify_old_prompts(tmp_path, monkeypatch, async_save):
+    from verl.trainer.ppo.v1 import trainer_base
+
+    trainer = _trainer(tmp_path, async_save=async_save)
+    trainer.trainer_mode = "async"
+    transfer_queue = MagicMock()
+    monkeypatch.setattr(trainer_base, "tq", transfer_queue)
+    checkpoint = tmp_path / "global_step_3"
+    queue_path = checkpoint / "transfer_queue"
+
+    def save_original_queue(*args, **kwargs):
+        queue_path.mkdir(parents=True)
+        (queue_path / "prompts.json").write_text('["original prompt"]')
+
+    transfer_queue.save_checkpoint.side_effect = save_original_queue
+    trainer._save_checkpoint()
+    trainer.checkpoint_callback.on_save.reset_mock()
+    tracker = tmp_path / "latest_checkpointed_iteration.txt"
+    tracker.write_text("2")
+    trainer.train_dataloader.dataset.get_resume_signature.return_value = {"rows": "replacement"}
+    trainer.train_dataloader.state_dict.return_value = {"step": 9}
+    transfer_queue.save_checkpoint.side_effect = OSError("queue write failed")
+
+    with pytest.raises(OSError, match="queue write failed"):
+        trainer._save_checkpoint()
+    assert (queue_path / "prompts.json").read_text() == '["original prompt"]'
+    assert not (checkpoint / resume_identity.MANIFEST_NAME).exists()
+    assert tracker.read_text() == "2"
+    trainer.checkpoint_callback.on_save.assert_not_called()
+
+    # The replacement dataset must not validate a checkpoint with the old queue.
+    with pytest.raises(ValueError, match="Cannot verify checkpoint data identity"):
+        trainer._load_checkpoint()
+    transfer_queue.load_checkpoint.assert_not_called()
+    trainer.actor_rollout_wg.load_checkpoint.assert_not_called()
+    trainer.critic_wg.load_checkpoint.assert_not_called()
+    trainer.train_dataloader.load_state_dict.assert_not_called()
+
+
 @pytest.mark.parametrize("policy", ["off", "warn", "error"])
 def test_old_checkpoint_policy_applies_before_any_restore(tmp_path, caplog, policy):
     trainer = _trainer(tmp_path, policy=policy)

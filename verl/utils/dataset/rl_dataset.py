@@ -93,6 +93,8 @@ class RLHFDataset(Dataset):
         config: DictConfig,
         processor: Optional[ProcessorMixin] = None,
         max_samples: int = -1,
+        *,
+        _skip_resume_identity: bool = False,
     ):
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
@@ -155,6 +157,7 @@ class RLHFDataset(Dataset):
         self.return_multi_modal_inputs = config.get("return_multi_modal_inputs", True)
         self.shuffle = config.get("shuffle", False)
         self.seed = config.get("seed")
+        self._skip_resume_identity = _skip_resume_identity
 
         self._download()
         self._read_files_and_tokenize()
@@ -173,7 +176,7 @@ class RLHFDataset(Dataset):
         self._resume_signature = None
         self._resume_signature_error = None
         sources = None
-        if policy != "off" and type(self) is RLHFDataset:
+        if not getattr(self, "_skip_resume_identity", False) and policy != "off" and type(self) is RLHFDataset:
             try:
                 # Hash the original local sources, not a cache location or a remote URL.
                 sources = snapshot_sources(self.original_data_files)
@@ -594,6 +597,7 @@ class RLHFDataset(Dataset):
                 config=self.config,
                 processor=self.processor,
                 max_samples=self.max_samples,
+                _skip_resume_identity=True,
             )
             split_dataset.dataframe = split_dataframe
             split_dataset._resume_signature = None
