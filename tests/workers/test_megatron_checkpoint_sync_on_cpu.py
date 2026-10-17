@@ -42,9 +42,15 @@ _SAVE_CHECKPOINT = _load_save_checkpoint()
 
 
 class CheckpointParamSyncTest(unittest.TestCase):
-    def _check_case(self, overlap, use_distributed_optimizer, offload, origin_device, ddp):
+    def _check_case(
+        self, overlap, use_distributed_optimizer, offload, origin_device, ddp, *, tf_config=None, expect_sync=None
+    ):
         events = []
         test = self
+        if tf_config is None:
+            tf_config = SimpleNamespace(fp8=None, fp4=None)
+        if expect_sync is None:
+            expect_sync = ddp and use_distributed_optimizer and overlap
 
         class FakeDDP:
             ddp_config = SimpleNamespace(
@@ -63,6 +69,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
         engine = SimpleNamespace(
             module=[FakeDDP(), FakeDDP()] if ddp else [object()],
             _is_offload_param=offload,
+            tf_config=tf_config,
             checkpoint_mananager=SimpleNamespace(save_checkpoint=save),
         )
         grad_enabled = torch.is_grad_enabled()
@@ -78,7 +85,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
         ):
             _SAVE_CHECKPOINT(engine, "checkpoint", global_step=2, max_ckpt_to_keep=3)
         expected = ["restore"] if offload or origin_device == "cpu" else []
-        if ddp and use_distributed_optimizer and overlap:
+        if expect_sync:
             expected += ["sync", "sync"]
         expected += ["save", "barrier"]
         if offload:
@@ -104,6 +111,37 @@ class CheckpointParamSyncTest(unittest.TestCase):
                     with self.subTest(case=case, grad_enabled=grad_enabled):
                         self._check_case(*case)
 
+    def test_precision_config_controls_sync(self):
+        cases = [
+            ("missing_precision_fields", {}, True),
+            ("legacy_without_fp4", {"fp8": None}, True),
+            ("disabled", {"fp8": None, "fp4": None}, True),
+            ("disabled_boolean", {"fp8": False, "fp4": False}, True),
+            ("recipe_only", {"fp8_recipe": "mxfp8", "fp4_recipe": "nvfp4"}, True),
+            ("fp8_e4m3", {"fp8": "e4m3", "fp4": None}, False),
+            ("fp8_delayed", {"fp8": "hybrid", "fp8_recipe": "delayed"}, False),
+            ("fp8_tensorwise", {"fp8": "hybrid", "fp8_recipe": "tensorwise"}, False),
+            ("fp8_blockwise", {"fp8": "hybrid", "fp8_recipe": "blockwise"}, False),
+            ("fp8_mxfp8", {"fp8": "hybrid", "fp8_recipe": "mxfp8"}, False),
+            ("fp8_custom", {"fp8": "hybrid", "fp8_recipe": "custom"}, False),
+            ("fp4_nvfp4", {"fp8": None, "fp4": "e2m1", "fp4_recipe": "nvfp4"}, False),
+            ("fp4_custom", {"fp8": None, "fp4": "e2m1", "fp4_recipe": "custom"}, False),
+        ]
+        for grad_enabled in (True, False):
+            with torch.set_grad_enabled(grad_enabled):
+                for offload, origin_device in ((False, "cuda"), (True, "cpu"), (False, "cpu")):
+                    for name, fields, expect_sync in cases:
+                        with self.subTest(precision=name, offload=offload, device=origin_device, grad=grad_enabled):
+                            self._check_case(
+                                True,
+                                True,
+                                offload,
+                                origin_device,
+                                True,
+                                tf_config=SimpleNamespace(**fields),
+                                expect_sync=expect_sync,
+                            )
+
     def test_sync_failure_prevents_save(self):
         class FakeDDP:
             ddp_config = SimpleNamespace(use_distributed_optimizer=True, overlap_param_gather=True)
@@ -114,6 +152,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
         engine = SimpleNamespace(
             module=[FakeDDP()],
             _is_offload_param=False,
+            tf_config=SimpleNamespace(fp8=None, fp4=None),
             checkpoint_mananager=SimpleNamespace(
                 save_checkpoint=lambda **_: self.fail("Do not write a checkpoint after failed synchronization")
             ),

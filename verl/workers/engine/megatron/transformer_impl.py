@@ -741,13 +741,16 @@ class MegatronEngine(BaseEngine):
         if self._is_offload_param or origin_module_device == "cpu":
             load_megatron_model_to_gpu(self.module, load_grad=True)
         # Distributed optimizer parameter gathers may still be pending without a forward pre-hook.
-        # Publish the updated parameters before either checkpoint backend reads them.
+        # Publish non-FP8/FP4 parameters before either checkpoint backend reads them.
+        # Quantized paths can require optimizer staging before an explicit parameter gather.
         with torch.no_grad():
             for model_chunk in self.module:
                 if (
                     isinstance(model_chunk, DistributedDataParallel)
                     and model_chunk.ddp_config.use_distributed_optimizer
                     and model_chunk.ddp_config.overlap_param_gather
+                    and not getattr(self.tf_config, "fp8", None)
+                    and not getattr(self.tf_config, "fp4", None)
                 ):
                     model_chunk.start_param_sync(force_sync=True)
         self.checkpoint_mananager.save_checkpoint(
