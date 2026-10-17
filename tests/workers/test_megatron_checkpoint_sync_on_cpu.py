@@ -29,6 +29,7 @@ import torch
 
 
 def _load_save_checkpoint():
+    """Load the production save method without importing GPU-only dependencies."""
     source = Path(__file__).resolve().parents[2] / "verl/workers/engine/megatron/transformer_impl.py"
     tree = ast.parse(source.read_text())
     engine = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MegatronEngine")
@@ -45,6 +46,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
     def _check_case(
         self, overlap, use_distributed_optimizer, offload, origin_device, ddp, *, tf_config=None, expect_sync=None
     ):
+        """Check save ordering and autograd preservation for one engine configuration."""
         events = []
         test = self
         if tf_config is None:
@@ -58,11 +60,13 @@ class CheckpointParamSyncTest(unittest.TestCase):
             )
 
             def start_param_sync(self, *, force_sync):
+                """Assert forced synchronization runs without autograd and record the event."""
                 test.assertIs(force_sync, True)
                 test.assertFalse(torch.is_grad_enabled())
                 events.append("sync")
 
         def save(**kwargs):
+            """Check checkpoint arguments and record the write event."""
             self.assertEqual(kwargs, dict(local_path="checkpoint", hdfs_path=None, global_step=2, max_ckpt_to_keep=3))
             events.append("save")
 
@@ -94,6 +98,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
         self.assertEqual(torch.is_grad_enabled(), grad_enabled)
 
     def test_sync_after_restore_before_save(self):
+        """Verify synchronization eligibility and ordering around restore, save, and offload."""
         cases = [
             (True, True, False, "cuda", True),
             (True, True, True, "cpu", True),
@@ -112,6 +117,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
                         self._check_case(*case)
 
     def test_precision_config_controls_sync(self):
+        """Verify effective precision settings control the extra save-boundary synchronization."""
         cases = [
             ("missing_precision_fields", {}, True),
             ("legacy_without_fp4", {"fp8": None}, True),
@@ -143,10 +149,13 @@ class CheckpointParamSyncTest(unittest.TestCase):
                             )
 
     def test_sync_failure_prevents_save(self):
+        """Verify a synchronization failure prevents checkpoint writes and preserves autograd."""
+
         class FakeDDP:
             ddp_config = SimpleNamespace(use_distributed_optimizer=True, overlap_param_gather=True)
 
             def start_param_sync(self, *, force_sync):
+                """Simulate a failed parameter gather before checkpoint writing."""
                 raise RuntimeError("parameter gather failed")
 
         engine = SimpleNamespace(
