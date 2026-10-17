@@ -59,11 +59,15 @@ class CheckpointParamSyncTest(unittest.TestCase):
                 use_distributed_optimizer=use_distributed_optimizer, overlap_param_gather=overlap
             )
 
+            def __init__(self, chunk_id):
+                """Identify the model chunk whose synchronization is recorded."""
+                self.chunk_id = chunk_id
+
             def start_param_sync(self, *, force_sync):
-                """Assert forced synchronization runs without autograd and record the event."""
+                """Assert forced synchronization runs without autograd and record the chunk."""
                 test.assertIs(force_sync, True)
                 test.assertFalse(torch.is_grad_enabled())
-                events.append("sync")
+                events.append(f"sync:{self.chunk_id}")
 
         def save(**kwargs):
             """Check checkpoint arguments and record the write event."""
@@ -71,7 +75,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
             events.append("save")
 
         engine = SimpleNamespace(
-            module=[FakeDDP(), FakeDDP()] if ddp else [object()],
+            module=[FakeDDP(0), FakeDDP(1)] if ddp else [object()],
             _is_offload_param=offload,
             tf_config=tf_config,
             checkpoint_mananager=SimpleNamespace(save_checkpoint=save),
@@ -90,7 +94,7 @@ class CheckpointParamSyncTest(unittest.TestCase):
             _SAVE_CHECKPOINT(engine, "checkpoint", global_step=2, max_ckpt_to_keep=3)
         expected = ["restore"] if offload or origin_device == "cpu" else []
         if expect_sync:
-            expected += ["sync", "sync"]
+            expected += ["sync:0", "sync:1"]
         expected += ["save", "barrier"]
         if offload:
             expected += ["offload"]
