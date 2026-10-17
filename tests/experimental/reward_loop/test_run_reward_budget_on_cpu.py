@@ -183,7 +183,7 @@ def test_scorer_cleanup_finishes_before_releasing_capacity(monkeypatch, outcome)
     asyncio.run(scenario())
 
 
-def test_default_is_unchanged_and_unsupported_config_is_rejected(tmp_path, monkeypatch):
+def test_default_is_unchanged_and_unsupported_config_is_rejected(monkeypatch):
     monkeypatch.setattr(ray, "remote", lambda *a, **k: pytest.fail("must not create coordinator"))
     assert create_reward_budget(OmegaConf.create({"reward": {}})) is None
     config = OmegaConf.create(
@@ -192,11 +192,6 @@ def test_default_is_unchanged_and_unsupported_config_is_rejected(tmp_path, monke
     with pytest.raises(ValueError, match="registered rate_limited"):
         create_reward_budget(config)
     config.reward.reward_manager.name = "rate_limited"
-    with pytest.raises(ValueError, match="custom async"):
-        create_reward_budget(config)
-    source = tmp_path / "sync_score.py"
-    source.write_text("def compute_score(**kwargs):\n    return 1.0\n")
-    config.reward.custom_reward_function = {"path": str(source), "name": "compute_score"}
     with pytest.raises(ValueError, match="custom async"):
         create_reward_budget(config)
     with pytest.raises(ValueError, match="Manager-owned"):
@@ -243,8 +238,9 @@ def ray_runtime():
         ray.shutdown()
 
 
-@pytest.mark.parametrize("run_limit", [None, 2])
-def test_two_real_workers_enforce_one_run_budget(tmp_path, ray_runtime, run_limit):
+@pytest.mark.parametrize(("run_limit", "is_async"), [(None, True), (2, True), (2, False)])
+def test_real_workers_load_scorer_and_enforce_one_run_budget(tmp_path, ray_runtime, run_limit, is_async):
+    """Load worker-only scorers in workers, rejecting sync scorers with a shared budget."""
     tokenizer_path = tmp_path / "tokenizer"
     PreTrainedTokenizerFast(
         tokenizer_object=Tokenizer(models.WordLevel({"answer": 1, "[UNK]": 0}, unk_token="[UNK]")), unk_token="[UNK]"
@@ -254,6 +250,8 @@ def test_two_real_workers_enforce_one_run_budget(tmp_path, ray_runtime, run_limi
     scorer = tmp_path / "async_score.py"
     scorer.write_text(
         "import os\nimport ray\n"
+        f"if os.getpid() == {os.getpid()}:\n"
+        "    raise RuntimeError('scorer must only be imported in a reward worker')\n"
         "async def compute_score(observer_name, **kwargs):\n"
         "    observer = ray.get_actor(observer_name)\n"
         "    await observer.enter.remote(os.getpid())\n"
@@ -263,6 +261,9 @@ def test_two_real_workers_enforce_one_run_budget(tmp_path, ray_runtime, run_limi
         "    finally:\n"
         "        await observer.leave.remote()\n"
     )
+    if not is_async:
+        with scorer.open("a") as stream:
+            stream.write("def compute_score(observer_name, **kwargs):\n    return 1.0\n")
     config = OmegaConf.create(
         {
             "actor_rollout_ref": {"model": {"tokenizer_path": str(tokenizer_path), "path": str(tokenizer_path)}},
@@ -282,6 +283,11 @@ def test_two_real_workers_enforce_one_run_budget(tmp_path, ray_runtime, run_limi
         }
     )
     manager = RewardLoopManager(config)
+    if not is_async:
+        for worker in manager.reward_loop_workers:
+            with pytest.raises(ray.exceptions.RayActorError, match="custom async reward function"):
+                ray.get(worker.__ray_ready__.remote(), timeout=30)
+        return
     pending = [worker.compute_score_batch.remote(_data(2)) for worker in manager.reward_loop_workers]
     expected_peak = 4 if run_limit is None else run_limit
     deadline = time.monotonic() + 60

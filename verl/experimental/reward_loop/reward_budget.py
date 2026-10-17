@@ -15,7 +15,6 @@
 """A manager-owned concurrency budget for cooperative async reward scorers."""
 
 import asyncio
-import inspect
 import uuid
 from contextlib import asynccontextmanager, suppress
 
@@ -67,11 +66,12 @@ def create_reward_budget(config):
     if manager.source != "register" or manager.name != "rate_limited":
         raise ValueError("reward.run_max_concurrent requires the registered rate_limited reward manager")
     from verl.experimental.reward_loop.reward_manager.limited import RateLimitedRewardManager
-    from verl.trainer.ppo.reward import get_custom_reward_fn, resolve_reward_manager_cls
+    from verl.trainer.ppo.reward import resolve_reward_manager_cls
 
     if resolve_reward_manager_cls(config) is not RateLimitedRewardManager:
         raise ValueError("reward.run_max_concurrent requires the built-in RateLimitedRewardManager")
-    if not inspect.iscoroutinefunction(get_custom_reward_fn(config)):
+    # Import and validate the scorer in reward workers, where its runtime context is available.
+    if not (config.reward.get("custom_reward_function") or {}).get("path"):
         raise ValueError("reward.run_max_concurrent requires a custom async reward function")
     return ray.remote(num_cpus=0, max_restarts=0, max_task_retries=0)(RewardConcurrencyBudget).remote(limit)
 
