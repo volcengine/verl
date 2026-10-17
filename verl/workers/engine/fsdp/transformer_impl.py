@@ -689,6 +689,20 @@ class FSDPEngine(BaseEngine):
         if self._qat_enabled and not self.engine_config.forward_only:
             module = self._apply_qat(module)
 
+        # PEFT/QAT replace the attribute of every leaf module they target: a
+        # visual-path sibling held as a direct child (e.g. a bare nn.Linear
+        # projector) is re-parented to an adapter wrapper, so the identities
+        # collected before the transformation no longer cover the live tree
+        # (the tower container itself is never replaced — only its children
+        # are). Re-discover the path on the final module so the wrap exclusion
+        # and the marker gate see the post-adapter objects, including adapter
+        # leaves re-enabled by PEFT. The freeze above stays one-shot on
+        # purpose: re-freezing now would also freeze the adapters.
+        if self._visual_path_modules:
+            rediscovered = get_vlm_visual_path_modules(module)
+            if rediscovered:
+                self._visual_path_modules = rediscovered
+
         # Synchronize all distributed processes before proceeding
         torch.distributed.barrier()
         if self.rank == 0:

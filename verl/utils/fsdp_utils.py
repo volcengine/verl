@@ -264,18 +264,33 @@ def mark_frozen_vision_tower_for_skip(visual_path_modules) -> bool:
     never enters it while an image rank does, so a trainable param would
     receive gradients on some ranks only — FSDP1's root-unit gradient reduce
     does not support that (verified on torch 2.11: a 2-rank mixed-modality
-    backward hangs). Paths with trainable params (vision LoRA, QAT linears, a
-    trained projector) keep the dummy forward, which makes every rank enter the
-    tower once per step — the unmodified behavior.
+    backward hangs).
+
+    Trainable params split by location: inside the tower (vision LoRA, QAT
+    linears) keep the dummy visual forward, which makes every rank enter the
+    tower once per step — the unmodified behavior, warning below. On a sibling
+    there is no equivalent: the dummy branches only run the tower, so a
+    trainable sibling would still receive gradients on image ranks only — that
+    combination is rejected up front instead of hanging at the first
+    mixed-modality backward.
     """
-    if any(p.requires_grad for module in visual_path_modules for p in module.parameters()):
+    tower, siblings = visual_path_modules[0], visual_path_modules[1:]
+    if any(p.requires_grad for module in siblings for p in module.parameters()):
+        raise ValueError(
+            "freeze_vision_tower: trainable params on a visual-path sibling (e.g. LoRA or "
+            "QAT targeting multi_modal_projector / resampler / projector). No dummy-forward "
+            "mechanism covers siblings, so on mixed-modality batches they would receive "
+            "gradients on image ranks only and hang FSDP. Remove the sibling from the "
+            "adapter targets, or disable freeze_vision_tower."
+        )
+    if any(p.requires_grad for p in tower.parameters()):
         logger.warning(
             "freeze_vision_tower: trainable params found inside the visual path "
             "(e.g. vision LoRA or QAT); keeping the dummy visual forward (#3496): ranks "
             "enter the tower asymmetrically on mixed-modality batches otherwise"
         )
         return False
-    visual_path_modules[0]._verl_frozen_vision_tower = True
+    tower._verl_frozen_vision_tower = True
     return True
 
 

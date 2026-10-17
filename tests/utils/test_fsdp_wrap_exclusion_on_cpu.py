@@ -158,6 +158,8 @@ def test_mark_frozen_vision_tower_for_skip_gates_on_trainable_params():
     would get grads on image ranks only on mixed-modality batches, which FSDP1's
     root-unit gradient reduce does not support (verified to hang). The tower
     (first module) is the one marked."""
+    import pytest
+
     from verl.utils.fsdp_utils import mark_frozen_vision_tower_for_skip
 
     tower = _MockVisionTower()
@@ -174,10 +176,14 @@ def test_mark_frozen_vision_tower_for_skip_gates_on_trainable_params():
     assert mark_frozen_vision_tower_for_skip([tower_with_adapter]) is False
     assert not hasattr(tower_with_adapter, "_verl_frozen_vision_tower")
 
-    # A trainable sibling (e.g. a trained multi_modal_projector) also blocks the mark.
+    # A trainable sibling (e.g. an adapter on multi_modal_projector) is rejected
+    # outright: the dummy branches only run the tower, so nothing would align a
+    # trainable sibling across ranks — better a build-time error than the
+    # mixed-modality FSDP hang it would produce.
     frozen_tower = _MockVisionTower()
     frozen_tower.requires_grad_(False)
-    assert mark_frozen_vision_tower_for_skip([frozen_tower, nn.Linear(32, 32)]) is False
+    with pytest.raises(ValueError, match="trainable params on a visual-path sibling"):
+        mark_frozen_vision_tower_for_skip([frozen_tower, nn.Linear(32, 32)])
     assert not hasattr(frozen_tower, "_verl_frozen_vision_tower")
 
 
@@ -423,3 +429,46 @@ def test_wrap_policy_get_tolerates_none_and_attribute_configs():
     assert _wrap_policy_get({"min_num_params": None}, "min_num_params", 0) == 0
     assert _wrap_policy_get(_AttrConfig(), "min_num_params", 0) == 4096
     assert _wrap_policy_get(_AttrConfig(), "absent_key", 7) == 7
+
+
+def test_get_vlm_visual_path_modules_finds_deepseek_vl2_bare_projector():
+    """DeepseekVLV2ForCausalLM keeps its image connector as the bare top-level
+    ``projector`` beside the ``vision`` tower — both must join the visual path."""
+    from verl.utils.model import get_vlm_visual_path_modules
+
+    tower = _MockVisionTower()
+    projector = nn.Linear(32, 32)
+
+    class _DeepseekVL2Style(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision = tower
+            self.projector = projector
+            self.language = nn.Module()
+
+    assert get_vlm_visual_path_modules(_DeepseekVL2Style()) == [tower, projector]
+
+
+def test_get_vlm_visual_path_modules_follows_post_peft_sibling_replacement():
+    """PEFT/QAT replace the attribute of a targeted leaf, so a sibling held as
+    a direct child is re-parented to an adapter wrapper. The discovery must
+    follow the live tree: the engine re-runs it after adapters attach, and the
+    wrap exclusion / marker gate then cover the post-adapter objects."""
+    from verl.utils.model import get_vlm_visual_path_modules
+
+    class _MllamaStyle(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision_model = _MockVisionTower()
+            self.multi_modal_projector = nn.Linear(32, 32)
+            self.language_model = nn.Module()
+
+    model = _MllamaStyle()
+    before = get_vlm_visual_path_modules(model)
+
+    replacement = nn.Linear(32, 32)  # what PEFT's lora.Linear looks like from outside
+    model.multi_modal_projector = replacement
+
+    after = get_vlm_visual_path_modules(model)
+    assert after[0] is before[0], "the tower container is never replaced"
+    assert after[1] is replacement, "the sibling must be re-discovered post-replacement"

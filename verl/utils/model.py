@@ -200,8 +200,9 @@ VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vision", "vpm")
 # layout — Qwen / GLM keep the projector (merger) inside the tower, so nothing
 # is found there; Mllama / LLaVA / InternVL / PaLiGemma / Aya-Vision register
 # ``multi_modal_projector`` beside the tower, MiniCPM-o / Kimi-VL use
-# ``resampler``.
-VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler")
+# ``resampler``, DeepSeek-VL2 uses the bare top-level ``projector`` (in a
+# generative VLM a bare ``projector`` attribute is the image connector).
+VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler", "projector")
 
 
 def _visual_path_probe_candidates(model: nn.Module) -> list:
