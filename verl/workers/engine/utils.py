@@ -26,6 +26,8 @@ from verl.utils.device import manual_seed as device_manual_seed
 from verl.utils.device import manual_seed_all as device_manual_seed_all
 from verl.utils.py_functional import append_to_dict
 from verl.utils.seqlen_balancing import rearrange_micro_batches, restore_dynamic_batch
+from verl.workers.utils.padding import get_prompt_lens
+from verl.workers.utils.prefix_packing import find_prefix_groups, packed_group_lens, split_groups_to_budget
 
 
 def enable_full_determinism(seed: int):
@@ -89,6 +91,13 @@ def pad_packed_inputs(
     return input_ids_rmpad, position_ids_rmpad
 
 
+def _prefix_groups_for_budget(data: TensorDict, max_token_len: int) -> tuple[list[int], list[int]]:
+    """Same-prompt sample groups and their packed token counts, split to fit ``max_token_len``."""
+    group_sizes, seq_lens, prompt_lens = find_prefix_groups(data["input_ids"], get_prompt_lens(data))
+    group_sizes = split_groups_to_budget(group_sizes, seq_lens, prompt_lens, max_token_len)
+    return group_sizes, packed_group_lens(group_sizes, seq_lens, prompt_lens)
+
+
 def prepare_micro_batches(
     data: TensorDict,
     dp_group=None,
@@ -104,11 +113,15 @@ def prepare_micro_batches(
     sp_size = tu.get_non_tensor_data(data=data, key="sp_size", default=1)
 
     force_group_size = tu.get_non_tensor_data(data=data, key="force_group_size", default=1)
+    use_prefix_packing = tu.get_non_tensor_data(data=data, key="use_prefix_packing", default=False)
 
     if use_dynamic_bsz:
         assert "max_token_len_per_gpu" in data.keys(), "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
         max_token_len_per_gpu = data["max_token_len_per_gpu"]
         max_token_len = max_token_len_per_gpu * sp_size
+        group_sizes, group_token_lens = None, None
+        if use_prefix_packing and force_group_size == 1:
+            group_sizes, group_token_lens = _prefix_groups_for_budget(data, max_token_len)
         micro_batches, batch_idx_list = rearrange_micro_batches(
             data,
             max_token_len=max_token_len,
@@ -118,6 +131,8 @@ def prepare_micro_batches(
             min_num_micro_batch=min_num_micro_batch,
             use_dynamic_bsz_balance=use_dynamic_bsz_balance,
             force_group_size=force_group_size,
+            group_sizes=group_sizes,
+            group_token_lens=group_token_lens,
         )
     else:
         total_data_size = len(data)

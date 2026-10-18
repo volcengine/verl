@@ -107,6 +107,13 @@ def need_critic(config: DictConfig) -> bool:
         return False
 
 
+def need_prefix_packing(config: DictConfig) -> bool:
+    """Whether the actor or the critic FSDP engine has ``use_prefix_packing`` enabled."""
+    actor_fsdp = config.actor_rollout_ref.actor.get("fsdp_config", None) or {}
+    critic_fsdp = (config.get("critic", None) or {}).get("fsdp", None) or {}
+    return bool(actor_fsdp.get("use_prefix_packing", False) or critic_fsdp.get("use_prefix_packing", False))
+
+
 def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):
     """Create a dataset.
 

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
+
+import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -21,6 +24,7 @@ from verl.utils.device import get_device_name, get_nccl_backend, get_torch_devic
 from verl.utils.model import create_random_mask
 from verl.utils.seqlen_balancing import (
     ceildiv,
+    get_equal_size_group_partitions,
     get_reverse_idx,
     prepare_dynamic_batch,
     rearrange_micro_batches,
@@ -337,3 +341,35 @@ def test_group_balanced_partitions_equal_size():
         for uid in uids_in_partition:
             uid_indices = [i for i, u in enumerate(uid_list) if u == uid]
             assert all(i in partition for i in uid_indices)
+
+
+class TestEqualSizeGroupPartitions:
+    @pytest.mark.parametrize("seed", range(10))
+    def test_groups_stay_whole_and_partitions_are_equal(self, seed):
+        rng = random.Random(seed)
+        n, dp, num_prompts = 8, 4, 16
+        group_ids = [f"uid{p}" for p in range(num_prompts) for _ in range(n)]
+        rng.shuffle(group_ids)
+        workloads = [rng.randint(100, 5000) for _ in group_ids]
+        parts = get_equal_size_group_partitions(workloads, group_ids, dp)
+        assert sorted(i for p in parts for i in p) == list(range(len(group_ids)))
+        assert all(len(p) == len(group_ids) // dp for p in parts)
+        for part in parts:
+            ids = [group_ids[i] for i in part]
+            for gid in set(ids):
+                assert ids.count(gid) == n, "a group was split although every group fits"
+                first = ids.index(gid)
+                assert ids[first : first + n] == [gid] * n, "group members are not adjacent"
+
+    def test_uneven_groups_still_give_equal_partitions(self):
+        group_ids = ["a"] * 5 + ["b"] * 5 + ["c"] * 5 + ["pad"]
+        parts = get_equal_size_group_partitions([1] * 16, group_ids, 2)
+        assert [len(p) for p in parts] == [8, 8]
+        assert sorted(i for p in parts for i in p) == list(range(16))
+
+    def test_group_larger_than_partition_is_split(self):
+        group_ids = ["a"] * 10 + ["b"] * 2
+        parts = get_equal_size_group_partitions([1] * 12, group_ids, 3)
+        assert [len(p) for p in parts] == [4, 4, 4]
+        assert sorted(i for p in parts for i in p) == list(range(12))
+        assert sum(1 for p in parts if any(group_ids[i] == "a" for i in p)) == 3
