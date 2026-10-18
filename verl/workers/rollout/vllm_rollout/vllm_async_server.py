@@ -165,6 +165,25 @@ class vLLMHttpServer:
         self._server_address = ray.util.get_node_ip_address().strip("[]")
         self._server_port = None
 
+        self._init_profiler()
+
+        # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
+        if self.node_rank == 0:
+            self._master_address = self._server_address
+            # used for torch.distributed.init_process_group
+            self._master_port, self._master_sock = get_free_port(self._server_address, with_alive_sock=True)
+            # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
+            self._dp_rpc_port, self._dp_rpc_sock = get_free_port(self._server_address, with_alive_sock=True)
+            self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address, with_alive_sock=True)
+        else:
+            self._master_address = None
+            self._master_port = None
+            self._dp_rpc_port = None
+            self._dp_master_port = None
+
+        self._post_init(cuda_visible_devices)
+
+    def _init_profiler(self) -> None:
         # used for controlling vllm server profiler
         profiler_config = self.config.profiler
         tool_config = None
@@ -188,22 +207,6 @@ class vLLMHttpServer:
         # A tp>1 engine profiles its whole replica, but the user asked for specific global GPU ranks;
         # keep only those when relocating so ranks=[0, 8] yields exactly GPU 0 and 8, not their tp-mates.
         self.profiler_keep_global_ranks = rollout_profiler_global_ranks(profiler_config)
-
-        # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
-        if self.node_rank == 0:
-            self._master_address = self._server_address
-            # used for torch.distributed.init_process_group
-            self._master_port, self._master_sock = get_free_port(self._server_address, with_alive_sock=True)
-            # used for data parallel: --data-parallel-address, --data-parallel-rpc-port
-            self._dp_rpc_port, self._dp_rpc_sock = get_free_port(self._server_address, with_alive_sock=True)
-            self._dp_master_port, self._dp_master_sock = get_free_port(self._server_address, with_alive_sock=True)
-        else:
-            self._master_address = None
-            self._master_port = None
-            self._dp_rpc_port = None
-            self._dp_master_port = None
-
-        self._post_init(cuda_visible_devices)
 
     def get_master_address(self):
         """Get master address and port for data parallel.
@@ -1160,6 +1163,14 @@ class vLLMReplica(RolloutReplica):
         )
         self.server_class = ray.remote(vLLMHttpServer)
 
+    def _build_server_runtime_env(self) -> dict:
+        """Build the platform environment for a rollout server."""
+        env_vars = {
+            **{var: "1" for var in get_platform().ray_noset_envvars()},
+            **get_platform().rollout_env_vars(),
+        }
+        return {"env_vars": env_vars}
+
     async def launch_servers(self):
         """Launch http server in each node."""
         assert len(self.workers) == self.world_size, (
@@ -1196,17 +1207,12 @@ class vLLMReplica(RolloutReplica):
                 name = f"{prefix}server_teacher_{self.replica_rank}_{node_rank}{self.name_suffix}"
             else:
                 name = f"{prefix}server_{self.replica_rank}_{node_rank}{self.name_suffix}"
-            env_vars = {
-                **{var: "1" for var in get_platform().ray_noset_envvars()},
-                **get_platform().rollout_env_vars(),
-            }
-
             server = self.server_class.options(
                 scheduling_strategy=ray.util.scheduling_strategies.NodeAffinitySchedulingStrategy(
                     node_id=node_id,
                     soft=False,
                 ),
-                runtime_env={"env_vars": env_vars},
+                runtime_env=self._build_server_runtime_env(),
                 name=name,
                 max_concurrency=self.max_concurrency,
             ).remote(
