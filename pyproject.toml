@@ -31,7 +31,7 @@ math          = ["math-verify"]
 
 # Shared runtime deps, included by every backend via `verl[verl-core]`.
 verl-core = [
-    "TransferQueue>=0.1.10",
+    "TransferQueue>=0.1.11",
     "pyzmq",
     "msgspec",
     "accelerate",
@@ -66,6 +66,7 @@ verl-core = [
     # Decoding needs FFmpeg's shared libs (`ffmpeg`, docker/Dockerfile.uv.cu130).
     "torchcodec",
     "cachetools",
+    "einops",
     "nvtx",
     "pytest",
     "pytest-asyncio",
@@ -139,7 +140,7 @@ fsdp = [
     "torch==2.13.0",
     "torchvision==0.28.0",
     "torchaudio==2.11.0",
-    "liger-kernel>=0.8.2",
+    "liger-kernel==0.8.4",
     "trl==0.27.0",
     "flash-linear-attention==0.5.2",
     # transformers NOT pinned here: verl-core carries it and the project-wide
@@ -162,7 +163,7 @@ megatron = [
     "onnxscript",
     "trl==0.27.0",
     "matplotlib",
-    "liger-kernel>=0.8.2",
+    "liger-kernel==0.8.4",
     # Megatron-Bridge is imported as megatron.bridge and installed deps-free — see
     # [[tool.uv.dependency-metadata]] below. The wheelhouse builds tag v0.6.2.
     "megatron-bridge==0.6.2",
@@ -197,6 +198,19 @@ ci = [
 # datasets<=2.21.0, which would downgrade the shared datasets dependency.
 # VeOmni CI overlays transformers==5.16.1 for this pinned revision.
 veomni-sft = ["veomni==0.1.12"]
+
+# TorchTitan engine add-on, layered on a cu130 backend (fsdp / megatron) like
+# veomni-sft. torchtitan is installed deps-free (empty requires-dist in
+# [[tool.uv.dependency-metadata]] below): its real metadata caps datasets<4.8.0,
+# which would downgrade the shared datasets dependency. The runtime deps it
+# actually imports are listed here instead.
+torchtitan = [
+    "torchtitan==0.3.0",
+    "spmd_types==0.2.3",
+    "torch_checkpointing>=0.1.0",
+    "tyro",
+    "einops",
+]
 
 # CI / unit tests / dev sanity. No GPU runtime.
 cpu = [
@@ -419,11 +433,19 @@ name = "veomni"
 version = "0.1.12"
 requires-dist = []
 
+# torchtitan 0.3.0 (torchtitan extra) is installed deps-free too: its metadata
+# pins datasets<4.8.0, which would downgrade the shared datasets dependency.
+# The torchtitan extra lists the runtime deps it imports.
+[[tool.uv.dependency-metadata]]
+name = "torchtitan"
+version = "0.3.0"
+requires-dist = []
+
 # TransferQueue is installed deps-free as well: it asks for an unbounded
 # `ray[default]` and a `tensordict>=0.10.0` that sits right on verl's `<=0.10.0`
 # cap, and its optional storage backends drag in extras we never use. verl-core
 # supplies what it actually imports (see the pyzmq / msgspec note there). No
-# `version` key on purpose — the requirement is an open-ended `>=0.1.10`, so this
+# `version` key on purpose — the requirement is an open-ended `>=0.1.11`, so this
 # has to apply to every release it may resolve to, not one pinned version.
 [[tool.uv.dependency-metadata]]
 name = "TransferQueue"

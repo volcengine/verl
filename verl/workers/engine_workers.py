@@ -49,6 +49,7 @@ from verl.workers.config import (
     ActorConfig,
     DistillationConfig,
     HFModelConfig,
+    McoreEngineConfig,
     MtpConfig,
     RolloutConfig,
     TrainingWorkerConfig,
@@ -58,6 +59,35 @@ from verl.workers.utils.losses import ppo_loss
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def _plan_liger_flsce_capacity(config: DictConfig, role: str) -> Optional[tuple[int, int]]:
+    """Reserve all colocated consumers before the reference engine initializes Liger."""
+    if not (config.model.get("use_liger", False) and config.model.get("use_fused_kernels", False)):
+        return None
+    tokens = []
+    tp_sizes = []
+    for consumer in ("actor", "ref"):
+        if consumer not in role:
+            continue
+        settings = config[consumer]
+        if settings.strategy != "megatron":
+            continue
+        engine = settings.megatron
+        if engine.get("dtype", "bfloat16") != "bfloat16":
+            continue
+        limits = (
+            (settings.ppo_max_token_len_per_gpu, config.rollout.log_prob_max_token_len_per_gpu)
+            if consumer == "actor"
+            else (settings.log_prob_max_token_len_per_gpu,)
+        )
+        tokens.extend(limit * engine.context_parallel_size for limit in limits if limit is not None)
+        tp_sizes.append(engine.tensor_model_parallel_size)
+    if not tp_sizes:
+        return None
+    if not tokens:
+        raise ValueError("Liger requires existing max-token limits for its colocated Megatron consumers")
+    return max(tokens), min(tp_sizes)
 
 
 def _with_routing_replay_flag(enabled: bool):
@@ -486,7 +516,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             omega_profiler_config = config.ref.get("profiler", {})
 
         profiler_config = omega_conf_to_dataclass(omega_profiler_config, dataclass_type=ProfilerConfig)
-        if omega_profiler_config.get("tool", None) in ["npu", "nsys", "torch", "torch_memory", "precision_debugger"]:
+        # Any configured tool gets its tool_config converted, not just verl's built-in ones:
+        # omega_conf_to_dataclass returns None for a missing/empty config, so a tool without a
+        # tool_config entry still works, and a plugin-supplied tool can name its own dataclass
+        # through `_target_`.
+        if omega_profiler_config.get("tool", None) is not None:
             tool_config = omega_conf_to_dataclass(
                 omega_profiler_config.get("tool_config", {}).get(omega_profiler_config.get("tool"))
             )
@@ -539,6 +573,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
+        liger_capacity = _plan_liger_flsce_capacity(self.config, self.role)
 
         # 1. build reference model
         if "ref" in self.role:
@@ -584,6 +619,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.config.ref.ppo_micro_batch_size_per_gpu
             )
             ref_training_config.engine_config.use_remove_padding = model_config.get("use_remove_padding", False)
+            if isinstance(ref_training_config.engine_config, McoreEngineConfig):
+                ref_training_config.engine_config._liger_flsce_capacity = liger_capacity
 
             self.ref = self.ref_worker_cls(config=ref_training_config)
             self.ref.reset()
@@ -629,6 +666,8 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.config.actor.ppo_micro_batch_size_per_gpu
             )
             actor_training_config.engine_config.use_remove_padding = model_config.get("use_remove_padding", False)
+            if isinstance(actor_training_config.engine_config, McoreEngineConfig):
+                actor_training_config.engine_config._liger_flsce_capacity = liger_capacity
 
             if self.config.actor.use_dynamic_bsz:
                 assert self.config.rollout.log_prob_max_token_len_per_gpu is not None
@@ -763,9 +802,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 # the delta engine owns the sync state machine (seed vs steady,
                 # snapshot prime), so it drives the training engine itself.
                 metrics = await self.checkpoint_engine.send_weights(self.actor.engine, global_steps=global_steps)
-                return metrics or {}
-            per_tensor_param, _ = self.actor.engine.get_per_tensor_param()
-            metrics = await self.checkpoint_engine.send_weights(per_tensor_param, global_steps=global_steps)
+            else:
+                per_tensor_param, _ = self.actor.engine.get_per_tensor_param()
+                metrics = await self.checkpoint_engine.send_weights(per_tensor_param, global_steps=global_steps)
+            if self.actor.engine.is_param_offload_enabled:
+                self.actor.engine.to("cpu", model=True, optimizer=False, grad=False)
             return metrics or {}
 
         set_expandable_segments(False)
