@@ -44,20 +44,31 @@ def em_check(prediction, golden_answers):
     score = 0
     for golden_answer in golden_answers:
         golden_answer = normalize_answer(golden_answer)
-        if golden_answer == normalized_prediction:
+        # A golden answer that normalizes to "" (e.g. "The" or ".") would match any empty prediction.
+        if golden_answer and golden_answer == normalized_prediction:
             score = 1
             break
     return score
 
 
+def _contains_tokens(prediction_tokens, answer_tokens):
+    n = len(answer_tokens)
+    return any(prediction_tokens[i : i + n] == answer_tokens for i in range(len(prediction_tokens) - n + 1))
+
+
 def subem_check(prediction, golden_answers):
+    """Whether a golden answer appears in the prediction as a contiguous run of whole words.
+
+    Matching whole words (not characters) keeps "comparison" from matching "Paris" and "1999" from
+    matching "1"; a golden answer that normalizes to "" is ignored instead of matching everything.
+    """
     if isinstance(golden_answers, str):
         golden_answers = [golden_answers]
-    normalized_prediction = normalize_answer(prediction)
+    prediction_tokens = normalize_answer(prediction).split()
     score = 0
     for golden_answer in golden_answers:
-        golden_answer = normalize_answer(golden_answer)
-        if golden_answer in normalized_prediction:
+        answer_tokens = normalize_answer(golden_answer).split()
+        if answer_tokens and _contains_tokens(prediction_tokens, answer_tokens):
             score = 1
             break
     return score
@@ -128,7 +139,9 @@ def compute_score(solution_str, ground_truth, method="strict", format_score=0.0,
             return format_score
 
 
-def compute_score_subem(solution_str, ground_truth, method="strict", format_score=0.0, score=1.0):
+def compute_score_subem(
+    solution_str, ground_truth, method="strict", format_score=0.0, score=1.0, max_answer_tokens=None
+):
     """The scoring function for substring exact match (EM).
 
     Args:
@@ -137,8 +150,13 @@ def compute_score_subem(solution_str, ground_truth, method="strict", format_scor
         method: the method to extract the solution, choices are 'strict' and 'flexible'
         format_score: the score for the format
         score: the score for the correct answer
+        max_answer_tokens: if set, answers longer than this many words get ``format_score``, so a
+            policy cannot collect the reward by listing many candidate answers in one <answer> tag
     """
     answer = extract_solution(solution_str=solution_str)
+    if answer is not None and max_answer_tokens is not None:
+        if len(normalize_answer(answer).split()) > max_answer_tokens:
+            return format_score
     do_print = random.randint(1, 64) == 1
 
     if do_print:
