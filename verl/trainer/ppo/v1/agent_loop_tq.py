@@ -74,8 +74,25 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
         patch_size = config.vision_config.patch_size
         inputs.setdefault("pixel_values", torch.empty((0, 3, patch_size, patch_size), dtype=torch.bfloat16))
         inputs.setdefault("image_grid_hws", torch.empty((0, 2), dtype=torch.long))
+        raw_ids = input_ids.reshape(-1).tolist()
+        grids = inputs["image_grid_hws"]
+        ratio = config.vision_config.downsample_ratio
+        if raw_ids.count(config.image_token_id) > len(grids):
+            # Processor-expanded spans can touch. Consume each grid's full span
+            # separately so adjacent images retain one placeholder apiece.
+            normalized_ids, cursor = [], 0
+            for height, width in grids.tolist():
+                start = raw_ids.index(config.image_token_id, cursor)
+                height, width = (height + ratio - 1) // ratio, (width + ratio - 1) // ratio
+                span_length = 2 + height * (width + 1)
+                if raw_ids[start : start + span_length] != [config.image_token_id] * span_length:
+                    raise ValueError("DeepSeek-V4.1 image-token span does not match its image grid")
+                normalized_ids.extend(raw_ids[cursor : start + 1])
+                cursor = start + span_length
+            normalized_ids.extend(raw_ids[cursor:])
+            input_ids = input_ids.new_tensor(normalized_ids)
         inputs["_expanded_input_ids"], inputs["vision_token_types"] = expand_image_tokens(
-            input_ids, inputs["image_grid_hws"], config.image_token_id, config.vision_config.downsample_ratio
+            input_ids, grids, config.image_token_id, ratio
         )
         return inputs
 
@@ -225,6 +242,19 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
                 attention_mask = torch.ones_like(input_ids, dtype=torch.int64)
                 # The expanded prompt is everything except the (unchanged) responses.
                 field["prompts"] = input_ids[: input_ids.size(0) - responses.size(0)]
+                if "rollout_topk_ids" in field:
+                    from verl.trainer.ppo.score_centering import pad_rollout_topk
+
+                    response_rows = slice(prompts.size(0) - 1, prompts.size(0) - 1 + responses.size(0))
+                    field["rollout_topk_ids"], field["rollout_topk_log_probs"] = pad_rollout_topk(
+                        field["rollout_topk_ids"][response_rows],
+                        field["rollout_topk_log_probs"][response_rows],
+                        prompt_length=field["prompts"].size(0),
+                    )
+                    complete = torch.ones(input_ids.size(0), dtype=torch.bool)
+                    start = field["prompts"].size(0) - 1
+                    complete[start : start + responses.size(0)] = field["rollout_support_complete"][response_rows]
+                    field["rollout_support_complete"] = complete
 
             # vLLM records routes against its model input, where multimodal
             # placeholders have already expanded into their full token spans.

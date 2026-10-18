@@ -31,6 +31,21 @@ def _new_uninitialized_model(model_cls=GPTModel):
     return model
 
 
+@pytest.mark.parametrize(
+    "wrapper_backend, inner_backend, expected",
+    [("liger", "triton", "liger"), (None, "liger", "liger"), (None, None, "triton")],
+)
+def test_fused_backend_prefers_wrapper_configuration(wrapper_backend, inner_backend, expected):
+    """Verify wrapper configuration takes precedence and inner/default fallbacks remain available."""
+    model = torch.nn.Module()
+    model.language_model = torch.nn.Module()
+    if wrapper_backend is not None:
+        model._verl_fused_impl_backend = wrapper_backend
+    if inner_backend is not None:
+        model.language_model._verl_fused_impl_backend = inner_backend
+    assert mff.get_fused_impl_backend(model) == expected
+
+
 def test_mcore_gpt_forward_has_native_output_processor_contract():
     parameters = inspect.signature(GPTModel.forward).parameters
     assert {"output_processor", "output_processor_context"}.issubset(parameters)

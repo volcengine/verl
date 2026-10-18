@@ -524,12 +524,14 @@ def test_set_router_replay_data_rejects_incomplete_model_routes(monkeypatch):
         )
 
 
-def test_replay_topk_computes_native_routes_only_for_unmasked_rows():
-    """Verify native top-k runs only for rows outside the replay mask."""
+@pytest.mark.parametrize("action", [RouterReplayAction.REPLAY_FORWARD, RouterReplayAction.REPLAY_BACKWARD])
+@pytest.mark.parametrize("mask", [[True, False, True, True, False], [True] * 5, [False] * 5])
+def test_replay_topk_keeps_fixed_shape_and_native_routes(action, mask):
+    """Verify native top-k keeps a fixed row count and only replaces uncovered routes."""
     router = RouterReplay()
-    router.set_router_replay_action(RouterReplayAction.REPLAY_FORWARD)
+    router.set_router_replay_action(action)
     target_indices = torch.tensor([[0, 1], [2, 3], [4, 5], [1, 6], [0, 7]])
-    replay_mask = torch.tensor([True, False, True, True, False])
+    replay_mask = torch.tensor(mask)
     router.set_target_indices(target_indices, replay_mask=replay_mask)
     scores = torch.tensor(
         [
@@ -543,20 +545,14 @@ def test_replay_topk_computes_native_routes_only_for_unmasked_rows():
     native_rows_seen = []
 
     def compute_topk(values, topk, num_groups=None, group_topk=None):
-        """Record the number of rows requiring native routing and compute their top-k experts."""
+        """Record the fixed row count and compute the native top-k experts."""
         del num_groups, group_topk
         native_rows_seen.append(values.shape[0])
         return torch.topk(values, k=topk, dim=1)
 
-    _, indices = router.get_replay_topk(scores, 2, default_compute_topk=compute_topk)
+    probs, indices = router.get_replay_topk(scores, 2, default_compute_topk=compute_topk)
     expected = target_indices.clone()
     expected[~replay_mask] = torch.topk(scores[~replay_mask], k=2, dim=1).indices
-    assert native_rows_seen == [2]
+    assert native_rows_seen == [5]
     torch.testing.assert_close(indices, expected)
-
-    router.clear_indices()
-    router.set_target_indices(target_indices, replay_mask=torch.ones(5, dtype=torch.bool))
-    native_rows_seen.clear()
-    _, indices = router.get_replay_topk(scores, 2, default_compute_topk=compute_topk)
-    assert native_rows_seen == [0]
-    torch.testing.assert_close(indices, target_indices)
+    torch.testing.assert_close(probs, scores.gather(1, expected))

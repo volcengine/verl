@@ -82,9 +82,10 @@ def _use_output_processor_hook(model: torch.nn.Module) -> bool:
 
 def get_fused_impl_backend(model: torch.nn.Module) -> str:
     model = unwrap_model(model)
-    if hasattr(model, "language_model"):
-        model = model.language_model
-    return getattr(model, _FUSED_IMPL_BACKEND_ATTR, "triton")
+    backend = getattr(model, _FUSED_IMPL_BACKEND_ATTR, None)
+    if backend is None and hasattr(model, "language_model"):
+        backend = getattr(model.language_model, _FUSED_IMPL_BACKEND_ATTR, None)
+    return backend if backend is not None else "triton"
 
 
 def _gather_fused_hidden_states(hidden_states: Tensor, sequence_parallel: bool, impl_backend: str) -> Tensor:

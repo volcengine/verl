@@ -141,19 +141,15 @@ class RouterReplay:
                 )
             replay_mask = replay_mask.to(scores.device).bool().reshape(-1)
             if num_groups is None and group_topk is None:
-                # R3 masks normally cover most rows. Compute native top-k only for
-                # uncovered rows. torch.topk handles an empty row selection, so this
-                # also avoids a device synchronization for an all-True mask.
-                native_rows = ~replay_mask
+                # Keep the row count fixed: boolean indexing can synchronize CUDA
+                # to determine the number of uncovered rows.
+                native_scores = torch.where(replay_mask.unsqueeze(-1), 0, scores)
                 _, native_indices = default_compute_topk(
-                    scores[native_rows], topk, num_groups=num_groups, group_topk=group_topk
+                    native_scores, topk, num_groups=num_groups, group_topk=group_topk
                 )
-                mixed_indices = indices.clone()
-                mixed_indices[native_rows] = native_indices
-                indices = mixed_indices
             else:
                 _, native_indices = default_compute_topk(scores, topk, num_groups=num_groups, group_topk=group_topk)
-                indices = torch.where(replay_mask.unsqueeze(-1), indices, native_indices)
+            indices = torch.where(replay_mask.unsqueeze(-1), indices, native_indices)
         return scores.gather(1, indices), indices
 
     def clear_indices(self):

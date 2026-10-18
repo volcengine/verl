@@ -1437,7 +1437,10 @@ class vLLMHttpServer:
         """
         quantization = self.config.quantization
         vllm_engine_kwargs = self.config.get("engine_kwargs", {}).get("vllm", {}) or {}
-        hf_overrides = dict(vllm_engine_kwargs.get("hf_overrides", {}) or {})
+        hf_overrides = vllm_engine_kwargs.get("hf_overrides", {}) or {}
+        if isinstance(hf_overrides, str):
+            hf_overrides = json.loads(hf_overrides)
+        hf_overrides = dict(hf_overrides or {})
         if not quantization.enabled:
             return hf_overrides
 
