@@ -181,8 +181,8 @@ class AgentLoopOutput(BaseModel):
             if response_complete is None:
                 response_complete = torch.zeros(len(response_topk_ids), dtype=torch.bool)
             else:
-                response_complete = torch.as_tensor(response_complete, dtype=torch.bool)
-                if response_complete.shape != (len(response_topk_ids),):
+                response_complete = torch.as_tensor(response_complete)
+                if response_complete.dtype != torch.bool or response_complete.shape != (len(response_topk_ids),):
                     raise ValueError("sampler support coverage must have one bool per response token")
             complete = torch.ones(output["rollout_topk_ids"].size(0), dtype=torch.bool)
             start = output["prompts"].size(0) - 1
