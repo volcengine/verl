@@ -122,7 +122,13 @@ def _extract_reward_extra_info(extra_fields: Any) -> dict[str, np.ndarray]:
     if not reward_extra_infos:
         return {}
     common_keys = set.intersection(*(set(info) for info in reward_extra_infos))
-    return {key: np.asarray([info[key] for info in reward_extra_infos]) for key in common_keys}
+    result = {}
+    for key in common_keys:
+        values = np.empty(len(reward_extra_infos), dtype=object)
+        for index, info in enumerate(reward_extra_infos):
+            values[index] = info[key]
+        result[key] = values
+    return result
 
 
 class PPOTrainer(ABC):

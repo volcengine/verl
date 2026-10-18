@@ -21,8 +21,11 @@ import torch
 from omegaconf import OmegaConf
 from transfer_queue import KVBatchMeta
 
+from verl.protocol import DataProto
+from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.v1.replay_buffer import ReplayBuffer, ReplayBufferAsync
-from verl.trainer.ppo.v1.trainer_base import PPOTrainer, apply_greedy_sampling_params
+from verl.trainer.ppo.v1.trainer_base import PPOTrainer, _extract_reward_extra_info, apply_greedy_sampling_params
+from verl.trainer.ppo.v1.utils import compute_advantage_for_multi_trajectories
 from verl.utils import tensordict_utils as tu
 
 
@@ -30,6 +33,31 @@ def test_greedy_reward_baseline_does_not_request_score_centering_heads():
     params = {"top_p": 0.9, "top_k": 64, "temperature": 1.0, "topk_log_probs": 128, "logprobs": True}
     apply_greedy_sampling_params(params)
     assert params == {"top_p": 1.0, "top_k": -1, "temperature": 0, "logprobs": True}
+
+
+@pytest.mark.parametrize("estimator", ["grpo", "codapo"])
+@pytest.mark.parametrize("details", [[[1], [2, 3]], [[1, 2], [3, 4]]])
+def test_reward_metadata_preserves_per_sample_values_through_advantage(estimator, details):
+    """List-valued metadata stays one-dimensional without breaking numeric accuracy."""
+    extra = _extract_reward_extra_info(
+        [{"reward_extra_info": {"acc": float(i), "details": value}} for i, value in enumerate(details)]
+    )
+    assert extra["details"].shape == (2,)
+    assert extra["details"].tolist() == details
+    data = DataProto.from_dict(
+        tensors={
+            "token_level_rewards": torch.tensor([[0.0], [1.0]]),
+            "response_mask": torch.ones(2, 1, dtype=torch.long),
+            "old_log_probs": torch.full((2, 1), float(np.log(0.5))),
+        },
+        non_tensors={"uid": np.array(["q", "q"], dtype=object), **extra},
+    )
+    with patch.dict(core_algos.ADV_ESTIMATOR_REGISTRY, {"codapo": core_algos.compute_codapo_outcome_advantage}):
+        result = compute_advantage_for_multi_trajectories(data, ["q_0_0", "q_1_0"], estimator)
+    assert torch.isfinite(result.batch["advantages"]).all()
+    assert result.batch["advantages"][0, 0] < 0 < result.batch["advantages"][1, 0]
+    if estimator == "codapo":
+        torch.testing.assert_close(result.batch["codapo_values"], torch.full((2,), 0.5))
 
 
 class _StubTrainer(PPOTrainer):

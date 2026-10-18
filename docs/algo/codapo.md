@@ -113,6 +113,12 @@ stochastic rollouts, and `1 <= codapo_top_k <= data.train_batch_size`. It cannot
 combined with `algorithm.filter_groups`, because filtering would change the prompt set
 between value estimation and focused sampling.
 
+Each rollout session must return exactly one `AgentLoopOutput`. CoDaPO rejects
+multi-output agent loops before advantage computation; it does not aggregate
+their outputs into session-level statistics. Multiple rollout sessions per prompt
+(`rollout.n`) are supported. A multi-turn interaction is allowed if it produces
+only one `AgentLoopOutput` for the entire session.
+
 ## Example
 
 The included recipe trains Qwen2.5-Math-1.5B on MATH with prompt batch size 16,
