@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 
 import pytest
@@ -113,3 +114,49 @@ def test_mid_epoch_resume_restores_sft_dataloader_position(tmp_path, monkeypatch
     assert resume_step == 2
     assert len(consumed) == 2
     assert resumed_batches == expected_remaining
+
+
+@pytest.mark.parametrize("mode", [OrchestrationMode.RAY, OrchestrationMode.SPMD])
+@pytest.mark.parametrize("saved_batches,new_batch_size", [(2, 4), (4, 1)])
+def test_changed_epoch_length_restores_saved_state(tmp_path, monkeypatch, caplog, mode, saved_batches, new_batch_size):
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 0)
+    monkeypatch.setattr(torch.distributed, "barrier", lambda: None)
+    checkpoint_dir = str(tmp_path / "changed_length")
+    _save_after_batches(checkpoint_dir, batches=saved_batches, mode=mode)
+    state = torch.load(tmp_path / "changed_length" / f"global_step_{saved_batches}" / "data_0.pt", weights_only=False)
+    state.pop("_verl_steps_per_epoch", None)
+    sampler, reference_loader = _make_loader(batch_size=new_batch_size)
+    reference_loader.load_state_dict(state)
+    sampler.set_epoch(saved_batches // len(reference_loader))
+    expected = _batch_values(reference_loader)
+
+    with caplog.at_level(logging.WARNING):
+        resume_step, resumed = _resume(checkpoint_dir, batch_size=new_batch_size, mode=mode)
+
+    assert resume_step == saved_batches
+    assert resumed == expected
+    assert "batches per epoch changed" in caplog.text
+
+
+@pytest.mark.parametrize("mode", [OrchestrationMode.RAY, OrchestrationMode.SPMD])
+@pytest.mark.parametrize("saved_batches", [2, 4])
+def test_legacy_checkpoint_restores_without_inferring_boundary(tmp_path, monkeypatch, caplog, mode, saved_batches):
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda: 0)
+    monkeypatch.setattr(torch.distributed, "barrier", lambda: None)
+    checkpoint_dir = str(tmp_path / "legacy")
+    _save_after_batches(checkpoint_dir, batches=saved_batches, mode=mode)
+    path = tmp_path / "legacy" / f"global_step_{saved_batches}" / "data_0.pt"
+    state = torch.load(path, weights_only=False)
+    state.pop("_verl_steps_per_epoch", None)
+    torch.save(state, path)
+    sampler, reference_loader = _make_loader()
+    reference_loader.load_state_dict(state)
+    sampler.set_epoch(saved_batches // len(reference_loader))
+    expected = _batch_values(reference_loader)
+
+    with caplog.at_level(logging.WARNING):
+        resume_step, resumed = _resume(checkpoint_dir, mode=mode)
+
+    assert resume_step == saved_batches
+    assert resumed == expected
+    assert "saved batches per epoch" in caplog.text
