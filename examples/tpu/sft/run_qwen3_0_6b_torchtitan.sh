@@ -6,10 +6,10 @@
 #   Can also be overridden for 1 Slice of TPU v6e-4 via `NNODES_TRAINER=1 N_CHIPS_TRAINER=4`.
 #
 # Launch Modes (`SFT_TRAINER_MODE`):
-#   - `ray` (default): Launches single-controller Ray SFT trainer (`verl.trainer.sft_trainer_ray`),
-#     suitable for KubeRay `ray job submit`.
-#   - `torchrun`: Launches SPMD multi-controller SFT trainer (`verl.trainer.sft_trainer`) via `torchrun`,
+#   - `torchrun` (default): Launches SPMD multi-controller SFT trainer (`verl.trainer.sft_trainer`) via `torchrun`,
 #     suitable for single-host v6e-4 or multi-host GKE JobSet workloads.
+#   - `ray`: Launches single-controller Ray SFT trainer (`verl.trainer.sft_trainer_ray`),
+#     suitable for KubeRay `ray job submit`.
 #
 # Parallelism Config:
 #   Pure FSDP2 (TP=1, DP_SHARD=8, PP=1) is used by default on TPU.
@@ -53,7 +53,7 @@ else
     TEST_FREQ="${TEST_FREQ:-5}"
 fi
 
-SFT_TRAINER_MODE="${SFT_TRAINER_MODE:-ray}"
+SFT_TRAINER_MODE="${SFT_TRAINER_MODE:-torchrun}"
 
 # Note on `data.ignore_input_ids_mismatch=True`:
 # Qwen3's chat template injects `<think>\n\n</think>\n\n` only on the last assistant turn and strips
@@ -106,8 +106,14 @@ COMMON_ARGS=(
 )
 
 if [[ "${SFT_TRAINER_MODE}" == "torchrun" ]]; then
-    NODE_RANK="${NODE_RANK:-0}"
-    MASTER_ADDR="${MASTER_ADDR:-127.0.0.1}"
+    if [[ -z "${TORCH_TPU_SLICEBUILDER_ADDRESSES:-}" || -z "${TORCH_TPU_TOPOLOGY:-}" ]]; then
+        echo "ERROR: TORCH_TPU_SLICEBUILDER_ADDRESSES and TORCH_TPU_TOPOLOGY must be set for SFT_TRAINER_MODE=torchrun." >&2
+        echo "In GKE KubeRay TPU pods these are set automatically by the webhook; on plain TPU VMs export them before running." >&2
+        exit 1
+    fi
+    NODE_RANK="${NODE_RANK:-${TPU_WORKER_ID:-0}}"
+    DEFAULT_MASTER_ADDR="${TPU_WORKER_HOSTNAMES%%,*}"
+    MASTER_ADDR="${MASTER_ADDR:-${DEFAULT_MASTER_ADDR:-127.0.0.1}}"
     MASTER_PORT="${MASTER_PORT:-29500}"
     torchrun \
         --nnodes="${NNODES_TRAINER}" \
@@ -117,6 +123,7 @@ if [[ "${SFT_TRAINER_MODE}" == "torchrun" ]]; then
         --master_port="${MASTER_PORT}" \
         -m verl.trainer.sft_trainer \
         "${COMMON_ARGS[@]}" \
+        data.num_workers=0 \
         "$@"
 else
     python3 -m verl.trainer.sft_trainer_ray \
