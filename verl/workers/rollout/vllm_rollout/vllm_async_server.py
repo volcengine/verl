@@ -694,6 +694,7 @@ class vLLMHttpServer:
         if rejected is not None:
             return rejected
 
+        start_global_steps = self.global_steps
         with RLInsightLogger.trace_state(
             "vllm_generate",
             state_lane_id=ray.get_runtime_context().get_actor_name(),
@@ -721,7 +722,12 @@ class vLLMHttpServer:
                     self._admitting -= 1
             assert final_res is not None
 
-        extra_fields = {"global_steps": self.global_steps}
+        versions = [step for step in (start_global_steps, self.global_steps) if step is not None]
+        extra_fields = {
+            "global_steps": self.global_steps,
+            "min_global_steps": min(versions) if versions else None,
+            "max_global_steps": max(versions) if versions else None,
+        }
         # Handle abort case: when the request is aborted by pause_generation(abort),
         # outputs may be empty. Return empty results with stop_reason="aborted"
         # instead of crashing with "IndexError: list index out of range".
@@ -1157,6 +1163,11 @@ class vLLMHttpServer:
             logger.exception("Error aborting requests")
             raise
 
+    async def pause_generation(self):
+        """Pause scheduling while retaining in-flight requests and their KV cache."""
+        if self.node_rank == 0:
+            await self.engine.pause_generation(mode="keep", clear_cache=False)
+
     async def resume_engine_generation(self):
         """Resume the DP engines while request admission remains closed."""
         if self.node_rank == 0:
@@ -1575,6 +1586,10 @@ class vLLMReplica(RolloutReplica):
             ]
         )
 
+        self.is_multimodal = await self.servers[0].__ray_call__.remote(
+            lambda server: server.engine.model_config.is_multimodal_model
+        )
+
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
         self._server_handle = self.servers[0]
@@ -1623,6 +1638,10 @@ class vLLMReplica(RolloutReplica):
             "request_ids": all_request_ids,
             "server_results": results,
         }
+
+    async def pause_generation(self):
+        """Pause all DP engines through the replica engine owner."""
+        await self.servers[0].pause_generation.remote()
 
     async def resume_generation(self):
         """Resume the DP engines before admitting requests on any server."""

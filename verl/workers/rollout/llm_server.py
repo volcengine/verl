@@ -332,9 +332,12 @@ class FullyAsyncLLMServerClient(LLMServerClient):
 
             # update model weights version
             global_steps = output.extra_fields.get("global_steps", None)
-            if min_global_steps is None:
-                min_global_steps = global_steps
-            max_global_steps = global_steps
+            segment_min = output.extra_fields.get("min_global_steps", global_steps)
+            segment_max = output.extra_fields.get("max_global_steps", global_steps)
+            if segment_min is not None:
+                min_global_steps = segment_min if min_global_steps is None else min(min_global_steps, segment_min)
+            if segment_max is not None:
+                max_global_steps = segment_max if max_global_steps is None else max(max_global_steps, segment_max)
 
             # 3. update max_new_tokens
             if original_max_tokens is not None:

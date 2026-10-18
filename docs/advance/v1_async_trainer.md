@@ -1,6 +1,6 @@
 # V1 Async Trainer
 
-Last updated: 09/21/2026.
+Last updated: 10/17/2026.
 
 The V1 trainer provides two asynchronous PPO training modes under the standard `verl.trainer.main_ppo` entry point:
 
@@ -49,6 +49,21 @@ data.train_batch_size
 For example, a train batch of 64 with a PPO mini-batch of 16 requires `parameter_sync_step=4`.
 
 ## Partial Rollout and Staleness
+
+Standalone vLLM text-model replicas with prefix caching disabled retain in-flight requests during full-weight synchronization. The checkpoint manager pauses the engine at a decode boundary, waits for in-flight computation, transfers the weights, and resumes the same requests. KV cache, generated tokens, sampling log probabilities, and recorded MoE expert routing remain in memory; the weight switch does not re-prefill the retained history. Replicas with prefix caching enabled, multimodal models, hybrid replicas, prefill/decode disaggregation, and unmerged LoRA updates continue to use abort and retry.
+
+Tokens generated after a weight switch use the new weights with the retained historical KV. This is a mixed-version trajectory, not the result of recomputing the full context with the new weights. Existing routing records describe the original forwards; new tokens use the updated router. The reported minimum and maximum versions bound the request's lifetime, including time spent queued, rather than identifying an exact version for each token.
+
+The KV allocation stays resident during synchronization, so leave space for weight-transfer buffers using `rollout.gpu_memory_utilization` and `rollout.checkpoint_engine.update_weights_bucket_megabytes`. To retain only each active request's history and prevent new requests from reusing old shared prefixes, set:
+
+```yaml
+actor_rollout_ref:
+  rollout:
+    enable_prefix_caching: False
+    calculate_log_probs: True
+```
+
+Ordinary memory-pressure preemption can still recompute history. Requests are not migrated to another replica, and their in-memory state does not survive an engine restart.
 
 Partial rollout is part of the V1 async client behavior rather than a V1 configuration switch. When a request is aborted:
 
