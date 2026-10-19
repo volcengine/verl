@@ -80,7 +80,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:uv.cu130"
+  IMAGE: "verl-ci-cn-beijing.cr.volces.com/verlai/verl:uv.cu130.dev4"
   DYNAMIC_RUNNER_ENDPOINT: "https://sd10g3clalm04ug7alq90.apigateway-cn-beijing.volceapi.com/runner"
 
 jobs:
@@ -155,6 +155,10 @@ jobs:
       - name: Test vLLM requests across weight updates
         run: |
           $UV_RUN pytest tests/workers/rollout/rollout_vllm/test_vllm_keep_requests.py -v -s
+      - name: Test vLLM score-centering support coverage
+        run: |
+          $UV_RUN ray stop --force
+          $UV_RUN pytest tests/workers/rollout/rollout_vllm/test_vllm_topk_support.py -v -s
       # - name: Test vllm rollout generation determinism (same-instance + cross-instance + cross-instance AgentLoop)
       #   run: |
       #     VLLM_DETERMINISM_DENSE_MODEL_PATH=${HOME}/models/Qwen/Qwen2.5-0.5B-Instruct \

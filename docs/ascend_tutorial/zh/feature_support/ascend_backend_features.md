@@ -37,7 +37,7 @@ Last updated: 03/03/2026.
 | `max_num_batched_tokens`| `actor_rollout_ref.rollout.max_num_batched_tokens` |在一次批处理（batch）中可以处理的最大总Token数|
 | `skip_tokenizer_init`| `actor_rollout_ref.rollout.skip_tokenizer_init` |跳过初始化分词器并将 input_ids 传递到推理请求中|
 | `enable_prefix_caching` | `actor_rollout_ref.rollout.enable_prefix_caching` |用于启用自动前缀缓存 |
-| `quantization`| `actor_rollout_ref.rollout.quantization`，默认为None|`量化方法`|
+| `quantization`| `actor_rollout_ref.rollout.engine_kwargs.vllm.quantization`，默认不设置|`量化方法`|
 
 ### 2. sglang:
 
@@ -74,7 +74,7 @@ verl中通过rollout config管理推理后端参数使能，包含通用参数�
 | log_level| 无，默认设置为error |日志记录器的日志级别|
 | skip_tokenizer_init| actor_rollout_ref.rollout.skip_tokenizer_init |跳过初始化分词器并将 input_ids 传递到推理请求中|
 | skip_server_warmup| 无，默认设置为True |跳过预热|
-| quantization| actor_rollout_ref.rollout.quantization，默认为None|量化方法|
+| quantization| actor_rollout_ref.rollout.engine_kwargs.sglang.quantization，默认不设置|量化方法|
 | attention_backend|actor_rollout_ref.rollout.engine_kwargs.sglang.attention_backend|attention内核,NPU应该设置为ascend|
 
 ---
