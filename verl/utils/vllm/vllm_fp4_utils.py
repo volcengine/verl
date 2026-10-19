@@ -473,6 +473,58 @@ def _restore_nvfp4_input_scales_in_place(module, converted):
     return tuple(converted)
 
 
+def _attest_nvfp4_kernel_scale_references(module):
+    """Verify that the retained CUDA-graph kernel sees the current refit scales."""
+    method = module.quant_method
+    kernel = method.moe_kernel
+    config = method.moe_quant_config
+    experts = getattr(kernel, "fused_experts", None)
+    if experts is None or experts.quant_config is not config:
+        raise RuntimeError("nvfp4 retained kernel no longer references its retained quant config")
+
+    for config_name, parameter_name in (
+        ("g1_alphas", "w13_weight_scale_2"),
+        ("g2_alphas", "w2_weight_scale_2"),
+        ("w1_scale", "w13_weight_scale"),
+        ("w2_scale", "w2_weight_scale"),
+    ):
+        actual = getattr(config, config_name, None)
+        registered = getattr(module, parameter_name, None)
+        if not isinstance(actual, torch.Tensor) or not isinstance(registered, torch.Tensor):
+            raise RuntimeError(f"nvfp4 kernel scale reference missing: {config_name}/{parameter_name}")
+        if actual.device != registered.device or actual.data_ptr() != registered.data_ptr():
+            raise RuntimeError(f"nvfp4 kernel has stale scale reference: {config_name}/{parameter_name}")
+
+    for config_name, input_name in (("a1_gscale", "w13_input_scale"), ("a2_gscale", "w2_input_scale")):
+        actual = getattr(config, config_name, None)
+        input_scale = getattr(module, input_name, None)
+        if not isinstance(actual, torch.Tensor) or not isinstance(input_scale, torch.Tensor):
+            raise RuntimeError(f"nvfp4 activation scale reference missing: {config_name}/{input_name}")
+        if not torch.equal(actual, 1.0 / input_scale):
+            raise RuntimeError(f"nvfp4 {config_name} does not match the current activation scale")
+
+
+def _restore_nvfp4_kernel_config_in_place(module, retained_kernel, retained_config):
+    """Copy newly derived scales into the config storage captured by CUDA graphs."""
+    method = module.quant_method
+    processing_config = method.moe_quant_config
+    for name in ("a1_gscale", "a2_gscale"):
+        retained = getattr(retained_config, name, None)
+        current = getattr(processing_config, name, None)
+        if not isinstance(retained, torch.Tensor) or not isinstance(current, torch.Tensor):
+            raise RuntimeError(f"nvfp4 refit cannot restore derived scale {name}")
+        if retained.shape != current.shape or retained.dtype != current.dtype:
+            raise RuntimeError(
+                f"nvfp4 refit re-derived {name} as {tuple(current.shape)}/{current.dtype}, "
+                f"but the CUDA-graph config has {tuple(retained.shape)}/{retained.dtype}"
+            )
+        retained.copy_(current)
+
+    method.moe_kernel = retained_kernel
+    method.moe_quant_config = retained_config
+    _attest_nvfp4_kernel_scale_references(module)
+
+
 def _process_nvfp4_moe_params(module):
     from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
         compressed_tensors_moe_w4a4_nvfp4,
@@ -483,6 +535,8 @@ def _process_nvfp4_moe_params(module):
     def convert_to_nvfp4_moe_kernel_format(*args, **kwargs):
         return _restore_nvfp4_input_scales_in_place(module, original_convert(*args, **kwargs))
 
+    retained_kernel = module.quant_method.moe_kernel
+    retained_config = module.quant_method.moe_quant_config
     with (
         patch.object(
             compressed_tensors_moe_w4a4_nvfp4,
@@ -496,6 +550,7 @@ def _process_nvfp4_moe_params(module):
         ),
     ):
         module.quant_method.process_weights_after_loading(module)
+    _restore_nvfp4_kernel_config_in_place(module, retained_kernel, retained_config)
     leftover = getattr(module, _NVFP4_LIVE_ATTR, None) or {}
     delattr(module, _NVFP4_LIVE_ATTR)
     if leftover:

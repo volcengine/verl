@@ -185,15 +185,8 @@ Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arg
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE + MXFP8 QAT | auto | 0.00315 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE | FlashInfer CUTLASS | 0.00858 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE + MXFP4 QAT | FlashInfer CUTLASS | 0.00210 |
-| Blackwell | vLLM | ❌ | NVFP4 MoE | FlashInfer CUTLASS | 0.25778 |
-| Blackwell | vLLM | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.32112 |
-
-The NVFP4 path is functionally validated with CUDA Graph, but its current
-Qwen3.5-35B-A3B numerical gap is too large for training. The QAT result is not
-an accuracy acceptance result; it records the current implementation state and
-shows that additional kernel/QDQ parity work is required. Repeated runs varied
-because FlashInfer's fused finalize is nondeterministic (`0.219–0.258` without
-QAT and `0.263–0.380` with QAT).
+| Blackwell | vLLM | ✅ | NVFP4 MoE | FlashInfer CUTLASS | 0.00813 |
+| Blackwell | vLLM | ✅ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.00574 |
 
 ## Limitations
 
