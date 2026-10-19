@@ -18,6 +18,7 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
 import torch
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -71,6 +72,7 @@ def _load_weight_update_utils():
 _weight_update_utils = _load_weight_update_utils()
 apply_buffer_updates = _weight_update_utils.apply_buffer_updates
 split_buffer_updates = _weight_update_utils.split_buffer_updates
+normalize_deepseek_v4_weight_names = _weight_update_utils.normalize_deepseek_v4_weight_names
 
 
 def _load_vllm_rollout_utils():
@@ -299,3 +301,125 @@ def test_vllm_update_weights_syncs_buffers_to_mtp_drafter():
     expected = torch.tensor([5, 6, 7, 8], dtype=torch.float32)
     torch.testing.assert_close(main_model.model.layers[0].e_score_correction_bias, expected)
     torch.testing.assert_close(drafter_model.model.layers[0].e_score_correction_bias, expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ("self_attn.q_a_proj.weight", "self_attn.wq_a.weight"),
+        ("self_attn.kv_proj.weight", "self_attn.wkv.weight"),
+        ("self_attn.kv_a_proj_with_mqa.weight", "self_attn.wkv.weight"),
+        ("self_attn.q_b_proj.weight", "self_attn.wq_b.weight"),
+        ("self_attn.o_a_proj.weight", "self_attn.wo_a.weight"),
+        ("self_attn.o_b_proj.weight", "self_attn.wo_b.weight"),
+        ("self_attn.q_a_norm.weight", "self_attn.q_norm.weight"),
+        ("self_attn.sinks", "self_attn.attn_sink"),
+        ("self_attn.compressor.kv_proj.weight", "self_attn.compressor.wkv.weight"),
+        ("self_attn.compressor.gate_proj.weight", "self_attn.compressor.wgate.weight"),
+        ("self_attn.compressor.kv_norm.weight", "self_attn.compressor.norm.weight"),
+        ("self_attn.compressor.position_bias", "self_attn.compressor.ape"),
+        ("self_attn.compressor.indexer.position_bias", "self_attn.indexer.compressor.ape"),
+        ("self_attn.compressor.indexer.kv_proj.weight", "self_attn.indexer.compressor.wkv.weight"),
+        ("self_attn.compressor.indexer.gate_proj.weight", "self_attn.indexer.compressor.wgate.weight"),
+        ("self_attn.compressor.indexer.q_b_proj.weight", "self_attn.indexer.wq_b.weight"),
+        ("self_attn.compressor.indexer.kv_norm.weight", "self_attn.indexer.compressor.norm.weight"),
+        ("self_attn.compressor.indexer.extra.weight", "self_attn.indexer.extra.weight"),
+        ("self_attn.indexer.scorer.weights_proj.weight", "self_attn.indexer.weights_proj.weight"),
+        ("attn_hc.fn", "hc_attn_fn"),
+        ("attn_hc.base", "hc_attn_base"),
+        ("attn_hc.scale", "hc_attn_scale"),
+        ("ffn_hc.fn", "hc_ffn_fn"),
+        ("ffn_hc.base", "hc_ffn_base"),
+        ("ffn_hc.scale", "hc_ffn_scale"),
+        ("mlp.experts.0.gate_proj.weight", "mlp.experts.0.gate_proj.weight"),
+    ],
+)
+def test_deepseek_v4_weight_name_mapping(source, target):
+    model = types.SimpleNamespace(config=types.SimpleNamespace(model_type="deepseek_v4"))
+    tensor = torch.ones(2)
+    weights = [(f"model.layers.0.{source}", tensor)]
+
+    normalized = normalize_deepseek_v4_weight_names(model, weights)
+
+    assert normalized[0][0] == f"model.layers.0.{target}"
+    assert normalized[0][1] is tensor
+    assert weights[0][0] == f"model.layers.0.{source}"
+    assert normalize_deepseek_v4_weight_names(model, normalized)[0][0] == normalized[0][0]
+
+
+@pytest.mark.parametrize("prefix", ["", "model."])
+@pytest.mark.parametrize("suffix", ["fn", "base", "scale"])
+def test_deepseek_v4_hc_head_weight_name_mapping(prefix, suffix):
+    model = types.SimpleNamespace(config=types.SimpleNamespace(model_type="deepseek_v4"))
+    tensor = torch.ones(2)
+
+    normalized = normalize_deepseek_v4_weight_names(model, [(f"{prefix}hc_head.hc_{suffix}", tensor)])
+
+    assert normalized[0][0] == f"{prefix}hc_head_{suffix}"
+    assert normalized[0][1] is tensor
+
+
+@pytest.mark.parametrize("model_type", [None, "deepseek_v3", "qwen3"])
+def test_deepseek_v4_name_mapping_preserves_other_models(model_type):
+    model = types.SimpleNamespace(config=types.SimpleNamespace(model_type=model_type))
+    weights = [("model.layers.0.self_attn.q_a_proj.weight", torch.ones(2))]
+
+    assert normalize_deepseek_v4_weight_names(model, weights) is weights
+    assert normalize_deepseek_v4_weight_names(object(), weights) is weights
+
+
+@pytest.mark.parametrize("quantized", [False, True])
+@pytest.mark.parametrize("use_mtp", [False, True])
+def test_deepseek_v4_receiver_normalizes_before_loading(monkeypatch, quantized, use_mtp):
+    models = [_ToyModel() for _ in range(2 if use_mtp else 1)]
+    loaded = []
+    for model in models:
+        model.config = types.SimpleNamespace(model_type="deepseek_v4")
+        model.model.layers[0].self_attn = torch.nn.Module()
+        model.model.layers[0].self_attn.register_buffer("attn_sink", torch.zeros(4))
+        model.load_weights = lambda weights: loaded.append(list(weights))
+
+    worker = object.__new__(vLLMColocateWorkerExtension)
+    worker.model_runner = _FakeModelRunner(models[0])
+    worker.model_runner.vllm_config.quant_config = None
+    monkeypatch.setattr(_vllm_rollout_utils, "is_npu_available", True)
+    monkeypatch.setattr(_vllm_rollout_utils, "is_quantized_model", lambda config: quantized)
+    monkeypatch.setattr(worker, "_iter_all_models", lambda: iter(models))
+    monkeypatch.setattr(worker, "_use_mtp_drafter_weight_sync", lambda: use_mtp)
+    monkeypatch.setattr(
+        _vllm_rollout_utils,
+        "load_quanted_weights",
+        lambda weights, runner, is_drafter=False: loaded.append(list(weights)) or [],
+    )
+    parameter = torch.ones(4, 4)
+    sink = torch.arange(4, dtype=torch.float32)
+
+    worker._update_weights(
+        [("model.layers.0.self_attn.q_a_proj.weight", parameter), ("model.layers.0.self_attn.sinks", sink)],
+        peft_config=None,
+        base_sync_done=False,
+    )
+
+    assert len(loaded) == len(models)
+    for updates in loaded:
+        assert len(updates) == 1
+        assert updates[0][0] == "model.layers.0.self_attn.wq_a.weight"
+        assert updates[0][1] is parameter
+    for model in models:
+        torch.testing.assert_close(model.model.layers[0].self_attn.attn_sink, sink)
+
+
+def test_deepseek_v4_receiver_preserves_non_ascend_names(monkeypatch):
+    model = _ToyModel()
+    model.config = types.SimpleNamespace(model_type="deepseek_v4")
+    loaded = []
+    model.load_weights = lambda weights: loaded.extend(weights)
+    worker = object.__new__(vLLMColocateWorkerExtension)
+    worker.model_runner = _FakeModelRunner(model)
+    monkeypatch.setattr(_vllm_rollout_utils, "is_npu_available", False)
+    weights = [("model.layers.0.self_attn.q_a_proj.weight", torch.ones(4, 4))]
+
+    worker._update_weights(weights, peft_config=None, base_sync_done=False)
+
+    assert loaded[0][0] == weights[0][0]
+    assert loaded[0][1] is weights[0][1]
