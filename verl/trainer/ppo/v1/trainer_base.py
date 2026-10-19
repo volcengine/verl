@@ -119,6 +119,13 @@ class PPOTrainer(ABC):
 
     def __init__(self, config: DictConfig):
         self.config = config
+        if self.config.algorithm.adv_estimator == core_algos.AdvantageEstimator.REMAX:
+            # ReMax needs a per-prompt greedy-decode baseline reward ("reward_baselines"); only the
+            # v0 RayPPOTrainer produces it. Fail at startup, not after the first rollout.
+            raise NotImplementedError(
+                "algorithm.adv_estimator=remax is not supported by the v1 trainer (no greedy baseline "
+                "rollout). Set trainer.use_v1=False to use the v0 trainer."
+            )
         self.checkpoint_callback = build_checkpoint_callback(config)
         self.use_critic = need_critic(self.config)
         self.use_reference_policy = need_reference_policy(self.config)
