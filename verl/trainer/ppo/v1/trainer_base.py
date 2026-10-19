@@ -1626,6 +1626,9 @@ class PPOTrainer(ABC):
                 sampled_keys.append(key)
                 sampled_tags.append(tag)
 
+        if not baseline_keys:
+            raise ValueError("ReMax is enabled but the batch contains no greedy baseline session")
+
         data = tq.kv_batch_get(keys=baseline_keys, partition_id=batch.partition_id, select_fields=["rm_scores"])
         rewards = data["rm_scores"].to_padded_tensor(padding=0.0).sum(dim=-1)
         # multi-output agent loops: the last output of the greedy session carries the outcome
@@ -1635,11 +1638,19 @@ class PPOTrainer(ABC):
             if uid not in baseline_by_uid or baseline_by_uid[uid][0] < int(index):
                 baseline_by_uid[uid] = (int(index), reward)
 
+        # a prompt whose greedy session produced no output has no baseline: drop its sampled rows
+        # (like any other empty session) instead of failing the whole run
         missing = {key.rsplit("_", 2)[0] for key in sampled_keys} - baseline_by_uid.keys()
         if missing:
-            raise ValueError(
-                f"ReMax greedy baseline missing for {len(missing)} prompt(s), e.g. uid={sorted(missing)[0]}"
-            )
+            logger.warning(f"ReMax greedy baseline missing for {len(missing)} prompt(s); dropping their sessions")
+            kept = [i for i, key in enumerate(sampled_keys) if key.rsplit("_", 2)[0] not in missing]
+            dropped_keys = [key for key in sampled_keys if key.rsplit("_", 2)[0] in missing]
+            sampled_keys = [sampled_keys[i] for i in kept]
+            sampled_tags = [sampled_tags[i] for i in kept]
+            tq.kv_clear(keys=dropped_keys, partition_id=batch.partition_id)
+            if not sampled_keys:
+                raise ValueError("ReMax greedy baseline missing for every prompt in the batch")
+        metrics["remax/baseline_missing_prompts"] = len(missing)
 
         baselines = torch.tensor([baseline_by_uid[key.rsplit("_", 2)[0]][1] for key in sampled_keys])
         tq.kv_batch_put(

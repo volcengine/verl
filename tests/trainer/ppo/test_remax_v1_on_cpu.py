@@ -109,12 +109,26 @@ def test_extract_remax_baselines_moves_greedy_session_into_reward_baselines(monk
     assert metrics["remax/baseline_reward_mean"] == pytest.approx((0.25 + 0.75 + 1.5) / 3)
 
 
-def test_extract_remax_baselines_missing_greedy_session_raises(monkeypatch):
+def test_extract_remax_baselines_drops_prompt_without_greedy_session(monkeypatch):
     from verl.trainer.ppo.v1 import trainer_base
     from verl.trainer.ppo.v1.utils import REMAX_BASELINE_SESSION_ID as BASE
 
-    rm = {"a_0_0": [1.0], f"c_{BASE}_0": [1.0]}
+    rm = {"a_0_0": [1.0], "c_0_0": [2.0], f"c_{BASE}_0": [0.5]}
+    fake = _FakeTQ(rm)
+    monkeypatch.setattr(trainer_base, "tq", fake)
+    batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}, {}, {}])
+    out = trainer_base.PPOTrainer._extract_remax_baselines(SimpleNamespace(), batch, metrics=(metrics := {}))
+    assert out.keys == ["c_0_0"]
+    assert fake.put == {"c_0_0": 0.5}
+    assert "a_0_0" in fake.cleared
+    assert metrics["remax/baseline_missing_prompts"] == 1
+
+
+def test_extract_remax_baselines_without_any_greedy_session_raises(monkeypatch):
+    from verl.trainer.ppo.v1 import trainer_base
+
+    rm = {"a_0_0": [1.0]}
     monkeypatch.setattr(trainer_base, "tq", _FakeTQ(rm))
-    batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}, {}])
-    with pytest.raises(ValueError, match="baseline missing"):
+    batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}])
+    with pytest.raises(ValueError, match="no greedy baseline"):
         trainer_base.PPOTrainer._extract_remax_baselines(SimpleNamespace(), batch, metrics={})
