@@ -28,6 +28,7 @@ _VERL_PARAM_READY_CALLBACK_ATTR = "_verl_ensure_param_ready_callback"
 
 
 def _is_graph_capturing():
+    """Return whether MCore is capturing a CUDA graph and must skip new collectives."""
     from megatron.core.transformer import cuda_graphs
 
     return cuda_graphs.is_graph_capturing()
@@ -37,10 +38,16 @@ class _DDPParamReadyCallback:
     """Use the owning DDP's synchronization policy without retaining its buffers."""
 
     def __init__(self, ddp, bucket_group):
+        """Keep weak references to the bucket and the DDP instance that owns its schedule."""
         self._ddp = weakref.ref(ddp)
         self._bucket_group = weakref.ref(bucket_group)
 
     def __call__(self):
+        """Complete the bucket's gather while preserving dispatch ownership.
+
+        DDP-owned schedules use the normal pre-hook policy. External schedules
+        only drain an existing handle, without starting or prefetching a gather.
+        """
         ddp = self._ddp()
         bucket_group = self._bucket_group()
         if ddp is None or bucket_group is None:

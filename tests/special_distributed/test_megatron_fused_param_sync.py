@@ -47,10 +47,12 @@ from verl.workers.engine.megatron.transformer_impl import MegatronEngineWithLMHe
 
 
 def emit(event, **fields):
+    """Emit a structured event with the current rank for distributed-run diagnostics."""
     print("FUSED_READY " + json.dumps({"event": event, "rank": dist.get_rank(), **fields}, sort_keys=True), flush=True)
 
 
 def cpu_tree(value):
+    """Copy nested tensor state to detached CPU snapshots that survive later updates."""
     if isinstance(value, torch.Tensor):
         return value.detach().cpu().clone()
     if isinstance(value, dict):
@@ -61,6 +63,7 @@ def cpu_tree(value):
 
 
 def optimizer_state(engine):
+    """Snapshot each non-stub distributed optimizer's master weights and Adam state."""
     return [
         {
             "master_float16": cpu_tree(opt.shard_fp32_from_float16_groups),
@@ -73,6 +76,7 @@ def optimizer_state(engine):
 
 
 def prepare_model(path, tied):
+    """Save a seeded tiny Qwen3 on rank zero and wait until all ranks can load it."""
     if dist.get_rank() == 0:
         assert not path.exists(), f"Refusing to overwrite {path}"
         torch.manual_seed(20261019)
@@ -97,6 +101,7 @@ def prepare_model(path, tied):
 
 
 def make_engine(model_path, overlap):
+    """Initialize a DP2 fused engine with the requested parameter-gather overlap setting."""
     model = HFModelConfig(
         path=str(model_path),
         load_tokenizer=False,
@@ -151,6 +156,7 @@ def make_engine(model_path, overlap):
 
 
 def main():
+    """Run four training steps and assert either clean fused consumption or the baseline failure."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--overlap", type=int, choices=[0, 1], required=True)
@@ -196,6 +202,7 @@ def main():
     observations = []
 
     def observed_kernel(hidden, actual_weight, *positional, **kwargs):
+        """Record the owning bucket's gather state immediately before the real fused kernel."""
         assert actual_weight is weight
         row = {
             "call": len(observations) + 1,

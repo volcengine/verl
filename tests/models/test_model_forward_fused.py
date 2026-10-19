@@ -309,6 +309,7 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(
     impl_backend,
     tensor_parallel_output_grad,
 ):
+    """Gather hidden states and complete the selected weight's gather before fused loss."""
     hidden_states = torch.tensor([[1.0]])
     gathered_hidden_states = torch.tensor([[3.0]])
     tied_weight = torch.tensor([[5.0]])
@@ -318,12 +319,14 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(
     seen = {}
 
     def fake_gather(value, **kwargs):
+        """Record the hidden-state gather and verify its backward-reduction policy."""
         events.append("gather")
         assert value is hidden_states
         assert kwargs == {"tensor_parallel_output_grad": tensor_parallel_output_grad}
         return gathered_hidden_states
 
     def fake_linear_cross_entropy(hidden, weight, labels_arg, temperature, reduction, group, **options):
+        """Record fused-kernel inputs so the test can verify ordering and weight selection."""
         events.append("linear_cross_entropy")
         seen.update(
             hidden=hidden,
@@ -335,6 +338,7 @@ def test_output_processor_gathers_before_kernel_and_resolves_weight(
         return torch.tensor([11.0]), torch.tensor([13.0])
 
     def fake_ensure_ready(weight):
+        """Record readiness and verify that it applies to the weight consumed by the kernel."""
         events.append("weight_ready")
         assert weight is (tied_weight if use_tied_weight else output_layer_weight)
 

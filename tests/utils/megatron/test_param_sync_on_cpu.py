@@ -39,10 +39,14 @@ SPEC.loader.exec_module(param_sync)
 
 
 class _Work:
+    """Simulate a gather that publishes updated parameter values only when waited on."""
+
     def __init__(self, bucket):
+        """Associate the simulated work with the bucket whose parameters it will publish."""
         self.bucket = bucket
 
     def wait(self):
+        """Publish the bucket's target values and count completion waits."""
         self.bucket.waits += 1
         with torch.no_grad():
             for param in self.bucket.params:
@@ -50,7 +54,10 @@ class _Work:
 
 
 class _Bucket:
+    """Model gather dispatch, completion, and parameter storage for CPU lifecycle tests."""
+
     def __init__(self, *params):
+        """Initialize an idle bucket and target values for the supplied parameters."""
         self.params = params
         self.param_gather_dispatched = False
         self.param_gather_handle = None
@@ -59,11 +66,13 @@ class _Bucket:
         self.target = torch.ones_like(params[0])
 
     def start_param_sync(self):
+        """Dispatch a simulated gather, rejecting a handle left over from an earlier step."""
         assert self.param_gather_handle is None, "previous parameter gather still in flight"
         self.param_gather_handle = _Work(self)
         self.param_gather_dispatched = True
 
     def finish_param_sync(self, skip_next_bucket_dispatch=False):
+        """Record the prefetch policy, dispatch if needed, and drain the simulated gather."""
         self.calls.append(skip_next_bucket_dispatch)
         if not self.param_gather_dispatched:
             self.start_param_sync()
@@ -73,7 +82,10 @@ class _Bucket:
 
 
 class _DDP:
+    """Expose the DDP ownership and overlap settings used by readiness callbacks."""
+
     def __init__(self, *params, overlap=True, align=False, optimizer_overlap=False):
+        """Place the supplied parameters in one bucket with configurable synchronization policy."""
         self.module = torch.nn.ParameterList(params)
         self.ddp_config = SimpleNamespace(overlap_param_gather=overlap, align_param_gather=align)
         self.overlap_param_gather_with_optimizer_step = optimizer_overlap
@@ -84,6 +96,7 @@ class _DDP:
 
 @pytest.fixture(autouse=True)
 def legacy_mcore(monkeypatch):
+    """Select the compatibility path with a fake DDP class and graph capture disabled."""
     # Only stub the dependency used at registration; no global package replacement.
     distributed = types.ModuleType("megatron.core.distributed")
     distributed.DistributedDataParallel = _DDP
@@ -95,6 +108,7 @@ def legacy_mcore(monkeypatch):
 
 @pytest.mark.parametrize("align,optimizer_overlap", [(False, False), (True, False), (False, True), (True, True)])
 def test_legacy_callback_preserves_ddp_prefetch_policy(align, optimizer_overlap):
+    """Respect alignment and optimizer overlap while waiting only once per gather."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight, align=align, optimizer_overlap=optimizer_overlap)
     param_sync.register_ddp_param_ready_callbacks([ddp])
@@ -106,11 +120,13 @@ def test_legacy_callback_preserves_ddp_prefetch_policy(align, optimizer_overlap)
 
 
 def test_compatibility_uses_newer_ddp_finish_method(monkeypatch):
+    """Delegate bucket completion to the owning DDP helper when it is available."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     calls = []
 
     def finish(bucket):
+        """Record delegation and complete the gather with the DDP helper's policy."""
         calls.append(bucket)
         bucket.finish_param_sync(skip_next_bucket_dispatch=True)
 
@@ -123,6 +139,7 @@ def test_compatibility_uses_newer_ddp_finish_method(monkeypatch):
 
 @pytest.mark.parametrize("in_flight", [False, True])
 def test_external_schedule_only_drains_an_existing_gather(in_flight):
+    """Drain externally dispatched work without starting a gather or prefetching another bucket."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     ddp.remove_forward_pre_hook_handles.clear()
@@ -136,6 +153,7 @@ def test_external_schedule_only_drains_an_existing_gather(in_flight):
 
 
 def test_graph_capture_does_not_capture_a_new_collective(monkeypatch):
+    """Skip compatibility synchronization while MCore is capturing a CUDA graph."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     param_sync.register_ddp_param_ready_callbacks(ddp)
@@ -146,6 +164,7 @@ def test_graph_capture_does_not_capture_a_new_collective(monkeypatch):
 
 
 def test_native_mcore_callback_takes_precedence(monkeypatch):
+    """Use native readiness without attaching or invoking a compatibility callback."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     calls = []
@@ -160,6 +179,7 @@ def test_native_mcore_callback_takes_precedence(monkeypatch):
 
 
 def test_rewrap_replaces_old_owner_and_disabling_overlap_removes_marker():
+    """Replace stale bucket ownership on rewrap and remove callbacks when overlap is disabled."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     old = _DDP(weight)
     param_sync.register_ddp_param_ready_callbacks(old)
@@ -179,6 +199,7 @@ def test_rewrap_replaces_old_owner_and_disabling_overlap_removes_marker():
 
 
 def test_callback_does_not_retain_ddp_or_bucket():
+    """Allow DDP and its bucket to be collected while a parameter retains the callback."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     param_sync.register_ddp_param_ready_callbacks(ddp)
@@ -190,6 +211,7 @@ def test_callback_does_not_retain_ddp_or_bucket():
 
 
 def test_bucket_callback_is_shared_and_unbuffered_params_are_not_marked():
+    """Share one callback per bucket and leave parameters outside DDP buffers unmarked."""
     first, second = (torch.nn.Parameter(torch.zeros(3, 2)) for _ in range(2))
     ddp = _DDP(first, second)
     frozen = torch.nn.Parameter(torch.zeros(3, 2), requires_grad=False)
@@ -204,6 +226,7 @@ def test_bucket_callback_is_shared_and_unbuffered_params_are_not_marked():
 
 
 def test_unknown_ddp_overlap_contract_fails_at_registration():
+    """Reject overlap-enabled DDP wrappers that cannot map parameters to owning buckets."""
     ddp = _DDP(torch.nn.Parameter(torch.zeros(3, 2)))
     del ddp.param_to_bucket_group
     with pytest.raises(RuntimeError, match="param_to_bucket_group"):
@@ -211,6 +234,7 @@ def test_unknown_ddp_overlap_contract_fails_at_registration():
 
 
 def _load_consumer(path, name, namespace):
+    """Load an actual consumer function into a CPU harness without importing its GPU dependencies."""
     # Execute the real consumer body in a CPU dependency harness. The ordinary
     # module import requires the CUDA/TE/Triton stack; its math is mocked here.
     tree = ast.parse((ROOT / path).read_text())
@@ -222,10 +246,12 @@ def _load_consumer(path, name, namespace):
 
 
 def _consumer(path_kind, weight, tied, ensure_ready):
+    """Run a native or legacy consumer with CPU loss math and return outputs and gradients."""
     hidden = torch.tensor([[[0.5, -0.25]]], requires_grad=True)
     labels = torch.tensor([0])
 
     def linear_cross_entropy(hidden, weight, labels, *_args, **_kwargs):
+        """Compute reference log probabilities and entropy with differentiable CPU operations."""
         logits = hidden.reshape(-1, 2) @ weight.t()
         log_probs = logits.log_softmax(-1)
         return log_probs[:, 0], -(log_probs.exp() * log_probs).sum(-1)
@@ -275,6 +301,7 @@ def _consumer(path_kind, weight, tied, ensure_ready):
 @pytest.mark.parametrize("tied", [False, True])
 @pytest.mark.parametrize("ready_backend", ["compatibility", "native"])
 def test_consumers_publish_fresh_weights_and_drain_handles_across_steps(path_kind, tied, ready_backend, monkeypatch):
+    """Match fresh-weight outputs and gradients while clearing each step's pending gather."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     if ready_backend == "native":
@@ -299,6 +326,7 @@ def test_consumers_publish_fresh_weights_and_drain_handles_across_steps(path_kin
 
 @pytest.mark.parametrize("path_kind", ["native", "legacy"])
 def test_missing_publication_reads_stale_weights_and_fails_next_step(path_kind):
+    """Show that skipping readiness yields stale outputs and blocks the next gather dispatch."""
     weight = torch.nn.Parameter(torch.zeros(3, 2))
     ddp = _DDP(weight)
     ddp.bucket.target = torch.tensor([[1.0, 2.0], [3.0, 4.0], [-1.0, 0.0]])

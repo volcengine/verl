@@ -248,6 +248,11 @@ def make_megatron_module(
     peft_cls: Any = None,
     peft_config: Any = None,
 ):
+    """Build and wrap model chunks, returning them with their TransformerConfig.
+
+    Apply model and PEFT hooks before wrapping, then register fused parameter
+    readiness callbacks against the final DDP bucket owners.
+    """
     try:
         hf_config.rope_theta = get_hf_rope_theta(hf_config)
     except AttributeError:
