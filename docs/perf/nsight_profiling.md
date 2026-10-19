@@ -20,7 +20,7 @@ In `global_profiler`, three new config entries control the profiler behaviors:
 
 * **`global_profiler.steps`**. List of step numbers at which profiling should be performed. For example: [1, 2, 5] will profile steps 1, 2, and 5. And ``null`` means no profiling.
 
-* **`global_profiler.profile_continuous_steps`**. If true, and the following `global_profiler.discrete==False`, then the continuous steps in `global_profiler.steps` will be combined into one database. For example the above step 1 and 2 are in one database, and 5 in another. If false, every step occupies at least one database. The reason for this config is to observe the program behaviors between steps.
+* **`global_profiler.profile_continuous_steps`**. If true, and `global_profiler.global_tool_config.nsys.discrete` is `False`, then the continuous steps in `global_profiler.steps` will be combined into one database. For example the above step 1 and 2 are in one database, and 5 in another. If false, every step occupies at least one database. The reason for this config is to observe the program behaviors between steps.
 
 Nsys options in controller nodes and worker nodes are configured in `global_profiler.global_tool_config.nsys`:
 
@@ -36,6 +36,12 @@ Verl manages mulitiple RL roles, _Actor_, _Ref_, _Rollout_, _Critic_, _Reward_, 
 * **`all_ranks` and `ranks`**. When `all_ranks` is set `True` then all ranks will be profiled; when set `False`, `ranks` will be profiled. By default, verl profiles the whole training process in a series ` worker_process_<PID>.<RID>.nsys-rep` files for each process rank. PID is the process ID; RID is the capture range ID.
 * **`discrete`**. When set `False`, all the roles actions in one training step will be dumped in one database. When set `True`, the actions annotated by `DistProfiler.annotate` will be dumped into a discrete database. In this case, each role's action occupies one `<RID>`.
 * **Verl collocate mode**. Verl can combine two Worker sub classes to one Worker Actor. In this case, the user should take care that the combined Workers have consistent `discrete`. The Nsight Systems profiler uses a `torch.cuda.profiler.start()` and `stop()` pair to dump a `<step>` database anyway.
+
+### Worker capture counts
+
+Keep the role-level `tool_config.nsys.discrete` settings consistent with `global_profiler.global_tool_config.nsys.discrete` so worker profiling behavior matches the capture count.
+
+Leave `global_profiler.global_tool_config.nsys.worker_nsight_options.capture-range-end` as `null` to calculate `repeat-shutdown:N` automatically. With `discrete: False`, each selected step contributes one capture, or adjacent selected steps share one capture when `profile_continuous_steps` is true. For example, steps `[1, 2, 5]` produce counts of 3 and 2 respectively. Discrete mode retains the legacy estimate of six captures per selected step. Duplicate step entries are counted once. Set `capture-range-end` explicitly if your workload needs a different count; an explicit value is preserved. The count should match the captures produced by the workers so Nsight can finalize reports before worker teardown.
 
 ### Independent Ray actors
 
