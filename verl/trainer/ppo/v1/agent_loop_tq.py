@@ -31,6 +31,7 @@ from verl.experimental.agent_loop import (
     AgentLoopWorker,
     get_trajectory_info,
 )
+from verl.trainer.ppo.v1.utils import REMAX_BASELINE_SESSION_ID
 from verl.utils.ray_utils import auto_await
 from verl.utils.tensordict_utils import list_of_dict_to_tensordict
 
@@ -117,6 +118,7 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
             config = self.config.actor_rollout_ref.rollout
             n = prompt.pop("__rollout_n__", config.n if not trajectory["validate"] else config.val_kwargs.n)
             do_sample = prompt.pop("__do_sample__", True)
+            remax_baseline = prompt.pop("__remax_baseline__", False) and not trajectory["validate"]
 
             run_sampling_params = dict(sampling_params)
             if not trajectory["validate"] and not do_sample:
@@ -130,6 +132,23 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
                     )
                 )
                 tasks.append(task)
+
+            if remax_baseline:
+                # One extra greedy session in the same group: same prompt, same weights as the
+                # sampled sessions, which is what the ReMax baseline requires.
+                greedy_sampling_params = dict(sampling_params)
+                apply_greedy_sampling_params(greedy_sampling_params)
+                tasks.append(
+                    asyncio.create_task(
+                        self._run_agent_loop(
+                            greedy_sampling_params,
+                            trajectory=trajectory,
+                            trace=trace,
+                            session_id=REMAX_BASELINE_SESSION_ID,
+                            **prompt,
+                        )
+                    )
+                )
 
             # Publish a terminal status only after every session settles, so no sibling can write after
             # ReplayBuffer clears a failed group.
