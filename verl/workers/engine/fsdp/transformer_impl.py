@@ -343,6 +343,13 @@ class FSDPEngine(BaseEngine):
     def _build_lora_module(self, module):
         module.enable_input_require_grads()
 
+        # The critic is an AutoModelForTokenClassification, which has no prepare_inputs_for_generation
+        # (PeftModelForCausalLM.__init__ requires it), and PEFT's TOKEN_CLS wrapper auto-injects
+        # modules_to_save for the head, colliding with a LoRA layer that target_modules="all-linear"
+        # already put on it. Use the plain PeftModel, and train the head fully instead of adapting it.
+        is_value_model = self.model_config.model_type == "value_model"
+        task_type = None if is_value_model else TaskType.CAUSAL_LM
+
         lora_adapter_path = getattr(self.model_config, "lora_adapter_path", None)
         if lora_adapter_path is not None:
             from peft import PeftModel
@@ -357,11 +364,11 @@ class FSDPEngine(BaseEngine):
             peft_config = module.peft_config["default"]
             # Ensure task_type is TaskType enum, not string
             if isinstance(peft_config.task_type, str):
-                peft_config.task_type = TaskType.CAUSAL_LM
+                peft_config.task_type = task_type
         else:
             # Convert config to regular Python types before creating PEFT model
             lora_config = {
-                "task_type": TaskType.CAUSAL_LM,
+                "task_type": task_type,
                 "r": self.model_config.lora_rank,
                 "lora_alpha": self.model_config.lora_alpha,
                 "target_modules": convert_to_regular_types(self.model_config.target_modules),
@@ -369,6 +376,13 @@ class FSDPEngine(BaseEngine):
                 "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
                 "bias": "none",
             }
+            if is_value_model:
+                head_names = [name for name in ("score", "classifier") if hasattr(module, name)]
+                if head_names:
+                    exclude = lora_config["exclude_modules"]
+                    exclude = [exclude] if isinstance(exclude, str) else list(exclude or [])
+                    lora_config["exclude_modules"] = exclude + head_names
+                    lora_config["modules_to_save"] = head_names
             module = get_peft_model(module, LoraConfig(**lora_config))
 
             # FSDP requires all params in a flat group to share dtype: cast a
