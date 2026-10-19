@@ -12,33 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Real NVFP4 training/rollout integration helpers."""
+"""Megatron/Transformer Engine NVFP4 training helpers."""
 
 from .config import (
     real_nvfp4_moe_layer_indices,
     real_nvfp4_moe_layer_partition,
     real_nvfp4_quant_recipe_config,
-    real_nvfp4_vllm_ignore_layers,
     validate_real_nvfp4_model_contract,
     validate_real_nvfp4_parallelism,
     validate_real_nvfp4_te_recipe,
 )
-from .vllm_runtime import (
-    NVFP4_PER_TOKEN_METHOD,
-    REAL_NVFP4_MOE_BACKEND,
-    RealNVFP4BF16TransportCheck,
-    attest_vllm_native_nvfp4_runtime,
-)
 
 __all__ = [
-    "NVFP4_PER_TOKEN_METHOD",
-    "REAL_NVFP4_MOE_BACKEND",
-    "RealNVFP4BF16TransportCheck",
-    "attest_vllm_native_nvfp4_runtime",
     "real_nvfp4_moe_layer_indices",
     "real_nvfp4_quant_recipe_config",
     "real_nvfp4_moe_layer_partition",
-    "real_nvfp4_vllm_ignore_layers",
     "validate_real_nvfp4_model_contract",
     "validate_real_nvfp4_parallelism",
     "validate_real_nvfp4_te_recipe",

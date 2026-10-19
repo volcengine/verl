@@ -130,7 +130,7 @@ class QATEngineConfig(BaseConfig):
 
     Args:
         enable (bool): Whether to enable QAT, default False
-        mode (str): Quantization mode, "w4a16" or "w4a4", default "w4a16"
+        mode (str): Quantization mode, "fp8", "mxfp8", "mxfp4", or "nvfp4", default "fp8"
         group_size (int): Group size for blockwise quantization, default 16
         ignore_patterns (list[str]): Module name patterns to exclude from quantization
         activation_observer (str): Observer strategy for activation global_scale (W4A4 only)
@@ -138,7 +138,7 @@ class QATEngineConfig(BaseConfig):
     """
 
     enable: bool = False
-    mode: str = "w4a16"
+    mode: str = "fp8"
     group_size: int = 16
     ignore_patterns: list[str] = field(default_factory=lambda: ["lm_head", "embed_tokens", "re:.*mlp.gate$"])
     activation_observer: str = "static_minmax"
@@ -151,8 +151,10 @@ class RealNVFP4EngineConfig(BaseConfig):
 
     Unlike :class:`QATEngineConfig`, this mode does not replace linear layers
     with ModelOpt fake-quant modules. Routed-expert MLP GEMMs run Transformer
-    Engine's NVFP4 recipe while parameters stay BF16; refit transports BF16
-    and the vLLM worker quantizes it. Attention remains BF16 on both sides.
+    Engine's NVFP4 recipe, with activations scaled per token, while parameters
+    stay BF16. It pairs with ``rollout.quantization.moe=NVFP4_PER_TOKEN``, whose
+    ``ignore`` list must keep the same carved-out layers in BF16. Attention
+    remains BF16 on both sides.
     """
 
     enable: bool = False
@@ -208,7 +210,9 @@ class McoreEngineConfig(EngineConfig):
     """
 
     # sequence_parallel is not listed as a frozen field for auto-correction purpose
-    _mutable_fields = EngineConfig._mutable_fields | {"sequence_parallel"}
+    _mutable_fields = EngineConfig._mutable_fields | {"sequence_parallel", "_liger_flsce_capacity"}
+    # Runtime-only reservation shared by colocated engines, not a user-facing knob.
+    _liger_flsce_capacity: Optional[tuple[int, int]] = field(default=None, init=False, repr=False)
     # mcore parallelism
     tensor_model_parallel_size: int = 1
     expert_model_parallel_size: int = 1
@@ -246,7 +250,7 @@ class McoreEngineConfig(EngineConfig):
         assert self.dtype in ["bfloat16", "float16"], f"dtype {self.dtype} not supported"
         if self.real_nvfp4.enable:
             if self.qat.enable:
-                raise ValueError("real_nvfp4 and legacy ModelOpt QAT are mutually exclusive")
+                raise ValueError("real_nvfp4 and ModelOpt QAT are mutually exclusive")
             if self.dtype != "bfloat16":
                 raise ValueError("real_nvfp4 currently requires dtype='bfloat16'")
             if self.use_megatron_fsdp:

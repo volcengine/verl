@@ -1,65 +1,51 @@
 # Native NVFP4 training and rollout
 
-This example trains Qwen3-30B-A3B-Base with Megatron/Transformer Engine and
-runs vLLM rollout using native NVFP4 weights and per-token activation scaling.
-Persistent training weights and actor-to-rollout transfers remain BF16.
-vLLM packs the transferred weights during native reload, preserving the storage
-used by CUDA graphs across policy updates.
+This example trains Qwen3-30B-A3B-Base with Megatron/Transformer Engine NVFP4
+and runs vLLM rollout in the matching NVFP4 precision. Training parameters stay
+BF16; each refit exports the routed experts as NVFP4 on the trainer side
+(`rollout.quantization.moe=NVFP4_PER_TOKEN`), and vLLM reloads them into the
+storage its CUDA graphs captured.
 
 ## Precision and supported configuration
 
-Setting `actor_rollout_ref.actor.megatron.real_nvfp4.enable=True` runs the
-routed-expert MLPs in NVFP4 with per-token activation scaling, dequantized
-backward, and adaptive 4-over-6 disabled. Attention, router, norms,
-embeddings and the LM head remain BF16. `num_layers_at_start_in_bf16` and
-`num_layers_at_end_in_bf16` keep whole decoder layers in BF16 for both training
-and rollout; this example keeps the first two and last four.
+`actor_rollout_ref.actor.megatron.real_nvfp4.enable=True` runs the routed-expert
+MLPs in NVFP4 with per-token activation scaling, dequantized backward, and
+adaptive 4-over-6 disabled. The `NVFP4_PER_TOKEN` rollout preset uses the same
+precision: NVFP4 expert weights and activations quantized per token by
+FlashInfer's TRT-LLM MoE kernel. Attention, router, norms, embeddings and the
+LM head remain BF16 on both sides.
+
+`num_layers_at_start_in_bf16` and `num_layers_at_end_in_bf16` keep whole decoder
+layers in BF16 during training; `rollout.quantization.ignore` must list the same
+routed-expert layers, which the trainer checks at startup. This example keeps
+the first two and last four of 48 layers in BF16.
 
 The current integration supports the all-MoE `Qwen3MoeForCausalLM` layout,
-training PP=1 without virtual pipeline parallelism, and rollout TP/PP/EP=1/1/1.
-It uses BF16 KV cache, `FULL_DECODE_ONLY` CUDA graphs and no speculative decoding.
-Mixed dense/MoE layouts and shared experts are not supported.
+training PP=1 without virtual pipeline parallelism, and rollout TP/PP/EP=1/1/1
+with the colocated `naive` checkpoint engine. It uses BF16 KV cache,
+`FULL_DECODE_ONLY` CUDA graphs and no speculative decoding. Mixed dense/MoE
+layouts and shared experts are not supported.
 
 ## Installation
 
 The runtime uses PyTorch 2.13.0/CUDA 13, Transformer Engine 2.18.0,
-Megatron-Core 0.19.2, Megatron-Bridge 0.6.2, vLLM 0.29.0, Transformers 5.12.1 and FlashInfer 0.6.18.
-The project lock selects CUTLASS DSL 4.6.2 and QuACK 0.6.4, matching vLLM's
-released dependencies.
-Keep the FlashInfer Python, cubin and CUDA JIT-cache packages aligned.
-
-Build through the official Docker entry:
-
-```bash
-docker build -f docker/Dockerfile.uv.cu130 \
-  --build-arg NVFP4_RUNTIME=1 -t verl:nvfp4 .
-```
-
-Alternatively, in a new environment:
+Megatron-Core 0.19.2, Megatron-Bridge 0.6.2, vLLM 0.29.0, Transformers 5.12.1
+and FlashInfer 0.6.18:
 
 ```bash
 uv sync --frozen --extra megatron --extra vllm
-.venv/bin/python examples/real_nvfp4/runtime_backports/apply_vllm_nvfp4.py
 ```
 
-The vLLM 0.29 compatibility patch derives scales from freshly loaded weights
-and restores reciprocal-scale storage after refit and level-2 sleep. Packing
-and kernel reuse are already included in this release.
-
-The patch checks the vLLM version and source hash. Apply it while building the
-environment, before starting workers.
-
-For a non-Docker launch, use the environment's NCCL library:
+Keep the FlashInfer Python, cubin and CUDA JIT-cache packages aligned. For a
+non-Docker launch, use the environment's NCCL library:
 
 ```bash
 export LD_LIBRARY_PATH="$PWD/.venv/lib/python3.12/site-packages/nvidia/nccl/lib:${LD_LIBRARY_PATH:-}"
 ```
 
-Apex, FlashAttention and Megatron-Bridge use the official cu130/Torch 2.13
-wheelhouse. Transformer Engine 2.18.0 uses its official PyPI distribution;
-its PyTorch extension selects a matching release wheel when available and
-otherwise builds against the selected Torch runtime. Use a persistent uv
-cache to reuse the extension build.
+Transformer Engine 2.18.0 uses its official PyPI distribution; its PyTorch
+extension selects a matching release wheel when available and otherwise builds
+against the selected Torch runtime. Use a persistent uv cache to reuse the build.
 
 ## Run
 
@@ -99,8 +85,9 @@ Transformer Engine reads its NVFP4 settings from `NVTE_*` environment variables
 in each worker; `runtime_env.yaml` sets them and the trainer rejects a recipe
 that differs. Keep these variables when passing another file via `RUNTIME_ENV`.
 
-R3 uses vLLM's native routing capture inside the fused MoE path. Runtime checks validate
-BF16 weight coverage, NVFP4 layer selection and scale values after native reload.
+R3 uses vLLM's native routing capture inside the fused MoE path. Runtime checks
+validate the exported expert tensors, the NVFP4 layer selection and the scale
+values after each reload.
 
 ## Tests
 
@@ -113,5 +100,5 @@ python -m pytest -q tests/utils/real_nvfp4
 python -m pytest -q tests/utils/test_bucketed_weight_transfer.py
 ```
 
-Coverage includes recipe compatibility, BF16 transport, GPU packing, repeated
-refit and sleep/wake scale restoration.
+Coverage includes recipe compatibility, the rollout preset, refit checks, and
+bit-exact agreement of the trainer-side export with vLLM's online NVFP4 quantization.

@@ -130,17 +130,6 @@ class ServerAdapter(BaseRollout):
         replica_rank: int = -1,
     ):
         super().__init__(config, model_config, device_mesh)
-        if self.config.get("quantization", None) == "fp8":
-            import sglang
-            from packaging import version
-
-            from verl.utils.sglang.sglang_fp8_utils import build_sglang_fp8_quant_config
-
-            assert version.parse(sglang.__version__) >= version.parse("0.5.5"), (
-                "sglang>=0.5.5 is required for FP8 quantization"
-            )
-            fp8_block_quant_kwargs = build_sglang_fp8_quant_config(self.model_config.hf_config)
-            self.model_config.hf_config.quantization_config = fp8_block_quant_kwargs
         self._engine: AsyncHttpServerAdapter = None
 
         rank = int(os.environ["RANK"])
@@ -357,18 +346,6 @@ class ServerAdapter(BaseRollout):
                 await self._engine.load_lora_adapter_from_tensor(req)
         else:
             update_weights_bucket_bytes = int(self.config.checkpoint_engine.update_weights_bucket_megabytes) << 20
-            if self.config.get("quantization", None) == "fp8":
-                from verl.utils.sglang.sglang_fp8_utils import SGLangFP8QuantizerHelper
-
-                logger.info("Convert bf16 weights to fp8 format before loading")
-                fp8_quantizer_helper = SGLangFP8QuantizerHelper(self.model_config.hf_config.quantization_config)
-                weights = fp8_quantizer_helper.quant_weights_by_name(
-                    weights,
-                    dtype=self.model_config.hf_config.dtype,
-                )
-            else:
-                weights = weights
-
             fusion_groups = (
                 DEEPSEEK_V4_FUSION_GROUPS
                 if getattr(self.model_config.hf_config, "model_type", None) == "deepseek_v4"

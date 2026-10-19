@@ -24,20 +24,12 @@ def _hf_get(hf_config: Any, name: str, default: Any = None) -> Any:
 
 
 def real_nvfp4_moe_layer_indices(hf_config: Any) -> list[int]:
-    """Indices of the decoder layers that carry routed experts.
+    """Indices of the decoder layers that carry routed experts."""
 
-    Derived from the config rather than from the architecture name, following
-    the HF placement rule shared by the Qwen MoE family: layer ``i`` is sparse
-    when it is not listed in ``mlp_only_layers`` and ``(i + 1)`` is a multiple
-    of ``decoder_sparse_step``. Models that omit those keys are all-MoE.
-    """
+    from verl.utils.qat.compressed_tensors import moe_layer_partition
 
-    num_layers = int(_hf_get(hf_config, "num_hidden_layers") or 0)
-    sparse_step = int(_hf_get(hf_config, "decoder_sparse_step") or 1)
-    dense_layers = set(_hf_get(hf_config, "mlp_only_layers") or [])
-    if sparse_step <= 0:
-        raise ValueError(f"real_nvfp4 needs a positive decoder_sparse_step, got {sparse_step}")
-    return [i for i in range(num_layers) if i not in dense_layers and (i + 1) % sparse_step == 0]
+    quantized, high_precision = moe_layer_partition(hf_config, {})
+    return sorted(quantized + high_precision)
 
 
 def real_nvfp4_bf16_layer_indices(num_layers: int, num_layers_at_start: int, num_layers_at_end: int) -> list[int]:
@@ -67,22 +59,6 @@ def real_nvfp4_moe_layer_partition(
     carved = set(real_nvfp4_bf16_layer_indices(num_layers, num_layers_at_start_in_bf16, num_layers_at_end_in_bf16))
     moe_layers = real_nvfp4_moe_layer_indices(hf_config)
     return [i for i in moe_layers if i not in carved], [i for i in moe_layers if i in carved]
-
-
-def real_nvfp4_vllm_ignore_layers(
-    hf_config: Any,
-    *,
-    num_layers_at_start_in_bf16: int = 0,
-    num_layers_at_end_in_bf16: int = 0,
-) -> list[str]:
-    """Exact vLLM module names excluded from online NVFP4."""
-
-    _, bf16_moe_layers = real_nvfp4_moe_layer_partition(
-        hf_config,
-        num_layers_at_start_in_bf16=num_layers_at_start_in_bf16,
-        num_layers_at_end_in_bf16=num_layers_at_end_in_bf16,
-    )
-    return [f"model.layers.{index}.mlp.experts" for index in bf16_moe_layers]
 
 
 def real_nvfp4_quant_recipe_config(num_layers: int, num_layers_at_start: int, num_layers_at_end: int) -> dict:
@@ -121,8 +97,8 @@ def validate_real_nvfp4_model_contract(hf_config: Any) -> None:
     """Restrict the current recipe to all-MoE decoders without shared experts.
 
     The training recipe's fc1/fc2 patterns would also quantize dense MLPs,
-    whereas rollout quantizes routed experts only, so mixed dense/MoE layouts
-    stay unsupported until non-expert precision is configured on both sides.
+    whereas the rollout preset quantizes routed experts only, so mixed
+    dense/MoE layouts stay unsupported.
     """
 
     num_experts = int(_hf_get(hf_config, "num_experts") or _hf_get(hf_config, "n_routed_experts") or 0)
@@ -137,13 +113,13 @@ def validate_real_nvfp4_model_contract(hf_config: Any) -> None:
             "real_nvfp4 currently requires every decoder layer to be MoE; mixed dense/MoE layouts "
             "would quantize dense training MLPs that remain BF16 in rollout"
         )
-    # Shared experts would be extra per-layer weights on the refit stream, so the
-    # expert-weight attestation would be wrong rather than merely conservative.
+    # Shared experts would be trained in NVFP4 by the fc1/fc2 patterns but stay
+    # BF16 in the rollout preset, which targets routed experts only.
     for key in ("n_shared_experts", "shared_expert_intermediate_size", "num_shared_experts"):
         if int(_hf_get(hf_config, key) or 0) > 0:
             raise ValueError(
                 f"real_nvfp4 does not model shared experts yet ({key}="
-                f"{_hf_get(hf_config, key)}); the refit expert-weight count would not match"
+                f"{_hf_get(hf_config, key)}); they would train in NVFP4 but roll out in BF16"
             )
 
 
@@ -171,8 +147,8 @@ def validate_real_nvfp4_te_recipe(recipe: Any, *, backward_override: str) -> Non
         "disable_rht": True,
         "disable_stochastic_rounding": True,
         "disable_2d_quantization": True,
-        # Native nvfp4_per_token rollout uses standard NVFP4, not
-        # TE's adaptive 4-over-6 representation. Keep training aligned.
+        # The NVFP4_PER_TOKEN rollout uses standard NVFP4, not TE's
+        # adaptive 4-over-6 representation. Keep training aligned.
         "nvfp4_4over6": "none",
         "nvfp4_4over6_e4m3_use_256": "all",
         "nvfp4_4over6_err_mode": "MAE",

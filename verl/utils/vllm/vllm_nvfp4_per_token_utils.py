@@ -1,0 +1,272 @@
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""vLLM rollout for the ``NVFP4_PER_TOKEN`` routed-expert preset.
+
+The trainer exports compressed-tensors NVFP4 expert weights; vLLM loads them and
+quantizes activations per token in FlashInfer's TRT-LLM kernel, matching
+Transformer Engine's row-scaled NVFP4 training. vLLM 0.29 implements per-token
+activations only for its online method, so this module provides the
+compressed-tensors equivalent.
+
+Refits go through vLLM's layerwise reload: each expert layer is rebuilt in
+checkpoint layout, post-processed once it is complete, and copied back into the
+storage the CUDA graphs captured. The post-process derives its scales from the
+freshly loaded tensors and keeps the original kernel, whose quant config points
+at that captured storage.
+"""
+
+import logging
+import re
+from collections.abc import Collection
+from dataclasses import replace
+
+import torch
+
+from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme, moe_layer_partition
+
+logger = logging.getLogger(__name__)
+
+_EXPERT_TENSOR_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)\.(\w+)$")
+_QUANTIZED_SUFFIXES = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
+_MOE_MODULE_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts(?:\.routed_experts)?$")
+
+
+def install_nvfp4_per_token_compressed_tensors_patch():
+    """Route ``NVFP4_PER_TOKEN`` compressed-tensors experts to the per-token TRT-LLM kernel."""
+    from vllm.model_executor.layers.fused_moe.oracle.nvfp4 import (
+        NvFp4MoeBackend,
+        convert_to_nvfp4_moe_kernel_format,
+        make_nvfp4_moe_kernel,
+    )
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        CompressedTensorsMoEMethod,
+        compressed_tensors_moe_w4a4_nvfp4,
+    )
+    from vllm.model_executor.utils import replace_parameter
+
+    if getattr(CompressedTensorsMoEMethod, "_verl_nvfp4_per_token_patch", False):
+        return
+    base = compressed_tensors_moe_w4a4_nvfp4.CompressedTensorsW4A4Nvfp4MoEMethod
+
+    class CompressedTensorsW4A4Nvfp4PerTokenMoEMethod(base):
+        """Compressed-tensors NVFP4 weights with per-token dynamic NVFP4 activations."""
+
+        def __init__(self, moe, layer_name=None):
+            # Only FlashInfer TRT-LLM quantizes activations per token.
+            selection_moe = replace(moe, moe_backend="flashinfer_trtllm") if moe.moe_backend == "auto" else moe
+            super().__init__(selection_moe, layer_name=layer_name, use_a16=False)
+            if self.nvfp4_backend != NvFp4MoeBackend.FLASHINFER_TRTLLM:
+                raise NotImplementedError(
+                    f"NVFP4_PER_TOKEN requires the FlashInfer TRT-LLM MoE backend, got {self.nvfp4_backend}"
+                )
+
+        def process_weights_after_loading(self, layer):
+            layer.w13_weight = torch.nn.Parameter(layer.w13_weight_packed.data, requires_grad=False)
+            delattr(layer, "w13_weight_packed")
+            layer.w2_weight = torch.nn.Parameter(layer.w2_weight_packed.data, requires_grad=False)
+            delattr(layer, "w2_weight_packed")
+
+            # gate_proj and up_proj share one global scale and the static input scales
+            # are 1; NVFP4PerTokenRefitCheck enforces both on every refit (the dummy
+            # initial load carries neither). Per-token activation scales come from the kernel.
+            w13_global_scale = layer.w13_weight_global_scale
+            ones = torch.ones(layer.num_experts, device=layer.w13_weight.device, dtype=torch.float32)
+            (w13, w13_scale, w13_scale_2, a13_scale, w2, w2_scale, w2_scale_2, a2_scale) = (
+                convert_to_nvfp4_moe_kernel_format(
+                    nvfp4_backend=self.nvfp4_backend,
+                    layer=layer,
+                    w13=layer.w13_weight,
+                    w13_scale=layer.w13_weight_scale,
+                    w13_scale_2=(1.0 / w13_global_scale[:, 0]).contiguous(),
+                    a13_scale=ones,
+                    w2=layer.w2_weight,
+                    w2_scale=layer.w2_weight_scale,
+                    w2_scale_2=1.0 / layer.w2_weight_global_scale,
+                    a2_scale=ones.clone(),
+                    is_act_and_mul=self.moe.is_act_and_mul,
+                )
+            )
+            replace_parameter(layer, "w13_weight", w13)
+            replace_parameter(layer, "w13_weight_scale", w13_scale)
+            replace_parameter(layer, "w13_weight_scale_2", w13_scale_2)
+            replace_parameter(layer, "w13_input_scale", a13_scale)
+            replace_parameter(layer, "w2_weight", w2)
+            replace_parameter(layer, "w2_weight_scale", w2_scale)
+            replace_parameter(layer, "w2_weight_scale_2", w2_scale_2)
+            replace_parameter(layer, "w2_input_scale", a2_scale)
+
+            # Post-process with a kernel built from the fresh tensors. On a refit the
+            # layerwise reload copies the results into the original storage, which the
+            # retained kernel (and its CUDA graphs) references.
+            processing_quant_config = self.get_fused_moe_quant_config(layer)
+            replace_parameter(layer, "nvfp4_a1_gscale", processing_quant_config.a1_gscale)
+            replace_parameter(layer, "nvfp4_a2_gscale", processing_quant_config.a2_gscale)
+            processing_kernel = make_nvfp4_moe_kernel(
+                moe_quant_config=processing_quant_config,
+                moe_config=self.moe,
+                experts_cls=self.experts_cls,
+                backend=self.nvfp4_backend,
+                routing_tables=layer._expert_routing_tables(),
+                per_token_activation=True,
+            )
+            if self.moe_kernel is None:
+                self.moe_quant_config = processing_quant_config
+                self.moe_kernel = processing_kernel
+            processing_kernel.fused_experts.process_weights_after_loading(layer)
+            layer._already_called_process_weights_after_loading = True
+
+    original = CompressedTensorsMoEMethod.get_moe_method
+
+    def get_moe_method(quant_config, layer, layer_name):
+        quant_config._add_fused_moe_to_target_scheme_map()
+        schemes = [
+            quant_config.get_scheme_dict(layer, layer_name + projection)
+            for projection in (".0.gate_proj", ".0.up_proj", ".0.down_proj")
+        ]
+        if schemes[0] is not None and all(scheme == schemes[0] for scheme in schemes):
+            weights, inputs = schemes[0].get("weights"), schemes[0].get("input_activations")
+            if is_nvfp4_per_token_scheme(weights, inputs):
+                return CompressedTensorsW4A4Nvfp4PerTokenMoEMethod(layer.moe_config, layer_name)
+        return original(quant_config, layer, layer_name)
+
+    CompressedTensorsMoEMethod.get_moe_method = staticmethod(get_moe_method)
+    CompressedTensorsMoEMethod._verl_nvfp4_per_token_patch = True
+
+
+def nvfp4_per_token_quantization_config(vllm_config) -> dict | None:
+    """The rollout ``quantization_config`` when any of its config groups is ``NVFP4_PER_TOKEN``."""
+    hf_config = getattr(getattr(vllm_config, "model_config", None), "hf_config", None)
+    config = getattr(hf_config, "quantization_config", None)
+    if hasattr(config, "to_dict"):
+        config = config.to_dict()
+    if not isinstance(config, dict) or config.get("quant_method") != "compressed-tensors":
+        return None
+    groups = (config.get("config_groups") or {}).values()
+    if any(is_nvfp4_per_token_scheme(g.get("weights"), g.get("input_activations")) for g in groups):
+        return config
+    return None
+
+
+def is_nvfp4_per_token_method(quant_method) -> bool:
+    return type(quant_method).__name__ == "CompressedTensorsW4A4Nvfp4PerTokenMoEMethod"
+
+
+class NVFP4PerTokenRefitCheck:
+    """Check one refit round: each expert projection arrives once, in the expected precision."""
+
+    def __init__(self, hf_config, quantization_config: dict):
+        quantized, bf16 = moe_layer_partition(hf_config, quantization_config)
+        num_experts = int(getattr(hf_config, "num_experts", 0) or getattr(hf_config, "n_routed_experts", 0))
+        projections = ("gate_proj", "up_proj", "down_proj")
+        self.expected = {
+            (layer, expert, projection, suffix)
+            for layers, suffixes in ((quantized, _QUANTIZED_SUFFIXES), (bf16, ("weight",)))
+            for layer in layers
+            for expert in range(num_experts)
+            for projection in projections
+            for suffix in suffixes
+        }
+        self.seen = set()
+        self.gate_up_global_scales = {}
+
+    def check_bucket(self, weights: list[tuple[str, torch.Tensor]]) -> None:
+        for name, tensor in weights:
+            match = _EXPERT_TENSOR_RE.search(name)
+            if match is None:
+                continue
+            layer, expert, projection, suffix = int(match.group(1)), int(match.group(2)), match.group(3), match.group(4)
+            key = (layer, expert, projection, suffix)
+            if key not in self.expected:
+                raise RuntimeError(f"NVFP4_PER_TOKEN refit contains unexpected expert tensor {name}")
+            if key in self.seen:
+                raise RuntimeError(f"NVFP4_PER_TOKEN refit contains duplicate expert tensor {name}")
+            self.seen.add(key)
+            if suffix == "input_global_scale" and not torch.all(tensor == 1):
+                raise RuntimeError(f"NVFP4_PER_TOKEN activations are scaled per token, but {name} is not 1")
+            if suffix == "weight_global_scale" and projection != "down_proj":
+                # The kernel applies one global scale to the fused gate/up weight.
+                other = self.gate_up_global_scales.setdefault((layer, expert), tensor.detach().float().cpu())
+                if not torch.equal(other, tensor.detach().float().cpu()):
+                    raise RuntimeError(f"NVFP4_PER_TOKEN gate_proj and up_proj global scales differ at {name}")
+
+    def finish(self) -> None:
+        missing = sorted(self.expected - self.seen)
+        if missing:
+            raise RuntimeError(f"NVFP4_PER_TOKEN refit is missing {len(missing)} expert tensors: {missing[:8]}")
+
+
+@torch.no_grad()
+def _attest_scale_references(module) -> None:
+    """The retained kernel must read the current scales from the captured storage."""
+    method = module.quant_method
+    experts = getattr(getattr(method, "moe_kernel", None), "fused_experts", None)
+    if not getattr(experts, "per_token_activation", False):
+        raise RuntimeError("NVFP4_PER_TOKEN MoE kernel does not quantize activations per token")
+    quant_config = experts.quant_config
+    for config_name, parameter_name in (
+        ("g1_alphas", "w13_weight_scale_2"),
+        ("g2_alphas", "w2_weight_scale_2"),
+        ("w1_scale", "w13_weight_scale"),
+        ("w2_scale", "w2_weight_scale"),
+        ("a1_gscale", "nvfp4_a1_gscale"),
+        ("a2_gscale", "nvfp4_a2_gscale"),
+    ):
+        actual = getattr(quant_config, config_name, None)
+        registered = getattr(module, parameter_name, None)
+        if not isinstance(actual, torch.Tensor) or not isinstance(registered, torch.Tensor):
+            raise RuntimeError(f"NVFP4_PER_TOKEN scale reference missing: {config_name}/{parameter_name}")
+        if actual.data_ptr() != registered.data_ptr():
+            raise RuntimeError(f"NVFP4_PER_TOKEN kernel has a stale scale reference: {config_name}/{parameter_name}")
+    actual = getattr(experts, "g1_scale_c", None)
+    registered = getattr(module, "g1_scale_c", None)
+    if not isinstance(actual, torch.Tensor) or not isinstance(registered, torch.Tensor):
+        raise RuntimeError("NVFP4_PER_TOKEN derived scale g1_scale_c is missing")
+    if actual.data_ptr() != registered.data_ptr():
+        raise RuntimeError("NVFP4_PER_TOKEN kernel has a stale g1_scale_c reference")
+    expected = quant_config.a2_gscale
+    if experts.moe_config.is_act_and_mul:
+        expected = quant_config.g1_alphas * quant_config.a2_gscale
+    if not torch.equal(registered, expected):
+        raise RuntimeError("NVFP4_PER_TOKEN g1_scale_c does not match the current weight scales")
+
+
+def attest_nvfp4_per_token_runtime(
+    model: torch.nn.Module,
+    *,
+    quantized_layers: Collection[int],
+    bf16_layers: Collection[int],
+) -> None:
+    """Check the routed-expert precision of every layer and the scale state of the NVFP4 ones."""
+    quantized, unquantized = set(), set()
+    for module_name, module in model.named_modules():
+        match = _MOE_MODULE_RE.search(module_name)
+        method = getattr(module, "quant_method", None)
+        if match is None or method is None:
+            continue
+        layer = int(match.group(1))
+        if is_nvfp4_per_token_method(method):
+            if layer in quantized:
+                raise RuntimeError(f"NVFP4_PER_TOKEN MoE layer {layer} was found twice")
+            if not getattr(module, "_already_called_process_weights_after_loading", False):
+                raise RuntimeError(f"NVFP4_PER_TOKEN MoE layer {layer} was not post-processed")
+            _attest_scale_references(module)
+            quantized.add(layer)
+        elif type(method).__name__ == "UnquantizedFusedMoEMethod":
+            unquantized.add(layer)
+    if quantized != set(quantized_layers) or not set(bf16_layers) <= unquantized:
+        raise RuntimeError(
+            "NVFP4_PER_TOKEN rollout has the wrong routed-expert precision: "
+            f"nvfp4={sorted(quantized)} (expected {sorted(quantized_layers)}), "
+            f"bf16={sorted(unquantized)} (expected {sorted(bf16_layers)})"
+        )

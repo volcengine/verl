@@ -53,15 +53,16 @@ from verl.utils.profiler import (
 )
 from verl.utils.tokenizer import normalize_token_ids
 from verl.utils.tracking import RLInsightLogger
-from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import (
-    extract_response_topk_logprobs,
+    extract_response_topk_logprobs_with_coverage,
     get_max_position_embeddings,
     get_vision_placeholder_token_ids,
     qwen2_5_vl_dedup_image_tokens,
     run_uvicorn,
+    validate_topk_logprob_request,
+    warn_topk_logprob_budget,
 )
 from verl.workers.rollout.vllm_rollout.utils import (
     VLLM_LORA_INT_ID,
@@ -75,6 +76,17 @@ from verl.workers.rollout.vllm_rollout.utils import (
 )
 
 _VLLM_VERSION = version.parse(vllm.__version__)
+
+# vLLM args that verl sets from its own config, and the config that controls each one.
+# rollout.engine_kwargs.vllm passes everything else through but may not set these.
+_VERL_MANAGED_VLLM_ARGS = {
+    "tensor_parallel_size": "rollout.tensor_model_parallel_size",
+    "data_parallel_size": "rollout.data_parallel_size",
+    "enable_expert_parallel": "rollout.expert_parallel_size (= tensor_model_parallel_size * data_parallel_size)",
+    "enable_lora": "actor_rollout_ref.model.lora",
+    "max_lora_rank": "actor_rollout_ref.model.lora",
+    "enable_return_routed_experts": "rollout.enable_rollout_routing_replay",
+}
 
 # Max wait for admissions already past the submission gate to reach the engine.
 _GATE_BARRIER_TIMEOUT_S = 60.0
@@ -256,7 +268,7 @@ class vLLMHttpServer:
         args: tuple = (),
         kwargs: dict[str, Any] | None = None,
     ):
-        await self.engine.collective_rpc(
+        return await self.engine.collective_rpc(
             method=method,
             timeout=timeout,
             args=args,
@@ -305,16 +317,17 @@ class vLLMHttpServer:
 
             set_expandable_segments(True)
 
-        quantization, hf_overrides = self._apply_quantization(engine_kwargs)
+        hf_overrides = self._apply_quantization()
 
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
             compilation_config = json.loads(compilation_config)
-        if (getattr(self.config, "real_nvfp4", None) or {}).get("enable", False):
-            # Native NVFP4 rollout is validated with full CUDA graphs for decode only.
+        quantization = self.config.quantization
+        if quantization.moe and quantization.moe.upper() == "NVFP4_PER_TOKEN":
+            # The per-token NVFP4 rollout is validated with full CUDA graphs for decode only.
             compilation_config.setdefault("cudagraph_mode", "FULL_DECODE_ONLY")
             if compilation_config["cudagraph_mode"] != "FULL_DECODE_ONLY":
-                raise ValueError("real_nvfp4 rollout requires compilation_config.cudagraph_mode=FULL_DECODE_ONLY")
+                raise ValueError("NVFP4_PER_TOKEN rollout requires compilation_config.cudagraph_mode=FULL_DECODE_ONLY")
         compilation_config.setdefault("cudagraph_mode", "FULL_AND_PIECEWISE")
 
         # FULL cuda graph is not yet supported with DCP, downgrade to PIECEWISE
@@ -350,7 +363,6 @@ class vLLMHttpServer:
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "seed": self.replica_rank + self.config.seed,
             "override_generation_config": json.dumps(override_generation_config),
-            "quantization": quantization,
             "hf_overrides": hf_overrides,
             "scheduling_policy": self.config.scheduling_policy,
             "compilation_config": compilation_config,
@@ -657,6 +669,10 @@ class vLLMHttpServer:
 
         self._preprocess_sampling_params(sampling_params)
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
+        validate_topk_logprob_request(sampling_params)
+        budget_warnings = getattr(self, "_topk_budget_warnings", set())
+        warn_topk_logprob_budget(sampling_params, budget_warnings)
+        self._topk_budget_warnings = budget_warnings
         prompt_ids = qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
         multi_modal_data = {}
         if image_data is not None:
@@ -741,9 +757,37 @@ class vLLMHttpServer:
         log_probs = None
         if sampling_params.logprobs:
             # indexing FlatLogprobs per position would rebuild a k+1 dict per token
-            log_probs, extra_fields["response_topk_ids"], extra_fields["response_topk_log_probs"] = (
-                extract_response_topk_logprobs(final_res.outputs[0].logprobs, sampling_params.logprobs)
+            (
+                log_probs,
+                extra_fields["response_topk_ids"],
+                extra_fields["response_topk_log_probs"],
+                extra_fields["response_support_complete"],
+            ) = extract_response_topk_logprobs_with_coverage(
+                final_res.outputs[0].logprobs,
+                sampling_params.logprobs,
+                vocab_size=self.engine.model_config.get_vocab_size(),
             )
+            truncated = sampling_params.top_p < 1 or sampling_params.top_k > 0 or sampling_params.min_p > 0
+            if truncated and not extra_fields["response_support_complete"].all():
+                # Use the effective request after defaults, hooks and vLLM canonicalization.
+                # Repeated requests with the same settings need only one diagnostic.
+                signature = (
+                    sampling_params.temperature,
+                    sampling_params.top_p,
+                    sampling_params.top_k,
+                    sampling_params.min_p,
+                    sampling_params.logprobs,
+                )
+                warned = getattr(self, "_topk_coverage_warnings", set())
+                if signature not in warned:
+                    logger.info(
+                        "The recorded top-k head does not prove complete sampling support for every token; "
+                        "score centering retains its head-plus-tail approximation for unknown rows. "
+                        "Effective request: temperature=%s, top_p=%s, top_k=%s, min_p=%s, logprobs=%s.",
+                        *signature,
+                    )
+                    warned.add(signature)
+                    self._topk_coverage_warnings = warned
         elif sampling_params.logprobs is not None:
             log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
 
@@ -1281,6 +1325,12 @@ class vLLMHttpServer:
 
     def _preprocess_engine_kwargs(self, engine_kwargs: dict) -> None:
         """Mutate engine_kwargs in-place before the CLI args dict is built."""
+        managed = [key for key in engine_kwargs if key.replace("-", "_") in _VERL_MANAGED_VLLM_ARGS]
+        if managed:
+            raise ValueError(
+                "rollout.engine_kwargs.vllm may not set args that verl derives from its config: "
+                + "; ".join(f"{key} (set {_VERL_MANAGED_VLLM_ARGS[key.replace('-', '_')]})" for key in managed)
+            )
         if _VLLM_VERSION < version.parse("0.22.0"):
             # Work around multimodal processor cache desync across pause/resume.
             # See: https://github.com/vllm-project/vllm/pull/43001/
@@ -1302,19 +1352,11 @@ class vLLMHttpServer:
                 raise NotImplementedError("delta_sharded with vLLM requires data_parallel_size=1")
             if self.config.disaggregation.enabled:
                 raise NotImplementedError("delta_sharded with vLLM does not support PD disaggregation")
-            # config.pipeline_model_parallel_size > 1 is already rejected globally;
-            # engine_kwargs is forwarded verbatim to vLLM, so close topology
-            # override paths that would bypass VERL's worker and IPC mapping.
-            if int(engine_kwargs.get("data_parallel_size") or 1) > 1:
-                raise NotImplementedError("delta_sharded with vLLM requires data_parallel_size=1")
+            # config.pipeline_model_parallel_size > 1 is already rejected globally and
+            # engine_kwargs cannot set TP/DP (see _VERL_MANAGED_VLLM_ARGS); close the
+            # remaining pipeline override that would bypass VERL's worker and IPC mapping.
             if int(engine_kwargs.get("pipeline_parallel_size") or 1) > 1:
                 raise NotImplementedError("delta_sharded with vLLM requires pipeline_parallel_size=1")
-            engine_tp_size = engine_kwargs.get("tensor_parallel_size")
-            if engine_tp_size is not None and int(engine_tp_size) != self.config.tensor_model_parallel_size:
-                raise NotImplementedError(
-                    "delta_sharded with vLLM requires engine_kwargs tensor_parallel_size to match "
-                    "rollout.tensor_model_parallel_size"
-                )
 
             if is_moe_model(self.model_config.hf_config):
                 moe_backend = engine_kwargs.get("moe_backend")
@@ -1354,141 +1396,49 @@ class vLLMHttpServer:
             max_new_tokens=self.config.response_length,
         )
 
-    def _apply_quantization(self, engine_kwargs: dict) -> tuple[Optional[str], dict]:
-        """Process quantization config. Returns (quantization_str, hf_overrides)."""
+    def _apply_quantization(self) -> dict:
+        """hf_overrides for a rollout quantization set in the rollout config.
+
+        Models shipping their own ``quantization_config`` need nothing here; either way the
+        workers install the refit patches from the resulting vLLM ``quant_config``.
+        """
         quantization = self.config.quantization
-        hf_overrides = {}
+        if not quantization.enabled:
+            return {}
 
-        # Real W4A4: vLLM's native online method quantizes the BF16 refit of each
-        # routed-expert layer to NVFP4 and quantizes activations per token.
-        real_nvfp4_config = getattr(self.config, "real_nvfp4", {}) or {}
-        if real_nvfp4_config.get("enable", False):
-            reserved_engine_kwargs = {
-                "dtype",
-                "enable_expert_parallel",
-                "enforce_eager",
-                "hf_overrides",
-                "load_format",
-                "max_num_seqs",
-                "moe_backend",
-                "pipeline_parallel_size",
-                "quantization",
-                "quantization_config",
-                "tensor_parallel_size",
-                "worker_extension_cls",
-            }
-            conflicts = sorted(reserved_engine_kwargs.intersection(engine_kwargs))
-            if conflicts:
-                raise ValueError(
-                    f"real_nvfp4 reserves core vLLM engine settings; remove engine_kwargs overrides for {conflicts}"
-                )
-            if engine_kwargs.get("kv_cache_dtype", "auto") != "auto":
-                raise ValueError("real_nvfp4 rollout requires kv_cache_dtype=auto")
-            if engine_kwargs.get("speculative_config"):
-                raise ValueError("real_nvfp4 rollout does not support speculative decoding")
-            if self.config.dtype != "bfloat16":
-                raise ValueError("real_nvfp4 rollout requires dtype=bfloat16")
-            if self.config.load_format != "dummy":
-                raise ValueError("real_nvfp4 rollout requires load_format=dummy")
-            if self.config.expert_parallel_size != 1:
-                raise ValueError("real_nvfp4 rollout requires vLLM expert_parallel_size=1")
-            if self.config.tensor_model_parallel_size != 1:
-                raise ValueError("real_nvfp4 rollout currently requires vLLM tensor_model_parallel_size=1")
-            if self.config.pipeline_model_parallel_size != 1:
-                raise ValueError("real_nvfp4 rollout currently requires vLLM pipeline_model_parallel_size=1")
-            if self.config.enforce_eager:
-                raise ValueError("real_nvfp4 rollout requires CUDA Graphs (enforce_eager=False)")
-            if self.config.mtp is not None and self.config.mtp.enable and self.config.mtp.enable_rollout:
-                raise ValueError("real_nvfp4 rollout does not support speculative decoding/MTP")
-            if self.config.quantization is not None:
-                raise ValueError("real_nvfp4 owns the vLLM quantization setting")
-            checkpoint_backend = getattr(self.config.checkpoint_engine, "backend", None)
-            if checkpoint_backend != "naive":
-                raise ValueError(
-                    f"real_nvfp4 requires the colocated naive IPC checkpoint backend, got {checkpoint_backend!r}"
-                )
-            from verl.utils.real_nvfp4 import (
-                NVFP4_PER_TOKEN_METHOD,
-                REAL_NVFP4_MOE_BACKEND,
-                real_nvfp4_vllm_ignore_layers,
-                validate_real_nvfp4_model_contract,
+        # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
+        quantization_config = quantization.build_quantization_config(self.model_config.local_path)
+        if quantization.moe and quantization.moe.upper() == "NVFP4_PER_TOKEN":
+            self._check_nvfp4_per_token_rollout()
+        # FP8_BLOCK carries FP32 block scales. DeepGEMM's E8M0 mode (vLLM's default) would round them
+        # to powers of two and drift from the trainer. MX formats carry E8M0 scales natively and must
+        # retain vLLM's E8M0 path.
+        uses_fp32_block_scales = any(
+            group.get("weights", {}).get("strategy") == "block"
+            and group.get("weights", {}).get("scale_dtype") in {None, "torch.float32"}
+            for group in quantization_config.get("config_groups", {}).values()
+        )
+        if uses_fp32_block_scales:
+            os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
+        logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
+        return {"quantization_config": quantization_config}
+
+    def _check_nvfp4_per_token_rollout(self) -> None:
+        """Keep NVFP4_PER_TOKEN to the validated layout: whole experts per rank, colocated IPC refit."""
+        sizes = {
+            "tensor_model_parallel_size": self.config.tensor_model_parallel_size,
+            "expert_parallel_size": self.config.expert_parallel_size,
+            "pipeline_model_parallel_size": self.config.pipeline_model_parallel_size,
+        }
+        if any(size != 1 for size in sizes.values()):
+            raise ValueError(f"NVFP4_PER_TOKEN rollout currently requires vLLM TP/EP/PP of 1, got {sizes}")
+        if self.config.mtp is not None and self.config.mtp.enable and self.config.mtp.enable_rollout:
+            raise ValueError("NVFP4_PER_TOKEN rollout does not support speculative decoding/MTP")
+        checkpoint_backend = getattr(self.config.checkpoint_engine, "backend", None)
+        if checkpoint_backend != "naive":
+            raise ValueError(
+                f"NVFP4_PER_TOKEN refits through the colocated naive IPC checkpoint backend, got {checkpoint_backend!r}"
             )
-
-            validate_real_nvfp4_model_contract(self.model_config.hf_config)
-            bf16_layers_at_start = int(real_nvfp4_config.get("num_layers_at_start_in_bf16", 0))
-            bf16_layers_at_end = int(real_nvfp4_config.get("num_layers_at_end_in_bf16", 0))
-            ignored_layers = real_nvfp4_vllm_ignore_layers(
-                self.model_config.hf_config,
-                num_layers_at_start_in_bf16=bf16_layers_at_start,
-                num_layers_at_end_in_bf16=bf16_layers_at_end,
-            )
-            os.environ["VERL_REAL_NVFP4_BF16_LAYERS_AT_START"] = str(bf16_layers_at_start)
-            os.environ["VERL_REAL_NVFP4_BF16_LAYERS_AT_END"] = str(bf16_layers_at_end)
-            # An engine argument merged with the online method, not an HF config
-            # override: through hf_overrides vLLM would parse it as an incomplete
-            # checkpoint quantization config.
-            engine_kwargs["quantization_config"] = {"ignore": ignored_layers}
-            engine_kwargs["moe_backend"] = REAL_NVFP4_MOE_BACKEND
-            return NVFP4_PER_TOKEN_METHOD, hf_overrides
-
-        # Handle QAT (Quantization-Aware Training) configuration
-        qat_config_dict = getattr(self.config, "qat", {}) or {}
-        if qat_config_dict.get("enable", False):
-            from verl.utils.qat import QATConfig, load_quantization_config
-
-            qat_config = QATConfig(**qat_config_dict)
-            quantization_config_dict = load_quantization_config(qat_config)
-            quant_method = quantization_config_dict.get("quant_method", None)
-
-            if quant_method == "modelopt":
-                from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-                apply_modelopt_nvfp4_patches()
-                quantization = "modelopt"
-            elif quant_method == "compressed-tensors":
-                from verl.utils.qat import apply_qat_patches
-
-                apply_qat_patches()
-                quantization = "compressed-tensors"
-            else:
-                raise ValueError(f"Unsupported quant_method: {quant_method}")
-
-            logger.info(f"QAT quantization config injected (quant_method={quant_method})")
-            hf_overrides["quantization_config"] = quantization_config_dict
-        elif quantization is not None:
-            # Handle other quantization methods (fp8, torchao)
-            _SUPPORTED_QUANTIZATION = ["fp8", "torchao", "ascend"]
-            if quantization not in _SUPPORTED_QUANTIZATION:
-                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
-
-            if quantization == "fp8":
-                # Ignore MoE router layers for FP8 quantization
-                all_mlp_gate_layers = []
-                for layer in range(self.model_config.hf_config.num_hidden_layers):
-                    all_mlp_gate_layers.append(f"model.layers.{layer}.mlp.gate")
-
-                FP8_BLOCK_QUANT_KWARGS = {
-                    "activation_scheme": "dynamic",
-                    "fmt": "e4m3",
-                    "quant_method": "fp8",
-                    "weight_block_size": [128, 128],
-                    "ignored_layers": all_mlp_gate_layers,
-                }
-                hf_overrides["quantization_config"] = dict(FP8_BLOCK_QUANT_KWARGS)
-                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_quant_patches()
-                # for subprocesses patching
-                os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-
-        model_quantization_config = getattr(self.model_config.hf_config, "quantization_config", {}) or {}
-        if quantization is None and model_quantization_config.get("quant_method") == "fp8":
-            apply_vllm_quant_patches()
-            os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-
-        if quantization is not None and self.config.quantization_config_file is not None:
-            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
-
-        return quantization, hf_overrides
 
     def _get_worker_extension_cls(self) -> str:
         """Return the fully-qualified colocate worker extension class name."""

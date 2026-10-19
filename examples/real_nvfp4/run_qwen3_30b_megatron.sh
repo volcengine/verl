@@ -186,14 +186,16 @@ if [[ "$RESUME_MODE" = resume_path ]]; then
   TRAINER+=(trainer.resume_from_path="$RESUME_FROM_PATH")
 fi
 
-# Routed-expert MLPs run NVFP4 except in the first 2 and last 4 decoder layers,
-# which stay BF16 in both training and rollout.
+# Routed-expert MLPs run NVFP4 except in the first 2 and last 4 of the 48 decoder
+# layers, which stay BF16 in both training and rollout.
 PRECISION=(actor_rollout_ref.actor.megatron.real_nvfp4.enable=False)
 if [[ "$PRECISION_MODE" = real_nvfp4 ]]; then
   PRECISION=(
     actor_rollout_ref.actor.megatron.real_nvfp4.enable=True
     actor_rollout_ref.actor.megatron.real_nvfp4.num_layers_at_start_in_bf16=2
     actor_rollout_ref.actor.megatron.real_nvfp4.num_layers_at_end_in_bf16=4
+    actor_rollout_ref.rollout.quantization.moe=NVFP4_PER_TOKEN
+    'actor_rollout_ref.rollout.quantization.ignore=["re:.*layers\\.(0|1|44|45|46|47)\\.mlp\\.experts\\..*"]'
   )
 fi
 

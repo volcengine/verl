@@ -140,6 +140,7 @@ def _load_vllm_rollout_utils():
 
     fake_vllm_quant = types.ModuleType("verl.utils.vllm.vllm_quant_utils")
     fake_vllm_quant.apply_vllm_quant_patches = lambda: None
+    fake_vllm_quant.configure_fp8_ignored_layers_match_mode = lambda config: None
     fake_vllm_quant.is_quantized_model = lambda config: False
     fake_vllm_quant.load_quanted_weights = lambda *a, **k: []
     fake_vllm_quant.prepare_quanted_weights_for_loading = lambda model: None
@@ -296,6 +297,7 @@ class _FakeVllmConfig:
 def _make_worker(model):
     worker = object.__new__(vLLMColocateWorkerExtension)
     worker.model_runner = types.SimpleNamespace(model=model, vllm_config=_FakeVllmConfig(), drafter=None)
+    worker._is_nvfp4_packed = False
     return worker
 
 
@@ -731,8 +733,7 @@ def test_update_weights_from_ipc_accumulates_lora_across_buckets(monkeypatch):
     worker.remove_lora = lambda lora_id: None
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-lora.sock"
 
     worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
@@ -765,8 +766,7 @@ def test_update_weights_from_ipc_standard_loads_per_bucket(monkeypatch):
     worker = _make_worker(model)
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-std.sock"
 
     # Bypass the post-load process_weights_after_loading (needs real vLLM).
@@ -909,8 +909,7 @@ def _staging_sync_worker(model):
     worker = _make_worker(model)
     worker.device = torch.device("cpu")
     worker.local_rank = 0
-    worker._is_qat_model = False
-    worker._is_modelopt_qat = False
+    worker._is_nvfp4_packed = False
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-moe-staging.sock"
     return worker
 
@@ -971,23 +970,24 @@ class _FakeNVFP4BucketReceiver:
             self.events.append(f"ack{index}")
 
 
-def _real_nvfp4_worker(monkeypatch, events, load_weights):
+def _nvfp4_per_token_worker(monkeypatch, events, load_weights):
     pytest.importorskip("vllm")
+    pytest.importorskip("compressed_tensors")
     import vllm.model_executor.model_loader.reload as vllm_reload
 
-    import verl.utils.real_nvfp4 as real_nvfp4
+    import verl.utils.vllm.vllm_nvfp4_per_token_utils as per_token
+    from verl.utils.qat.compressed_tensors import build_compressed_tensors_config
 
-    monkeypatch.setenv("VERL_REAL_NVFP4_BF16_LAYERS_AT_START", "0")
-    monkeypatch.setenv("VERL_REAL_NVFP4_BF16_LAYERS_AT_END", "0")
     monkeypatch.setattr(vllm_reload, "initialize_layerwise_reload", lambda model: events.append("initialize"))
     monkeypatch.setattr(vllm_reload, "finalize_layerwise_reload", lambda model, config: events.append("finalize"))
     monkeypatch.setattr(
-        real_nvfp4, "attest_vllm_native_nvfp4_runtime", lambda model, **partition: events.append(("attest", partition))
+        per_token, "attest_nvfp4_per_token_runtime", lambda model, **partition: events.append(("attest", partition))
     )
-    names = [
-        f"model.layers.0.mlp.experts.0.{projection}.weight" for projection in ("gate_proj", "up_proj", "down_proj")
+    suffixes = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
+    buckets = [
+        [(f"model.layers.0.mlp.experts.0.{projection}.{suffix}", torch.ones(1)) for suffix in suffixes]
+        for projection in ("gate_proj", "up_proj", "down_proj")
     ]
-    buckets = [[(name, torch.ones(1, dtype=torch.bfloat16))] for name in names]
     monkeypatch.setattr(
         _vllm_rollout_utils, "BucketedWeightReceiver", lambda *a, **k: _FakeNVFP4BucketReceiver(buckets, events)
     )
@@ -997,16 +997,17 @@ def _real_nvfp4_worker(monkeypatch, events, load_weights):
     worker = _make_worker(model)
     worker.model_runner.get_model = lambda: model
     worker.device = torch.device("cpu")
-    worker._is_qat_model = False
-    worker._is_real_nvfp4 = True
+    worker._nvfp4_per_token_config = build_compressed_tensors_config(
+        linear=None, moe="NVFP4_PER_TOKEN", ignore=[], config_file=None
+    )
     worker.model_runner.vllm_config.model_config.hf_config = types.SimpleNamespace(num_hidden_layers=1, num_experts=1)
-    worker._get_zmq_handle = lambda: "ipc:///tmp/test-native-nvfp4-reload.sock"
-    return worker, names
+    worker._get_zmq_handle = lambda: "ipc:///tmp/test-nvfp4-per-token-reload.sock"
+    return worker, [[name for name, _ in bucket] for bucket in buckets]
 
 
-def test_real_nvfp4_update_uses_layerwise_reload_per_bucket(monkeypatch):
+def test_nvfp4_per_token_update_uses_layerwise_reload_per_bucket(monkeypatch):
     events = []
-    worker, names = _real_nvfp4_worker(
+    worker, names = _nvfp4_per_token_worker(
         monkeypatch, events, lambda weights: events.append(("load", [name for name, _ in weights]))
     )
 
@@ -1014,25 +1015,25 @@ def test_real_nvfp4_update_uses_layerwise_reload_per_bucket(monkeypatch):
 
     assert events == [
         "initialize",
-        ("load", names[:1]),
+        ("load", names[0]),
         "ack0",
-        ("load", names[1:2]),
+        ("load", names[1]),
         "ack1",
-        ("load", names[2:]),
+        ("load", names[2]),
         "ack2",
         "finalize",
-        ("attest", {"quantized_layer_indices": [0], "bf16_layer_indices": []}),
+        ("attest", {"quantized_layers": [0], "bf16_layers": []}),
     ]
 
 
-def test_real_nvfp4_load_error_still_drains_the_round(monkeypatch):
+def test_nvfp4_per_token_load_error_still_drains_the_round(monkeypatch):
     events = []
 
     def failing_load(weights):
         events.append("load")
         raise ValueError("load failed")
 
-    worker, _ = _real_nvfp4_worker(monkeypatch, events, failing_load)
+    worker, _ = _nvfp4_per_token_worker(monkeypatch, events, failing_load)
 
     with pytest.raises(ValueError, match="load failed"):
         worker.update_weights_from_ipc(peft_config=None, base_sync_done=False)

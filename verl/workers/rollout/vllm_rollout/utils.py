@@ -33,6 +33,7 @@ from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.rocm_vllm_moe_expert_map import restore_moe_expert_maps
 from verl.utils.vllm.vllm_quant_utils import (
     apply_vllm_quant_patches,
+    configure_fp8_ignored_layers_match_mode,
     is_quantized_model,
     load_quanted_weights,
     prepare_quanted_weights_for_loading,
@@ -160,8 +161,8 @@ class vLLMColocateWorkerExtension:
     2. Online FP8 quantization
     """
 
-    # Set per instance in __new__ from vLLM's quantization method.
-    _is_real_nvfp4 = False
+    # Set per instance in __new__ when the rollout uses the NVFP4_PER_TOKEN preset.
+    _nvfp4_per_token_config = None
 
     def __new__(cls, **kwargs):
         set_death_signal()
@@ -189,26 +190,16 @@ class vLLMColocateWorkerExtension:
             )
 
             register_verl_delta_weight_transfer_engine()
-        # 2. patch online fp8 quant. Some models, including DeepSeek-V4, get
-        # fp8 from the HF config rather than an explicit rollout quantization arg.
-        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1" or is_quantized_model(vllm_config):
+
+        # 2. patch the refit of quantized weights, whether the quantization_config comes
+        # from the checkpoint (e.g. DeepSeek-V4) or from rollout.quantization via hf_overrides.
+        nvfp4_per_token_config = None
+        if is_quantized_model(vllm_config):
+            from verl.utils.vllm.vllm_nvfp4_per_token_utils import nvfp4_per_token_quantization_config
+
+            configure_fp8_ignored_layers_match_mode(vllm_config)
             apply_vllm_quant_patches()
-        # 3. patch QAT (compressed-tensors NVFP4) for dynamic weight loading
-        quant_config = getattr(vllm_config, "quant_config", None) if vllm_config else None
-        _is_qat_model = getattr(quant_config, "quant_format", None) == "nvfp4-pack-quantized"
-        _is_modelopt_qat = type(quant_config).__name__ == "ModelOptNvFp4Config"
-        model_quantization = getattr(getattr(vllm_config, "model_config", None), "quantization", None)
-        _is_real_nvfp4 = model_quantization == "nvfp4_per_token"
-        if _is_qat_model:
-            from verl.utils.qat import apply_qat_patches
-
-            apply_qat_patches()
-            logger.info("Applied QAT (compressed-tensors) patches in vLLM worker subprocess")
-        elif _is_modelopt_qat:
-            from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-            apply_modelopt_nvfp4_patches()
-            logger.info("Applied ModelOpt NVFP4 patches in vLLM worker subprocess")
+            nvfp4_per_token_config = nvfp4_per_token_quantization_config(vllm_config)
 
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
         # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
@@ -219,9 +210,7 @@ class vLLMColocateWorkerExtension:
                     os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
 
         instance = super().__new__(cls)
-        instance._is_qat_model = _is_qat_model
-        instance._is_modelopt_qat = _is_modelopt_qat
-        instance._is_real_nvfp4 = _is_real_nvfp4
+        instance._nvfp4_per_token_config = nvfp4_per_token_config
         return instance
 
     def _get_drafter_model(self):
@@ -263,39 +252,34 @@ class vLLMColocateWorkerExtension:
             monkey_patch_compute_logits(model, vocab_size, banned_token_ids)
             # patch weight loader to support MoE model
             patch_vllm_moe_model_weight_loader(model)
-        if self._is_real_nvfp4:
-            self._attest_real_nvfp4_runtime()
+        if self._nvfp4_per_token_config is not None:
+            self._attest_nvfp4_per_token_runtime()
 
-    def _attest_real_nvfp4_runtime(self):
-        """Check the NVFP4/BF16 routed-expert layout and refit scale state."""
-        from verl.utils.real_nvfp4 import attest_vllm_native_nvfp4_runtime, real_nvfp4_moe_layer_partition
+    def _attest_nvfp4_per_token_runtime(self):
+        """Check the routed-expert precision layout and the refit scale state."""
+        from verl.utils.qat.compressed_tensors import moe_layer_partition
+        from verl.utils.vllm.vllm_nvfp4_per_token_utils import attest_nvfp4_per_token_runtime
 
-        quantized_layers, bf16_layers = real_nvfp4_moe_layer_partition(
-            self.model_runner.vllm_config.model_config.hf_config,
-            num_layers_at_start_in_bf16=int(os.environ.get("VERL_REAL_NVFP4_BF16_LAYERS_AT_START", "0")),
-            num_layers_at_end_in_bf16=int(os.environ.get("VERL_REAL_NVFP4_BF16_LAYERS_AT_END", "0")),
+        quantized, bf16 = moe_layer_partition(
+            self.model_runner.vllm_config.model_config.hf_config, self._nvfp4_per_token_config
         )
         # get_model() unwraps vLLM's CUDA-graph wrapper.
-        attest_vllm_native_nvfp4_runtime(
-            self.model_runner.get_model(),
-            quantized_layer_indices=quantized_layers,
-            bf16_layer_indices=bf16_layers,
-        )
+        attest_nvfp4_per_token_runtime(self.model_runner.get_model(), quantized_layers=quantized, bf16_layers=bf16)
 
-    def _update_real_nvfp4_weights(self, use_shm: bool):
-        """Refit through vLLM's layerwise reload, which re-quantizes each complete expert layer.
+    def _update_nvfp4_per_token_weights(self, use_shm: bool):
+        """Refit through vLLM's layerwise reload, one bucket at a time.
 
-        This is ``model_runner.reload_weights`` split into per-bucket loads, as the delta
-        weight-sync consumer does; the processed tensors are copied back into the storage
-        captured by CUDA graphs.
+        This is ``model_runner.reload_weights`` split into per-bucket loads: each expert
+        layer is post-processed once complete and copied back into the storage the CUDA
+        graphs captured.
         """
         from vllm.model_executor.model_loader.reload import finalize_layerwise_reload, initialize_layerwise_reload
 
-        from verl.utils.real_nvfp4 import RealNVFP4BF16TransportCheck
+        from verl.utils.vllm.vllm_nvfp4_per_token_utils import NVFP4PerTokenRefitCheck
 
         model = self.model_runner.get_model()
         model_config = self.model_runner.vllm_config.model_config
-        transport = RealNVFP4BF16TransportCheck(model_config.hf_config)
+        check = NVFP4PerTokenRefitCheck(model_config.hf_config, self._nvfp4_per_token_config)
         error = None
 
         def load_bucket(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
@@ -303,8 +287,8 @@ class vLLMColocateWorkerExtension:
             if error is not None:
                 return
             try:
-                transport.check_bucket(weights)
-                # Layerwise reload holds a layer's tensors until the layer is complete,
+                check.check_bucket(weights)
+                # The layerwise reload holds a layer's tensors until the layer is complete,
                 # while the receiver reuses its IPC buffer for the next bucket.
                 model.load_weights([(name, tensor.clone()) for name, tensor in weights])
             except BaseException as exc:
@@ -317,9 +301,9 @@ class vLLMColocateWorkerExtension:
         receiver.receive_weights(on_bucket_received=load_bucket)
         if error is not None:
             raise error
-        transport.finish()
+        check.finish()
         finalize_layerwise_reload(model, model_config)
-        self._attest_real_nvfp4_runtime()
+        self._attest_nvfp4_per_token_runtime()
 
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""
@@ -339,27 +323,15 @@ class vLLMColocateWorkerExtension:
             for model in self._iter_all_models():
                 restore_moe_expert_maps(model)
 
-        if self._is_real_nvfp4:
+        if self._nvfp4_per_token_config is not None:
             if peft_config is not None:
-                raise NotImplementedError("real W4A4 native reload does not support LoRA weight sync")
+                raise NotImplementedError("NVFP4_PER_TOKEN rollout does not support LoRA weight sync")
             if self._use_mtp_drafter_weight_sync():
-                raise NotImplementedError("real W4A4 native reload does not support MTP drafter weight sync")
-            self._update_real_nvfp4_weights(use_shm)
+                raise NotImplementedError("NVFP4_PER_TOKEN rollout does not support MTP drafter weight sync")
+            self._update_nvfp4_per_token_weights(use_shm)
             return
 
-        if self._is_qat_model:
-            # QAT (compressed-tensors): Prepare for weight loading BEFORE receiving any buckets
-            from verl.utils.qat import prepare_qat_for_load_weights
-
-            for model in self._iter_all_models():
-                prepare_qat_for_load_weights(model, device=self.device)
-            logger.info("QAT: prepare_qat_for_load_weights completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import prepare_modelopt_for_weight_reload
-
-            prepare_modelopt_for_weight_reload(self.model_runner.model, device=self.device)
-            logger.info("ModelOpt: prepare_modelopt_for_weight_reload completed")
-        elif peft_config and base_sync_done:
+        if peft_config and base_sync_done:
             # Remove the old LoRA before the new one arrives (applied after is_last below).
             self.remove_lora(VLLM_LORA_INT_ID)
             logger.info("LoRA adapter sync: remove old lora and prepare new lora")
@@ -410,19 +382,7 @@ class vLLMColocateWorkerExtension:
         receiver.receive_weights(on_bucket_received=on_bucket_received)
 
         # =========================== step 3: process weights after loading ===========================
-        if self._is_qat_model:
-            # QAT (compressed-tensors): call process_weights_after_loading AFTER all buckets are received
-            from verl.utils.qat import manual_process_weights_after_loading
-
-            for model in self._iter_all_models():
-                manual_process_weights_after_loading(model)
-            logger.info("QAT: process_weights_after_loading completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import modelopt_process_weights_after_loading
-
-            modelopt_process_weights_after_loading(self.model_runner.model)
-            logger.info("ModelOpt QAT: process_weights_after_loading completed")
-        elif peft_config and base_sync_done:
+        if peft_config and base_sync_done:
             logger.info("LoRA adapter sync, no post-process needed")
         elif is_quantized_model(self.model_runner.vllm_config):
             for model, reload_state in quant_reload_states:
