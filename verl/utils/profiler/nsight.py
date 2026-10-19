@@ -49,6 +49,23 @@ def _render_nsight_output_name(output, *, rank: int, role: str) -> str:
     return f"{role}_rank_{rank}_{output}"
 
 
+def build_worker_group_profile_kwargs(config, *, device_name: str) -> dict:
+    """Build WorkerGroup profiling options."""
+    wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
+    if OmegaConf.select(config.global_profiler, "steps") is not None:
+        wg_kwargs["profile_steps"] = OmegaConf.select(config.global_profiler, "steps")
+        # Only require nsight worker options when tool is nsys
+        if OmegaConf.select(config.global_profiler, "tool") == "nsys":
+            assert (
+                OmegaConf.select(config.global_profiler.global_tool_config.nsys, "worker_nsight_options") is not None
+            ), "worker_nsight_options must be set when using nsys with profile_steps"
+            wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
+                OmegaConf.select(config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+            )
+    wg_kwargs["device_name"] = device_name
+    return wg_kwargs
+
+
 def _config_select(config, path: str, default=None):
     """Select from DictConfig, mappings, or structured config objects."""
     if config is None:

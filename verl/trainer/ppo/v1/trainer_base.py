@@ -82,6 +82,7 @@ from verl.utils.debug import marked_timer
 from verl.utils.debug.metrics import calculate_debug_metrics
 from verl.utils.import_utils import load_extern_type
 from verl.utils.metric import reduce_metrics
+from verl.utils.profiler.nsight import build_worker_group_profile_kwargs
 from verl.utils.py_functional import rename_dict
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.skip import SkipManager
@@ -274,19 +275,7 @@ class PPOTrainer(ABC):
 
         # 3. create worker group for actor rollout and critic
         all_wg = {}
-        wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
-        if OmegaConf.select(self.config.global_profiler, "steps") is not None:
-            wg_kwargs["profile_steps"] = OmegaConf.select(self.config.global_profiler, "steps")
-            # Only require nsight worker options when tool is nsys
-            if OmegaConf.select(self.config.global_profiler, "tool") == "nsys":
-                assert (
-                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                    is not None
-                ), "worker_nsight_options must be set when using nsys with profile_steps"
-                wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
-                    OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
-                )
-        wg_kwargs["device_name"] = self.config.trainer.device
+        wg_kwargs = build_worker_group_profile_kwargs(self.config, device_name=self.config.trainer.device)
         logger.info(f"worker group kwargs: {wg_kwargs}")
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
