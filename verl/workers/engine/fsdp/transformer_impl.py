@@ -387,6 +387,8 @@ class FSDPEngine(BaseEngine):
 
                 inner = module.base_model.model
                 for name in head_names:
+                    if isinstance(getattr(inner, name), ModulesToSaveWrapper):
+                        continue  # saved critic adapter: PEFT already wrapped and restored this head
                     wrapper = ModulesToSaveWrapper(getattr(inner, name), adapter_name="default")
                     wrapper.modules_to_save["default"].requires_grad_(True)
                     setattr(inner, name, wrapper)
@@ -414,7 +416,9 @@ class FSDPEngine(BaseEngine):
                         # Leading inline flags such as (?i) are only valid at the start of the pattern, so hoist them.
                         flags, body = re.match(r"((?:\(\?[aiLmsux]+\))*)(.*)", exclude, re.S).groups()
                         head_regex = "|".join(re.escape(name) for name in head_names)
-                        lora_config["exclude_modules"] = rf"{flags}(?:{body})|(?:.*\.)?(?:{head_regex})"
+                        # in verbose mode a trailing "# comment" would swallow what follows, so end the line
+                        newline = "\n" if re.compile(exclude).flags & re.VERBOSE else ""
+                        lora_config["exclude_modules"] = rf"{flags}(?:{body}{newline})|(?:.*\.)?(?:{head_regex})"
                     else:
                         lora_config["exclude_modules"] = list(exclude or []) + head_names
                     lora_config["modules_to_save"] = head_names

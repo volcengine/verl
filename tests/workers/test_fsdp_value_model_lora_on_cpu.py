@@ -164,3 +164,51 @@ def test_string_exclude_modules_with_leading_regex_flags_is_still_valid():
     assert not any("q_proj.lora_" in n for n in names)
     assert any("k_proj.lora_A" in n for n in names)
     assert not any("score" in n and "lora_" in n for n in names)
+
+
+def test_verbose_regex_exclude_with_trailing_comment_is_still_valid():
+    peft_model = _build(
+        Qwen2ForTokenClassification(_tiny_config()), "value_model", exclude_modules=r"(?x).*\.q_proj # exclude queries"
+    )
+    names = [n for n, _ in peft_model.named_parameters()]
+    assert not any("q_proj.lora_" in n for n in names)
+    assert any("k_proj.lora_A" in n for n in names)
+    assert not any("score" in n and "lora_" in n for n in names)
+
+
+def test_saved_critic_adapter_reloads_without_nesting_the_head_wrapper(tmp_path):
+    first = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model")
+    with torch.no_grad():
+        first.base_model.model.score.modules_to_save["default"].weight.fill_(0.25)
+    first.save_pretrained(tmp_path)
+
+    reloaded = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", lora_adapter_path=str(tmp_path))
+
+    keys = list(reloaded.state_dict())
+    assert not any(
+        "modules_to_save.default.modules_to_save" in k or "original_module.original_module" in k for k in keys
+    )
+    head = reloaded.base_model.model.score.modules_to_save["default"].weight
+    assert torch.allclose(head, torch.full_like(head, 0.25))  # the saved head was restored
+    assert head.requires_grad
+
+
+def test_exported_critic_adapter_reloads_on_the_token_classification_model(tmp_path):
+    from peft import PeftModel
+
+    from verl.model_merger.base_model_merger import BaseModelMerger
+
+    trained = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model")
+    with torch.no_grad():
+        trained.base_model.model.score.modules_to_save["default"].weight.fill_(0.5)
+    state = {k: v.clone() for k, v in trained.state_dict().items()}
+    merger = SimpleNamespace(
+        config=SimpleNamespace(target_dir=str(tmp_path), local_dir=None),
+        _load_lora_train_meta=lambda: {"r": 4, "lora_alpha": 8, "task_type": None},
+    )
+    lora_path = BaseModelMerger.save_lora_adapter(merger, state)
+
+    # reloads as a plain PeftModel (no causal-LM wrapper crash) and restores the trained head
+    reloaded = PeftModel.from_pretrained(Qwen2ForTokenClassification(_tiny_config()), lora_path)
+    head = reloaded.base_model.model.score.modules_to_save["default"].weight
+    assert torch.allclose(head, torch.full_like(head, 0.5))
