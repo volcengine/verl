@@ -20,6 +20,7 @@ Rollout rank 2, 3 - Rollout rank 1
 Then, we initiate 4 p2p comms from actor to rollout
 """
 
+import pytest
 import ray
 import ray.util.collective as collective
 import torch
@@ -27,6 +28,7 @@ import torch
 from verl.single_controller.base import Worker
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
+from verl.utils.device import get_device_name, get_torch_device, is_device_available
 
 
 @ray.remote
@@ -39,7 +41,7 @@ class Actor(Worker):
 
     @register(Dispatch.ONE_TO_ALL, blocking=False)
     def send_tensors(self):
-        tensor = torch.ones(size=(4,), dtype=torch.float32, device="cuda") * self.rank
+        tensor = torch.ones(size=(4,), dtype=torch.float32, device=get_device_name()) * self.rank
         collective.send(tensor=tensor, dst_rank=1, group_name=self.group_name)
 
 
@@ -57,8 +59,8 @@ class Rollout(Worker):
 
     @register(Dispatch.ONE_TO_ALL, blocking=False)
     def receive_tensors(self):
-        self.tensor1 = torch.randn(size=(4,), dtype=torch.float32, device="cuda")
-        self.tensor2 = torch.randn(size=(4,), dtype=torch.float32, device="cuda")
+        self.tensor1 = torch.randn(size=(4,), dtype=torch.float32, device=get_device_name())
+        self.tensor2 = torch.randn(size=(4,), dtype=torch.float32, device=get_device_name())
 
         collective.recv(self.tensor1, src_rank=0, group_name=self.first_group_name)
         collective.recv(self.tensor2, src_rank=0, group_name=self.second_group_name)
@@ -69,8 +71,13 @@ class Rollout(Worker):
 
 
 def test_ray_collective_group():
+    # ray.util.collective only provides NCCL (and CPU gloo) backends, so this p2p test is CUDA-only.
+    # get_device_name() falls back to "cuda" when no accelerator is detected at all (e.g. a CPU-only
+    # box), so is_device_available() is needed too or that case would slip past the skip below.
+    if not is_device_available() or get_device_name() != "cuda":
+        pytest.skip("ray.util.collective has no backend for non-CUDA accelerators")
     ray.init()
-    ngpus = torch.cuda.device_count()
+    ngpus = get_torch_device().device_count()
     n_rollout = max(1, ngpus // 3)  # keep 2:1 actor:rollout ratio
     n_actor = n_rollout * 2
 
