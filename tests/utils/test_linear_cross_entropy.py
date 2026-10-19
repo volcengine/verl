@@ -363,7 +363,7 @@ def test_lce_non_divisible_vocab_padding():
     Reproducing construction: one token-logit at +3, all others at -15
     → denominator ≈ 20, phantom adds ≈ 25 → error ≈ 0.82 per token.
     """
-    if not is_device_available() or get_device_name() == "npu":
+    if not is_device_available():
         return
 
     torch.manual_seed(0)
