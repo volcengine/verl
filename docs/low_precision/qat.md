@@ -47,6 +47,8 @@ The trainer always trains in high precision; low-precision checkpoints are dequa
   exporter only normalizes the packed byte dtype. The rollout worker therefore loads
   pre-quantized tensors and is not responsible for quantization.
 
+![weight_quant](https://github.com/verl-project/verl-data/blob/main/images/weight_quantizer_refit.png?raw=true)
+
 This exporter/loader boundary is intended to decouple the two sides. The target architecture
 is the Cartesian product of training backends `[Megatron, VeOmni, TorchTitan]` and rollout
 engines `[vLLM, SGLang]`: each trainer exports canonical named tensors, each
