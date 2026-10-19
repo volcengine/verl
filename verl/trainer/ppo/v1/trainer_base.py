@@ -83,7 +83,7 @@ from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.rl_dataset import collate_fn
 from verl.utils.debug import marked_timer
 from verl.utils.debug.metrics import calculate_debug_metrics
-from verl.utils.import_utils import load_extern_type
+from verl.utils.import_utils import load_class_from_fqn, load_extern_type
 from verl.utils.metric import reduce_metrics
 from verl.utils.py_functional import rename_dict
 from verl.utils.seqlen_balancing import calculate_workload, get_seqlen_balanced_partitions, log_seqlen_unbalance
@@ -127,6 +127,14 @@ def validate_remax_config(config: DictConfig) -> None:
     filter_groups = config.algorithm.get("filter_groups", None)
     if filter_groups is not None and filter_groups.get("enable", False):
         raise NotImplementedError("algorithm.adv_estimator=remax does not support algorithm.filter_groups.")
+    manager_fqn = (config.actor_rollout_ref.rollout.get("agent", None) or {}).get("agent_loop_manager_class")
+    if manager_fqn:
+        manager_cls = load_class_from_fqn(manager_fqn, "AgentLoopManager")
+        if not getattr(manager_cls, "supports_remax_baseline", False):
+            raise NotImplementedError(
+                f"algorithm.adv_estimator=remax needs the agent loop manager to run a greedy baseline session for "
+                f"each prompt flagged __remax_baseline__; {manager_fqn} does not declare supports_remax_baseline."
+            )
     skip_tq = (config.get("skip", None) or {}).get("rollout_tq", None)
     if skip_tq is not None and skip_tq.get("enable", False):
         # replayed rollouts are rebuilt from range(n) sessions and would lose the greedy baseline session
@@ -1642,19 +1650,26 @@ class PPOTrainer(ABC):
             if uid not in baseline_by_uid or baseline_by_uid[uid][0] < int(index):
                 baseline_by_uid[uid] = (int(index), reward)
 
-        # a prompt whose greedy session produced no output has no baseline: drop its sampled rows
-        # (like any other empty session) instead of failing the whole run
-        missing = {key.rsplit("_", 2)[0] for key in sampled_keys} - baseline_by_uid.keys()
+        # A prompt needs both a greedy baseline and sampled rows to be trainable. Without a baseline its
+        # sampled rows are dropped; a baseline without sampled rows (every sampled session produced nothing)
+        # is dropped too. Both are skipped like any other empty session instead of failing the whole run.
+        sampled_uids = {key.rsplit("_", 2)[0] for key in sampled_keys}
+        missing = sampled_uids - baseline_by_uid.keys()
+        baseline_only = baseline_by_uid.keys() - sampled_uids
         if missing:
             logger.warning(f"ReMax greedy baseline missing for {len(missing)} prompt(s); dropping their sessions")
-            kept = [i for i, key in enumerate(sampled_keys) if key.rsplit("_", 2)[0] not in missing]
             dropped_keys = [key for key in sampled_keys if key.rsplit("_", 2)[0] in missing]
+            kept = [i for i, key in enumerate(sampled_keys) if key.rsplit("_", 2)[0] not in missing]
             sampled_keys = [sampled_keys[i] for i in kept]
             sampled_tags = [sampled_tags[i] for i in kept]
             tq.kv_clear(keys=dropped_keys, partition_id=batch.partition_id)
-            if not sampled_keys:
-                raise ValueError("ReMax greedy baseline missing for every prompt in the batch")
+        if baseline_only:
+            logger.warning(f"ReMax prompt(s) with a greedy baseline but no sampled rows: {len(baseline_only)}")
         metrics["remax/baseline_missing_prompts"] = len(missing)
+        metrics["remax/baseline_only_prompts"] = len(baseline_only)
+        if not sampled_keys:
+            tq.kv_clear(keys=baseline_keys, partition_id=batch.partition_id)
+            raise ValueError("ReMax: no prompt in the batch has both a greedy baseline and sampled rows")
 
         baselines = torch.tensor([baseline_by_uid[key.rsplit("_", 2)[0]][1] for key in sampled_keys])
         tq.kv_batch_put(
@@ -1664,7 +1679,8 @@ class PPOTrainer(ABC):
         )
         tq.kv_clear(keys=baseline_keys, partition_id=batch.partition_id)
         # one baseline per prompt (the selected final output), not one per greedy output row
-        metrics["remax/baseline_reward_mean"] = sum(r for _, r in baseline_by_uid.values()) / len(baseline_by_uid)
+        used_uids = {key.rsplit("_", 2)[0] for key in sampled_keys}
+        metrics["remax/baseline_reward_mean"] = sum(baseline_by_uid[uid][1] for uid in used_uids) / len(used_uids)
         return KVBatchMeta(partition_id=batch.partition_id, keys=sampled_keys, tags=sampled_tags)
 
     @staticmethod

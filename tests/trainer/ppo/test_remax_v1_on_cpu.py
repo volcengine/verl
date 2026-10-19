@@ -28,6 +28,7 @@ from verl.trainer.ppo.v1.trainer_base import validate_remax_config
 def _config(adv_estimator="remax", trainer_mode="sync", filter_enable=False):
     return OmegaConf.create(
         {
+            "actor_rollout_ref": {"rollout": {}},
             "algorithm": {"adv_estimator": adv_estimator, "filter_groups": {"enable": filter_enable}},
             "trainer": {"v1": {"trainer_mode": trainer_mode}},
         }
@@ -140,6 +141,64 @@ def test_extract_remax_baselines_without_any_greedy_session_raises(monkeypatch):
     batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}])
     with pytest.raises(ValueError, match="no greedy baseline"):
         trainer_base.PPOTrainer._extract_remax_baselines(SimpleNamespace(), batch, metrics={})
+
+
+def test_extract_remax_baselines_drops_baseline_only_prompts(monkeypatch):
+    from verl.trainer.ppo.v1 import trainer_base
+    from verl.trainer.ppo.v1.utils import REMAX_BASELINE_SESSION_ID as BASE
+
+    # prompt "b": its sampled sessions produced nothing, only the greedy session exists
+    rm = {"a_0_0": [1.0], f"a_{BASE}_0": [0.5], f"b_{BASE}_0": [9.0]}
+    fake = _FakeTQ(rm)
+    monkeypatch.setattr(trainer_base, "tq", fake)
+    batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}, {}, {}])
+
+    out = trainer_base.PPOTrainer._extract_remax_baselines(SimpleNamespace(), batch, metrics=(metrics := {}))
+
+    assert out.keys == ["a_0_0"] and fake.put == {"a_0_0": 0.5}
+    assert metrics["remax/baseline_only_prompts"] == 1
+    assert metrics["remax/baseline_reward_mean"] == pytest.approx(0.5)  # prompt "b" is not counted
+
+
+def test_extract_remax_baselines_with_only_baseline_rows_raises_clearly(monkeypatch):
+    from verl.trainer.ppo.v1 import trainer_base
+    from verl.trainer.ppo.v1.utils import REMAX_BASELINE_SESSION_ID as BASE
+
+    rm = {f"a_{BASE}_0": [1.0]}
+    fake = _FakeTQ(rm)
+    monkeypatch.setattr(trainer_base, "tq", fake)
+    batch = trainer_base.KVBatchMeta(partition_id="train", keys=list(rm), tags=[{}])
+    with pytest.raises(ValueError, match="both a greedy baseline and sampled rows"):
+        trainer_base.PPOTrainer._extract_remax_baselines(SimpleNamespace(), batch, metrics={})
+    assert fake.put == {}  # nothing was written for an empty batch
+
+
+class _NoBaselineManager:
+    pass
+
+
+class _BaselineManager:
+    supports_remax_baseline = True
+
+
+def _config_with_manager(fqn):
+    config = _config()
+    config.actor_rollout_ref = {"rollout": {"agent": {"agent_loop_manager_class": fqn}}}
+    return config
+
+
+def test_remax_rejects_custom_agent_loop_manager_without_baseline_support():
+    with pytest.raises(NotImplementedError, match="supports_remax_baseline"):
+        validate_remax_config(_config_with_manager(f"{__name__}._NoBaselineManager"))
+
+
+def test_remax_accepts_default_and_baseline_aware_managers():
+    validate_remax_config(_config_with_manager(None))
+    validate_remax_config(_config_with_manager(f"{__name__}._BaselineManager"))
+    assert _worker_cls() is not None
+    from verl.trainer.ppo.v1 import AgentLoopManagerTQ
+
+    assert AgentLoopManagerTQ.supports_remax_baseline is True
 
 
 def _worker_cls():

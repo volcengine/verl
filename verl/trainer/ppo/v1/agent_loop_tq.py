@@ -250,6 +250,10 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
 
 
 class AgentLoopManagerTQ(AgentLoopManager):
+    # Schedules the extra greedy session ReMax needs (``__remax_baseline__``); custom managers must set this
+    # to True only if they do the same, see ``validate_remax_config``.
+    supports_remax_baseline = True
+
     def __init__(self, *args, **kwargs):
         self.agent_loop_workers_class = AgentLoopWorkerTQ
         super().__init__(*args, **kwargs)
