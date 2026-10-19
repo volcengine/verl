@@ -12,18 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Exercise FP4 refit helpers without importing the optional vLLM package."""
+
+import importlib.util
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
 
-from verl.utils.vllm.vllm_fp4_utils import (
-    _MXFP4_LIVE_ATTR,
-    _NVFP4_LIVE_ATTR,
-    _restore_nvfp4_input_scales_in_place,
-    _restore_nvfp4_kernel_config_in_place,
-    _stage_mxfp4_moe_params,
-    _stage_nvfp4_moe_params,
-)
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_fp4_utils():
+    path = _REPO_ROOT / "verl/utils/vllm/vllm_fp4_utils.py"
+    spec = importlib.util.spec_from_file_location("vllm_fp4_utils_under_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_FP4_UTILS = _load_fp4_utils()
+_MXFP4_LIVE_ATTR = _FP4_UTILS._MXFP4_LIVE_ATTR
+_NVFP4_LIVE_ATTR = _FP4_UTILS._NVFP4_LIVE_ATTR
+_restore_nvfp4_input_scales_in_place = _FP4_UTILS._restore_nvfp4_input_scales_in_place
+_restore_nvfp4_kernel_config_in_place = _FP4_UTILS._restore_nvfp4_kernel_config_in_place
+_stage_mxfp4_moe_params = _FP4_UTILS._stage_mxfp4_moe_params
+_stage_nvfp4_moe_params = _FP4_UTILS._stage_nvfp4_moe_params
 
 
 class _PackedMxfp4Method:
