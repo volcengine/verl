@@ -12,9 +12,8 @@
 #     suitable for KubeRay `ray job submit`.
 #
 # Parallelism Config:
-#   Pure FSDP2 (TP=1, DP_SHARD=8, PP=1) is used by default on TPU.
-#   Do NOT enable tensor_parallel_size > 1 on TPU without re-testing: TorchTitan's
-#   DTensor full_tensor() backward path produces non-finite gradients at TP > 1.
+#   Pure FSDP (TP=1, DP_SHARD=8, PP=1) is used by default on TPU for best throughput.
+#   Can also be combined with Tensor Parallelism (e.g. TENSOR_PARALLEL_SIZE=2).
 
 set -xeuo pipefail
 
@@ -36,9 +35,9 @@ export NNODES_TRAINER="${NNODES_TRAINER:-2}"
 export N_CHIPS_TRAINER="${N_CHIPS_TRAINER:-4}"
 TOTAL_TRAINER_CHIPS=$((NNODES_TRAINER * N_CHIPS_TRAINER))
 
-# Parallelism: Pure FSDP across all trainer chips
+# Parallelism: Pure FSDP across all trainer chips by default
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
-DATA_PARALLEL_SHARD_SIZE="${DATA_PARALLEL_SHARD_SIZE:-${TOTAL_TRAINER_CHIPS}}"
+DATA_PARALLEL_SHARD_SIZE="${DATA_PARALLEL_SHARD_SIZE:-$((TOTAL_TRAINER_CHIPS / TENSOR_PARALLEL_SIZE))}"
 
 # Sequence length bucket padding (`verl#8150`) to prevent XLA HLO recompilation on variable-length batches
 PAD_TO_LENGTH="${PAD_TO_LENGTH:-True}"

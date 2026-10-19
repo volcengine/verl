@@ -91,8 +91,8 @@ SFT_TRAINER_MODE=torchrun NNODES_TRAINER=1 N_CHIPS_TRAINER=4 DATA_PARALLEL_SHARD
      ```bash
      NNODES_TRAINER=1 N_CHIPS_TRAINER=4 DATA_PARALLEL_SHARD_SIZE=4 bash examples/tpu/sft/run_qwen3_0_6b_torchtitan.sh
      ```
-2. **Pure FSDP2 (`engine.tensor_parallel_size=1`)**:
-   - Keep `engine.tensor_parallel_size=1` and shard across all TPU chips using `engine.data_parallel_shard_size=<total_chips>`. Tensor parallelism (`tensor_parallel_size > 1`) on `torch_tpu` routes logits through `DTensor.full_tensor()`, whose backward pass produces non-finite (`NaN`/`Inf`) gradients.
+2. **Pure FSDP by Default (`engine.tensor_parallel_size=1`)**:
+   - Pure FSDP (`engine.tensor_parallel_size=1`, `engine.data_parallel_shard_size=<total_chips>`) is the default for best training throughput. Tensor parallelism (`TENSOR_PARALLEL_SIZE > 1`, where `DATA_PARALLEL_SHARD_SIZE` defaults to `TOTAL_TRAINER_CHIPS / TENSOR_PARALLEL_SIZE`) is also supported when needed to reduce per-chip HBM usage.
 3. **Sequence Bucketing (`engine.pad_to_length=True`, `engine.pad_to_length_bucket=256`)**:
    - Packed 1D sequences are padded to multiples of `engine.pad_to_length_bucket` (default `256`, with `VERL_TPU_SEQ_BUCKET_SIZE` fallback) and aligned across data-parallel ranks so XLA compiles a bounded set of static bucket shapes (`256, 512, ..., 2048`) and reuses them with 100% cache hit rate.
 4. **Qwen3 Chat Template (`data.ignore_input_ids_mismatch=True`)**:
