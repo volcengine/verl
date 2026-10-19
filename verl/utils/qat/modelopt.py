@@ -164,11 +164,9 @@ def _nvfp4_input_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
     # that exact scale for both fake quant and checkpoint export.
     current = _nvfp4_global_scale(inputs)
     previous = getattr(quantizer, "_verl_input_global_scale", None)
-    if previous is None:
-        # A neutral divisor keeps the full FP8 local-scale range available and
-        # also gives the first pre-rollout weight sync a deterministic value.
-        previous = torch.ones_like(current)
-    current = torch.minimum(previous.to(current.device), current)
+    if previous is not None:
+        # Running max of amax == running min of the global divisor.
+        current = torch.minimum(previous.to(current.device), current)
     quantizer._verl_input_global_scale = current.detach()
     return _Nvfp4FakeQuant.apply(inputs, current)
 

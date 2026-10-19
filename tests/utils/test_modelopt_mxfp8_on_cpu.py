@@ -28,6 +28,7 @@ from verl.utils.qat.modelopt import (
     _Mxfp4FakeQuant,
     _Nvfp4FakeQuant,
     _nvfp4_global_scale,
+    _nvfp4_input_backend,
     _nvfp4_weight_backend,
     build_quantize_config,
 )
@@ -407,6 +408,22 @@ def test_nvfp4_grouped_expert_qdq_uses_one_global_scale_per_expert():
     actual = _nvfp4_weight_backend(weight, None)
     expected = torch.stack([_Nvfp4FakeQuant.apply(expert, _nvfp4_global_scale(expert)) for expert in weight])
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_nvfp4_input_backend_initializes_from_first_observation_then_tracks_minimum():
+    quantizer = SimpleNamespace()
+    first = torch.full((16, 16), 0.5, dtype=torch.bfloat16)
+    second = first * 2
+
+    _nvfp4_input_backend(first, quantizer)
+    first_scale = _nvfp4_global_scale(first)
+    torch.testing.assert_close(quantizer._verl_input_global_scale, first_scale)
+
+    _nvfp4_input_backend(second, quantizer)
+    torch.testing.assert_close(
+        quantizer._verl_input_global_scale,
+        torch.minimum(first_scale, _nvfp4_global_scale(second)),
+    )
 
 
 def test_nvfp4_export_uses_neutral_then_observed_input_scales():
