@@ -808,6 +808,7 @@ reward:
       prompt_length: 2048
       response_length: 2048
       quantization:
+        _target_: verl.workers.config.RolloutQuantizationConfig
         linear: null
         moe: null
         ignore: []
