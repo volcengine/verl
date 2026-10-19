@@ -26,7 +26,6 @@ freshly loaded tensors and keeps the original kernel, whose quant config points
 at that captured storage.
 """
 
-import logging
 import re
 from collections.abc import Collection
 from dataclasses import replace
@@ -34,8 +33,6 @@ from dataclasses import replace
 import torch
 
 from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme, moe_layer_partition
-
-logger = logging.getLogger(__name__)
 
 _EXPERT_TENSOR_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)\.(\w+)$")
 _QUANTIZED_SUFFIXES = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")

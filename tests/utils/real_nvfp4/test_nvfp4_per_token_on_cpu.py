@@ -112,6 +112,21 @@ def test_exporter_shares_one_global_scale_across_gate_and_up(monkeypatch):
     assert out[f"{prefix}.up_proj.weight_packed"].shape == (4, 16)
 
 
+def test_exporter_unpacks_only_quantized_packed_experts(monkeypatch):
+    monkeypatch.setattr(NVFP4PerTokenWeightQuantizer, "_quantize", staticmethod(_fake_quantize))
+    gate_up = torch.ones(2, 8, 32)
+    stream = [(f"model.layers.{layer}.mlp.experts.gate_up_proj", gate_up) for layer in (0, 2)]
+    out = dict(NVFP4PerTokenWeightQuantizer(_config())(stream))
+    # The carved-out layer keeps its packed BF16 tensor; the quantized one is split per expert.
+    assert torch.equal(out["model.layers.0.mlp.experts.gate_up_proj"], gate_up)
+    assert {name for name in out if ".layers.2." in name} == {
+        f"model.layers.2.mlp.experts.{expert}.{projection}.{suffix}"
+        for expert in range(2)
+        for projection in ("gate_proj", "up_proj")
+        for suffix in ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
+    }
+
+
 def test_exporter_rejects_an_unpaired_gate_proj(monkeypatch):
     monkeypatch.setattr(NVFP4PerTokenWeightQuantizer, "_quantize", staticmethod(_fake_quantize))
     with pytest.raises(RuntimeError, match="missing gate_proj/up_proj"):

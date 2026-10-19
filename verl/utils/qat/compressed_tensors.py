@@ -534,18 +534,23 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
             yield f"{module}.weight_global_scale", global_scale
             yield f"{module}.input_global_scale", input_scale
 
-    def _expert_weights(self, name: str, tensor: torch.Tensor) -> Iterator[tuple[str, torch.Tensor]]:
+    def _is_per_token_expert(self, name: str, tensor: torch.Tensor) -> bool:
         packed = _PACKED_EXPERTS.match(name) if tensor.ndim == 3 else None
-        yield from (_unpack_experts(name, tensor) if packed else [(name, tensor)])
+        if packed is None and (tensor.ndim != 2 or not _UNPACKED_EXPERT.match(name)):
+            return False
+        if tensor.dtype not in _HIGH_PRECISION_DTYPES:
+            return False
+        scheme = self._module_scheme(f"{packed['prefix']}.0.gate_proj" if packed else name[: -len(".weight")])
+        return scheme is not None and is_nvfp4_per_token_scheme(scheme.weights, scheme.input_activations)
 
     def __call__(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
         for name, tensor in weights:
-            for weight_name, weight in self._expert_weights(name, tensor):
+            if not self._is_per_token_expert(name, tensor):
+                yield from super().__call__([(name, tensor)])
+                continue
+            experts = _unpack_experts(name, tensor) if tensor.ndim == 3 else [(name, tensor)]
+            for weight_name, weight in experts:
                 match = _UNPACKED_EXPERT.match(weight_name)
-                scheme = self._scheme_for(weight_name, weight) if match else None
-                if scheme is None or not is_nvfp4_per_token_scheme(scheme.weights, scheme.input_activations):
-                    yield from super().__call__([(weight_name, weight)])
-                    continue
                 prefix, proj = match["prefix"], match["proj"]
                 if proj == "down_proj":
                     yield from self._emit(prefix, {proj: weight})
