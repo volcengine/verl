@@ -33,6 +33,7 @@ from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.rocm_vllm_moe_expert_map import restore_moe_expert_maps
 from verl.utils.vllm.vllm_quant_utils import (
     apply_vllm_quant_patches,
+    configure_fp8_ignored_layers_match_mode,
     is_quantized_model,
     load_quanted_weights,
     prepare_quanted_weights_for_loading,
@@ -190,6 +191,7 @@ class vLLMColocateWorkerExtension:
         # 2. patch the refit of quantized weights, whether the quantization_config comes
         # from the checkpoint (e.g. DeepSeek-V4) or from rollout.quantization via hf_overrides.
         if is_quantized_model(vllm_config):
+            configure_fp8_ignored_layers_match_mode(vllm_config)
             apply_vllm_quant_patches()
 
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,

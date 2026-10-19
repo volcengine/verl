@@ -34,9 +34,30 @@ The trainer always trains in high precision; low-precision checkpoints are dequa
 ## How it works
 
 - **Trainer**: always trains in high precision (BF16). With QAT enabled, the forward pass uses fake-quantized weights (quantize then dequantize) and gradients flow through a straight-through estimator.
-- **Rollout**: the inference engine starts with dummy weights and an overridden `quantization_config`, so it allocates quantized parameters as if it were loading a quantized checkpoint (e.g. FP8 `weight` + `weight_scale`). On every weight sync, the trainer quantizes its BF16 weights to that checkpoint format, and the engine's weight loader handles fusion, tensor-parallel sharding and kernel-specific layouts.
+- **Rollout**: the inference engine starts with dummy weights and either the model's native
+  `quantization_config` or a `rollout.quantization` override. It allocates parameters as if
+  it were loading that low-precision checkpoint (for example FP8 `weight` +
+  `weight_scale_inv`).
+- **Weight refit export**: the training backend first exports weights under canonical
+  HuggingFace names. A trainer-side `WeightQuantizer`, selected from the effective rollout
+  `quantization_config`, converts each sync bucket into exactly the checkpoint tensors
+  expected by the rollout engine. Standard native FP8 is quantized to the `Fp8Config`
+  layout; native and overridden compressed-tensors configs use the same
+  compressed-tensors exporter. DeepSeek-V4 is already quantized by Megatron-Bridge, so its
+  exporter only normalizes the packed byte dtype. The rollout worker therefore loads
+  pre-quantized tensors and is not responsible for quantization.
 
-Your HuggingFace checkpoint stays in BF16; no offline quantization or calibration step is needed. The rollout format is described in the open [compressed-tensors](https://github.com/neuralmagic/compressed-tensors) format, which both vLLM and SGLang understand and which can express different schemes for linear and MoE layers.
+This exporter/loader boundary is intended to decouple the two sides. The target architecture
+is the Cartesian product of training backends `[Megatron, VeOmni, TorchTitan]` and rollout
+engines `[vLLM, SGLang]`: each trainer exports canonical named tensors, each
+`WeightQuantizer` defines a checkpoint wire format, and each rollout engine only implements
+loading/refit for that format. The support matrix below records the combinations currently
+validated; it does not imply that the full target matrix is implemented yet.
+
+For an override-based rollout, the HuggingFace checkpoint stays in BF16; no offline
+quantization or calibration step is needed. The override format is described using the open
+[compressed-tensors](https://github.com/neuralmagic/compressed-tensors) schema, which can
+express different schemes for linear and routed MoE layers.
 
 ## Support matrix
 
@@ -191,5 +212,10 @@ Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arg
 ## Limitations
 
 - `FP8_BLOCK` is supported on Hopper. `MXFP8` with vLLM is supported on Blackwell; SGLang has no per-layer MXFP8 support.
-- Checkpoints that already ship a `quantization_config` (e.g. FP8 or compressed-tensors checkpoints) are not supported as a training target together with low-precision rollout yet; use a BF16 checkpoint.
+- Native vLLM `Fp8Config` rollout is supported without a rollout override. Standard
+  128x128 block-FP8 models are quantized by the trainer-side exporter; DeepSeek-V4
+  keeps the private mixed FP8/FP4 layout already exported by Megatron-Bridge.
+- Native compressed-tensors configs are also supported without an override. The
+  same trainer-side dispatcher handles native FP8, native compressed-tensors and
+  `rollout.quantization` compressed-tensors overrides.
 - Megatron QAT and the rollout use separate ignore lists and naming conventions. Users must keep them aligned.

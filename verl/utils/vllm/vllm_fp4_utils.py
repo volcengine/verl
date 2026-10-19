@@ -177,19 +177,6 @@ def is_deepseek_v4_model(model):
     return getattr(text_config, "model_type", None) == "deepseek_v4"
 
 
-def iter_deepseek_v4_weights(weights):
-    """Pass the refit stream through untouched apart from a dtype reinterpret.
-
-    A DSv4 checkpoint already ships quantized experts, so unlike the BF16 path
-    there is nothing to quantize here. The expert tensors only need to be seen
-    as the raw ``uint8`` byte layout that ``Mxfp4MoEMethod`` allocated.
-    """
-    for name, weight in weights:
-        if ".experts." in name and weight.dtype in (torch.int8, torch.float8_e8m0fnu):
-            weight = weight.view(torch.uint8)
-        yield name, weight
-
-
 def _is_mxfp4_fused_moe_module(module):
     from vllm.model_executor.layers.fused_moe import RoutedExperts
     from vllm.model_executor.layers.quantization.mxfp4 import Mxfp4MoEMethod

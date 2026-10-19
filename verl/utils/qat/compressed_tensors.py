@@ -46,6 +46,8 @@ __all__ = [
     "MOE_TARGET",
     "SUPPORTED_SCHEMES",
     "CompressedTensorsWeightQuantizer",
+    "Fp8ConfigWeightQuantizer",
+    "dispatch_rollout_weight_quantizer",
     "build_compressed_tensors_config",
     "qat_modes_for_config",
 ]
@@ -420,3 +422,160 @@ class CompressedTensorsWeightQuantizer:
             input_scale = self._input_global_scale(name[: -len(".weight")], scheme)
             if input_scale is not None:
                 yield prefix + "input_global_scale", input_scale
+
+
+class Fp8ConfigWeightQuantizer:
+    """Export trainer weights in vLLM's native blockwise ``Fp8Config`` layout.
+
+    Unlike :class:`CompressedTensorsWeightQuantizer`, this keeps the rollout's
+    native ``Fp8Config`` and therefore emits ``weight_scale_inv`` rather than
+    compressed-tensors' ``weight_scale``.  The quantization calculation is
+    shared with the compressed-tensors FP8_BLOCK exporter.
+
+    DeepSeek-V4 uses this dispatcher entry too, but the quantizer passes through
+    its private mixed FP8/FP4 layout already exported by Megatron-Bridge.
+    """
+
+    def __init__(self, fp8_config: Mapping[str, Any], *, model_types: Iterable[Optional[str]] = ()):
+        quant_method = str(fp8_config.get("quant_method", "")).lower()
+        self.passthrough = bool({"deepseek_v4", "deepseek_v41"} & set(model_types))
+        if self.passthrough:
+            return
+        activation_scheme = fp8_config.get("activation_scheme")
+        block_size = fp8_config.get("weight_block_size")
+        store_dtype = fp8_config.get("store_dtype")
+        if "fp8" not in quant_method:
+            raise ValueError(f"Expected an FP8 quantization config, got quant_method={quant_method!r}")
+        if activation_scheme != "dynamic" or block_size != [128, 128] or store_dtype is not None:
+            raise NotImplementedError(
+                "Trainer-side native Fp8Config export currently supports only standard "
+                "FP8_BLOCK (dynamic activations, 128x128 weights, no mixed expert store_dtype); "
+                f"got activation_scheme={activation_scheme!r}, weight_block_size={block_size!r}, "
+                f"store_dtype={store_dtype!r}"
+            )
+        self.ignore = list(fp8_config.get("ignored_layers") or fp8_config.get("modules_to_not_convert") or [])
+        self.ignore_match_mode = fp8_config.get("ignored_layers_match_mode", "exact")
+        if self.ignore_match_mode not in ("exact", "substring", "suffix"):
+            raise ValueError(f"Unsupported ignored_layers_match_mode={self.ignore_match_mode!r}")
+        self.scheme = _scheme_for_preset("FP8_BLOCK", ["Linear"])
+
+    def _is_ignored(self, module: str) -> bool:
+        if self.ignore_match_mode == "exact":
+            return module in self.ignore
+        if self.ignore_match_mode == "substring":
+            return any(ignored in module for ignored in self.ignore)
+        return any(module == ignored or module.endswith(f".{ignored}") for ignored in self.ignore)
+
+    def _compress(self, name: str, weight: torch.Tensor) -> Iterator[tuple[str, torch.Tensor]]:
+        prefix = name[: -len("weight")]
+        compressed = _compress_weight(weight, self.scheme)
+        yield name, compressed["weight"]
+        yield prefix + "weight_scale_inv", compressed["weight_scale"]
+
+    def __call__(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
+        if self.passthrough:
+            # Megatron-Bridge already exported DeepSeek-V4's private FP8/FP4
+            # layout. vLLM allocated the expert bytes as uint8, so only
+            # reinterpret the packed values and E8M0 scales before transfer.
+            for name, tensor in weights:
+                if ".experts." in name and tensor.dtype in (torch.int8, torch.float8_e8m0fnu):
+                    tensor = tensor.view(torch.uint8)
+                yield name, tensor
+            return
+        for name, tensor in weights:
+            packed = _PACKED_EXPERTS.match(name) if tensor.ndim == 3 else None
+            if packed:
+                probe = f"{packed['prefix']}.0.gate_proj"
+                if self._is_ignored(probe):
+                    yield name, tensor
+                else:
+                    for weight_name, weight in _unpack_experts(name, tensor):
+                        yield from self._compress(weight_name, weight)
+                continue
+
+            if (
+                not name.endswith(".weight")
+                or tensor.ndim != 2
+                or tensor.dtype not in _HIGH_PRECISION_DTYPES
+                or self._is_ignored(name[: -len(".weight")])
+            ):
+                yield name, tensor
+                continue
+            yield from self._compress(name, tensor)
+
+
+def _as_quantization_config(config: Any) -> Optional[dict[str, Any]]:
+    if config is None:
+        return None
+    if hasattr(config, "to_dict"):
+        config = config.to_dict()
+    if isinstance(config, Mapping):
+        return dict(config)
+    raise TypeError(f"quantization_config must be a mapping, got {type(config).__name__}")
+
+
+def dispatch_rollout_weight_quantizer(
+    *,
+    model_config: Any,
+    rollout_config: Any,
+    qat_config: Any = None,
+) -> Optional[CompressedTensorsWeightQuantizer | Fp8ConfigWeightQuantizer]:
+    """Select the trainer-side exporter for native or overridden rollout quantization.
+
+    The rollout engine keeps its native ``quantization_config`` unless
+    ``rollout.quantization`` explicitly overrides it. Both native and override
+    compressed-tensors configs use :class:`CompressedTensorsWeightQuantizer`;
+    native ``Fp8Config`` uses :class:`Fp8ConfigWeightQuantizer`. DeepSeek-V4
+    still gets an FP8 quantizer object, but it passes through the private mixed
+    FP8/FP4 layout already produced by Megatron-Bridge.
+    """
+    rollout_quantization = getattr(rollout_config, "quantization", None)
+    linear = getattr(rollout_quantization, "linear", None)
+    moe = getattr(rollout_quantization, "moe", None)
+    ignore = getattr(rollout_quantization, "ignore", None) or []
+    config_file = getattr(rollout_quantization, "config_file", None)
+    has_override = bool(linear or moe or config_file)
+
+    hf_config = model_config.hf_config
+    if has_override:
+        quantization_config = build_compressed_tensors_config(
+            linear=linear,
+            moe=moe,
+            ignore=ignore,
+            config_file=config_file,
+            model_path=model_config.local_path,
+        )
+    else:
+        native = getattr(hf_config, "quantization_config", None)
+        if native is None:
+            native = getattr(getattr(hf_config, "text_config", None), "quantization_config", None)
+        quantization_config = _as_quantization_config(native)
+
+    qat_mode = qat_config.mode if qat_config is not None and qat_config.enable else None
+    if quantization_config is None:
+        if qat_mode is not None:
+            raise ValueError(
+                "QAT needs a quantized rollout to sync to: use a model with a native "
+                "quantization_config or set rollout.quantization.linear / moe / config_file"
+            )
+        return None
+
+    quant_method = str(quantization_config.get("quant_method", "")).lower()
+    if quant_method == "compressed-tensors":
+        qat_modes = qat_modes_for_config(quantization_config) if qat_mode is not None else set()
+        quantizer = CompressedTensorsWeightQuantizer(quantization_config)
+    elif "fp8" in quant_method:
+        qat_modes = {"fp8"}
+        model_types = {
+            getattr(hf_config, "model_type", None),
+            getattr(getattr(hf_config, "text_config", None), "model_type", None),
+        }
+        quantizer = Fp8ConfigWeightQuantizer(quantization_config, model_types=model_types)
+    else:
+        raise NotImplementedError(
+            f"Trainer-side rollout weight export does not support native quant_method={quant_method!r}"
+        )
+
+    if qat_mode is not None and qat_modes != {qat_mode}:
+        raise ValueError(f"QAT mode {qat_mode!r} does not match rollout quantization (QAT modes {qat_modes})")
+    return quantizer

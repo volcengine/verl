@@ -43,10 +43,7 @@ from verl.utils.memory_utils import aggressive_empty_cache
 from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
-from verl.utils.qat import (
-    CompressedTensorsWeightQuantizer,
-    qat_modes_for_config,
-)
+from verl.utils.qat import dispatch_rollout_weight_quantizer
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import (
@@ -56,7 +53,6 @@ from verl.workers.config import (
     McoreEngineConfig,
     MtpConfig,
     RolloutConfig,
-    RolloutQuantizationConfig,
     TrainingWorkerConfig,
 )
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
@@ -734,24 +730,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 backend, is_master=(torch.distributed.get_rank() == 0), bucket_size=bucket_size, **engine_kwargs
             )
 
-            rollout_quantization: RolloutQuantizationConfig = omega_conf_to_dataclass(
-                self.config.rollout.quantization, RolloutQuantizationConfig
-            )
             qat = getattr(getattr(self.actor.engine, "engine_config", None), "qat", None)
-            qat_mode = qat.mode if qat is not None and qat.enable else None
-            if qat_mode is not None and not rollout_quantization.enabled:
-                raise ValueError(
-                    "QAT needs a quantized rollout to sync to: set rollout.quantization.linear / moe "
-                    "(e.g. FP8_BLOCK) or rollout.quantization.config_file"
-                )
-            if rollout_quantization.enabled:
-                ct_config = rollout_quantization.build_quantization_config(model_config.local_path)
-                rollout_qat_modes = qat_modes_for_config(ct_config)
-                if qat_mode is not None and rollout_qat_modes != {qat_mode}:
-                    raise ValueError(
-                        f"QAT mode {qat_mode!r} does not match the rollout quantization (QAT modes {rollout_qat_modes})"
-                    )
-                self.actor.engine.set_rollout_weight_quantizer(CompressedTensorsWeightQuantizer(ct_config))
+            weight_quantizer = dispatch_rollout_weight_quantizer(
+                model_config=model_config,
+                rollout_config=self.config.rollout,
+                qat_config=qat,
+            )
+            if weight_quantizer is not None:
+                self.actor.engine.set_rollout_weight_quantizer(weight_quantizer)
 
         # Free cached GPU memory so colocated vLLM processes can see it via cudaMemGetInfo
         aggressive_empty_cache(force_sync=True)

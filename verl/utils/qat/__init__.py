@@ -32,7 +32,9 @@ Usage:
 
 from verl.utils.qat.compressed_tensors import (
     CompressedTensorsWeightQuantizer,
+    Fp8ConfigWeightQuantizer,
     build_compressed_tensors_config,
+    dispatch_rollout_weight_quantizer,
     qat_modes_for_config,
 )
 from verl.utils.qat.core import (
@@ -50,6 +52,8 @@ __all__ = [
     "enable_qat_fuse",
     "invalidate_all_scales",
     "CompressedTensorsWeightQuantizer",
+    "Fp8ConfigWeightQuantizer",
     "build_compressed_tensors_config",
+    "dispatch_rollout_weight_quantizer",
     "qat_modes_for_config",
 ]
