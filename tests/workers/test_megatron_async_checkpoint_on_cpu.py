@@ -19,16 +19,23 @@ This tests queue progress and publication ordering, not distributed GPU I/O.
 """
 
 import ast
+import copy
 import os
+import queue
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 from tensordict import TensorDict
 
+from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
-from verl.utils.checkpoint.checkpoint_manager import get_checkpoint_tracker_filename
+from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager, get_checkpoint_tracker_filename
 from verl.utils.fs import local_mkdir_safe
 from verl.workers.engine_workers import TrainingWorker
 
@@ -51,11 +58,18 @@ def _load_methods(path, class_name, methods, namespace, base=object):
 
 class _Request:
     def __init__(self):
+        self.async_fn = None
         self.finalize_fns = []
         self.ready = False
 
     def add_finalize_fn(self, fn):
         self.finalize_fns.append(fn)
+
+    def _replace(self, **updates):
+        result = copy.copy(self)
+        for name, value in updates.items():
+            setattr(result, name, value)
+        return result
 
 
 class _Queue:
@@ -80,6 +94,7 @@ def _manager():
         log_with_rank=lambda *args, **kwargs: None,
         local_mkdir_safe=local_mkdir_safe,
         get_checkpoint_tracker_filename=get_checkpoint_tracker_filename,
+        _noop_async_checkpoint_write=lambda: None,
     )
     for content in ("model", "optimizer", "extra"):
         namespace[f"get_{content}_dist_checkpoint_path"] = lambda root, content=content: os.path.join(
@@ -206,9 +221,10 @@ def test_failed_training_does_not_enter_checkpoint_collectives():
     manager._maybe_finalize_async_save.assert_not_called()
 
 
-def test_sync_training_does_not_progress_async_queue():
+@pytest.mark.parametrize("checkpoint_config", [None, SimpleNamespace(async_save=False)])
+def test_training_without_async_checkpointing_does_not_progress_queue(checkpoint_config):
     manager = _manager()
-    manager.checkpoint_config.async_save = False
+    manager.checkpoint_config = checkpoint_config
     manager._maybe_finalize_async_save = MagicMock()
     engine = _engine(manager)
     data = TensorDict({}, batch_size=[])
@@ -216,6 +232,174 @@ def test_sync_training_does_not_progress_async_queue():
 
     engine.train_batch(data, lambda: None)
     manager._maybe_finalize_async_save.assert_not_called()
+
+
+def test_manager_initialization_without_checkpoint_config():
+    manager_cls = _load_methods(
+        "verl/utils/checkpoint/megatron_checkpoint_manager.py",
+        "MegatronCheckpointManager",
+        ["__init__", "should_save_hf_model", "should_load_hf_model"],
+        dict(torch=torch),
+        base=BaseCheckpointManager,
+    )
+    with (
+        patch.object(torch.distributed, "get_rank", return_value=0),
+        patch.object(torch.distributed, "get_world_size", return_value=1),
+    ):
+        manager = manager_cls(
+            config=SimpleNamespace(model=SimpleNamespace(path="unused")),
+            checkpoint_config=None,
+            model_config=None,
+            transformer_config=None,
+            role="actor",
+            model=[],
+            arch="unused",
+            hf_config=None,
+            param_dtype=torch.float32,
+            share_embeddings_and_output_weights=False,
+            processing_class=None,
+            optimizer=None,
+            optimizer_scheduler=None,
+            use_distributed_optimizer=False,
+            bridge=object(),
+        )
+
+    assert manager._async_calls_queue is None
+    assert manager.checkpoint_save_contents == ["model", "optimizer", "extra"]
+
+
+def test_async_content_results_match_their_write_plans():
+    """A faster extra write must not supply the optimizer's storage offsets.
+
+    Model MCore's shared result queue and FIFO finalizers, with an earlier
+    optimizer write deliberately delayed until the extra write can finish.
+    Exercise two checkpoints so ordering also holds across save calls.
+    """
+    results = queue.Queue()
+    second_written = threading.Event()
+    metadata = {}
+    published = []
+
+    class SharedResultsQueue:
+        def __init__(self, persistent=False):
+            self.executor = ThreadPoolExecutor(max_workers=1 if persistent else 4)
+            self.pending = []
+
+        def schedule_async_request(self, request):
+            self.pending.append((self.executor.submit(request.async_fn), request))
+
+        def maybe_finalize_async_calls(self, blocking=False):
+            while self.pending and (blocking or self.pending[0][0].done()):
+                future, request = self.pending.pop(0)
+                future.result()
+                for finalize in request.finalize_fns:
+                    finalize()
+
+    module_name = "megatron.core.dist_checkpointing.strategies.async_utils"
+    module = ModuleType(module_name)
+    module.AsyncCallsQueue = SharedResultsQueue
+    manager_cls = _load_methods(
+        "verl/utils/checkpoint/megatron_checkpoint_manager.py",
+        "MegatronCheckpointManager",
+        [
+            "__init__",
+            "should_save_hf_model",
+            "should_load_hf_model",
+            "_dispatch_finalize",
+            "_maybe_finalize_async_save",
+        ],
+        dict(torch=torch, _noop_async_checkpoint_write=lambda: None),
+        base=BaseCheckpointManager,
+    )
+    with (
+        patch.dict(sys.modules, {module_name: module}),
+        patch.object(torch.distributed, "get_rank", return_value=0),
+        patch.object(torch.distributed, "get_world_size", return_value=1),
+    ):
+        manager = manager_cls(
+            config=SimpleNamespace(model=SimpleNamespace(path="unused")),
+            checkpoint_config=CheckpointConfig(
+                async_save=True, save_contents=["optimizer", "extra"], load_contents=["optimizer", "extra"]
+            ),
+            model_config=None,
+            transformer_config=None,
+            role="actor",
+            model=[],
+            arch="unused",
+            hf_config=None,
+            param_dtype=torch.float32,
+            share_embeddings_and_output_weights=False,
+            processing_class=None,
+            optimizer=None,
+            optimizer_scheduler=None,
+            use_distributed_optimizer=False,
+        )
+
+    def request_for(content):
+        request = _Request()
+
+        def write():
+            if content == "step1/optimizer":
+                second_written.wait(timeout=0.2)
+            results.put(content)
+            if content == "step1/extra":
+                second_written.set()
+
+        request.async_fn = write
+        request.add_finalize_fn(lambda: metadata.update({content: results.get_nowait()}))
+        return request
+
+    try:
+        for step in (1, 2):
+            manager._dispatch_finalize(
+                [request_for(f"step{step}/optimizer"), request_for(f"step{step}/extra")],
+                lambda step=step: published.append(step),
+            )
+        manager._maybe_finalize_async_save(blocking=True)
+    finally:
+        manager._async_calls_queue.executor.shutdown(wait=True)
+
+    assert metadata == {f"step{s}/{c}": f"step{s}/{c}" for s in (1, 2) for c in ("optimizer", "extra")}
+    assert published == [1, 2]
+    assert results.empty()
+
+
+def test_empty_rank_requests_keep_persistent_completion_events_aligned():
+    """An empty content must still complete before publishing on this rank."""
+    completed = queue.Queue()
+
+    class PersistentQueue:
+        def __init__(self):
+            self.pending = []
+
+        def schedule_async_request(self, request):
+            self.pending.append(request)
+            # MCore's persistent caller does not enqueue async_fn=None.
+            if request.async_fn is not None:
+                request.async_fn()
+                completed.put(True)
+
+        def maybe_finalize_async_calls(self, blocking=False):
+            while self.pending:
+                if completed.empty():
+                    raise TimeoutError("Persistent caller is waiting for an absent completion event")
+                completed.get_nowait()
+                for fn in self.pending.pop(0).finalize_fns:
+                    fn()
+
+    manager = _manager()
+    manager._async_calls_queue = PersistentQueue()
+    requests = [_Request() for _ in range(3)]
+    requests[0].async_fn = lambda: None
+    requests[2].async_fn = lambda: None
+    published = []
+
+    manager._dispatch_finalize(requests, lambda: published.append(True))
+    manager._maybe_finalize_async_save(blocking=True)
+
+    assert published == [True]
+    assert not manager._async_calls_queue.pending
+    assert completed.empty()
 
 
 @pytest.mark.parametrize("blocking", [False, True])

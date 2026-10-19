@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+
 import megatron.core
 import torch
 from megatron.core import dist_checkpointing, mpu
@@ -47,6 +49,10 @@ def save_dist_checkpointing(
         async_sharded_save=async_save,
         validate_access_integrity=validate_sharding_integrity,
     )
+    if async_save and "async_strategy" in inspect.signature(dist_checkpointing.save).parameters:
+        # Match the manager's MCore AsyncCallsQueue instead of newer MCore's
+        # optional NVRx default. Older save APIs have no backend selector.
+        save_kwargs["async_strategy"] = "mcore"
     if content_metadata is not None:
         if mcore_ge_014:
             save_kwargs["content_metadata"] = content_metadata

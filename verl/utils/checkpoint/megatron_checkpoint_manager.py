@@ -111,6 +111,10 @@ def _config_to_shallow_dict(config):
     return vars(config)
 
 
+def _noop_async_checkpoint_write():
+    """Give an empty-rank request a persistent-worker completion event."""
+
+
 class MegatronCheckpointManager(BaseCheckpointManager):
     """Checkpoint manager for Megatron-LM distributed training.
 
@@ -200,10 +204,13 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         self.use_megatron_fsdp = use_megatron_fsdp
         self.rank = torch.distributed.get_rank()
         self._async_calls_queue = None
-        if self.checkpoint_config.async_save:
+        if self.checkpoint_config is not None and self.checkpoint_config.async_save:
             from megatron.core.dist_checkpointing.strategies.async_utils import AsyncCallsQueue
 
-            self._async_calls_queue = AsyncCallsQueue()
+            # MCore writers share a FIFO result queue. Serialize the writes as
+            # well as their finalizers so concurrent contents/checkpoints cannot
+            # consume another writer's storage offsets.
+            self._async_calls_queue = AsyncCallsQueue(persistent=True)
 
         # ``use_dist_checkpointing`` selects Megatron shards for the ``model``
         # slot; HF weights always go through ``bridge`` when requested by
@@ -1146,9 +1153,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         When ``async_save`` is enabled and at least one dist_checkpointing
         request was scheduled, attach the finalize callback to the **last**
         request and enqueue every request on Megatron's ``AsyncCallsQueue``.
-        The queue processes requests in FIFO order within a rank and
-        all-reduces between each to keep ranks in sync, so attaching to the
-        last request guarantees ``finalize_save_fn`` runs only after every
+        The persistent caller writes requests in FIFO order, matching both
+        MCore's shared write-result queue and the FIFO finalizers. The queue
+        all-reduces between finalizers to keep ranks in sync, so attaching to
+        the last request guarantees ``finalize_save_fn`` runs only after every
         per-content write has completed on every rank.
 
         In all other cases (sync save, or async save with nothing to write)
@@ -1158,6 +1166,10 @@ class MegatronCheckpointManager(BaseCheckpointManager):
             async_requests[-1].add_finalize_fn(finalize_save_fn)
             assert self._async_calls_queue is not None
             for req in async_requests:
+                # PersistentAsyncCaller skips async_fn=None without emitting a
+                # completion event. Empty ranks must still finalize in lockstep.
+                if req.async_fn is None:
+                    req = req._replace(async_fn=_noop_async_checkpoint_write)
                 self._async_calls_queue.schedule_async_request(req)
         else:
             finalize_save_fn()

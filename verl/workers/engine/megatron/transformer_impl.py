@@ -724,8 +724,10 @@ class MegatronEngine(BaseEngine):
         output = super().train_batch(data, loss_function)
         # SFT has one batch per step and opts in on every rank. RL coordinates
         # publication across actor/critic separately, so it must not opt in here.
-        if self.checkpoint_config.async_save and tu.get_non_tensor_data(
-            data, key="finalize_async_checkpoint", default=False
+        if (
+            self.checkpoint_config is not None
+            and self.checkpoint_config.async_save
+            and tu.get_non_tensor_data(data, key="finalize_async_checkpoint", default=False)
         ):
             self.checkpoint_mananager._maybe_finalize_async_save(blocking=False)
         return output
