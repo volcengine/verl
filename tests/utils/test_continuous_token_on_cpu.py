@@ -29,6 +29,7 @@ from verl.utils.tokenizer.continuous_token import (
     MiniMaxContinuousTokenBuilder,
     QwenContinuousTokenBuilder,
     QwenVLContinuousTokenBuilder,
+    require_token_id,
 )
 from verl.utils.tokenizer.continuous_token_wiring import (
     CONTINUOUS_TOKEN_BUILDER_FAMILIES,
@@ -616,6 +617,25 @@ def test_qwen2_auto_without_im_end_falls_back_to_default_builder(caplog):
 
     assert type(builder) is ContinuousTokenBuilder
     assert "<|im_end|>" in caplog.text
+
+
+class _UnkMappedTokenizer(_TemplateTokenizer):
+    """Like HF tokenizers with an unk token: unknown strings convert to unk_token_id, not None."""
+
+    unk_token = "<unk>"
+    unk_token_id = 7
+
+    def convert_tokens_to_ids(self, token):
+        return 7
+
+
+def test_qwen2_auto_with_unk_mapped_im_end_falls_back_to_default_builder():
+    builder = create_continuous_token_builder(_UnkMappedTokenizer(), hf_model_type="qwen2")
+    assert type(builder) is ContinuousTokenBuilder
+
+
+def test_require_token_id_accepts_the_unk_token_itself():
+    assert require_token_id(_UnkMappedTokenizer(), "<unk>") == 7
 
 
 def test_explicit_qwen_family_without_im_end_still_raises():
