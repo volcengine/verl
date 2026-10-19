@@ -679,7 +679,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 self.loss_fn = partial(
                     distillation_ppo_loss, config=actor_config, distillation_config=distillation_config
                 )
-            elif (actor_config.policy_loss.get("rollout_correction", None) or {}).get("score_centering", False):
+            elif ((getattr(actor_config, "policy_loss", None) or {}).get("rollout_correction", None) or {}).get(
+                "score_centering", False
+            ):
                 self.loss_fn = partial(score_centering_ppo_loss, config=actor_config)
             else:
                 self.loss_fn = partial(ppo_loss, config=actor_config)
