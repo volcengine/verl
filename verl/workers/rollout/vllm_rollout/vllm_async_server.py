@@ -581,12 +581,14 @@ class vLLMHttpServer:
         priority: int = 0,
         kv_transfer_params: Optional[dict] = None,
         session_id: Optional[str] = None,
+        cache_salt: Optional[str] = None,
     ) -> TokenOutput:
         """Generate sequence with token-in-token-out.
 
         Args:
             kv_transfer_params: vLLM KV-transfer payload for PD requests.
             session_id: Sticky caller id; turns of one session go to the same DP engine.
+            cache_salt: Namespace returned by the first turn, reused by later turns.
         """
         if self._disaggregation_role == "prefill" and self._pd_decode_peers and kv_transfer_params is None:
             return await self._pd_dispatch(
@@ -695,6 +697,9 @@ class vLLMHttpServer:
             return rejected
 
         start_global_steps = self.global_steps
+        if self.config.enable_prefix_caching and self.config.prefix_cache_mode == "versioned":
+            cache_salt = str(start_global_steps) if cache_salt is None else cache_salt
+            prompt["cache_salt"] = cache_salt
         with RLInsightLogger.trace_state(
             "vllm_generate",
             state_lane_id=ray.get_runtime_context().get_actor_name(),
@@ -728,6 +733,8 @@ class vLLMHttpServer:
             "min_global_steps": min(versions) if versions else None,
             "max_global_steps": max(versions) if versions else None,
         }
+        if "cache_salt" in prompt:
+            extra_fields["cache_salt"] = prompt["cache_salt"]
         # Handle abort case: when the request is aborted by pause_generation(abort),
         # outputs may be empty. Return empty results with stop_reason="aborted"
         # instead of crashing with "IndexError: list index out of range".

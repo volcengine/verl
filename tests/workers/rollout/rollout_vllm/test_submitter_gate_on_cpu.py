@@ -55,11 +55,13 @@ class _FakeEngine:
         self.reset_prefix_calls = 0
         self.outputs = []
         self.sampling_params = []
+        self.prompts = []
 
     async def generate(
         self, prompt, sampling_params, request_id, lora_request=None, priority=0, data_parallel_rank=None
     ):
         self.sampling_params.append(sampling_params)
+        self.prompts.append(prompt)
         for output in self.outputs:
             yield output
 
@@ -340,8 +342,33 @@ def test_default_request_hooks_leave_generate_output_unchanged(monkeypatch):
             "min_global_steps": 7,
             "max_global_steps": 7,
             "num_cached_tokens": 0,
+            "cache_salt": "7",
         }
         assert server._admitting == 0
+
+    asyncio.run(main())
+
+
+@pytest.mark.parametrize("mode,enabled", [("versioned", True), ("shared", True), ("versioned", False)])
+def test_prefix_cache_namespace_across_weight_updates(monkeypatch, mode, enabled):
+    async def main():
+        server = _make_generating_server(monkeypatch, vllm_async_server.vLLMHttpServer, [_request_output([5])])
+        server.config = RolloutConfig(
+            name="vllm",
+            max_model_len=64,
+            prompt_length=32,
+            response_length=16,
+            enable_prefix_caching=enabled,
+            prefix_cache_mode=mode,
+        )
+        first = await server.generate([1, 2, 3], {}, "first")
+        salted = enabled and mode == "versioned"
+        assert first.extra_fields.get("cache_salt") == ("7" if salted else None)
+        server.global_steps = 8
+        await server.generate([1, 2, 3], {}, "new")
+        await server.generate([1, 2, 3, 5], {}, "next-turn", cache_salt=first.extra_fields.get("cache_salt"))
+        salts = [prompt.get("cache_salt") for prompt in server.engine.prompts]
+        assert salts == (["7", "8", "7"] if salted else [None, None, None])
 
     asyncio.run(main())
 

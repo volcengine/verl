@@ -253,6 +253,9 @@ class RolloutConfig(BaseConfig):
 
     enable_prefix_caching: bool = True
 
+    # vLLM prefix sharing: isolate by the task's starting weight version, or share across versions.
+    prefix_cache_mode: str = "versioned"
+
     load_format: str = "dummy"
 
     layered_summon: bool = False

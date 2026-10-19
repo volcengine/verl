@@ -525,7 +525,6 @@ class CheckpointEngineManager:
         preserve_kv_cache = all(
             r.config.name == "vllm"
             and r.rollout_mode == RolloutMode.STANDALONE
-            and not r.config.enable_prefix_caching
             and not r.config.disaggregation.enabled
             and not r.is_multimodal
             and not (

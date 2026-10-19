@@ -31,7 +31,7 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer, 
     "mode,prefix_caching,multimodal,keep",
     [
         (RolloutMode.STANDALONE, False, False, True),
-        (RolloutMode.STANDALONE, True, False, False),
+        (RolloutMode.STANDALONE, True, False, True),
         (RolloutMode.HYBRID, False, False, False),
         (RolloutMode.STANDALONE, False, True, False),
     ],

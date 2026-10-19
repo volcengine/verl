@@ -299,6 +299,9 @@ class FullyAsyncLLMServerClient(LLMServerClient):
                 mm_processor_kwargs=mm_processor_kwargs,
                 **kwargs,
             )
+            if "cache_salt" in output.extra_fields:
+                kwargs["cache_salt"] = output.extra_fields["cache_salt"]
+                final_output.extra_fields["cache_salt"] = output.extra_fields["cache_salt"]
 
             # 2. merge output into final_output
             final_output.token_ids.extend(output.token_ids)

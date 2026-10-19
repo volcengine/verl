@@ -193,30 +193,32 @@ def _save_tiny_moe(path):
 
 
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires separate sender and rollout GPUs")
-def test_keep_requests_across_weight_updates(tmp_path):
+@pytest.mark.parametrize("prefix_cache_mode", ["versioned", "shared", "disabled"])
+def test_keep_requests_across_weight_updates(tmp_path, prefix_cache_mode):
     model_path = tmp_path / "tiny_moe"
     _save_tiny_moe(model_path)
     pythonpath = os.pathsep.join((os.getcwd(), str(Path(__file__).resolve().parent)))
     ray.init(address="local", num_gpus=2, num_cpus=12, runtime_env={"env_vars": {"PYTHONPATH": pythonpath}})
     try:
-        asyncio.run(_exercise_keep(str(model_path)))
+        asyncio.run(_exercise_keep(str(model_path), prefix_cache_mode))
     finally:
         ray.shutdown()
 
 
-async def _exercise_keep(model_path):
+async def _exercise_keep(model_path, prefix_cache_mode):
     checkpoint = CheckpointEngineConfig(backend="nccl", update_weights_bucket_megabytes=16)
     config = RolloutConfig(
         name="vllm",
         mode="async",
         tensor_model_parallel_size=1,
-        prompt_length=32,
+        prompt_length=64,
         response_length=256,
         max_model_len=512,
         max_num_seqs=1,
         max_num_batched_tokens=512,
         enforce_eager=True,
-        enable_prefix_caching=False,
+        enable_prefix_caching=prefix_cache_mode != "disabled",
+        prefix_cache_mode="shared" if prefix_cache_mode == "shared" else "versioned",
         enable_rollout_routing_replay=True,
         calculate_log_probs=True,
         free_cache_engine=False,
@@ -245,11 +247,12 @@ async def _exercise_keep(model_path):
     manager = CheckpointEngineManager(checkpoint, sender, [replica])
     await manager.update_weights(global_steps=0)
     await replica.server_handle.collective_rpc.remote("install_keep_observer")
-    prompt = [1, 4, 5, 6] * 4
+    prompt = [1, 4, 5, 6] * 16
     sampling = {"temperature": 0.0, "max_tokens": 256, "ignore_eos": True, "logprobs": True}
     reference = await replica.server_handle.generate.remote(prompt, dict(sampling), "reference")
     # Establish repeatability before using the uninterrupted output as an oracle.
     repeat = await replica.server_handle.generate.remote(prompt, dict(sampling), "repeat")
+    assert (repeat.extra_fields["num_cached_tokens"] > 0) == config.enable_prefix_caching
     assert repeat.token_ids == reference.token_ids
     assert repeat.log_probs == reference.log_probs
     np.testing.assert_array_equal(repeat.routed_experts, reference.routed_experts)
@@ -299,20 +302,43 @@ async def _exercise_keep(model_path):
             if req_id == internal_ids[0]
             for position in range(start, start + count)
         ]
-        assert positions == list(range(len(prompt) + 255)), "history was dropped or re-prefilled"
+        cached = output.extra_fields["num_cached_tokens"]
+        assert positions == list(range(cached, len(prompt) + 255)), "history was dropped or re-prefilled"
         if not changed:
             assert output.token_ids == reference.token_ids
             assert output.log_probs == reference.log_probs
             np.testing.assert_array_equal(output.routed_experts, reference.routed_experts)
+        next_turn = await replica.server_handle.generate.remote(
+            prompt + output.token_ids[:16],
+            {**sampling, "max_tokens": 1},
+            f"{request_id}-next-turn",
+            cache_salt=output.extra_fields.get("cache_salt"),
+        )
+        fresh = await replica.server_handle.generate.remote(
+            prompt, {**sampling, "max_tokens": 1}, f"{request_id}-fresh"
+        )
+        fresh_repeat = await replica.server_handle.generate.remote(
+            prompt, {**sampling, "max_tokens": 1}, f"{request_id}-fresh-repeat"
+        )
+        assert (next_turn.extra_fields["num_cached_tokens"] > 0) == config.enable_prefix_caching
+        assert (fresh.extra_fields["num_cached_tokens"] > 0) == (prefix_cache_mode == "shared")
+        assert (fresh_repeat.extra_fields["num_cached_tokens"] > 0) == config.enable_prefix_caching
         summaries.append(
             {
                 "changed": changed,
                 "pause_output_lengths": boundary_tokens,
                 "forward_positions": len(positions),
                 "recomputed_positions": len(positions) - len(set(positions)),
+                "cached_tokens": cached,
+                "next_turn_cached_tokens": next_turn.extra_fields["num_cached_tokens"],
+                "fresh_cached_tokens": fresh.extra_fields["num_cached_tokens"],
+                "fresh_repeat_cached_tokens": fresh_repeat.extra_fields["num_cached_tokens"],
             }
         )
     updates = sender.update_results()[0]
     assert len(updates) == 2
     assert all(np.isfinite(loss) and np.isfinite(grad) and grad > 0 for loss, grad in updates)
-    print("KEEP_REQUEST_RESULTS=" + json.dumps({"requests": summaries, "optimizer_updates": updates}))
+    print(
+        "KEEP_REQUEST_RESULTS="
+        + json.dumps({"prefix_cache_mode": prefix_cache_mode, "requests": summaries, "optimizer_updates": updates})
+    )

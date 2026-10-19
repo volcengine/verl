@@ -96,6 +96,24 @@ def _client() -> FullyAsyncLLMServerClient:
 
 
 @pytest.mark.asyncio
+async def test_resume_preserves_prefix_cache_namespace(monkeypatch):
+    salts = []
+
+    async def generate(self, request_id, *, cache_salt=None, **kwargs):
+        salts.append(cache_salt)
+        return TokenOutput(
+            token_ids=[5],
+            stop_reason="aborted" if len(salts) == 1 else "completed",
+            extra_fields={"cache_salt": "7"},
+        )
+
+    monkeypatch.setattr(llm_server.LLMServerClient, "generate", generate)
+    output = await _client().generate(request_id="session", prompt_ids=[1, 2, 3], sampling_params={})
+    assert salts == [None, "7"]
+    assert output.extra_fields["cache_salt"] == "7"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("backend", BACKENDS)
 async def test_resume_appends_only_newly_generated_routing(monkeypatch, backend):
     """Two resumes: each attempt re-sends the accumulated prompt and returns routing for
