@@ -338,6 +338,7 @@ class StreamingDataloader:
 
     def _on_sample_request(self, batch_size: int, partition_id: str, prompts: TensorDict | None) -> None:
         if prompts is not None:
+            # only for validation
             self._submit_batch_to_rollout(prompts, partition_id)
         elif partition_id == "train":
             self._refill_exact(batch_size)
@@ -389,6 +390,7 @@ class StreamingDataloader:
         ray.actor.exit_actor()
 
     async def _coordinator_loop(self) -> None:
+        """Run the core coordinator loop."""
         while True:
             # Clear before doing work so a concurrent producer cannot have its wakeup erased.
             self._wakeup.clear()
@@ -942,31 +944,23 @@ class StreamingDataloaderAsync(StreamingDataloader):
             if not self._train_state_ready or request.partition_id != "train":
                 return
         elif self._train_state_ready and not self._validation_active:
-            self._serve_request()
+            # No request to serve, just poll.
+            _, metrics, _ = self.poll_once(self.global_steps, "train", 0)
+            _accumulate_eviction_metrics(self._pending_metrics, metrics)
         else:
             return
         # poll_once already refreshed replay metadata for this coordinator pass.
         self._refill_to_watermark()
 
-    def _serve_request(self, request: _SampleRequest | None = None) -> None:
-        if request is None:
-            global_steps = self.global_steps
-            partition_id = "train"
-            target_count = 0
-        else:
-            global_steps = request.global_steps
-            partition_id = request.partition_id
-            target_count = {
-                _RequestKind.SAMPLE: request.batch_size,
-                _RequestKind.WAIT: request.target_count,
-                _RequestKind.COUNT: 0,
-            }[request.kind]
-
-        sampleable, metrics, ready = self.poll_once(global_steps, partition_id, target_count)
-        if partition_id == "train":
+    def _serve_request(self, request: _SampleRequest) -> None:
+        target_count = {
+            _RequestKind.SAMPLE: request.batch_size,
+            _RequestKind.WAIT: request.target_count,
+            _RequestKind.COUNT: 0,
+        }[request.kind]
+        sampleable, metrics, ready = self.poll_once(request.global_steps, request.partition_id, target_count)
+        if request.partition_id == "train":
             _accumulate_eviction_metrics(self._pending_metrics, metrics)
-        if request is None:
-            return
         if request.kind is _RequestKind.COUNT:
             ready = True
         if not ready:
