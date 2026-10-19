@@ -37,6 +37,10 @@ TOTAL_TRAINER_CHIPS=$((NNODES_TRAINER * N_CHIPS_TRAINER))
 
 # Parallelism: Pure FSDP across all trainer chips by default
 TENSOR_PARALLEL_SIZE="${TENSOR_PARALLEL_SIZE:-1}"
+if (( TENSOR_PARALLEL_SIZE < 1 || TOTAL_TRAINER_CHIPS % TENSOR_PARALLEL_SIZE != 0 )); then
+    echo "ERROR: TENSOR_PARALLEL_SIZE=${TENSOR_PARALLEL_SIZE} must be a positive divisor of the ${TOTAL_TRAINER_CHIPS} trainer chips." >&2
+    exit 1
+fi
 DATA_PARALLEL_SHARD_SIZE="${DATA_PARALLEL_SHARD_SIZE:-$((TOTAL_TRAINER_CHIPS / TENSOR_PARALLEL_SIZE))}"
 
 # Sequence length bucket padding (`verl#8150`) to prevent XLA HLO recompilation on variable-length batches

@@ -75,8 +75,11 @@ ray job submit --address "${RAY_ADDRESS}" \
 
 To run directly with `torchrun` (the script's default `SFT_TRAINER_MODE=torchrun`, for example on a single-host TPU v6e-4 VM or inside a multi-host JobSet container):
 
+The `torchrun` path needs the TorchTPU slice environment: `TORCH_TPU_SLICEBUILDER_ADDRESSES` and `TORCH_TPU_TOPOLOGY`. GKE TPU pods (including the KubeRay pods above) get them from the TPU webhook. On a plain TPU VM, export them yourself; the script exits early if either is unset. For example, on a single-host TPU v6e-4 (1 host x 4 TPU chips, `2x2` topology):
+
 ```bash
-# Single-host TPU v6e-4 (1 host x 4 TPU chips)
+export TORCH_TPU_SLICEBUILDER_ADDRESSES=localhost:8471,localhost:8472,localhost:8473,localhost:8474
+export TORCH_TPU_TOPOLOGY=2,2,1
 NNODES_TRAINER=1 N_CHIPS_TRAINER=4 \
   bash examples/tpu/sft/run_qwen3_0_6b_torchtitan.sh
 ```
