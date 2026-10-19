@@ -34,6 +34,7 @@ from verl.utils.profiler.nsight import (
     _rollout_replica_ranks,
     build_controller_nsight_launch_options,
     build_ray_actor_nsight_launch_options,
+    build_worker_group_profile_kwargs,
     is_controller_nsys_api_control_enabled,
     resolve_ray_actor_profiler_config,
 )
@@ -192,6 +193,67 @@ def test_resolve_nsight_capture_options_returns_independent_dict(options):
     assert result["o"] == "worker"
     result["o"] = "changed"
     assert options == original_options
+
+
+@pytest.mark.parametrize(
+    "overrides, expected_modes",
+    [
+        ({}, {"profiler_discrete": False, "profile_continuous_steps": False}),
+        (
+            {"global_tool_config": {"nsys": {"discrete": True}}},
+            {"profiler_discrete": True, "profile_continuous_steps": False},
+        ),
+        (
+            {"profile_continuous_steps": True},
+            {"profiler_discrete": False, "profile_continuous_steps": True},
+        ),
+    ],
+    ids=["defaults", "discrete", "continuous"],
+)
+def test_build_worker_group_profile_kwargs(overrides, expected_modes):
+    config = OmegaConf.merge(
+        {
+            "global_profiler": {
+                "tool": "nsys",
+                "steps": [1],
+                "global_tool_config": {"nsys": {"worker_nsight_options": {"capture-range-end": None}}},
+            }
+        },
+        {"global_profiler": overrides},
+    )
+    original = copy.deepcopy(config)
+
+    kwargs = build_worker_group_profile_kwargs(config, device_name="cuda")
+
+    assert kwargs == {
+        "device_name": "cuda",
+        "profile_steps": [1],
+        "worker_nsight_options": {"capture-range-end": None},
+        **expected_modes,
+    }
+    # RayWorkerGroup fills this field, so its launch options must not alias the source config.
+    assert type(kwargs["worker_nsight_options"]) is dict
+    kwargs["worker_nsight_options"]["capture-range-end"] = "repeat-shutdown:7"
+    assert config == original
+
+
+@pytest.mark.parametrize(
+    "settings, expected",
+    [
+        ({"tool": "nsys", "steps": None}, {"device_name": "cpu"}),
+        ({"tool": "torch", "steps": [1]}, {"device_name": "cpu", "profile_steps": [1]}),
+    ],
+    ids=["profiling-disabled", "other-tool"],
+)
+def test_worker_group_profile_kwargs_without_nsight_options(settings, expected):
+    config = OmegaConf.create({"global_profiler": settings})
+    assert build_worker_group_profile_kwargs(config, device_name="cpu") == expected
+
+
+def test_worker_group_profile_kwargs_requires_nsight_options():
+    config = OmegaConf.create({"global_profiler": {"tool": "nsys", "steps": [1], "global_tool_config": {"nsys": {}}}})
+    with pytest.raises(AssertionError, match="options"):
+        build_worker_group_profile_kwargs(config, device_name="cuda")
 
 
 @pytest.mark.parametrize(
