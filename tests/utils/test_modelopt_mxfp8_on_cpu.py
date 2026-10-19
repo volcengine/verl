@@ -24,7 +24,7 @@ pytest.importorskip("modelopt")
 # isort: off
 import verl.models.mcore  # noqa: F401
 import modelopt.torch.quantization as mtq
-from verl.utils.modelopt.quantize import (
+from verl.utils.qat.modelopt import (
     _Mxfp4FakeQuant,
     _Nvfp4FakeQuant,
     _nvfp4_global_scale,

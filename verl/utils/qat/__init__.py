@@ -22,6 +22,7 @@ Module Structure:
 - linear.py: QATLinear layer with Triton kernels for fake quantization
 - quantizer.py: QATQuantizer for true quantization + scale computation utilities
 - compressed_tensors.py: compressed-tensors rollout config and trainer-side weight quantizer
+- modelopt.py: ModelOpt fake quantization and Megatron QAT workflow helpers
 
 Usage:
     from verl.utils.qat import apply_qat, QATConfig

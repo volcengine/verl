@@ -121,6 +121,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="replay rollout expert choices in the Megatron log-prob recomputation",
     )
+    parser.add_argument(
+        "--refit-rounds",
+        type=int,
+        default=1,
+        help="generate and measure after this many consecutive live-engine weight refits",
+    )
     parser.add_argument("--max-k3-kl", type=float, default=1e-2)
     parser.add_argument("overrides", nargs="*", help="extra Hydra overrides, e.g. actor_rollout_ref.rollout.n=8")
     return parser.parse_args()
@@ -229,6 +235,8 @@ def compute_old_log_prob(actor_rollout_wg: RayWorkerGroup, batch: DataProto) -> 
 
 def main() -> int:
     args = parse_args()
+    if args.refit_rounds < 1:
+        raise ValueError("--refit-rounds must be at least 1")
     config = build_config(args)
 
     ray.init(
@@ -255,26 +263,35 @@ def main() -> int:
         },
     ).repeat(config.actor_rollout_ref.rollout.n)
 
-    result = agent_loop_manager.generate_sequences(prompts=batch)
-    checkpoint_manager.sleep_replicas()
-    result.meta_info.pop("timing", None)
+    refit_runs = []
+    for round_index in range(args.refit_rounds):
+        if round_index:
+            checkpoint_manager.update_weights()
+        result = agent_loop_manager.generate_sequences(prompts=batch)
+        checkpoint_manager.sleep_replicas()
+        result.meta_info.pop("timing", None)
 
-    result.meta_info["temperature"] = config.actor_rollout_ref.rollout.temperature
-    result.meta_info["global_token_num"] = torch.sum(result.batch["attention_mask"], dim=-1).tolist()
-    result = result.union(compute_old_log_prob(actor_rollout_wg, result))
+        result.meta_info["temperature"] = config.actor_rollout_ref.rollout.temperature
+        result.meta_info["global_token_num"] = torch.sum(result.batch["attention_mask"], dim=-1).tolist()
+        result = result.union(compute_old_log_prob(actor_rollout_wg, result))
 
-    old_log_probs = result.batch["old_log_probs"]
-    rollout_log_probs = result.batch["rollout_log_probs"]
-    response_mask = result.batch["response_mask"].bool()
+        old_log_probs = result.batch["old_log_probs"]
+        rollout_log_probs = result.batch["rollout_log_probs"]
+        response_mask = result.batch["response_mask"].bool()
 
-    metrics = compute_offpolicy_metrics(
-        old_log_prob=old_log_probs, rollout_log_prob=rollout_log_probs, response_mask=response_mask
-    )
-    metrics.update(calculate_debug_metrics(result))
-    log_prob_abs_diff = (old_log_probs - rollout_log_probs).abs()[response_mask]
-    metrics["log_prob_abs_diff_mean"] = log_prob_abs_diff.mean().item()
-    metrics["log_prob_abs_diff_max"] = log_prob_abs_diff.max().item()
-    metrics["num_response_tokens"] = int(response_mask.sum().item())
+        metrics = compute_offpolicy_metrics(
+            old_log_prob=old_log_probs, rollout_log_prob=rollout_log_probs, response_mask=response_mask
+        )
+        metrics.update(calculate_debug_metrics(result))
+        log_prob_abs_diff = (old_log_probs - rollout_log_probs).abs()[response_mask]
+        metrics["log_prob_abs_diff_mean"] = log_prob_abs_diff.mean().item()
+        metrics["log_prob_abs_diff_max"] = log_prob_abs_diff.max().item()
+        metrics["num_response_tokens"] = int(response_mask.sum().item())
+        refit_runs.append(metrics)
+
+    metrics = dict(refit_runs[-1])
+    if len(refit_runs) > 1:
+        metrics["refit_runs"] = refit_runs
     print(json.dumps(metrics, indent=2))
     ray.shutdown()
 

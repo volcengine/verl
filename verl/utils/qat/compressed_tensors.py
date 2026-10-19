@@ -332,7 +332,7 @@ class CompressedTensorsWeightQuantizer:
 
     def refresh_input_global_scales(self, model: torch.nn.Module) -> None:
         """Refresh NVFP4 activation scales from ModelOpt before an export."""
-        from verl.utils.modelopt.quantize import collect_nvfp4_input_global_scales
+        from verl.utils.qat.modelopt import collect_nvfp4_input_global_scales
 
         scales = collect_nvfp4_input_global_scales(model)
         if scales:

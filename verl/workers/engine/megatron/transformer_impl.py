@@ -530,7 +530,7 @@ class MegatronEngine(BaseEngine):
         self.module = self._build_megatron_module()
 
         if self._qat_enabled and not self.engine_config.forward_only:
-            from verl.utils.modelopt import apply_qat_to_modules
+            from verl.utils.qat.modelopt import apply_qat_to_modules
 
             self.module = apply_qat_to_modules(self.module, self._qat_config)
 

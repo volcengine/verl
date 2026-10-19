@@ -5,7 +5,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ModelOpt quantization config and application for Megatron QAT."""
+"""ModelOpt fake quantization and Megatron QAT workflow helpers."""
 
 import copy
 
@@ -35,7 +35,7 @@ _FP8_MAX = torch.finfo(torch.float8_e4m3fn).max
 
 
 class _FP8BlockFakeQuant(torch.autograd.Function):
-    """Dynamic FP8 E4M3 fake quantization over ``(rows, cols)`` blocks of the last two dims, straight-through grad."""
+    """Dynamic FP8 E4M3 fake quantization over blocks of the last two dims, with straight-through grad."""
 
     @staticmethod
     def forward(ctx, x: torch.Tensor, block_rows: int, block_cols: int) -> torch.Tensor:
@@ -148,7 +148,7 @@ def _nvfp4_global_scale(inputs: torch.Tensor) -> torch.Tensor:
 
 def _nvfp4_weight_backend(inputs: torch.Tensor, quantizer) -> torch.Tensor:
     if inputs.ndim > 2:
-        # TEGroupedLinear stores one expert matrix per leading entry.  The
+        # TEGroupedLinear stores one expert matrix per leading entry. The
         # compressed-tensors checkpoint likewise assigns one global scale per
         # expert, so quantize each matrix independently.
         return torch.stack(
@@ -288,9 +288,7 @@ def _ignore_patterns_to_quant_cfg(ignore_patterns: list[str]) -> list[dict]:
         "*self_attn*": "*self_attention*",
     }
     for pattern in ignore_patterns:
-        key = pattern
-        if key in mapping:
-            key = mapping[key]
+        key = mapping.get(pattern, pattern)
         cfg.append({"quantizer_name": key, "enable": False})
     return cfg
 
@@ -338,3 +336,22 @@ def apply_qat(
     config = build_quantize_config(qat_mode, ignore_patterns)
     mtq.quantize(model, config)
     return model
+
+
+def _get_qat_field(qat_config, key, default=None):
+    """Extract a field from qat_config, supporting both dict and object-style access."""
+    if isinstance(qat_config, dict):
+        return qat_config.get(key, default)
+    return getattr(qat_config, key, default)
+
+
+def apply_qat_to_modules(modules, qat_config):
+    """Apply ModelOpt fake quantization to a list of Megatron module chunks."""
+    qat_mode = _get_qat_field(qat_config, "mode", "fp8")
+    ignore_patterns = _get_qat_field(qat_config, "ignore_patterns", None)
+    if ignore_patterns is not None:
+        ignore_patterns = list(ignore_patterns)
+
+    for i in range(len(modules)):
+        modules[i] = apply_qat(modules[i], qat_mode, ignore_patterns=ignore_patterns)
+    return modules
