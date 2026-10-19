@@ -244,7 +244,8 @@ def test_loaded_adapter_targeting_the_head_name_does_not_put_lora_on_the_head(tm
     assert any("q_proj.lora_A" in n for n in names)
 
 
-def test_loaded_adapter_with_head_lora_weights_is_rejected(tmp_path):
+@pytest.mark.parametrize("safe_serialization", [True, False])
+def test_loaded_adapter_with_head_lora_weights_is_rejected(tmp_path, safe_serialization):
     from peft import LoraConfig, get_peft_model
 
     # an adapter that already carries LoRA weights on a layer named like the critic head
@@ -255,6 +256,7 @@ def test_loaded_adapter_with_head_lora_weights_is_rejected(tmp_path):
 
     get_peft_model(
         _LM(_tiny_config()), LoraConfig(r=4, lora_alpha=8, target_modules=["score", "q_proj"])
-    ).save_pretrained(tmp_path)
+    ).save_pretrained(tmp_path, safe_serialization=safe_serialization)
+    assert (tmp_path / ("adapter_model.safetensors" if safe_serialization else "adapter_model.bin")).exists()
     with pytest.raises(ValueError, match="critic head"):
         _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", lora_adapter_path=str(tmp_path))

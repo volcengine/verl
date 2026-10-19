@@ -115,17 +115,18 @@ def _exclude_with_heads(exclude, head_names: list[str]):
     return list(exclude or []) + head_names
 
 
-def _reject_head_lora_weights(adapter_dir: str, head_names: list[str]) -> None:
-    """A critic head is trained in full, so saved LoRA weights for it cannot be loaded; fail, do not drop them."""
-    weights = os.path.join(adapter_dir, "adapter_model.safetensors")
-    if not os.path.exists(weights):
-        return
-    from safetensors import safe_open
+def _reject_head_lora_weights(adapter_path: str, head_names: list[str]) -> None:
+    """A critic head is trained in full, so saved LoRA weights for it cannot be loaded; fail, do not drop them.
 
-    with safe_open(weights, framework="pt") as f:
-        bad = [k for k in f.keys() if any(f".{name}.lora_" in k for name in head_names)]
+    Uses PEFT's own resolver so every format and location ``PeftModel.from_pretrained`` accepts
+    (safetensors, ``.bin``, local directory, Hub id) is inspected the same way.
+    """
+    from peft.utils.save_and_load import load_peft_weights
+
+    weights = load_peft_weights(adapter_path, device="cpu")
+    bad = [k for k in weights if any(f".{name}.lora_" in k for name in head_names)]
     if bad:
-        raise ValueError(f"LoRA adapter at {adapter_dir} contains LoRA weights for the critic head: {bad[:3]}")
+        raise ValueError(f"LoRA adapter at {adapter_path} contains LoRA weights for the critic head: {bad[:3]}")
 
 
 def _value_head_names(module) -> list[str]:
