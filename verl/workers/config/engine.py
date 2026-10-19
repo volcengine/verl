@@ -21,6 +21,7 @@ from typing import Any, Callable, Literal, Optional
 
 from verl.base_config import BaseConfig
 from verl.trainer.config import CheckpointConfig
+from verl.utils.vocab_mask import RolloutVocabMask
 
 from ...utils.profiler import ProfilerConfig
 from .model import HFModelConfig
@@ -698,3 +699,6 @@ class TrainingWorkerConfig(BaseConfig):
     # Users can pass in a higher-order function to take more parameters
     auto_select_engine_optim_fn: Callable[["HFModelConfig", str], tuple["EngineConfig", "OptimizerConfig"]] = None
     extra_context: dict = field(default_factory=dict)
+    # Token ids the rollout backend never samples; the engine excludes them from the policy it evaluates.
+    # Set by ActorRolloutRefWorker for the actor and the reference model, None for every other use.
+    rollout_vocab_mask: Optional[RolloutVocabMask] = None

@@ -55,6 +55,7 @@ from verl.workers.config import (
     TrainingWorkerConfig,
 )
 from verl.workers.rollout.base import BaseRollout, get_rollout_class
+from verl.workers.rollout.utils import get_rollout_vocab_mask
 from verl.workers.utils.losses import ppo_loss
 
 logger = logging.getLogger(__file__)
@@ -172,6 +173,7 @@ class TrainingWorker(Worker, DistProfilerExtension):
             optimizer_config=self.optimizer_config,
             checkpoint_config=self.checkpoint_config,
         )
+        self.engine.set_rollout_vocab_mask(self.config.rollout_vocab_mask)
 
         # build dispatch info
         self._register_dispatch_collect_info(
@@ -574,6 +576,10 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def init_model(self):
         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model)
         liger_capacity = _plan_liger_flsce_capacity(self.config, self.role)
+        # The actor and the reference model evaluate the policy the rollout samples from.
+        rollout_vocab_mask = get_rollout_vocab_mask(
+            self.config.rollout.name, model_config.tokenizer, model_config.processor
+        )
 
         # 1. build reference model
         if "ref" in self.role:
@@ -610,6 +616,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 optimizer_config=ref_config.optim,
                 checkpoint_config=ref_config.checkpoint,
                 profiler_config=ref_profiler_config,
+                rollout_vocab_mask=rollout_vocab_mask,
             )
 
             # assign engine configs
@@ -649,6 +656,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 optimizer_config=actor_config.optim,
                 checkpoint_config=actor_config.checkpoint,
                 profiler_config=actor_profiler_config,
+                rollout_vocab_mask=rollout_vocab_mask,
             )
 
             assert self.config.actor.use_dynamic_bsz == self.config.rollout.log_prob_use_dynamic_bsz

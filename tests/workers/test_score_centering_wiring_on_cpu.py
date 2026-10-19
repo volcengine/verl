@@ -52,6 +52,7 @@ def test_prepare_model_outputs_keeps_logits_intact_for_score_centering(use_remov
     )
     engine = object.__new__(FSDPEngineWithLMHead)
     engine.use_ulysses_sp = False
+    engine.set_rollout_vocab_mask(None)
 
     def logits_processor(student_logits, data):
         return {"sc_correction": torch.zeros(student_logits.shape[:2])}

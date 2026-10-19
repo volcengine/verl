@@ -15,6 +15,7 @@
 The abstract base class defining the interface for model training engines.
 """
 
+import logging
 import os
 from abc import abstractmethod
 from contextlib import nullcontext
@@ -25,6 +26,10 @@ from tensordict import TensorDict
 
 from verl.utils.device import get_device_name, get_vendor
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
+from verl.utils.vocab_mask import RolloutVocabMask
+
+logger = logging.getLogger(__file__)
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 class BaseEngine:
@@ -295,6 +300,20 @@ class BaseEngine:
         Disable all adapters temporarily under the context in the model for LoRA
         """
         return nullcontext()
+
+    def set_rollout_vocab_mask(self, vocab_mask: Optional[RolloutVocabMask]) -> None:
+        """Exclude the token ids the rollout never samples from the policy this engine evaluates.
+
+        Engines that support it set the logits of the excluded ids to ``-inf`` before they compute
+        log-probabilities and entropy. This engine does not, so it keeps evaluating the policy over
+        the full vocabulary.
+        """
+        if vocab_mask is not None:
+            logger.warning(
+                "%s does not apply the rollout vocabulary mask: its log-probabilities and entropy are "
+                "normalized over the full vocabulary, while the rollout samples from a subset of it.",
+                type(self).__name__,
+            )
 
 
 class BaseEngineCtx:

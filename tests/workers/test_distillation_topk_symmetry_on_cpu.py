@@ -57,6 +57,7 @@ def _make_engine_stub():
     no entropy)."""
     eng = object.__new__(FSDPEngineWithLMHead)
     eng.use_ulysses_sp = False
+    eng.set_rollout_vocab_mask(None)
 
     class _EngineCfg:
         entropy_checkpointing = False

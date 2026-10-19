@@ -33,15 +33,36 @@ except ImportError:
     _FLASH_ATTN_CROSS_ENTROPY_AVAILABLE = False
 
 
+def _softmax_without_banned(
+    logits: torch.FloatTensor, banned_token_mask: torch.BoolTensor
+) -> tuple[torch.FloatTensor, torch.FloatTensor]:
+    """Return the log-normalizer and the probabilities of the softmax over the ids not in ``banned_token_mask``.
+
+    ``logits`` stay finite; a banned id has probability exactly 0, so products with the finite logits are 0.
+    """
+    masked_logits = logits.masked_fill(banned_token_mask, float("-inf"))
+    log_normalizer = torch.logsumexp(masked_logits, dim=-1)
+    probs = masked_logits.sub_(log_normalizer.unsqueeze(-1)).exp_()
+    return log_normalizer, probs
+
+
 def _fused_linear_for_ppo_fwd(
     hidden_states: torch.FloatTensor,
     vocab_weights: torch.FloatTensor,
     input_ids: torch.LongTensor,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.BoolTensor] = None,
 ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     logits = (hidden_states @ vocab_weights.t()) / temperature
     orig_dtype = logits.dtype
     logits = logits.to(torch.float32)
+
+    if banned_token_mask is not None:
+        log_normalizer, probs = _softmax_without_banned(logits, banned_token_mask)
+        entropy = log_normalizer - torch.sum(probs * logits, dim=-1)
+        token_log_probs = logits.gather(-1, input_ids.unsqueeze(-1)).squeeze(-1) - log_normalizer
+        token_log_probs = token_log_probs.masked_fill(banned_token_mask[input_ids], float("-inf"))
+        return token_log_probs, entropy.to(orig_dtype)
 
     probs = logits.softmax(dim=-1)
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
@@ -65,24 +86,36 @@ def _fused_linear_for_ppo_bwd(
     vocab_weights: torch.FloatTensor,
     input_ids: torch.LongTensor,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.BoolTensor] = None,
 ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     logits = (hidden_states @ vocab_weights.t()) / temperature
     orig_dtype = logits.dtype
     logits = logits.to(torch.float32)
 
-    probs = logits.softmax(dim=-1)
+    if banned_token_mask is None:
+        probs = logits.softmax(dim=-1)
+    else:
+        log_normalizer, probs = _softmax_without_banned(logits, banned_token_mask)
 
     dlogits = 0
 
     # Gradient from log_probs
     if dlog_probs is not None:
         one_hot_input = torch.zeros_like(logits).scatter_(-1, input_ids.unsqueeze(-1), 1)
+        if banned_token_mask is not None:
+            # A banned label's logit is the constant -inf: only the normalizer depends on the logits.
+            one_hot_input.masked_fill_(banned_token_mask, 0.0)
         dlogits += dlog_probs.to(torch.float32).unsqueeze(-1) * (one_hot_input - probs)
 
     # Gradient from entropy
     if dentropy is not None:
-        log_probs = logits.log_softmax(dim=-1)
-        entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
+        if banned_token_mask is None:
+            log_probs = logits.log_softmax(dim=-1)
+            entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
+        else:
+            # Finite at banned ids, where probs is 0, so the product below is 0 there.
+            log_probs = logits - log_normalizer.unsqueeze(-1)
+            entropy = log_normalizer - torch.sum(probs * logits, dim=-1)
         dlogits += probs * (log_probs + entropy.unsqueeze(-1)) * (-dentropy.unsqueeze(-1))
 
     dlogits = dlogits.to(orig_dtype) / temperature
@@ -102,6 +135,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         input_ids: torch.LongTensor,
         temperature: float = 1.0,
         chunk_size: int = 512,
+        banned_token_mask: Optional[torch.BoolTensor] = None,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
         ctx.set_materialize_grads(False)
 
@@ -135,6 +169,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
                 temperature=temperature,
+                banned_token_mask=banned_token_mask,
             )
             log_probs[chunk_start:chunk_end] = chunk_log_probs
             entropy[chunk_start:chunk_end] = chunk_entropy
@@ -149,6 +184,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         ctx.orig_ndim = orig_ndim
         ctx.temperature = temperature
         ctx.chunk_size = chunk_size
+        ctx.banned_token_mask = banned_token_mask
 
         return log_probs, entropy
 
@@ -161,6 +197,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
         orig_ndim = ctx.orig_ndim
         temperature = ctx.temperature
         chunk_size = ctx.chunk_size
+        banned_token_mask = ctx.banned_token_mask
 
         # Here orig_ndim refers to the orig_ndim of hidden_states
         if orig_ndim == 3:
@@ -196,6 +233,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
                 vocab_weights=vocab_weights,
                 input_ids=input_ids[chunk_start:chunk_end],
                 temperature=temperature,
+                banned_token_mask=banned_token_mask,
             )
 
             if hidden_states.requires_grad:
@@ -214,6 +252,7 @@ class FusedLinearForPPOFunction(torch.autograd.Function):
             None,  # input_ids
             None,  # temperature
             None,  # chunk_size
+            None,  # banned_token_mask
         )
 
 
@@ -232,8 +271,19 @@ class FusedLinearForPPO(torch.nn.Module):
         vocab_weights: torch.FloatTensor,
         input_ids: torch.LongTensor,
         temperature: float = 1.0,
+        banned_token_mask: Optional[torch.BoolTensor] = None,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
+        """Return per-token log-probabilities and entropy of ``softmax(hidden_states @ vocab_weights.T / temperature)``.
+
+        ``banned_token_mask`` (bool, shape ``(vocab_size,)``) excludes ids from the softmax: they get
+        probability 0, a banned label gets log-probability ``-inf``, and their logits get no gradient.
+        """
         input_ids = input_ids.to(torch.int64)
+        if banned_token_mask is not None and banned_token_mask.shape != (vocab_weights.shape[0],):
+            raise ValueError(
+                f"banned_token_mask has shape {tuple(banned_token_mask.shape)}, "
+                f"expected ({vocab_weights.shape[0]},) to match vocab_weights"
+            )
         if self.impl_backend == "torch" or _LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY is None:
             return FusedLinearForPPOFunction.apply(
                 hidden_states,
@@ -241,6 +291,12 @@ class FusedLinearForPPO(torch.nn.Module):
                 input_ids,
                 temperature,
                 self.chunk_size,
+                banned_token_mask,
+            )
+        if banned_token_mask is not None:
+            raise NotImplementedError(
+                "The Liger fused linear cross-entropy backend does not support banned_token_mask. "
+                "Use the 'torch' fused kernels backend."
             )
 
         if hidden_states.ndim not in (2, 3):

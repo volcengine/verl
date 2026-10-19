@@ -145,6 +145,7 @@ class LinearCrossEntropy(torch.autograd.Function):
         temperature: typing.Optional[float] = 1.0,
         reduction: typing.Optional[str] = "none",
         dist_process_group: typing.Optional[dist.ProcessGroup] = None,
+        banned_token_mask: typing.Optional[torch.Tensor] = None,
     ) -> list[torch.Tensor]:
         """_summary_
 
@@ -156,6 +157,8 @@ class LinearCrossEntropy(torch.autograd.Function):
             temperature (typing.Optional[float], optional): _description_. Defaults to 1.0.
             reduction (typing.Optional[str], optional): _description_. Defaults to "none".
             dist_process_group (typing.Optional[dist.ProcessGroup], optional): _description_. Defaults to None.
+            banned_token_mask (typing.Optional[torch.Tensor], optional): bool, one entry per vocabulary id;
+                ids marked ``True`` are excluded from the softmax. Defaults to None.
 
         Returns:
             typing.List[torch.Tensor]: _description_
@@ -175,7 +178,7 @@ class LinearCrossEntropy(torch.autograd.Function):
                 labels = labels.view(-1)
 
             logprobs, entropy, _maximum, _accumulate, _entropy_b = kernels.efficient_entropy_forward(
-                hidden, weight, labels, REDUCTION, temperature, dist_process_group
+                hidden, weight, labels, REDUCTION, temperature, dist_process_group, banned_token_mask
             )
 
             ctx.save_for_backward(hidden, weight, labels, _maximum, _accumulate, _entropy_b)
@@ -184,6 +187,7 @@ class LinearCrossEntropy(torch.autograd.Function):
             ctx.dist_process_group = dist_process_group
             ctx.should_return_fp32_grad = False
             ctx.temperature = temperature
+            ctx.banned_token_mask = banned_token_mask
         return logprobs, entropy
 
     @staticmethod
@@ -210,10 +214,11 @@ class LinearCrossEntropy(torch.autograd.Function):
                 should_return_fp32_grad,
                 temperature,
                 dist_process_group,
+                ctx.banned_token_mask,
             )
             d_hidden = d_hidden.view(ctx.original_hidden_shape)
 
-        return (d_hidden, d_weight, None, None, None, None)
+        return (d_hidden, d_weight, None, None, None, None, None)
 
 
 def linear_cross_entropy(
@@ -225,6 +230,7 @@ def linear_cross_entropy(
     dist_process_group: typing.Optional[dist.ProcessGroup] = None,
     *,
     impl_backend: str = "triton",
+    banned_token_mask: typing.Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Fused linear + cross-entropy (+ token entropy).
 
@@ -232,6 +238,10 @@ def linear_cross_entropy(
     vocab-parallel fused CE when available (``VERL_NPU_LCE_BACKEND=auto|cann``).
     Hybrid backward: CANN CE when ``dentropy==0``; chunked PyTorch CE+entropy
     (Triton-aligned) when ``dentropy!=0``.
+
+    ``banned_token_mask`` (bool, one entry per vocabulary id) excludes ids from the softmax: they get
+    probability 0, a banned label gets log-probability ``-inf``, and their logits get no gradient.
+    Only the Triton backend on CUDA supports it.
     """
     if not isinstance(impl_backend, str):
         raise TypeError(f"impl_backend must be a string, got {type(impl_backend)}")
@@ -240,6 +250,11 @@ def linear_cross_entropy(
         temperature = 1.0
     if reduction is None:
         reduction = "none"
+    if banned_token_mask is not None and (impl_backend != "triton" or hidden.device.type == "npu"):
+        raise NotImplementedError(
+            f"banned_token_mask is supported by the Triton backend on CUDA only, not by {impl_backend!r} "
+            f"on {hidden.device.type}"
+        )
     if impl_backend == "triton":
         if hidden.device.type == "npu":
             from verl.utils.kernel.npu.cann_linear_ce import CannLinearCrossEntropy, should_use_cann_linear_ce
@@ -256,7 +271,9 @@ def linear_cross_entropy(
                 "a torch_npu build that provides the fused linear-CE ops."
             )
 
-        return LinearCrossEntropy.apply(hidden, weight, labels, float(temperature), str(reduction), dist_process_group)
+        return LinearCrossEntropy.apply(
+            hidden, weight, labels, float(temperature), str(reduction), dist_process_group, banned_token_mask
+        )
     if impl_backend == "liger":
         return _linear_cross_entropy_liger(
             hidden,

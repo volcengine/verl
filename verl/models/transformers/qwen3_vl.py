@@ -346,6 +346,7 @@ def forward_with_torch_backend(
     input_ids: torch.LongTensor = None,
     labels: Optional[torch.LongTensor] = None,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.Tensor] = None,
     shift_labels: Optional[torch.LongTensor] = None,
     **kwargs,
 ) -> "Qwen3VLCausalLMOutputForPPO":
@@ -376,6 +377,7 @@ def forward_with_torch_backend(
         vocab_weights=vocab_weights,
         input_ids=rolled_labels,
         temperature=temperature,
+        banned_token_mask=banned_token_mask,
     )
     return Qwen3VLCausalLMOutputForPPO(
         log_probs=log_probs,
@@ -389,6 +391,7 @@ def forward_with_triton_backend(
     input_ids: torch.LongTensor = None,
     labels: Optional[torch.LongTensor] = None,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.Tensor] = None,
     shift_labels: Optional[torch.LongTensor] = None,
     **kwargs,
 ) -> "Qwen3VLCausalLMOutputForPPO":
@@ -414,6 +417,7 @@ def forward_with_triton_backend(
         rolled_labels,
         temperature,
         "none",
+        banned_token_mask=banned_token_mask,
     )
     return Qwen3VLCausalLMOutputForPPO(
         log_probs=log_probs,

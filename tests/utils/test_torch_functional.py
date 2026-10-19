@@ -24,7 +24,9 @@ from verl.utils.torch_functional import (
     calculate_sum_pi_squared_from_logits,
     distributed_masked_mean,
     distributed_mean_max_min_std,
+    entropy_from_logits,
     expand_as_nested,
+    logprobs_from_logits,
     masked_mean,
 )
 
@@ -148,6 +150,37 @@ def test_calculate_sum_pi_squared_from_logits_extreme_values():
     expected = torch.softmax(logits, dim=-1).pow(2).sum(dim=-1)
     assert torch.isfinite(actual).all()
     torch.testing.assert_close(actual, expected, atol=1e-10, rtol=1e-10)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="the flash-attn cross-entropy path runs on CUDA")
+@pytest.mark.parametrize("vocab_size", [1000, 151936])  # above 65536 the flash-attn kernel splits the vocabulary
+def test_log_probs_and_entropy_of_masked_logits(vocab_size):
+    """A -inf logit marks an id outside the support: log-probs equal log_softmax (-inf for such a label),
+    the entropy is that of the renormalized distribution, and the masked ids get no gradient."""
+    torch.manual_seed(0)
+    num_tokens = 64
+    banned = torch.zeros(vocab_size, dtype=torch.bool, device="cuda")
+    banned[[3, 17]] = True
+    banned[-200:] = True
+    base = torch.randn(num_tokens, vocab_size, device="cuda", requires_grad=True)
+    labels = torch.randint(0, vocab_size - 200, (num_tokens,), device="cuda")
+    labels[0] = 3
+
+    logits = (base * 1.0).masked_fill(banned, float("-inf"))
+    log_probs = logprobs_from_logits(logits, labels, inplace_backward=False)
+    entropy = entropy_from_logits(logits)
+    allowed_labels = ~banned[labels]
+    (log_probs[allowed_labels].sum() + entropy.sum()).backward()
+
+    reference = base.detach().masked_fill(banned, float("-inf"))
+    expected_log_probs = reference.log_softmax(-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    allowed_probs = reference[:, ~banned].softmax(-1)
+    expected_entropy = -(allowed_probs * allowed_probs.log()).sum(-1)
+    torch.testing.assert_close(log_probs, expected_log_probs, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(entropy, expected_entropy, atol=1e-4, rtol=1e-4)
+    assert torch.isneginf(log_probs[0])
+    assert torch.isfinite(base.grad).all()
+    assert not base.grad[:, banned].any()
 
 
 def test_expand_as_nested():

@@ -59,6 +59,66 @@ def test_fused_linear_for_ppo_chunked_fallback_matches_torch(monkeypatch, hidden
     torch.testing.assert_close(weight.grad, expected_weight.grad)
 
 
+@pytest.mark.parametrize("hidden_shape", [(7, 5), (2, 7, 5)])
+def test_fused_linear_for_ppo_banned_tokens_match_masked_softmax(monkeypatch, hidden_shape):
+    """With a banned-token mask, the fused path equals log_softmax over the logits with -inf at banned ids."""
+    monkeypatch.setattr(experimental_F, "_LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY", None)
+    torch.manual_seed(0)
+
+    temperature = 0.7
+    vocab_size = 11
+    banned_token_mask = torch.zeros(vocab_size, dtype=torch.bool)
+    banned_token_mask[[3, 9, 10]] = True  # an in-vocabulary id and a two-id tail
+    hidden = torch.randn(hidden_shape, requires_grad=True)
+    weight = torch.randn(vocab_size, hidden_shape[-1], requires_grad=True)
+    labels = torch.randint(vocab_size, hidden_shape[:-1])
+    labels.view(-1)[0] = 3  # a banned label, as at a prompt position before a placeholder
+    grad_log_probs = torch.randn(hidden_shape[:-1])
+    grad_entropy = torch.randn(hidden_shape[:-1])
+
+    log_probs, entropy = experimental_F.FusedLinearForPPO(chunk_size=3)(
+        hidden, weight, labels, temperature, banned_token_mask=banned_token_mask
+    )
+    torch.autograd.backward((log_probs, entropy), (grad_log_probs, grad_entropy))
+
+    expected_hidden = hidden.detach().clone().requires_grad_(True)
+    expected_weight = weight.detach().clone().requires_grad_(True)
+    logits = ((expected_hidden @ expected_weight.t()) / temperature).float()
+    logits = logits.masked_fill(banned_token_mask, float("-inf"))
+    expected_log_probs = logits.log_softmax(dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    probs = logits.softmax(dim=-1)
+    finite_logits = logits.masked_fill(banned_token_mask, 0.0)
+    expected_entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * finite_logits, dim=-1)
+    torch.autograd.backward((expected_log_probs, expected_entropy), (grad_log_probs, grad_entropy))
+
+    assert torch.isneginf(log_probs.view(-1)[0])
+    torch.testing.assert_close(log_probs, expected_log_probs)
+    torch.testing.assert_close(entropy, expected_entropy)
+    torch.testing.assert_close(hidden.grad, expected_hidden.grad)
+    torch.testing.assert_close(weight.grad, expected_weight.grad)
+    assert torch.equal(weight.grad[banned_token_mask], torch.zeros_like(weight.grad[banned_token_mask]))
+
+
+def test_fused_linear_for_ppo_liger_rejects_banned_tokens(monkeypatch):
+    class UnexpectedLigerFusedLinearScaledCrossEntropyFunction:
+        @staticmethod
+        def apply(*args):
+            raise AssertionError("A banned-token mask must not reach Liger")
+
+    monkeypatch.setattr(
+        experimental_F,
+        "_LIGER_FUSED_LINEAR_SCALED_CROSS_ENTROPY",
+        UnexpectedLigerFusedLinearScaledCrossEntropyFunction,
+    )
+    banned_token_mask = torch.zeros(7, dtype=torch.bool)
+    banned_token_mask[2] = True
+
+    with pytest.raises(NotImplementedError, match="banned_token_mask"):
+        experimental_F.FusedLinearForPPO(impl_backend="liger")(
+            torch.randn(2, 3, 5), torch.randn(7, 5), torch.randint(7, (2, 3)), banned_token_mask=banned_token_mask
+        )
+
+
 def test_fused_linear_for_ppo_dispatches_to_liger(monkeypatch):
     calls = []
 

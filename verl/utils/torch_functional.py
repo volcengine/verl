@@ -228,11 +228,23 @@ def clip_by_value(x: torch.Tensor, tensor_min: torch.Tensor, tensor_max: torch.T
     return clipped
 
 
+def _expected_logit(probs: torch.Tensor, logits: torch.Tensor) -> torch.Tensor:
+    """Return sum(probs * logits) over the last dimension, where a ``-inf`` logit contributes 0.
+
+    A ``-inf`` logit has probability 0, and 0 * (-inf) is NaN. Replacing the logit by 0 before the
+    product, not the product after it, also keeps the gradient finite.
+    """
+    finite_logits = logits.masked_fill(logits == float("-inf"), 0.0)
+    return torch.sum(probs * finite_logits, dim=-1)
+
+
 def entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
     """Calculate Shannon entropy from unnormalized logits.
 
     Computes H(p) = -sum(p * log(p)) using the numerically stable formula:
     entropy = logsumexp(logits) - sum(softmax(logits) * logits)
+
+    A ``-inf`` logit marks a token outside the support of p; it contributes 0 (0 * log 0 = 0).
 
     Args:
         logits: Unnormalized log-probabilities of shape (..., vocab_size).
@@ -241,7 +253,7 @@ def entropy_from_logits(logits: torch.Tensor) -> torch.Tensor:
         torch.Tensor: Entropy values with shape (...,), one per distribution.
     """
     pd = torch.nn.functional.softmax(logits, dim=-1)
-    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    entropy = torch.logsumexp(logits, dim=-1) - _expected_logit(pd, logits)
     return entropy
 
 
@@ -260,12 +272,13 @@ def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 20
 
     Note:
         Converts chunks to float32 for numerical stability during computation.
+        A ``-inf`` logit contributes 0, as in :func:`entropy_from_logits`.
     """
     entropy = torch.zeros(logits.shape[0], device=logits.device)
     for i in range(0, logits.shape[0], chunk_size):
         logits_chunk = logits[i : i + chunk_size].float()
         pd_chunk = torch.nn.functional.softmax(logits_chunk, dim=-1)
-        entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - torch.sum(pd_chunk * logits_chunk, dim=-1)
+        entropy_chunk = torch.logsumexp(logits_chunk, dim=-1) - _expected_logit(pd_chunk, logits_chunk)
         entropy[i : i + chunk_size] = entropy_chunk
     return entropy
 

@@ -83,6 +83,7 @@ def forward_with_torch_backend(
     cache_position: Optional[torch.LongTensor] = None,
     logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.Tensor] = None,
     shift_labels: Optional[torch.LongTensor] = None,
     **loss_kwargs,
 ) -> tuple | CausalLMOutputForPPO:
@@ -125,6 +126,7 @@ def forward_with_torch_backend(
         vocab_weights=self.lm_head.weight,
         input_ids=rolled_labels,
         temperature=temperature,
+        banned_token_mask=banned_token_mask,
     )
 
     return CausalLMOutputForPPO(
@@ -151,6 +153,7 @@ def forward_with_triton_backend(
     cache_position: Optional[torch.LongTensor] = None,
     logits_to_keep: int | torch.Tensor = 0,
     temperature: float = 1.0,
+    banned_token_mask: Optional[torch.Tensor] = None,
     shift_labels: Optional[torch.LongTensor] = None,
     **loss_kwargs,
 ) -> tuple | CausalLMOutputForPPO:
@@ -192,6 +195,7 @@ def forward_with_triton_backend(
         rolled_labels,
         temperature,
         "none",
+        banned_token_mask=banned_token_mask,
     )
 
     return CausalLMOutputForPPO(

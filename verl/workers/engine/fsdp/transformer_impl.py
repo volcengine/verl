@@ -70,6 +70,7 @@ from verl.utils.ulysses import (
     ulysses_pad,
     ulysses_pad_and_slice_inputs,
 )
+from verl.utils.vocab_mask import RolloutVocabMask
 from verl.workers.config import FSDPEngineConfig, FSDPOptimizerConfig, HFModelConfig
 from verl.workers.utils.padding import build_attention_mask_from_nested
 
@@ -188,6 +189,10 @@ class FSDPEngine(BaseEngine):
 
         self.pad_to_length: bool = self.engine_config.pad_to_length
         self.pad_to_length_bucket: int = self.engine_config.pad_to_length_bucket
+
+        self._rollout_vocab_mask: Optional[RolloutVocabMask] = None
+        # (number of logits, device) -> boolean mask of the excluded ids, built once per key.
+        self._banned_token_masks: dict[tuple[int, torch.device], Optional[torch.Tensor]] = {}
 
     @property
     def is_param_offload_enabled(self) -> bool:
@@ -1152,6 +1157,34 @@ class EngineTrainModeCtx(BaseEngineCtx):
 
 @EngineRegistry.register(model_type="language_model", backend=["fsdp", "fsdp2"], device=["cuda", "npu"])
 class FSDPEngineWithLMHead(FSDPEngine):
+    def set_rollout_vocab_mask(self, vocab_mask: Optional[RolloutVocabMask]) -> None:
+        """Exclude the token ids the rollout never samples from the policy this engine evaluates.
+
+        Their logits are set to ``-inf`` after the temperature scaling, on the eager and on the
+        fused-kernel path, so log-probabilities, entropy and the KL term use the rollout's policy.
+        """
+        self._rollout_vocab_mask = vocab_mask
+        self._banned_token_masks = {}
+
+    def _get_banned_token_mask(self, num_logits: int, device: torch.device) -> Optional[torch.Tensor]:
+        """Return the boolean mask of the excluded ids over ``num_logits`` logits, or ``None``."""
+        if self._rollout_vocab_mask is None:
+            return None
+        key = (num_logits, device)
+        if key not in self._banned_token_masks:
+            mask = self._rollout_vocab_mask.banned_mask(num_logits)
+            self._banned_token_masks[key] = None if mask is None else mask.to(device)
+        return self._banned_token_masks[key]
+
+    def _mask_banned_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        """Set the logits of the excluded ids to ``-inf``, as the rollout does before sampling."""
+        banned_token_mask = self._get_banned_token_mask(logits.shape[-1], logits.device)
+        if banned_token_mask is None:
+            return logits
+        # In place: the logits are the largest activation of the step, and the layer producing them
+        # (lm_head) does not save its output for backward. Autograd raises if a model's last op does.
+        return logits.masked_fill_(banned_token_mask, float("-inf"))
+
     def prepare_model_inputs(self, micro_batch: TensorDict):
         distillation_use_topk = tu.get_non_tensor_data(data=micro_batch, key="distillation_use_topk", default=False)
         score_centering = tu.get_non_tensor_data(data=micro_batch, key="score_centering", default=False)
@@ -1327,6 +1360,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
         if use_fused_kernels:
             extra_args["temperature"] = temperature_item
             extra_args["return_dict"] = True
+            banned_token_mask = self._get_banned_token_mask(
+                self.model_config.hf_config.get_text_config().vocab_size, input_ids.device
+            )
+            if banned_token_mask is not None:
+                extra_args["banned_token_mask"] = banned_token_mask
             if use_remove_padding:
                 # We have already computed `input_ids_rmpad_rolled` from the *full*
                 # global sequence and (when SP>1) SP-sliced it. Pass it into the model
@@ -1406,6 +1444,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     temperature_rmpad.unsqueeze(-1),
                     is_unit_temperature=temperature_is_one,
                 )
+                logits_rmpad = self._mask_banned_logits(logits_rmpad)
 
                 log_probs = None
 
@@ -1502,6 +1541,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     temperature,
                     is_unit_temperature=temperature_is_one,
                 )
+                logits = self._mask_banned_logits(logits)
 
                 if calculate_entropy:
                     if not self.engine_config.entropy_checkpointing:

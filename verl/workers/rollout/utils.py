@@ -22,6 +22,7 @@ import yaml
 from fastapi import FastAPI
 
 from verl.utils.tokenizer import get_processor_token_id
+from verl.utils.vocab_mask import RolloutVocabMask
 from verl.workers.config.rollout import PrometheusConfig
 
 logger = logging.getLogger(__file__)
@@ -136,6 +137,21 @@ def get_vision_placeholder_token_ids(processor) -> list[int]:
         if token_id is not None:
             token_ids.append(token_id)
     return token_ids
+
+
+def get_rollout_vocab_mask(rollout_name: str, tokenizer, processor) -> RolloutVocabMask | None:
+    """Return the token ids the rollout backend ``rollout_name`` excludes from sampling.
+
+    Returns ``None`` for a backend that samples from the full vocabulary. The vLLM server applies
+    exactly this mask to its logits (see ``vLLMHttpServer``); the actor and the reference model
+    apply it to theirs, so that all three define the same policy.
+    """
+    if rollout_name != "vllm":
+        return None
+    return RolloutVocabMask(
+        vocab_size=len(tokenizer),
+        banned_token_ids=tuple(get_vision_placeholder_token_ids(processor)),
+    )
 
 
 def extract_response_topk_logprobs(logprobs, k: int) -> tuple[list[float], np.ndarray, np.ndarray]:

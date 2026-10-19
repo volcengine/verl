@@ -59,7 +59,7 @@ from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutpu
 from verl.workers.rollout.utils import (
     extract_response_topk_logprobs,
     get_max_position_embeddings,
-    get_vision_placeholder_token_ids,
+    get_rollout_vocab_mask,
     qwen2_5_vl_dedup_image_tokens,
     run_uvicorn,
 )
@@ -511,11 +511,13 @@ class vLLMHttpServer:
         await engine_client.reset_mm_cache()
         # A sampled <|image_pad|>/<|video_pad|> has no image behind it, and every consumer of the
         # sequence assumes it does. Mask them out with the OOV tail, so the policy cannot pick one.
+        # The actor and the reference model apply the same mask (see get_rollout_vocab_mask).
+        vocab_mask = get_rollout_vocab_mask("vllm", self.model_config.tokenizer, self.model_config.processor)
         await engine_client.collective_rpc(
             method="monkey_patch_model",
             kwargs={
-                "vocab_size": len(self.model_config.tokenizer),
-                "banned_token_ids": get_vision_placeholder_token_ids(self.model_config.processor),
+                "vocab_size": vocab_mask.vocab_size,
+                "banned_token_ids": list(vocab_mask.banned_token_ids),
             },
         )
 

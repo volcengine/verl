@@ -55,7 +55,7 @@ def test_triton_backend_preserves_existing_autograd_dispatch(monkeypatch):
     )
 
     assert output is expected
-    assert calls == [(hidden, weight, labels, 0.8, "none", group)]
+    assert calls == [(hidden, weight, labels, 0.8, "none", group, None)]
 
 
 def test_liger_delegates_full_tensor_to_public_frontend(monkeypatch):

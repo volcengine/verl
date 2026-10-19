@@ -855,6 +855,11 @@ def _prepare_veomni_flash_attention_kwargs(position_ids: torch.Tensor) -> dict[s
 class VeOmniEngineWithLMHead(VeOmniEngine, FSDPEngineWithLMHead):
     def prepare_model_inputs(self, micro_batch: TensorDict):
         model_inputs, output_args = super().prepare_model_inputs(micro_batch)
+        if "banned_token_mask" in model_inputs:
+            raise NotImplementedError(
+                "VeOmni's fused log-prob kernels do not apply the rollout vocabulary mask, so they would "
+                "normalize over token ids the rollout never samples. Disable use_fused_kernels."
+            )
         self._apply_veomni_input_transforms(model_inputs, micro_batch)
 
         # Activate VeOmni's chunk_logprobs path: ForCausalLMLoss short-circuits

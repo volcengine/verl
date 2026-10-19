@@ -169,13 +169,17 @@ def _patch_fused_kernels():
         entropy = torch.zeros(shape, dtype=torch.float32)
         return log_probs, entropy
 
-    def fake_fused_linear_forward(self, hidden_states, vocab_weights, input_ids, temperature=1.0):
+    def fake_fused_linear_forward(
+        self, hidden_states, vocab_weights, input_ids, temperature=1.0, banned_token_mask=None
+    ):
         captured["input_ids"] = input_ids.detach().clone()
         captured["impl_backend"] = self.impl_backend
+        captured["banned_token_mask"] = banned_token_mask
         return _fake_log_probs_and_entropy(input_ids)
 
-    def fake_linear_ce(hidden_states, vocab_weights, input_ids, temperature, reduction):
+    def fake_linear_ce(hidden_states, vocab_weights, input_ids, temperature, reduction, banned_token_mask=None):
         captured["input_ids"] = input_ids.detach().clone()
+        captured["banned_token_mask"] = banned_token_mask
         return _fake_log_probs_and_entropy(input_ids)
 
     def fake_qwen2_vl_forward(self, input_ids, **_kwargs):
@@ -243,6 +247,27 @@ def test_torch_adapter_propagates_fused_linear_backend(forward_fn):
         forward_fn(model, input_ids=input_ids, labels=None, temperature=1.0, return_dict=True)
 
     assert captured["impl_backend"] == "liger"
+
+
+@pytest.mark.parametrize("forward_fn", ALL_ADAPTERS, ids=_adapter_id)
+def test_adapter_forwards_banned_token_mask(forward_fn):
+    """Every fused adapter must hand the rollout's banned-token mask to the kernel."""
+    model = _make_fake_lm()
+    input_ids = torch.tensor([[10, 20, 30, 40]], dtype=torch.long)
+    banned_token_mask = torch.zeros(model.lm_head.weight.shape[0], dtype=torch.bool)
+    banned_token_mask[3] = True
+
+    with _patch_fused_kernels() as captured:
+        forward_fn(
+            model,
+            input_ids=input_ids,
+            labels=None,
+            temperature=1.0,
+            banned_token_mask=banned_token_mask,
+            return_dict=True,
+        )
+
+    assert captured["banned_token_mask"] is banned_token_mask, f"{_adapter_id(forward_fn)} dropped the mask"
 
 
 @pytest.mark.parametrize("forward_fn", ALL_ADAPTERS, ids=_adapter_id)
