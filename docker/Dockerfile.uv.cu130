@@ -129,12 +129,15 @@ ARG TARGETARCH
 ARG DEBIAN_FRONTEND=noninteractive
 
 # cuDNN / NCCL — see https://developer.nvidia.com/cudnn-downloads
-# System apt NCCL is on a separate track from the pip wheel (nvidia-nccl-cu13
-# 2.29.7, which torch/vllm load via RPATH), so they need not match. 2.29.7-1
-# ships no +cuda13.0 build (only cuda12.9 / cuda13.2), so pin the newest flavor
-# that exists on this 13.0.2 base; bump back to 2.29.7-1 when the base moves to
-# CUDA 13.2. This matches the published verlai/verl:uv.cu130.dev3 image.
-ARG NCCL_VERSION=2.28.9-1
+# These ARGs control the apt deb versions installed below and MUST match
+# whatever uv resolves into uv.lock. The backend extras don't pin cuDNN /
+# NCCL — torch's wheel pins them transitively (e.g. torch 2.13.0+cu130 ->
+# nvidia-cudnn-cu13==9.20.0.48, nvidia-nccl-cu13==2.29.7). After bumping a
+# torch pin and re-running `python manage_envs.py lock`, grep the resolved
+# versions out of the lockfile and update these ARGs:
+#
+#     grep -E 'nvidia-(cudnn|nccl)-cu13' uv.lock
+ARG NCCL_VERSION=2.29.7-1
 
 # Source to build from. Override VERL_REF for tags / commits.
 ARG VERL_REPO=https://github.com/verl-project/verl.git
@@ -352,70 +355,7 @@ RUN printf 'verl\n' > README.md
 # `uv run` / `uv sync` then resolves from it offline.
 # ---------------------------------------------------------------------------
 FROM deps AS prefetch
-# The git-sourced deps (VeOmni, Megatron) break two ways behind a filtering
-# egress proxy/middlebox, and a FULL-history fetch is reset while receiving
-# objects (curl 56 / early EOF / invalid index-pack). uv needs just the single
-# pinned commit and versions come from committed files (veomni/_version.py;
-# megatron's package_info.py runs `git rev-parse --short HEAD`), so no history
-# is required. Install a THROWAWAY git shim for THIS step only (written with
-# printf, NOT a Dockerfile heredoc, for compatibility across BuildKit
-# frontends). It recognises uv's `git fetch <url> +<sha>:refs/commit/<sha>`.
-#
-# A protocol-v2 fetch starts with ls-refs; GitHub advertises thousands of
-# refs/pull/* for Megatron-LM (~8.2k refs), which the proxy truncates, so the
-# pkt stream is malformed ("expected flush after ref listing") and git then
-# asks for credentials ("could not read Username ... terminal prompts
-# disabled"). The shim avoids that listing: v2 ls-remote asks for
-# refs/heads/* + refs/tags/* ONLY (server-side ref-prefix filter; Megatron then
-# returns ~747 refs). If the pinned SHA is a branch/tag tip it shallow-fetches
-# that ADVERTISED REF (most proxy/version tolerant); otherwise it shallow
-# fetches the SHA directly, which GitHub v2 serves for any reachable commit (a
-# bare SHA cannot be used as a refspec source). It writes refs/commit/<sha>,
-# and ALSO a lightweight tag refs/tags/uvshim-pinned-<sha>: uv next runs
-# `git clone --local <db> <checkout>` (which copies only refs/heads + refs/tags,
-# not refs/commit) and then `git reset --hard <sha>` in the checkout; without a
-# head/tag the shallow object is not carried over and reset fails with
-# "Could not parse object". Finally it verifies ${src}^{commit}. v2 + HTTP/1.1,
-# retries, GIT_TERMINAL_PROMPT=0; a matched source NEVER falls back to a full
-# fetch. Other git calls pass through. Removed afterwards so the shim never
-# ships in the image.
-RUN printf '%s\n' \
-    '#!/bin/sh' \
-    'G=/usr/bin/git' \
-    'export GIT_TERMINAL_PROMPT=0' \
-    'if [ "$1" = "fetch" ]; then' \
-    '    shift; url=; spec=' \
-    '    for a in "$@"; do' \
-    '        case "$a" in' \
-    '            http://*|https://*) url=$a ;;' \
-    '            *:refs/commit/*)    spec=$a ;;' \
-    '        esac' \
-    '    done' \
-    '    src=${spec%%:*}; src=${src#+}' \
-    '    dst=${spec##*:}' \
-    '    if [ -n "$url" ] && printf %s "$src" | grep -Eq "^[0-9a-f]{40}$"; then' \
-    '        echo "=== uv-git-shim: shallow fetch pinned $src from $url ===" >&2' \
-    '        "$G" remote remove uvshim >/dev/null 2>&1' \
-    '        "$G" remote add uvshim "$url"' \
-    '        n=0' \
-    '        until [ "$n" -ge 6 ]; do' \
-    '            refs=$("$G" -c protocol.version=2 -c http.version=HTTP/1.1 ls-remote --refs "$url" "refs/heads/*" "refs/tags/*" 2>/dev/null)' \
-    '            ref=$(printf "%s\n" "$refs" | while read -r o r; do if [ "$o" = "$src" ]; then printf "%s" "$r"; break; fi; done)' \
-    '            if [ -n "$ref" ]; then echo "=== uv-git-shim: advertised ref $ref ===" >&2; want=$ref; else echo "=== uv-git-shim: not a head/tag tip; v2 fetch by SHA ===" >&2; want=$src; fi' \
-    '            if "$G" -c protocol.version=2 -c http.version=HTTP/1.1 fetch -q --no-tags --depth 1 uvshim "$want" >&2 && "$G" update-ref "$dst" "$src" && "$G" update-ref "refs/tags/uvshim-pinned-$src" "$src" && "$G" cat-file -e "${src}^{commit}"; then exit 0; fi' \
-    '            n=$((n+1)); echo "=== uv-git-shim retry $n after network failure ===" >&2' \
-    '            sleep $((n*3))' \
-    '        done' \
-    '        echo "=== uv-git-shim FATAL: shallow fetch of $src failed; refusing full clone ===" >&2' \
-    '        exit 1' \
-    '    fi' \
-    '    exec "$G" fetch "$@"' \
-    'fi' \
-    'exec "$G" "$@"' \
-    > /usr/local/bin/git \
-    && chmod +x /usr/local/bin/git \
-    && UV_GIT_FETCH_WITH_CLI=true python3 manage_envs.py prefetch cu130 dev -- --frozen; \
-    rc=$?; rm -f /usr/local/bin/git; exit $rc
+RUN python3 manage_envs.py prefetch cu130 dev -- --frozen
 
 # ---------------------------------------------------------------------------
 # source / lock: full source tree, used only to (re)generate uv.lock. Build
