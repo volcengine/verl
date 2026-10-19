@@ -685,18 +685,12 @@ def offload_megatron_optimizer(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
         if _opt.optimizer is not None:
-            # HybridDeviceOptimizer: offload all sub-optimizer states to CPU
+            # HybridDeviceOptimizer owns the placement of its sub-optimizer
+            # state; leave it untouched here (issue #8237).
             # TODO: this should be a method in Megatron-LM's HybridDeviceOptimizer
-            hdo = _opt.optimizer
-            if all(hasattr(hdo, attr) for attr in ("sub_optimizers", "inner_param_to_orig_param", "state")):
-                for optimizer in hdo.sub_optimizers:
-                    for param, state in optimizer.state.items():
-                        for k, v in state.items():
-                            if not isinstance(v, torch.Tensor):
-                                continue
-                            orig_param = hdo.inner_param_to_orig_param.get(param, param)
-                            hdo.state[orig_param][k] = state[k] = v.to("cpu")
-            else:
+            if not all(
+                hasattr(_opt.optimizer, attr) for attr in ("sub_optimizers", "inner_param_to_orig_param", "state")
+            ):
                 opt_state_dict_values = _opt.optimizer.state.values()
                 for v in opt_state_dict_values:
                     if "exp_avg" in v:
