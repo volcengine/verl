@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Refit support for vLLM's ``Mxfp4MoEMethod`` (DeepSeek V4 routed experts).
+"""Refit support for vLLM's MXFP4 and NVFP4 routed experts.
 
 Reloading these experts means undoing the kernel's weight conversion: the refit
 stream carries checkpoint-layout tensors while the live parameters hold whatever
@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 _MXFP4_SF_BLOCK = 32
 _MXFP4_LIVE_ATTR = "_verl_mxfp4_live_params"
+_NVFP4_SF_BLOCK = 16
+_NVFP4_LIVE_ATTR = "_verl_nvfp4_live_params"
 
 
 def install_mxfp4_mxfp8_compressed_tensors_patch():
@@ -140,6 +142,27 @@ def install_mxfp4_mxfp8_compressed_tensors_patch():
 
     CompressedTensorsMoEMethod.get_moe_method = staticmethod(get_moe_method)
     CompressedTensorsMoEMethod._verl_mxfp4_mxfp8_patch = True
+
+
+def install_nvfp4_cutlass_compressed_tensors_patch():
+    """Make verl's NVFP4 W4A4 preset select the verified CUTLASS backend."""
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        compressed_tensors_moe_w4a4_nvfp4,
+    )
+
+    CompressedTensorsW4A4Nvfp4MoEMethod = compressed_tensors_moe_w4a4_nvfp4.CompressedTensorsW4A4Nvfp4MoEMethod
+    if getattr(CompressedTensorsW4A4Nvfp4MoEMethod, "_verl_cutlass_patch", False):
+        return
+    original_init = CompressedTensorsW4A4Nvfp4MoEMethod.__init__
+
+    def __init__(self, moe, layer_name=None, use_a16=False):
+        if use_a16:
+            raise NotImplementedError("verl supports NVFP4 only as W4A4 routed experts")
+        selection_moe = replace(moe, moe_backend="flashinfer_cutlass") if moe.moe_backend == "auto" else moe
+        original_init(self, selection_moe, layer_name=layer_name, use_a16=False)
+
+    CompressedTensorsW4A4Nvfp4MoEMethod.__init__ = __init__
+    CompressedTensorsW4A4Nvfp4MoEMethod._verl_cutlass_patch = True
 
 
 def is_deepseek_v4_model(model):
@@ -306,6 +329,202 @@ def _replace_parameter_in_place(layer, param_name, new_data, prefer_copy=False):
     if new_data.data_ptr() != param.data_ptr():
         param.data.copy_(new_data)
     setattr(layer, param_name, param)
+
+
+def _is_nvfp4_fused_moe_module(module):
+    from vllm.model_executor.layers.fused_moe import RoutedExperts
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        compressed_tensors_moe_w4a4_nvfp4,
+    )
+
+    CompressedTensorsW4A4Nvfp4MoEMethod = compressed_tensors_moe_w4a4_nvfp4.CompressedTensorsW4A4Nvfp4MoEMethod
+    return isinstance(module, RoutedExperts) and isinstance(module.quant_method, CompressedTensorsW4A4Nvfp4MoEMethod)
+
+
+def _nvfp4_checkpoint_layout(module):
+    """Checkpoint tensors consumed by vLLM's NVFP4 fused-expert loader."""
+    num_experts = module.num_experts
+    intermediate = module.intermediate_size_per_partition
+    hidden = module.hidden_size
+    w13_shards = 2 if module.quant_method.moe.is_act_and_mul else 1
+    tensor = "tensor"
+    group = "group"
+    return {
+        "w13_weight": (
+            (num_experts, w13_shards * intermediate, hidden // 2),
+            torch.uint8,
+            None,
+            "w13_weight_packed",
+        ),
+        "w2_weight": (
+            (num_experts, hidden, intermediate // 2),
+            torch.uint8,
+            None,
+            "w2_weight_packed",
+        ),
+        "w13_weight_scale": (
+            (num_experts, w13_shards * intermediate, hidden // _NVFP4_SF_BLOCK),
+            torch.float8_e4m3fn,
+            group,
+            "w13_weight_scale",
+        ),
+        "w2_weight_scale": (
+            (num_experts, hidden, intermediate // _NVFP4_SF_BLOCK),
+            torch.float8_e4m3fn,
+            group,
+            "w2_weight_scale",
+        ),
+        "w13_weight_global_scale": (
+            (num_experts, w13_shards),
+            torch.float32,
+            tensor,
+            "w13_weight_global_scale",
+        ),
+        "w2_weight_global_scale": (
+            (num_experts,),
+            torch.float32,
+            tensor,
+            "w2_weight_global_scale",
+        ),
+        "w13_input_global_scale": (
+            (num_experts, w13_shards),
+            torch.float32,
+            tensor,
+            "w13_input_global_scale",
+        ),
+        "w2_input_global_scale": (
+            (num_experts,),
+            torch.float32,
+            tensor,
+            "w2_input_global_scale",
+        ),
+    }
+
+
+def _stage_nvfp4_moe_params(module):
+    live = {}
+    layout = _nvfp4_checkpoint_layout(module)
+    for live_name, (shape, dtype, scale_kind, checkpoint_name) in layout.items():
+        param = getattr(module, live_name, None)
+        if not isinstance(param, torch.nn.Parameter):
+            continue
+        # Global scales stay in checkpoint layout and are not replaced by
+        # post-processing, so loading them directly is address-safe.
+        if live_name.endswith("global_scale"):
+            continue
+        live[live_name] = param
+        staged = torch.nn.Parameter(_mxfp4_staging_data(param, shape, dtype), requires_grad=False)
+        staged.weight_loader = module.weight_loader
+        if scale_kind is not None:
+            staged.quant_method = scale_kind
+        setattr(module, checkpoint_name, staged)
+
+    # These are derived from the global scales and replaced by the official
+    # post-process even though they have no checkpoint-side staging tensor.
+    for name in ("w13_weight_scale_2", "w2_weight_scale_2"):
+        param = getattr(module, name, None)
+        if isinstance(param, torch.nn.Parameter):
+            live[name] = param
+    # CUDA graphs capture these activation-scale pointers too.  The upstream
+    # post-process assigns freshly derived tensors instead of Parameters, so
+    # preserve their initial storage and copy each refit's values into it.
+    for name in ("w13_input_scale", "w2_input_scale"):
+        tensor = getattr(module, name, None)
+        if isinstance(tensor, torch.Tensor):
+            live[name] = tensor
+    setattr(module, _NVFP4_LIVE_ATTR, live)
+
+
+def _replace_nvfp4_parameter_in_place(layer, param_name, new_data, prefer_copy=False):
+    from vllm.model_executor.utils import replace_parameter
+
+    live = getattr(layer, _NVFP4_LIVE_ATTR, None) or {}
+    param = live.pop(param_name, None)
+    if param is None or new_data is None:
+        return replace_parameter(layer, param_name, new_data, prefer_copy)
+    if isinstance(new_data, torch.nn.Parameter):
+        new_data = new_data.data
+    if new_data.shape != param.shape or new_data.dtype != param.dtype:
+        raise RuntimeError(
+            f"nvfp4 refit re-derived {param_name} as {tuple(new_data.shape)}/{new_data.dtype}, "
+            f"but the CUDA-graph live parameter is {tuple(param.shape)}/{param.dtype}"
+        )
+    if new_data.data_ptr() != param.data_ptr():
+        param.data.copy_(new_data)
+    setattr(layer, param_name, param)
+
+
+def _restore_nvfp4_input_scales_in_place(module, converted):
+    converted = list(converted)
+    live = getattr(module, _NVFP4_LIVE_ATTR, None) or {}
+    for index, name in ((3, "w13_input_scale"), (7, "w2_input_scale")):
+        tensor = live.pop(name, None)
+        new_data = converted[index]
+        if tensor is None or new_data is None:
+            continue
+        if new_data.shape != tensor.shape or new_data.dtype != tensor.dtype:
+            raise RuntimeError(
+                f"nvfp4 refit re-derived {name} as {tuple(new_data.shape)}/{new_data.dtype}, "
+                f"but the CUDA-graph live tensor is {tuple(tensor.shape)}/{tensor.dtype}"
+            )
+        if new_data.data_ptr() != tensor.data_ptr():
+            tensor.copy_(new_data)
+        converted[index] = tensor
+    return tuple(converted)
+
+
+def _process_nvfp4_moe_params(module):
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        compressed_tensors_moe_w4a4_nvfp4,
+    )
+
+    original_convert = compressed_tensors_moe_w4a4_nvfp4.convert_to_nvfp4_moe_kernel_format
+
+    def convert_to_nvfp4_moe_kernel_format(*args, **kwargs):
+        return _restore_nvfp4_input_scales_in_place(module, original_convert(*args, **kwargs))
+
+    with (
+        patch.object(
+            compressed_tensors_moe_w4a4_nvfp4,
+            "replace_parameter",
+            _replace_nvfp4_parameter_in_place,
+        ),
+        patch.object(
+            compressed_tensors_moe_w4a4_nvfp4,
+            "convert_to_nvfp4_moe_kernel_format",
+            convert_to_nvfp4_moe_kernel_format,
+        ),
+    ):
+        module.quant_method.process_weights_after_loading(module)
+    leftover = getattr(module, _NVFP4_LIVE_ATTR, None) or {}
+    delattr(module, _NVFP4_LIVE_ATTR)
+    if leftover:
+        raise RuntimeError(f"nvfp4 refit left {sorted(leftover)} un-reinstated")
+
+
+def stage_nvfp4_moe_params_for_loading(model):
+    """Stage NVFP4 W4A4 FlashInfer CUTLASS experts for a bucketed refit."""
+    from vllm.model_executor.layers.fused_moe.oracle.nvfp4 import NvFp4MoeBackend
+
+    staged = []
+    for module in model.modules():
+        if not _is_nvfp4_fused_moe_module(module):
+            continue
+        method = module.quant_method
+        if method.use_a16 or method.nvfp4_backend != NvFp4MoeBackend.FLASHINFER_CUTLASS:
+            raise NotImplementedError(
+                "NVFP4 refit supports only W4A4 FlashInfer CUTLASS routed experts; "
+                f"got use_a16={method.use_a16}, backend={method.nvfp4_backend}"
+            )
+        _stage_nvfp4_moe_params(module)
+        staged.append(module)
+    logger.info("Staged %d NVFP4 W4A4 MoE modules for in-place refit", len(staged))
+    return staged
+
+
+def process_nvfp4_moe_weights_after_loading(modules):
+    for module in modules:
+        _process_nvfp4_moe_params(module)
 
 
 def _process_mxfp4_moe_params(module):

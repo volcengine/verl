@@ -32,6 +32,9 @@ Examples (8 GPUs):
     # MXFP4 expert weights with dynamic MXFP8 expert activations
     .venv-vllm/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-moe MXFP4 --qat-mode mxfp4 --r3-router-replay
+    # NVFP4 W4A4 experts with FlashInfer CUTLASS
+    .venv-vllm/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
+        --quant-moe NVFP4 --qat-mode nvfp4
     # same, with Megatron ModelOpt QAT fake-quantizing to the rollout scheme
     .venv/bin/python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --ep 8 \\
         --quant-linear FP8_BLOCK --quant-moe FP8_BLOCK --qat-mode fp8
@@ -95,7 +98,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--etp", type=int, default=1, help="Megatron expert tensor parallel size")
     parser.add_argument("--gen-tp", type=int, default=2, help="rollout tensor parallel size")
     parser.add_argument("--quant-linear", default=None, help="rollout.quantization.linear preset: FP8_BLOCK or MXFP8")
-    parser.add_argument("--quant-moe", default=None, help="rollout.quantization.moe preset: FP8_BLOCK, MXFP8, or MXFP4")
+    parser.add_argument(
+        "--quant-moe",
+        default=None,
+        help="rollout.quantization.moe preset: FP8_BLOCK, MXFP8, MXFP4, or NVFP4",
+    )
     parser.add_argument(
         "--quant-ignore",
         action="append",

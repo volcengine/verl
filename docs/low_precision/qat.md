@@ -40,14 +40,14 @@ Your HuggingFace checkpoint stays in BF16; no offline quantization or calibratio
 
 ## Support matrix
 
-The trainer must be Megatron (FSDP is not yet supported for this feature; see [NVFP4 QAT](nvfp4_qat.md) for FSDP). The rollout engine can be vLLM or SGLang; TRT-LLM raises an error if `rollout.quantization` is set. The engine columns list the compressed-tensors scheme each engine implements.
+The trainer must be Megatron (FSDP is not yet supported for this feature). The rollout engine can be vLLM or SGLang; TRT-LLM raises an error if `rollout.quantization` is set. The engine columns list the compressed-tensors scheme each engine implements.
 
 | Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | vLLM status in verl | SGLang status in verl |
 |---|---|---|---|---|---|---|---|---|---|
 | FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8` | `W8A8Fp8MoE` | ✅ Hopper | ✅ Hopper |
 | MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | ❌ (only whole-model `quant_method: mxfp8`) | ❌ | ✅ Blackwell | Blocked by engine support |
 | MXFP4 (MoE only) | `MXFP4` | `mxfp4` / `mxfp4_mxfp8` | Blackwell | ❌ | MXFP4×MXFP8<br>`(moe_backend=flashinfer_cutlass)` | ❌ | ❌ | ✅ Blackwell (MoE only) | Blocked by engine support |
-| NVFP4 (MoE only) | `NVFP4` (planned) | `nvfp4` (planned) | Blackwell | ❌ | W4A4 / W4A16 | ❌ | W4A4 | Planned (MoE only) | Planned (MoE only) |
+| NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ | ❌ | ✅ Blackwell (MoE only) | Blocked by engine support |
 
 MXFP8, MXFP4 and NVFP4 need Blackwell (SM100). On Hopper, vLLM falls back to Marlin weight-only kernels for these formats, whose numerics differ from Blackwell W8A8 / W4A4; verl does not support that path.
 
@@ -69,7 +69,7 @@ actor_rollout_ref:
 
 - When `linear`, `moe` and `config_file` are all `null` (the default), the rollout runs in the model's native precision.
 - `linear` and `moe` can be set independently. Setting one of them to `null` keeps those layers in BF16, e.g. `linear: null, moe: FP8_BLOCK` quantizes only the routed experts.
-- `MXFP4` is valid only for `moe`. Use `linear: null, moe: MXFP4` for BF16 dense layers or `linear: MXFP8, moe: MXFP4` for MXFP8 dense layers.
+- `MXFP4` and `NVFP4` are valid only for `moe`. Use `linear: null` for BF16 dense layers or `linear: MXFP8` for MXFP8 dense layers.
 - The following layers are always kept in BF16: `lm_head`, embeddings, MoE routers (`mlp.gate`, `shared_expert_gate`), vision towers and MTP layers.
 - `ignore` adds more layers on top of these, using HuggingFace layer names. Layers incompatible with the selected scheme are not detected automatically: list them explicitly. For example, MXFP8 on Qwen3.5 requires `["re:.*linear_attn\\.in_proj_[ab]$"]` because these projections are too small for the vLLM kernel.
 
@@ -126,16 +126,17 @@ actor_rollout_ref:
     megatron:
       qat:
         enable: true
-        mode: fp8   # FP8_BLOCK -> fp8, MXFP8 -> mxfp8, MoE MXFP4 -> mxfp4
+        mode: fp8   # FP8_BLOCK -> fp8, MXFP8 -> mxfp8, MXFP4 -> mxfp4, NVFP4 -> nvfp4
 ```
 
-QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only. For `mxfp4`, verl uses compressed-tensors-compatible MXFP4 weight QDQ plus ModelOpt's MXFP8 input quantizer, enabled only on routed experts. The custom weight QDQ is necessary because ModelOpt's native E2M1 tie handling differs from compressed-tensors export for a small subset of values. Use `mxfp4_mxfp8` when dense linear layers also use MXFP8.
+QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only. MXFP4 and NVFP4 use compressed-tensors-compatible QDQ backends so fake quantization is bit-exact with the exported checkpoint format. Both FP4 modes apply only to routed experts. Use `mxfp4_mxfp8` when dense linear layers also use MXFP8.
 Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them aligned with the rollout ignore list; for Qwen3.5 MXFP8, add `*linear_attn.in_proj_a` and `*linear_attn.in_proj_b`.
 
 ### Engine notes
 
 - **vLLM**: `VLLM_USE_DEEP_GEMM_E8M0` defaults to `0` for `FP8_BLOCK`, so its block scales stay in FP32. MX formats retain the E8M0 path.
 - **vLLM MXFP4**: vLLM 0.29's compressed-tensors path otherwise ignores the MXFP8 input scheme and selects W4A4 CUTLASS. verl routes this explicit W4A8(MX) scheme through vLLM's MXFP4 backend oracle with `kMxfp8Dynamic` and defaults to FlashInfer CUTLASS. The TRTLLM MXFP4×MXFP8 backend is not used because it produced a large numerical mismatch on Qwen3.5-35B-A3B.
+- **vLLM NVFP4**: verl supports only W4A4 routed experts and forces FlashInfer CUTLASS. W4A16, dense NVFP4 and other MoE backends are rejected.
 - **SGLang**: the first launch of a quantized MoE model can take several minutes while Triton compiles FP8 MoE kernels during CUDA graph capture. Later launches use the cache.
 
 ## Example
@@ -184,6 +185,15 @@ Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arg
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE + MXFP8 QAT | auto | 0.00315 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE | FlashInfer CUTLASS | 0.00858 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE + MXFP4 QAT | FlashInfer CUTLASS | 0.00210 |
+| Blackwell | vLLM | ❌ | NVFP4 MoE | FlashInfer CUTLASS | 0.25778 |
+| Blackwell | vLLM | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.32112 |
+
+The NVFP4 path is functionally validated with CUDA Graph, but its current
+Qwen3.5-35B-A3B numerical gap is too large for training. The QAT result is not
+an accuracy acceptance result; it records the current implementation state and
+shows that additional kernel/QDQ parity work is required. Repeated runs varied
+because FlashInfer's fused finalize is nondeterministic (`0.219–0.258` without
+QAT and `0.263–0.380` with QAT).
 
 ## Limitations
 

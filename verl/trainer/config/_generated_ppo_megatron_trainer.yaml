@@ -89,7 +89,7 @@ actor_rollout_ref:
       qat:
         _target_: verl.workers.config.QATEngineConfig
         enable: false
-        mode: w4a16
+        mode: fp8
         group_size: 16
         ignore_patterns:
         - lm_head
@@ -290,7 +290,7 @@ actor_rollout_ref:
       qat:
         _target_: verl.workers.config.QATEngineConfig
         enable: false
-        mode: w4a16
+        mode: fp8
         group_size: 16
         ignore_patterns:
         - lm_head
@@ -634,7 +634,7 @@ critic:
     qat:
       _target_: verl.workers.config.QATEngineConfig
       enable: false
-      mode: w4a16
+      mode: fp8
       group_size: 16
       ignore_patterns:
       - lm_head

@@ -15,7 +15,7 @@
 """
 QAT (Quantization-Aware Training) module for verl.
 
-Supports NVFP4 (W4A4 and W4A16) quantization modes for FSDP training.
+Provides compressed-tensors rollout presets and trainer-side export helpers.
 
 Module Structure:
 - core.py: QATConfig, apply_qat, enable_qat_fuse (training setup)
@@ -23,12 +23,10 @@ Module Structure:
 - quantizer.py: QATQuantizer for true quantization + scale computation utilities
 - compressed_tensors.py: compressed-tensors rollout config and trainer-side weight quantizer
 
-The vLLM side (NVFP4 refit patches) lives in ``verl.utils.vllm.vllm_nvfp4_utils``.
-
 Usage:
     from verl.utils.qat import apply_qat, QATConfig
 
-    config = QATConfig(enable=True, mode="w4a16")
+    config = QATConfig(enable=True, mode="w4a4")
     model = apply_qat(model, config)  # Before FSDP wrapping
 """
 

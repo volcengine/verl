@@ -64,6 +64,9 @@ SUPPORTED_SCHEMES: dict[str, Optional[str]] = {
     # quantized MXFP8 expert inputs, rather than the upstream MXFP4 W4A4
     # preset.
     "MXFP4": "mxfp4",
+    # NVFP4 is deliberately W4A4 and routed-expert-only.  Unlike MX formats,
+    # its tensor-level activation scale is static and must come from QAT.
+    "NVFP4": "nvfp4",
 }
 
 # Layers that stay in high precision regardless of model. Patterns must start
@@ -202,8 +205,8 @@ def build_compressed_tensors_config(
 
     linear = _check_scheme("linear", linear)
     moe = _check_scheme("moe", moe)
-    if linear == "MXFP4":
-        raise ValueError("MXFP4 is supported only for routed MoE experts; use BF16 or MXFP8 dense linear layers")
+    if linear in ("MXFP4", "NVFP4"):
+        raise ValueError(f"{linear} is supported only for routed MoE experts; use BF16 or MXFP8 dense linear layers")
     if linear is None and moe is None:
         raise ValueError("rollout quantization needs at least one of `linear` / `moe`")
 
@@ -254,7 +257,12 @@ def _weight_min_max(weight: torch.Tensor, args: "QuantizationArgs") -> tuple[tor
     raise NotImplementedError(f"Trainer-side quantization not implemented for strategy {args.strategy}")
 
 
-def _compress_weight(weight: torch.Tensor, scheme: "QuantizationScheme") -> dict[str, torch.Tensor]:
+def _compress_weight(
+    weight: torch.Tensor,
+    scheme: "QuantizationScheme",
+    *,
+    global_scale: Optional[torch.Tensor] = None,
+) -> dict[str, torch.Tensor]:
     """Quantize one module's weight into its compressed-tensors state dict."""
     from compressed_tensors.compressors import BaseCompressor
     from compressed_tensors.compressors.format import infer_module_format
@@ -264,9 +272,9 @@ def _compress_weight(weight: torch.Tensor, scheme: "QuantizationScheme") -> dict
     args = scheme.weights
     min_vals, max_vals = (t.float() for t in _weight_min_max(weight, args))
     state_dict = {"weight": weight}
-    global_scale = None
     if args.strategy == QuantizationStrategy.TENSOR_GROUP:
-        global_scale = generate_gparam(min_vals.amin(), max_vals.amax())
+        if global_scale is None:
+            global_scale = generate_gparam(min_vals.amin(), max_vals.amax())
         state_dict["weight_global_scale"] = global_scale
     scale, zero_point = calculate_qparams(min_vals, max_vals, args, global_scale=global_scale)
     state_dict["weight_scale"] = scale
@@ -306,10 +314,81 @@ class CompressedTensorsWeightQuantizer:
     experts are split per expert first. Everything else passes through unchanged.
     """
 
-    def __init__(self, ct_config: Mapping[str, Any]):
+    def __init__(
+        self,
+        ct_config: Mapping[str, Any],
+        input_global_scales: Optional[Mapping[str, torch.Tensor]] = None,
+    ):
         self.ignore = list(ct_config.get("ignore") or [])
         self.schemes = _group_schemes(ct_config)
         self.linear_scheme = next((s for s in self.schemes if "Linear" in s.targets), None)
+        self.input_global_scales = dict(input_global_scales or {})
+
+    def set_input_global_scales(self, scales: Mapping[str, torch.Tensor]) -> None:
+        """Install ModelOpt-observed NVFP4 activation scales keyed by HF module name."""
+        self.input_global_scales = dict(scales)
+
+    def refresh_input_global_scales(self, model: torch.nn.Module) -> None:
+        """Refresh NVFP4 activation scales from ModelOpt before an export."""
+        from verl.utils.modelopt.quantize import collect_nvfp4_input_global_scales
+
+        scales = collect_nvfp4_input_global_scales(model)
+        if scales:
+            self.set_input_global_scales(scales)
+
+    def _input_global_scale(self, module: str, scheme: "QuantizationScheme") -> Optional[torch.Tensor]:
+        from compressed_tensors.quantization import QuantizationStrategy
+
+        if scheme.input_activations is None or scheme.input_activations.strategy != QuantizationStrategy.TENSOR_GROUP:
+            return None
+        scale = self.input_global_scales.get(module)
+        if scale is None:
+            match = re.search(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.\d+\.(gate_proj|up_proj|down_proj)$", module)
+            if match:
+                projection = "gate_up" if match.group(2) in ("gate_proj", "up_proj") else "down"
+                scale = self.input_global_scales.get(f"layers.{match.group(1)}.mlp.experts.{projection}")
+        if scale is None:
+            # The first rollout sync precedes any actor forward, so no observer
+            # value exists yet.  One is the neutral CT divisor and leaves the
+            # dynamic group-16 FP8 local scales their full representable range.
+            scale = torch.ones(1)
+        scale = scale.detach().float().reshape(1)
+        if not torch.isfinite(scale).all() or (scale <= 0).any():
+            raise ValueError(f"Invalid input_global_scale for {module!r}: {scale}")
+        return scale
+
+    def _compress_packed_experts(
+        self,
+        name: str,
+        tensor: torch.Tensor,
+        scheme: "QuantizationScheme",
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        """Compress packed experts, sharing NVFP4 gate/up tensor scales."""
+        from compressed_tensors.quantization import QuantizationStrategy
+        from compressed_tensors.quantization.utils import generate_gparam
+
+        unpacked = list(_unpack_experts(name, tensor))
+        shared_global_scales: dict[tuple[int, str], torch.Tensor] = {}
+        if scheme.weights.strategy == QuantizationStrategy.TENSOR_GROUP:
+            by_expert: dict[int, list[torch.Tensor]] = {}
+            for module_name, weight in unpacked:
+                match = re.search(r"\.experts\.(\d+)\.(gate_proj|up_proj)\.weight$", module_name)
+                if match:
+                    by_expert.setdefault(int(match.group(1)), []).append(weight)
+            for expert_id, weights in by_expert.items():
+                amax = torch.stack([weight.float().abs().amax() for weight in weights]).amax()
+                shared_global_scales[(expert_id, "gate_up")] = generate_gparam(-amax, amax)
+
+        for weight_name, weight in unpacked:
+            module = weight_name[: -len(".weight")]
+            match = re.search(r"\.experts\.(\d+)\.(gate_proj|up_proj)$", module)
+            global_scale = shared_global_scales.get((int(match.group(1)), "gate_up")) if match else None
+            compressed = _compress_weight(weight, scheme, global_scale=global_scale)
+            for key, value in compressed.items():
+                yield weight_name[: -len("weight")] + key, value
+            input_scale = self._input_global_scale(module, scheme)
+            if input_scale is not None:
+                yield weight_name[: -len("weight")] + "input_global_scale", input_scale
 
     def _module_scheme(self, module: str) -> Optional["QuantizationScheme"]:
         if _matches(module, self.ignore):
@@ -327,8 +406,9 @@ class CompressedTensorsWeightQuantizer:
     def __call__(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
         for name, tensor in weights:
             packed = _PACKED_EXPERTS.match(name) if tensor.ndim == 3 else None
-            if packed and self._module_scheme(f"{packed['prefix']}.0.gate_proj") is not None:
-                yield from self(_unpack_experts(name, tensor))
+            scheme = self._module_scheme(f"{packed['prefix']}.0.gate_proj") if packed else None
+            if packed and scheme is not None:
+                yield from self._compress_packed_experts(name, tensor, scheme)
                 continue
             scheme = self._scheme_for(name, tensor)
             if scheme is None:
@@ -337,3 +417,6 @@ class CompressedTensorsWeightQuantizer:
             prefix = name[: -len("weight")]
             for key, value in _compress_weight(tensor, scheme).items():
                 yield prefix + key, value
+            input_scale = self._input_global_scale(name[: -len(".weight")], scheme)
+            if input_scale is not None:
+                yield prefix + "input_global_scale", input_scale

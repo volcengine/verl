@@ -27,7 +27,7 @@ def apply_qat_to_modules(modules, qat_config):
     """Apply ModelOpt fake quantization to a list of Megatron module chunks."""
     from verl.utils.modelopt.quantize import apply_qat
 
-    qat_mode = _get_qat_field(qat_config, "mode", "w4a16")
+    qat_mode = _get_qat_field(qat_config, "mode", "fp8")
     ignore_patterns = _get_qat_field(qat_config, "ignore_patterns", None)
     if ignore_patterns is not None:
         ignore_patterns = list(ignore_patterns)

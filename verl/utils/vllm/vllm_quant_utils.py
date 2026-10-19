@@ -50,10 +50,13 @@ except ImportError:
 from verl.utils.kernel.fp8_kernel import scaled_fp8_blockwise
 from verl.utils.vllm.vllm_fp4_utils import (
     install_mxfp4_mxfp8_compressed_tensors_patch,
+    install_nvfp4_cutlass_compressed_tensors_patch,
     is_deepseek_v4_model,
     iter_deepseek_v4_weights,
     process_mxfp4_moe_weights_after_loading,
+    process_nvfp4_moe_weights_after_loading,
     stage_mxfp4_moe_params_for_loading,
+    stage_nvfp4_moe_params_for_loading,
 )
 from verl.utils.vllm.vllm_fp8_utils import (
     build_fp8_method_patchers,
@@ -433,6 +436,7 @@ def prepare_quanted_weights_for_loading(model):
     reload_state: dict[str, Any] = {
         "fp8_layers": stage_fp8_params_for_loading(model),
         "mxfp4_moe_modules": stage_mxfp4_moe_params_for_loading(model),
+        "nvfp4_moe_modules": stage_nvfp4_moe_params_for_loading(model),
     }
     return reload_state
 
@@ -443,6 +447,7 @@ def process_quanted_weights_after_loading(model, reload_state):
     reload_state = reload_state or {}
     process_fp8_weights_after_loading(reload_state.get("fp8_layers") or [])
     process_mxfp4_moe_weights_after_loading(reload_state.get("mxfp4_moe_modules") or [])
+    process_nvfp4_moe_weights_after_loading(reload_state.get("nvfp4_moe_modules") or [])
     # Last: the rebuild reads ``wo_a``, which is only back in its inference
     # layout once the staged FP8 params above have been reinstated.
     refresh_rocm_attention_weight_caches(model)
@@ -507,6 +512,7 @@ def apply_vllm_quant_patches():
     activations.
     """
     install_mxfp4_mxfp8_compressed_tensors_patch()
+    install_nvfp4_cutlass_compressed_tensors_patch()
     if fp8_state.vllm_patches:
         logger.debug("vLLM quantization patches already applied")
         return
