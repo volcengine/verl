@@ -86,3 +86,55 @@ def test_value_model_head_survives_lora_only_save_filter_and_hf_export_names():
     exported = normalize_peft_param_name(state)
     assert "score.weight" in exported and "score.bias" in exported
     assert not any("original_module" in k or "modules_to_save" in k for k in exported)
+
+
+def test_lora_only_checkpoint_keeps_trained_head_and_roundtrips():
+    from verl.utils.checkpoint.checkpoint_manager import BaseCheckpointManager as Mgr
+
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model")
+    state = peft_model.state_dict()
+    kept = {k: v for k, v in state.items() if Mgr.is_adapter_key(k)}
+    assert any("score.modules_to_save.default.weight" in k for k in kept)
+    assert not any("original_module" in k for k in kept)
+    assert Mgr.is_lora_only_state_dict(kept)
+    assert not Mgr.is_lora_only_state_dict(state)
+    result = peft_model.load_state_dict(kept, strict=False)
+    assert not result.unexpected_keys
+
+
+def test_lora_train_meta_keeps_none_task_type():
+    from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
+
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model")
+    assert FSDPCheckpointManager._get_lora_train_meta(None, peft_model)["task_type"] is None
+    lm = _build(Qwen2ForCausalLM(_tiny_config()), "language_model")
+    assert FSDPCheckpointManager._get_lora_train_meta(None, lm)["task_type"] == "CAUSAL_LM"
+
+
+def test_merger_exports_trained_head_with_modules_to_save(tmp_path):
+    import json
+
+    from safetensors.torch import load_file
+
+    from verl.model_merger.base_model_merger import BaseModelMerger
+
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model")
+    with torch.no_grad():
+        peft_model.base_model.model.score.modules_to_save["default"].weight.fill_(0.5)
+    state = {k: v.clone() for k, v in peft_model.state_dict().items()}
+
+    merger = SimpleNamespace(
+        config=SimpleNamespace(target_dir=str(tmp_path), local_dir=None),
+        _load_lora_train_meta=lambda: {"r": 4, "lora_alpha": 8, "task_type": None},
+    )
+    lora_path = BaseModelMerger.save_lora_adapter(merger, state)
+
+    cfg = json.load(open(f"{lora_path}/adapter_config.json"))
+    assert cfg["task_type"] is None and cfg["modules_to_save"] == ["score"]
+    adapter = load_file(f"{lora_path}/adapter_model.safetensors")
+    assert torch.allclose(
+        adapter["base_model.model.score.weight"], torch.full_like(adapter["base_model.model.score.weight"], 0.5)
+    )
+    # exported base model state carries the trained head under its plain HF name, with no PEFT wrapper keys
+    assert torch.allclose(state["score.weight"], torch.full_like(state["score.weight"], 0.5))
+    assert not any("modules_to_save" in k or "original_module" in k for k in state)
