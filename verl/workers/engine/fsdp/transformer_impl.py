@@ -17,6 +17,7 @@ The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 
 import logging
 import os
+import re
 import warnings
 from contextlib import contextmanager, nullcontext
 from inspect import signature
@@ -380,8 +381,12 @@ class FSDPEngine(BaseEngine):
                 head_names = [name for name in ("score", "classifier") if hasattr(module, name)]
                 if head_names:
                     exclude = lora_config["exclude_modules"]
-                    exclude = [exclude] if isinstance(exclude, str) else list(exclude or [])
-                    lora_config["exclude_modules"] = exclude + head_names
+                    if isinstance(exclude, str):
+                        # a str is a regex in PEFT: keep it a regex instead of turning it into a name list
+                        head_regex = "|".join(re.escape(name) for name in head_names)
+                        lora_config["exclude_modules"] = rf"(?:{exclude})|(?:.*\.)?(?:{head_regex})"
+                    else:
+                        lora_config["exclude_modules"] = list(exclude or []) + head_names
                     lora_config["modules_to_save"] = head_names
             module = get_peft_model(module, LoraConfig(**lora_config))
 
