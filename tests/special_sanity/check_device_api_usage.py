@@ -57,6 +57,7 @@ CUDA_KEYWORD_CHECK_WHITELIST = [
     "verl/utils/modelopt/megatron_qat_patch.py",  # appear in torch.cuda.empty_cache()
     "verl/models/mcore/patch.py",  # checkpoint patch only on cuda
     "scripts/diagnose.py",  # env diagnose script intentionally probes torch.cuda to report hardware
+    "scripts/verify_hf_to_mcore.py",  # Megatron verifier uses its CUDA-compatible seed helper
 ]
 
 # directory or file path must contain keyword "nccl"

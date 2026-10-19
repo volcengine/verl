@@ -37,6 +37,7 @@ ACTOR_GPUS=${ACTOR_GPUS:-$((TOTAL_GPUS - RM_GPUS))}
 # stop producing those, so trade batch size away before touching this.
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-1024}
 MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-3072}
+MODEL_MAX_POSITION_EMBEDDINGS=${MODEL_MAX_POSITION_EMBEDDINGS:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}
 
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-16}
 N_RESP_PER_PROMPT=${N_RESP_PER_PROMPT:-8}
@@ -232,7 +233,7 @@ python3 -m verl.trainer.main_ppo --config-name='ppo_megatron_trainer.yaml' \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path="${MODEL_PATH}" \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
-    +actor_rollout_ref.model.override_config.max_position_embeddings=32768 \
+    +actor_rollout_ref.model.override_config.max_position_embeddings="${MODEL_MAX_POSITION_EMBEDDINGS}" \
     actor_rollout_ref.actor.strategy=megatron \
     actor_rollout_ref.actor.megatron.tensor_model_parallel_size="${TRAIN_TP}" \
     actor_rollout_ref.actor.megatron.pipeline_model_parallel_size="${TRAIN_PP}" \
