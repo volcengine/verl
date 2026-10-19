@@ -460,6 +460,8 @@ class Fp8ConfigWeightQuantizer:
         self.scheme = _scheme_for_preset("FP8_BLOCK", ["Linear"])
 
     def _is_ignored(self, module: str) -> bool:
+        if _matches(module, DEFAULT_IGNORE):
+            return True
         if self.ignore_match_mode == "exact":
             return module in self.ignore
         if self.ignore_match_mode == "substring":

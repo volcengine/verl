@@ -173,6 +173,37 @@ def test_native_fp8_config_export_uses_vllm_scale_names():
     assert result["model.layers.0.mlp.gate.weight"] is gate
 
 
+def test_native_fp8_config_export_keeps_default_ignored_layers_in_high_precision():
+    quantizer = Fp8ConfigWeightQuantizer(
+        {
+            "quant_method": "fp8",
+            "activation_scheme": "dynamic",
+            "weight_block_size": [128, 128],
+        }
+    )
+    embedding = torch.randn(256, 256, dtype=torch.bfloat16)
+    lm_head = torch.randn(256, 256, dtype=torch.bfloat16)
+    router = torch.randn(16, 256, dtype=torch.bfloat16)
+
+    result = dict(
+        quantizer(
+            [
+                ("model.embed_tokens.weight", embedding),
+                ("lm_head.weight", lm_head),
+                ("model.layers.0.mlp.gate.weight", router),
+            ]
+        )
+    )
+
+    expected = {
+        "model.embed_tokens.weight": embedding,
+        "lm_head.weight": lm_head,
+        "model.layers.0.mlp.gate.weight": router,
+    }
+    assert result.keys() == expected.keys()
+    assert all(result[name] is tensor for name, tensor in expected.items())
+
+
 def test_native_fp8_config_export_unpacks_fused_experts():
     quantizer = Fp8ConfigWeightQuantizer(
         {

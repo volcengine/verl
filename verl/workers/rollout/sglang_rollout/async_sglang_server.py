@@ -301,6 +301,7 @@ class SGLangHttpServer:
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
         model_override_args = {}
+        quantization_config = None
         if self.config.quantization.enabled:
             # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
             # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
@@ -334,7 +335,7 @@ class SGLangHttpServer:
             **engine_kwargs,
         }
         # bf16 weight updates crash SGLang's default MoE runner on Blackwell (see default_moe_runner_backend)
-        moe_runner_backend = default_moe_runner_backend(quantization, engine_kwargs, self.model_config.hf_config)
+        moe_runner_backend = default_moe_runner_backend(quantization_config, engine_kwargs, self.model_config.hf_config)
         if moe_runner_backend is not None:
             args["moe_runner_backend"] = moe_runner_backend
             logger.info(
