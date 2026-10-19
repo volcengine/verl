@@ -524,6 +524,23 @@ def _as_quantization_config(config: Any) -> Optional[dict[str, Any]]:
     raise TypeError(f"quantization_config must be a mapping, got {type(config).__name__}")
 
 
+def _vllm_hf_overrides_quantization_config(rollout_config: Any) -> tuple[bool, Any]:
+    """``(present, value)`` of a ``quantization_config`` set in ``rollout.engine_kwargs.vllm.hf_overrides``.
+
+    vLLM applies these overrides on top of the checkpoint config, so the rollout
+    runs whatever they set, including ``null`` for a BF16 rollout of an FP8 checkpoint.
+    """
+    if getattr(rollout_config, "name", None) != "vllm":
+        return False, None
+    engine_kwargs = getattr(rollout_config, "engine_kwargs", None) or {}
+    hf_overrides = (engine_kwargs.get("vllm") or {}).get("hf_overrides") or {}
+    if isinstance(hf_overrides, str):
+        hf_overrides = json.loads(hf_overrides)
+    if "quantization_config" not in hf_overrides:
+        return False, None
+    return True, hf_overrides["quantization_config"]
+
+
 def dispatch_rollout_weight_quantizer(
     *,
     model_config: Any,
@@ -533,7 +550,8 @@ def dispatch_rollout_weight_quantizer(
     """Select the trainer-side exporter for native or overridden rollout quantization.
 
     The rollout engine keeps its native ``quantization_config`` unless
-    ``rollout.quantization`` explicitly overrides it. Both native and override
+    ``rollout.quantization`` explicitly overrides it; a ``quantization_config``
+    in vLLM's ``hf_overrides`` replaces the native one. Both native and override
     compressed-tensors configs use :class:`CompressedTensorsWeightQuantizer`;
     native ``Fp8Config`` uses :class:`Fp8ConfigWeightQuantizer`. DeepSeek-V4
     still gets an FP8 quantizer object, but it passes through the private mixed
@@ -556,9 +574,11 @@ def dispatch_rollout_weight_quantizer(
             model_path=model_config.local_path,
         )
     else:
-        native = getattr(hf_config, "quantization_config", None)
-        if native is None:
-            native = getattr(getattr(hf_config, "text_config", None), "quantization_config", None)
+        has_hf_override, native = _vllm_hf_overrides_quantization_config(rollout_config)
+        if not has_hf_override:
+            native = getattr(hf_config, "quantization_config", None)
+            if native is None:
+                native = getattr(getattr(hf_config, "text_config", None), "quantization_config", None)
         quantization_config = _as_quantization_config(native)
 
     qat_mode = qat_config.mode if qat_config is not None and qat_config.enable else None

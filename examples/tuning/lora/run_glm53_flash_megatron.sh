@@ -284,7 +284,9 @@ EXTRA=(
 # the KDA and MLA attention paths in BF16 for numerical stability. The TE backward
 # amax_epsilon=1e-12 fix (in Megatron-LM fp8_utils.py) is required to avoid NaN
 # grad_norm from all-zero gradient blocks. TP defaults to 4 to keep the
-# 64-output beta projection aligned to FP8 GEMM's 16-column minimum.
+# 64-output beta projection aligned to FP8 GEMM's 16-column minimum. The FP8
+# rollout follows the checkpoint's own quantization_config (modules_to_not_convert
+# included), so it needs no rollout.quantization override.
 if [ "${USE_FP8}" = 1 ]; then
     ACTOR+=(
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8=hybrid
@@ -295,10 +297,10 @@ if [ "${USE_FP8}" = 1 ]; then
         +actor_rollout_ref.actor.megatron.override_transformer_config.hidden_dropout=0.0
         +actor_rollout_ref.actor.optim.override_optimizer_config.fp8_recipe=blockwise
     )
-    ROLLOUT+=(+actor_rollout_ref.rollout.quantization=fp8)
 else
     # Keep the official checkpoint config on disk, but force a true BF16
-    # rollout instead of letting vLLM auto-detect its FP8 metadata.
+    # rollout instead of letting vLLM auto-detect its FP8 metadata. The trainer
+    # reads the same override and syncs BF16 weights.
     ROLLOUT+=(+actor_rollout_ref.rollout.engine_kwargs.vllm.hf_overrides.quantization_config=null)
 fi
 # enforce_eager stays False for both modes (cudagraph auto-enables for Glm5Next).

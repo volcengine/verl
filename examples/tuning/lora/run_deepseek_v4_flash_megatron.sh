@@ -267,6 +267,8 @@ EXTRA=(
 # uses E4M3 / backward E5M2 blockwise quantization, and the vLLM rollout runs in
 # FP8 with FP8 KV cache. The TE backward amax_epsilon=1e-12 fix (in Megatron-LM
 # fp8_utils.py) is required to avoid NaN grad_norm from all-zero gradient blocks.
+# The rollout follows the checkpoint's own FP8 quantization_config, so it needs
+# no rollout.quantization override.
 if [ "${USE_FP8}" = 1 ]; then
     ACTOR+=(
         +actor_rollout_ref.actor.megatron.override_transformer_config.fp8=hybrid
@@ -275,7 +277,6 @@ if [ "${USE_FP8}" = 1 ]; then
         +actor_rollout_ref.actor.megatron.override_transformer_config.hidden_dropout=0.0
         +actor_rollout_ref.actor.optim.override_optimizer_config.fp8_recipe=blockwise
     )
-    ROLLOUT+=(+actor_rollout_ref.rollout.quantization=fp8)
     ROLLOUT+=(actor_rollout_ref.rollout.enforce_eager=True)
 else
     ROLLOUT+=(actor_rollout_ref.rollout.enforce_eager=False)

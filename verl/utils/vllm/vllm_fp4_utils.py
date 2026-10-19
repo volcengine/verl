@@ -63,23 +63,18 @@ def is_deepseek_v4_model(model):
 
 
 def _resolve_mxfp4_quant_method(module):
-    """Return the ``Mxfp4MoEMethod`` backing ``module``, unwrapping LoRA.
+    """Return the quant method backing ``module``, unwrapping LoRA.
 
     Under verl merge=False, vLLM's ``FusedMoEWithLoRA`` swaps the layer's
     ``quant_method`` to ``FusedMoEModularMethod`` (a forward-only wrapper that
     stores the original as ``old_quant_method`` and hides the mxfp4 layout attrs
     + repack). Resolve to the original method so staging, layout derivation and
-    post-load repack work like the non-LoRA path.
+    post-load repack work like the non-LoRA path. Whether it is MXFP4 at all is
+    ``_is_mxfp4_fused_moe_module``'s call.
     """
-    from vllm.model_executor.layers.quantization.mxfp4 import Mxfp4MoEMethod
-
     qm = module.quant_method
-    if isinstance(qm, Mxfp4MoEMethod):
-        return qm
     inner = getattr(qm, "old_quant_method", None)
-    if isinstance(inner, Mxfp4MoEMethod):
-        return inner
-    return None
+    return qm if inner is None else inner
 
 
 def install_mxfp4_mxfp8_compressed_tensors_patch():
@@ -177,8 +172,9 @@ def install_mxfp4_mxfp8_compressed_tensors_patch():
 def _is_mxfp4_fused_moe_module(module):
     """Check whether a routed-expert module uses MXFP4, including a LoRA-wrapped quantization method."""
     from vllm.model_executor.layers.fused_moe import RoutedExperts
+    from vllm.model_executor.layers.quantization.mxfp4 import Mxfp4MoEMethod
 
-    return isinstance(module, RoutedExperts) and _resolve_mxfp4_quant_method(module) is not None
+    return isinstance(module, RoutedExperts) and isinstance(_resolve_mxfp4_quant_method(module), Mxfp4MoEMethod)
 
 
 def _refittable_mxfp4_backends():
