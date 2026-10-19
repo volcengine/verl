@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 import pytest
 import torch
 import transfer_queue as tq
+from omegaconf import OmegaConf
 from transfer_queue import KVBatchMeta
 
 from verl.trainer.ppo.v1 import tq_schema
@@ -79,11 +80,9 @@ def _make_rb(
         poll_interval=poll_interval,
     )
     if trainer_mode == "sync":
-        actor._set_sync_refill_policy(
-            train_batch_size=train_batch_size,
-            max_inflight_gen_batches=max_inflight_gen_batches,
-            sync_refill_failed_groups=sync_refill_failed_groups,
-        )
+        actor.train_batch_size = train_batch_size
+        actor.max_inflight_gen_batches = max_inflight_gen_batches
+        actor.sync_refill_failed_groups = sync_refill_failed_groups
     else:
         assert refill_fn is None
         assert sync_refill_failed_groups is False
@@ -311,12 +310,18 @@ def test_init_rejects_unknown_strategy():
 
 
 def test_init_rejects_non_positive_sync_dapo_inflight_limit():
+    actor = object.__new__(StreamingDataloader)
+    actor.filter_groups_metric = "acc"
+    actor.config = OmegaConf.create(
+        {
+            "trainer": {"v1": {"sampler": {"sync_refill_failed_groups": False}}},
+            "algorithm": {"filter_groups": {"max_inflight_gen_batches": 0}},
+            "data": {"train_batch_size": 2},
+        }
+    )
+
     with pytest.raises(ValueError, match="max_inflight_gen_batches"):
-        _make_rb(
-            refill_fn=lambda _n: None,
-            filter_groups_metric="acc",
-            max_inflight_gen_batches=0,
-        )
+        actor._init_refill_policy()
 
 
 # --------------------------------------------------------------------------- #
@@ -1471,19 +1476,3 @@ def test_register_prompts_marks_pending_groups(tq_init, trainer_mode, persists_f
             assert list(stored["index"]) == [0, 1]
     finally:
         tq.kv_clear(keys=uids, partition_id="train")
-
-
-def test_async_checkpoint_saves_transfer_queue(monkeypatch, tmp_path):
-    saves = []
-    monkeypatch.setattr(tq, "save_checkpoint", lambda path, metadata: saves.append((path, metadata)))
-    rb = _make_rb(trainer_mode="colocate_async")
-
-    rb._save_tq_checkpoint(str(tmp_path / "transfer_queue"), global_steps=7)
-    assert saves == [(str(tmp_path / "transfer_queue"), {"global_steps": 7})]
-
-
-def test_async_checkpoint_load_skips_missing_snapshot(monkeypatch, tmp_path):
-    monkeypatch.setattr(tq, "load_checkpoint", lambda _path: pytest.fail("missing snapshot must not load"))
-    rb = _make_rb(trainer_mode="colocate_async")
-
-    assert rb._load_tq_checkpoint(str(tmp_path / "transfer_queue")) is False

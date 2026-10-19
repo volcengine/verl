@@ -44,8 +44,7 @@ def _async_stub():
 
 
 async def _advance_and_maintain_watermark(actor):
-    if actor._advance_once():
-        actor._refill_to_watermark()
+    actor._coordinator_step()
 
 
 def _replay_state(*, pending=(), running=(), finished=(), failure=()):
@@ -772,29 +771,34 @@ def test_sync_checkpoint_contains_only_dataloader(monkeypatch, tmp_path):
     assert tq_saves == []
 
 
-def test_async_checkpoint_saves_dataloader_and_delegates_transfer_queue(tmp_path):
+def test_async_checkpoint_saves_dataloader_and_transfer_queue(monkeypatch, tmp_path):
     actor = _async_stub()
     actor.train_dataloader = SimpleNamespace(state_dict=lambda: {"cursor": 7})
     tq_saves = []
-    actor._save_tq_checkpoint = lambda path, global_steps: tq_saves.append((path, global_steps))
+    monkeypatch.setattr(
+        streaming_module.tq,
+        "save_checkpoint",
+        lambda path, metadata: tq_saves.append((path, metadata)),
+    )
 
     actor.save_checkpoint(str(tmp_path), global_steps=7)
 
     assert torch.load(tmp_path / "data.pt", weights_only=False) == {"cursor": 7}
-    assert tq_saves == [(str(tmp_path / "transfer_queue"), 7)]
+    assert tq_saves == [(str(tmp_path / "transfer_queue"), {"global_steps": 7})]
 
 
-def test_async_restore_loads_dataloader_and_delegates_transfer_queue(tmp_path):
+def test_async_restore_loads_dataloader_and_transfer_queue(monkeypatch, tmp_path):
     actor = _async_stub()
     loaded_states = []
     tq_loads = []
     actor.train_dataloader = SimpleNamespace(load_state_dict=loaded_states.append)
-    actor._load_tq_checkpoint = lambda path: tq_loads.append(path) or False
+    monkeypatch.setattr(streaming_module.tq, "load_checkpoint", tq_loads.append)
     actor._reissue_inflight_prompts = lambda: 0
     actor._refill_to_watermark = lambda: pytest.fail("restore must leave watermark refill to the coordinator")
     actor._ensure_coordinator = lambda: None
     actor._wakeup = SimpleNamespace(set=lambda: None)
     torch.save({"cursor": 5}, tmp_path / "data.pt")
+    (tmp_path / "transfer_queue").mkdir()
 
     metrics = actor.load_checkpoint(str(tmp_path), global_steps=5)
 
@@ -805,9 +809,29 @@ def test_async_restore_loads_dataloader_and_delegates_transfer_queue(tmp_path):
     assert metrics == {"streaming_dataloader/reissued_groups": 0.0}
 
 
-def test_async_restore_requires_dataloader_state(tmp_path):
+def test_async_restore_skips_missing_transfer_queue_snapshot(monkeypatch, tmp_path):
     actor = _async_stub()
-    actor._load_tq_checkpoint = lambda _path: pytest.fail("must not restore TQ alone")
+    actor.train_dataloader = SimpleNamespace(load_state_dict=lambda _state: None)
+    monkeypatch.setattr(
+        streaming_module.tq,
+        "load_checkpoint",
+        lambda _path: pytest.fail("missing snapshot must not load"),
+    )
+    actor._reissue_inflight_prompts = lambda: 0
+    actor._ensure_coordinator = lambda: None
+    actor._wakeup = SimpleNamespace(set=lambda: None)
+    torch.save({"cursor": 5}, tmp_path / "data.pt")
+
+    actor.load_checkpoint(str(tmp_path), global_steps=5)
+
+
+def test_async_restore_requires_dataloader_state(monkeypatch, tmp_path):
+    actor = _async_stub()
+    monkeypatch.setattr(
+        streaming_module.tq,
+        "load_checkpoint",
+        lambda _path: pytest.fail("must not restore TQ alone"),
+    )
 
     with pytest.raises(RuntimeError, match="data.pt"):
         actor.load_checkpoint(str(tmp_path), global_steps=5)

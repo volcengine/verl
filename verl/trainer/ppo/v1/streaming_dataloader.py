@@ -279,20 +279,11 @@ class StreamingDataloader:
     def _init_refill_policy(self) -> None:
         sampler_config = self.config.trainer.v1.sampler
         filter_groups = self.config.algorithm.get("filter_groups", None)
-        self._set_sync_refill_policy(
-            train_batch_size=self.config.data.train_batch_size,
-            max_inflight_gen_batches=(
-                filter_groups.get("max_inflight_gen_batches", 1) if self.filter_groups_metric is not None else 1
-            ),
-            sync_refill_failed_groups=bool(sampler_config.get("sync_refill_failed_groups", False)),
+        self.train_batch_size = self.config.data.train_batch_size
+        self.max_inflight_gen_batches = (
+            filter_groups.get("max_inflight_gen_batches", 1) if self.filter_groups_metric is not None else 1
         )
-
-    def _set_sync_refill_policy(
-        self, *, train_batch_size: int, max_inflight_gen_batches: int, sync_refill_failed_groups: bool
-    ) -> None:
-        self.train_batch_size = train_batch_size
-        self.max_inflight_gen_batches = max_inflight_gen_batches
-        self.sync_refill_failed_groups = sync_refill_failed_groups
+        self.sync_refill_failed_groups = bool(sampler_config.get("sync_refill_failed_groups", False))
         if self.filter_groups_metric is not None:
             if not isinstance(self.max_inflight_gen_batches, int) or self.max_inflight_gen_batches <= 0:
                 raise ValueError("max_inflight_gen_batches must be a positive integer")
@@ -533,30 +524,6 @@ class StreamingDataloader:
         tu.assign_non_tensor_data(batch, "global_steps", self.global_steps)
         return batch
 
-    def _default_rollout_n(self, partition_id: str) -> int:
-        rollout_config = self.config.actor_rollout_ref.rollout
-        return int(rollout_config.n if partition_id == "train" else rollout_config.val_kwargs.n)
-
-    def _rollout_n_values(self, batch: TensorDict, partition_id: str) -> list[int]:
-        if "__rollout_n__" not in batch:
-            return [self._default_rollout_n(partition_id)] * len(batch)
-
-        values = batch["__rollout_n__"]
-        if isinstance(values, NonTensorData):
-            values = [values.data] * len(batch)
-        rollout_ns = []
-        for i in range(len(batch)):
-            value = values[i]
-            if isinstance(value, NonTensorData):
-                value = value.data
-            if isinstance(value, torch.Tensor):
-                value = value.item()
-            rollout_n = int(value)
-            if rollout_n <= 0:
-                raise ValueError(f"rollout_n must be positive, got {rollout_n}")
-            rollout_ns.append(rollout_n)
-        return rollout_ns
-
     def _submit_batch_to_rollout(self, batch: TensorDict, partition_id: str) -> int:
         self._register_prompts(batch, partition_id)
         self.agent_loop_manager.generate_sequences(batch)
@@ -765,7 +732,7 @@ class StreamingDataloader:
         if stale_uids:
             prompt_global_steps = self.prompt_global_steps[partition_id]
             spans = np.array(
-                [global_steps - prompt_global_steps.get(uid, global_steps) + 1 for uid in stale_uids],
+                [global_steps - prompt_global_steps[uid] + 1 for uid in stale_uids],
                 dtype=float,
             )
             metrics.update(
@@ -793,7 +760,7 @@ class StreamingDataloader:
         partition_snapshot = dict(self.partitions[partition_id])
         ordered_keys = sorted(
             sampleable_keys,
-            key=lambda key: prompt_global_steps_snapshot.get(key, 0),
+            key=lambda key: prompt_global_steps_snapshot[key],
         )
         return ordered_keys[:batch_size], partition_snapshot, prompt_global_steps_snapshot
 
@@ -840,6 +807,30 @@ class StreamingDataloaderAsync(StreamingDataloader):
         self._train_state_ready = False
         self._validation_active = False
         self._pending_metrics: dict = {}
+
+    def _default_rollout_n(self, partition_id: str) -> int:
+        rollout_config = self.config.actor_rollout_ref.rollout
+        return int(rollout_config.n if partition_id == "train" else rollout_config.val_kwargs.n)
+
+    def _rollout_n_values(self, batch: TensorDict, partition_id: str) -> list[int]:
+        if "__rollout_n__" not in batch:
+            return [self._default_rollout_n(partition_id)] * len(batch)
+
+        values = batch["__rollout_n__"]
+        if isinstance(values, NonTensorData):
+            values = [values.data] * len(batch)
+        rollout_ns = []
+        for i in range(len(batch)):
+            value = values[i]
+            if isinstance(value, NonTensorData):
+                value = value.data
+            if isinstance(value, torch.Tensor):
+                value = value.item()
+            rollout_n = int(value)
+            if rollout_n <= 0:
+                raise ValueError(f"rollout_n must be positive, got {rollout_n}")
+            rollout_ns.append(rollout_n)
+        return rollout_ns
 
     def _init_refill_policy(self) -> None:
         # Refill keeps prompts in flight while a request waits, and every in-flight prompt has staleness >= 1,
@@ -911,7 +902,10 @@ class StreamingDataloaderAsync(StreamingDataloader):
 
     def save_checkpoint(self, local_global_step_folder: str, global_steps: int) -> None:
         super().save_checkpoint(local_global_step_folder, global_steps)
-        self._save_tq_checkpoint(os.path.join(local_global_step_folder, "transfer_queue"), global_steps)
+        tq.save_checkpoint(
+            os.path.join(local_global_step_folder, "transfer_queue"),
+            metadata={"global_steps": global_steps},
+        )
 
     def load_checkpoint(self, local_global_step_folder: str | None, global_steps: int) -> dict:
         self.global_steps = global_steps
@@ -921,7 +915,14 @@ class StreamingDataloaderAsync(StreamingDataloader):
             if not os.path.exists(dataloader_path):
                 raise RuntimeError(f"StreamingDataloader restore requires {dataloader_path}")
             self.train_dataloader.load_state_dict(torch.load(dataloader_path, weights_only=False))
-            self._load_tq_checkpoint(os.path.join(local_global_step_folder, "transfer_queue"))
+            transfer_queue_path = os.path.join(local_global_step_folder, "transfer_queue")
+            if os.path.exists(transfer_queue_path):
+                tq.load_checkpoint(transfer_queue_path)
+            else:
+                logger.warning(
+                    f"Skipping TransferQueue restore because {transfer_queue_path} does not exist; "
+                    "in-flight rollout state will not be recovered"
+                )
         self.train_dataloader_it = None
         reissued = self._reissue_inflight_prompts()
         self._train_state_ready = True
@@ -935,19 +936,17 @@ class StreamingDataloaderAsync(StreamingDataloader):
     # ------------------------------------------------------------------ #
 
     def _coordinator_step(self) -> None:
-        if self._advance_once():
-            # poll_once already refreshed replay metadata for this coordinator pass.
-            self._refill_to_watermark()
-
-    def _advance_once(self) -> bool:
         request = self._pending_sample
         if request is not None:
             self._serve_request(request)
-            return self._train_state_ready and request.partition_id == "train"
-        if self._train_state_ready and not self._validation_active:
+            if not self._train_state_ready or request.partition_id != "train":
+                return
+        elif self._train_state_ready and not self._validation_active:
             self._serve_request()
-            return True
-        return False
+        else:
+            return
+        # poll_once already refreshed replay metadata for this coordinator pass.
+        self._refill_to_watermark()
 
     def _serve_request(self, request: _SampleRequest | None = None) -> None:
         if request is None:
@@ -1036,9 +1035,7 @@ class StreamingDataloaderAsync(StreamingDataloader):
             and self.max_off_policy_threshold is not None
             and self.max_off_policy_strategy == "drop"
         ):
-            selected_spans = [
-                global_steps - prompt_global_steps_snapshot.get(uid, global_steps) + 1 for uid in selected_prompt_uids
-            ]
+            selected_spans = [global_steps - prompt_global_steps_snapshot[uid] + 1 for uid in selected_prompt_uids]
             assert all(span <= self.max_off_policy_threshold for span in selected_spans), (
                 f"drop strategy selected stale prompts: spans={selected_spans}, "
                 f"threshold={self.max_off_policy_threshold}"
@@ -1097,9 +1094,7 @@ class StreamingDataloaderAsync(StreamingDataloader):
         prompt_global_steps = self.prompt_global_steps[partition_id]
         terminal_keys = self.finished_keys[partition_id]
         return {
-            uid
-            for uid in terminal_keys
-            if global_steps - prompt_global_steps.get(uid, global_steps) + 1 > self.max_off_policy_threshold
+            uid for uid in terminal_keys if global_steps - prompt_global_steps[uid] + 1 > self.max_off_policy_threshold
         }
 
     def _terminal_eviction_reasons(
@@ -1164,20 +1159,6 @@ class StreamingDataloaderAsync(StreamingDataloader):
         tq.kv_batch_put(keys=inflight_uids, partition_id=partition_id, tags=tags)
         self.agent_loop_manager.generate_sequences(batch)
         return len(inflight_uids)
-
-    def _save_tq_checkpoint(self, path: str, global_steps: int) -> None:
-        tq.save_checkpoint(path, metadata={"global_steps": global_steps})
-
-    def _load_tq_checkpoint(self, path: str) -> bool:
-        """Restore TransferQueue state; return ``False`` when there is nothing restorable."""
-        if not os.path.exists(path):
-            logger.warning(
-                f"Skipping TransferQueue restore because {path} does not exist; "
-                "in-flight rollout state will not be recovered"
-            )
-            return False
-        tq.load_checkpoint(path)
-        return True
 
 
 def resolve_gen_batch_size(config) -> int:
