@@ -104,6 +104,11 @@ def _scale_logits_by_temperature(logits, temperature, *, is_unit_temperature: bo
     return logits / temperature.clamp(min=1e-8).to(logits.dtype)
 
 
+def _value_head_names(module) -> list[str]:
+    """Names of the critic's output head(s) on an AutoModelForTokenClassification."""
+    return [name for name in ("score", "classifier") if hasattr(module, name)]
+
+
 class FSDPEngine(BaseEngine):
     """
     Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
@@ -361,8 +366,31 @@ class FSDPEngine(BaseEngine):
             # Copy adapter to local if needed
             local_adapter_path = copy_to_local(lora_adapter_path, use_shm=self.model_config.use_shm)
 
-            module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True)
+            adapter_kwargs = {}
+            if is_value_model:
+                # an adapter saved from a causal LM names task_type CAUSAL_LM, which needs
+                # prepare_inputs_for_generation; load it as a plain PeftModel and train the head in full
+                from peft import PeftConfig
+
+                adapter_config = PeftConfig.from_pretrained(local_adapter_path)
+                adapter_config.task_type = None
+                adapter_kwargs["config"] = adapter_config
+
+            head_names = _value_head_names(module) if is_value_model else []
+            module = PeftModel.from_pretrained(module, local_adapter_path, is_trainable=True, **adapter_kwargs)
             peft_config = module.peft_config["default"]
+            if head_names:
+                # The adapter has no head weights to restore, so PEFT cannot build modules_to_save for it
+                # at load time. Wrap the freshly initialised head the same way, so it is trained in full
+                # and saved/exported like a head created together with the adapter.
+                from peft.utils import ModulesToSaveWrapper
+
+                inner = module.base_model.model
+                for name in head_names:
+                    wrapper = ModulesToSaveWrapper(getattr(inner, name), adapter_name="default")
+                    wrapper.modules_to_save["default"].requires_grad_(True)
+                    setattr(inner, name, wrapper)
+                peft_config.modules_to_save = sorted(set(peft_config.modules_to_save or []) | set(head_names))
             # Ensure task_type is TaskType enum, not string
             if isinstance(peft_config.task_type, str):
                 peft_config.task_type = task_type
@@ -378,13 +406,15 @@ class FSDPEngine(BaseEngine):
                 "bias": "none",
             }
             if is_value_model:
-                head_names = [name for name in ("score", "classifier") if hasattr(module, name)]
+                head_names = _value_head_names(module)
                 if head_names:
                     exclude = lora_config["exclude_modules"]
                     if isinstance(exclude, str):
-                        # a str is a regex in PEFT: keep it a regex instead of turning it into a name list
+                        # a str is a regex in PEFT: keep it a regex instead of turning it into a name list.
+                        # Leading inline flags such as (?i) are only valid at the start of the pattern, so hoist them.
+                        flags, body = re.match(r"((?:\(\?[aiLmsux]+\))*)(.*)", exclude, re.S).groups()
                         head_regex = "|".join(re.escape(name) for name in head_names)
-                        lora_config["exclude_modules"] = rf"(?:{exclude})|(?:.*\.)?(?:{head_regex})"
+                        lora_config["exclude_modules"] = rf"{flags}(?:{body})|(?:.*\.)?(?:{head_regex})"
                     else:
                         lora_config["exclude_modules"] = list(exclude or []) + head_names
                     lora_config["modules_to_save"] = head_names

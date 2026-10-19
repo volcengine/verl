@@ -34,10 +34,11 @@ def _tiny_config(**kwargs):
     )
 
 
-def _build(module, model_type, exclude_modules=None):
+def _build(module, model_type, exclude_modules=None, lora_adapter_path=None):
     model_config = SimpleNamespace(
         model_type=model_type,
-        lora_adapter_path=None,
+        lora_adapter_path=lora_adapter_path,
+        use_shm=False,
         lora_rank=4,
         lora_alpha=8,
         target_modules="all-linear",
@@ -138,3 +139,28 @@ def test_merger_exports_trained_head_with_modules_to_save(tmp_path):
     # exported base model state carries the trained head under its plain HF name, with no PEFT wrapper keys
     assert torch.allclose(state["score.weight"], torch.full_like(state["score.weight"], 0.5))
     assert not any("modules_to_save" in k or "original_module" in k for k in state)
+
+
+def test_value_model_loads_a_causal_lm_adapter_and_trains_the_head(tmp_path):
+    from peft import LoraConfig, TaskType, get_peft_model
+
+    get_peft_model(
+        Qwen2ForCausalLM(_tiny_config()),
+        LoraConfig(task_type=TaskType.CAUSAL_LM, r=4, lora_alpha=8, target_modules="all-linear"),
+    ).save_pretrained(tmp_path)
+
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", lora_adapter_path=str(tmp_path))
+
+    assert peft_model.peft_config["default"].task_type is None
+    trainable = [n for n, p in peft_model.named_parameters() if p.requires_grad]
+    assert any("lora_A" in n for n in trainable)
+    assert any("score.modules_to_save" in n for n in trainable)
+    peft_model(input_ids=torch.randint(0, 64, (2, 5))).logits.sum().backward()
+
+
+def test_string_exclude_modules_with_leading_regex_flags_is_still_valid():
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", exclude_modules=r"(?i).*Q_PROJ")
+    names = [n for n, _ in peft_model.named_parameters()]
+    assert not any("q_proj.lora_" in n for n in names)
+    assert any("k_proj.lora_A" in n for n in names)
+    assert not any("score" in n and "lora_" in n for n in names)
