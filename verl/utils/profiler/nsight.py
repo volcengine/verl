@@ -62,6 +62,12 @@ def build_worker_group_profile_kwargs(config, *, device_name: str) -> dict:
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                 OmegaConf.select(config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
             )
+            wg_kwargs["profiler_discrete"] = bool(
+                OmegaConf.select(config.global_profiler.global_tool_config.nsys, "discrete")
+            )
+            wg_kwargs["profile_continuous_steps"] = bool(
+                OmegaConf.select(config.global_profiler, "profile_continuous_steps")
+            )
     wg_kwargs["device_name"] = device_name
     return wg_kwargs
 
