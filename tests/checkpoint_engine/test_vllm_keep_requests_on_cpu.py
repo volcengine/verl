@@ -28,15 +28,16 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer, 
 
 
 @pytest.mark.parametrize(
-    "mode,prefix_caching,multimodal,keep",
+    "mode,prefix_caching,multimodal,preserve,keep",
     [
-        (RolloutMode.STANDALONE, False, False, True),
-        (RolloutMode.STANDALONE, True, False, True),
-        (RolloutMode.HYBRID, False, False, False),
-        (RolloutMode.STANDALONE, False, True, False),
+        pytest.param(RolloutMode.STANDALONE, True, False, False, False, id="default"),
+        (RolloutMode.STANDALONE, False, False, True, True),
+        (RolloutMode.STANDALONE, True, False, True, True),
+        (RolloutMode.HYBRID, False, False, True, False),
+        (RolloutMode.STANDALONE, False, True, True, False),
     ],
 )
-def test_weight_sync_lifecycle(monkeypatch, mode, prefix_caching, multimodal, keep):
+def test_weight_sync_lifecycle(monkeypatch, mode, prefix_caching, multimodal, preserve, keep):
     events = []
     replicas = []
     for rank in range(2):
@@ -50,7 +51,8 @@ def test_weight_sync_lifecycle(monkeypatch, mode, prefix_caching, multimodal, ke
             open_submission_gate=SimpleNamespace(remote=server.open_submission_gate),
         )
         replica = object.__new__(vLLMReplica)
-        replica.config = RolloutConfig(name="vllm", enable_prefix_caching=prefix_caching)
+        kwargs = {"preserve_kv_cache": True} if preserve else {}
+        replica.config = RolloutConfig(name="vllm", enable_prefix_caching=prefix_caching, **kwargs)
         replica.model_config = SimpleNamespace(lora_rank=0, lora={})
         replica.is_multimodal = multimodal
         replica.rollout_mode = mode

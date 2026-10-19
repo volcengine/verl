@@ -337,13 +337,8 @@ def test_default_request_hooks_leave_generate_output_unchanged(monkeypatch):
 
         assert server.engine.sampling_params[0].logprob_token_ids is None
         assert output.token_ids == [5, 9] and output.stop_reason == "completed"
-        assert output.extra_fields == {
-            "global_steps": 7,
-            "min_global_steps": 7,
-            "max_global_steps": 7,
-            "num_cached_tokens": 0,
-            "cache_salt": "7",
-        }
+        assert output.extra_fields == {"global_steps": 7, "num_cached_tokens": 0}
+        assert "cache_salt" not in server.engine.prompts[0]
         assert server._admitting == 0
 
     asyncio.run(main())
@@ -358,6 +353,7 @@ def test_prefix_cache_namespace_across_weight_updates(monkeypatch, mode, enabled
             max_model_len=64,
             prompt_length=32,
             response_length=16,
+            preserve_kv_cache=True,
             enable_prefix_caching=enabled,
             prefix_cache_mode=mode,
         )
@@ -423,7 +419,12 @@ def test_generate_retains_start_and_end_versions_and_original_sampling_records(m
         final.outputs[0].routed_experts = routing
         server = _make_generating_server(monkeypatch, vllm_async_server.vLLMHttpServer, [])
         server.config = RolloutConfig(
-            name="vllm", max_model_len=64, prompt_length=32, response_length=16, enable_rollout_routing_replay=True
+            name="vllm",
+            max_model_len=64,
+            prompt_length=32,
+            response_length=16,
+            preserve_kv_cache=True,
+            enable_rollout_routing_replay=True,
         )
 
         async def generate(**kwargs):

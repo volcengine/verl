@@ -697,7 +697,11 @@ class vLLMHttpServer:
             return rejected
 
         start_global_steps = self.global_steps
-        if self.config.enable_prefix_caching and self.config.prefix_cache_mode == "versioned":
+        if (
+            self.config.preserve_kv_cache
+            and self.config.enable_prefix_caching
+            and self.config.prefix_cache_mode == "versioned"
+        ):
             cache_salt = str(start_global_steps) if cache_salt is None else cache_salt
             prompt["cache_salt"] = cache_salt
         with RLInsightLogger.trace_state(
@@ -727,12 +731,13 @@ class vLLMHttpServer:
                     self._admitting -= 1
             assert final_res is not None
 
-        versions = [step for step in (start_global_steps, self.global_steps) if step is not None]
-        extra_fields = {
-            "global_steps": self.global_steps,
-            "min_global_steps": min(versions) if versions else None,
-            "max_global_steps": max(versions) if versions else None,
-        }
+        extra_fields = {"global_steps": self.global_steps}
+        if self.config.preserve_kv_cache:
+            versions = [step for step in (start_global_steps, self.global_steps) if step is not None]
+            extra_fields.update(
+                min_global_steps=min(versions) if versions else None,
+                max_global_steps=max(versions) if versions else None,
+            )
         if "cache_salt" in prompt:
             extra_fields["cache_salt"] = prompt["cache_salt"]
         # Handle abort case: when the request is aborted by pause_generation(abort),
@@ -1593,9 +1598,10 @@ class vLLMReplica(RolloutReplica):
             ]
         )
 
-        self.is_multimodal = await self.servers[0].__ray_call__.remote(
-            lambda server: server.engine.model_config.is_multimodal_model
-        )
+        if self.config.preserve_kv_cache:
+            self.is_multimodal = await self.servers[0].__ray_call__.remote(
+                lambda server: server.engine.model_config.is_multimodal_model
+            )
 
         # get http server address from first server
         server_address, server_port = await self.servers[0].get_server_address.remote()
