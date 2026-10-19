@@ -204,6 +204,12 @@ VISION_TOWER_ATTRS = ("visual", "vision_tower", "vision_model", "vision", "vpm")
 # generative VLM a bare ``projector`` attribute is the image connector).
 VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler", "projector")
 
+# Bare parameters (not submodules) that also live only on the visual path and
+# must be frozen together with the tower for the same reason as the siblings.
+# LlavaNext registers its per-image newline embedding as a top-level
+# ``image_newline`` nn.Parameter beside the tower.
+VISUAL_PATH_PARAM_ATTRS = ("image_newline",)
+
 
 def _visual_path_probe_candidates(model: nn.Module) -> list:
     """Surfaces probed for the vision tower and its siblings, in order: the
@@ -270,26 +276,49 @@ def get_vlm_visual_path_modules(model: nn.Module) -> list:
     return modules
 
 
+def get_vlm_visual_path_params(model: nn.Module) -> list:
+    """Return the bare visual-path parameters (not submodules), or [] if absent.
+
+    Same rationale as the siblings (``VISUAL_PATH_PARAM_ATTRS``): LlavaNext's
+    top-level ``image_newline`` runs only on the image path, so it must be
+    frozen together with the tower — a trainable one receives gradients on
+    image ranks only, the FSDP1 root-unit hang. Probed over the same candidate
+    surfaces as the tower; only ``nn.Parameter`` values count.
+    """
+    params = []
+    seen = set()
+    for candidate in _visual_path_probe_candidates(model):
+        for attr in VISUAL_PATH_PARAM_ATTRS:
+            param = getattr(candidate, attr, None)
+            if isinstance(param, nn.Parameter) and id(param) not in seen:
+                params.append(param)
+                seen.add(id(param))
+    return params
+
+
 def may_skip_dummy_visual_forward(model: nn.Module) -> bool:
     """Whether the multimodal adapters may skip the dummy visual forward for
     ``model`` on a text-only batch.
 
     True iff the engine marked the visual path frozen — ``freeze_vision_tower``
     with guaranteed wrap exclusion, see ``mark_frozen_vision_tower_for_skip`` —
-    AND the whole path (tower plus visual-path siblings) still holds no
-    trainable params. ``requires_grad`` alone is not a safe criterion: PEFT
-    clears it on the whole non-adapter model for every LoRA run, and the tower
-    stays per-module wrapped there — skipping would deadlock mixed-modality
-    batches. The per-forward re-check is the defense in depth: PEFT/QAT attach
-    trainable params after the engine marked the path, and a sibling whose
-    requires_grad is re-enabled post-marking would receive gradients on image
-    ranks only inside the root FSDP unit (the FSDP1 hang the marker's contract
-    forbids). Shared by all VLM adapters so the rule exists once.
+    AND the whole path (tower plus visual-path siblings and bare visual-path
+    parameters) still holds no trainable params. ``requires_grad`` alone is
+    not a safe criterion: PEFT clears it on the whole non-adapter model for
+    every LoRA run, and the tower stays per-module wrapped there — skipping
+    would deadlock mixed-modality batches. The per-forward re-check is the
+    defense in depth: PEFT/QAT attach trainable params after the engine marked
+    the path, and a sibling whose requires_grad is re-enabled post-marking
+    would receive gradients on image ranks only inside the root FSDP unit (the
+    FSDP1 hang the marker's contract forbids). Shared by all VLM adapters so
+    the rule exists once.
     """
     path = get_vlm_visual_path_modules(model)
     if not path:
         return False
     if not getattr(path[0], "_verl_frozen_vision_tower", False):
+        return False
+    if any(p.requires_grad for p in get_vlm_visual_path_params(model)):
         return False
     return not any(p.requires_grad for module in path for p in module.parameters())
 

@@ -22,6 +22,7 @@ plus the ``get_vl_model_vision_tower`` helper.
 
 from types import SimpleNamespace
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -396,39 +397,24 @@ def test_get_vl_model_vision_tower_layouts():
     assert get_vl_model_vision_tower(_TextOnly()) is None
 
 
-def test_fsdp1_size_based_policy_ignores_exclusion_and_warns(caplog):
+def test_fsdp1_size_based_policy_with_exclusion_fails_closed():
     """min_num_params > 0 selects the size policy, which cannot carry the
-    class-name exclusion: the exclusion is not applied and the caller is told
-    (the engine correspondingly never marks the tower, so the adapters keep
-    the dummy visual forward)."""
-    import logging as _logging
-
-    from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+    exclusion — and "keep the dummy visual forward" only protects families
+    whose adapter has a dummy branch, so the combination is rejected at build
+    instead of hanging the first mixed-modality batch on other families."""
+    import pytest
 
     model = _MockVLM()
-    with caplog.at_level(_logging.WARNING, logger="verl.utils.fsdp_utils"):
-        policy = get_fsdp_wrap_policy(model, config={"min_num_params": 1000}, exclude_modules=[model.visual])
-    assert any("not applied under the size-based wrap policy" in r.message for r in caplog.records)
+    with pytest.raises(ValueError, match="not supported with the size-based FSDP1 wrap policy"):
+        get_fsdp_wrap_policy(model, config={"min_num_params": 1000}, exclude_modules=[model.visual])
+
+    # Without exclusion the size policy builds unchanged.
+    from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+
+    policy = get_fsdp_wrap_policy(model, config={"min_num_params": 1000})
     inner = policy.keywords["policies"]
     assert len(inner) == 1, "only the size policy should be built"
     assert inner[0].func is size_based_auto_wrap_policy
-
-
-def test_wrap_policy_get_tolerates_none_and_attribute_configs():
-    """The marker gate reads min_num_params from the same config shapes
-    get_fsdp_wrap_policy accepts: None (yaml ``wrap_policy: null``), dicts, and
-    attribute-style objects; a stored None falls back to the default (a direct
-    ``.get`` on these crashed or diverged from the policy builder)."""
-    from verl.utils.fsdp_utils import _wrap_policy_get
-
-    class _AttrConfig:
-        min_num_params = 4096
-
-    assert _wrap_policy_get(None, "min_num_params", 0) == 0
-    assert _wrap_policy_get({"min_num_params": 1000}, "min_num_params", 0) == 1000
-    assert _wrap_policy_get({"min_num_params": None}, "min_num_params", 0) == 0
-    assert _wrap_policy_get(_AttrConfig(), "min_num_params", 0) == 4096
-    assert _wrap_policy_get(_AttrConfig(), "absent_key", 7) == 7
 
 
 def test_get_vlm_visual_path_modules_finds_deepseek_vl2_bare_projector():
@@ -472,3 +458,47 @@ def test_get_vlm_visual_path_modules_follows_post_peft_sibling_replacement():
     after = get_vlm_visual_path_modules(model)
     assert after[0] is before[0], "the tower container is never replaced"
     assert after[1] is replacement, "the sibling must be re-discovered post-replacement"
+
+
+def test_get_vlm_visual_path_params_finds_llava_next_image_newline():
+    """LlavaNext registers image_newline as a top-level nn.Parameter beside the
+    tower: it runs only on the image path, so it must be discovered and frozen
+    with the tower (a trainable one gets gradients on image ranks only)."""
+    from verl.utils.model import get_vlm_visual_path_params
+
+    class _LlavaNextStyle(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision_tower = _MockVisionTower()
+            self.multi_modal_projector = nn.Linear(32, 32)
+            self.image_newline = nn.Parameter(torch.zeros(32))
+            self.language_model = nn.Module()
+
+    class _NotAParam(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision_tower = _MockVisionTower()
+            self.image_newline = "configs/are/not/params"
+
+    params = get_vlm_visual_path_params(_LlavaNextStyle())
+    assert len(params) == 1 and isinstance(params[0], nn.Parameter)
+    assert get_vlm_visual_path_params(_NotAParam()) == [], "non-Parameter values must not match"
+
+
+def test_mark_rejects_trainable_bare_visual_path_param():
+    """A trainable bare visual-path parameter (e.g. image_newline re-enabled
+    post-freeze) is rejected like a trainable sibling: no dummy-forward
+    mechanism covers it, so it would receive gradients on image ranks only."""
+    import pytest
+
+    from verl.utils.fsdp_utils import mark_frozen_vision_tower_for_skip
+
+    tower = _MockVisionTower()
+    tower.requires_grad_(False)
+    frozen_newline = nn.Parameter(torch.zeros(32))
+    frozen_newline.requires_grad_(False)
+    trainable_newline = nn.Parameter(torch.zeros(32))
+
+    assert mark_frozen_vision_tower_for_skip([tower], visual_path_params=[frozen_newline]) is True
+    with pytest.raises(ValueError, match="trainable params on a visual-path sibling"):
+        mark_frozen_vision_tower_for_skip([tower], visual_path_params=[trainable_newline])

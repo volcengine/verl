@@ -272,8 +272,9 @@ class FSDPEngineConfig(EngineConfig):
             ``requires_grad_(False)`` on its params, keep it out of per-module FSDP wrapping
             (its params join the root FSDP unit), and skip the dummy visual forward on
             text-only batches. The skip itself additionally requires the exclusion to be
-            guaranteed (``fsdp_turbo`` and the size-based FSDP1 wrap policy keep the dummy
-            forward) and no trainable params inside the tower (vision LoRA / QAT keep it,
+            guaranteed (``fsdp_turbo`` keeps the dummy forward; the size-based FSDP1 wrap
+            policy is rejected at build — it cannot carry the exclusion) and no trainable
+            params inside the tower (vision LoRA / QAT keep it,
             so every rank still enters the tower once). Plumbed from the worker-level flag
             in the config ``__post_init__``s (``FSDPActorConfig`` / ``FSDPCriticConfig`` and
             the other engine-bearing worker configs — the choke point every construction

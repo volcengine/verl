@@ -43,7 +43,6 @@ from verl.utils.fsdp_utils import (
     CPUOffloadPolicy,
     FSDPModule,
     MixedPrecisionPolicy,
-    _wrap_policy_get,
     apply_fsdp2,
     collect_lora_params,
     fsdp2_clip_grad_norm_,
@@ -65,6 +64,7 @@ from verl.utils.model import (
     convert_weight_keys,
     extract_multi_modal_inputs,
     get_vlm_visual_path_modules,
+    get_vlm_visual_path_params,
 )
 from verl.utils.py_functional import convert_to_regular_types
 from verl.utils.seqlen_balancing import ceildiv
@@ -171,6 +171,9 @@ class FSDPEngine(BaseEngine):
         # Set in _build_model_optimizer when freeze_vision_tower applies; consumed by
         # _build_fsdp_module to keep the frozen visual path out of per-module wrapping.
         self._visual_path_modules = []
+        # Bare visual-path parameters (e.g. LlavaNext's image_newline), set
+        # together with _visual_path_modules; consumed by the marker gate.
+        self._visual_path_params = ()
 
         # Defaults for mixed-precision state. _build_fsdp_module overrides these when it
         # runs; subclasses that bypass _build_fsdp_module (e.g. VeOmniEngine) keep the
@@ -398,11 +401,14 @@ class FSDPEngine(BaseEngine):
     def _freeze_visual_path(self, module):
         """Apply ``engine_config.freeze_vision_tower``: freeze the visual path
         (the vision tower plus any sibling modules that also run only on the
-        visual path, e.g. Mllama's ``multi_modal_projector``) and return the
-        module list (used later to keep them out of per-module FSDP wrapping).
-        Returns [] when not applicable. The whole path must be inert together:
-        a trainable member left in the root FSDP unit gets gradients on image
-        ranks only, which FSDP1 does not support.
+        visual path, e.g. Mllama's ``multi_modal_projector``, plus bare
+        visual-path parameters such as LlavaNext's ``image_newline``) and
+        return the module list (used later to keep them out of per-module FSDP
+        wrapping); the bare parameters are stored on
+        ``self._visual_path_params`` for the marker gate. Returns [] when not
+        applicable. The whole path must be inert together: a trainable member
+        left in the root FSDP unit gets gradients on image ranks only, which
+        FSDP1 does not support.
 
         With the path frozen and unwrapped, its params join the root FSDP unit,
         which all-gathers uniformly on every rank at model forward entry — so a
@@ -424,6 +430,9 @@ class FSDPEngine(BaseEngine):
             )
         for visual_module in visual_path:
             visual_module.requires_grad_(False)
+        self._visual_path_params = get_vlm_visual_path_params(module)
+        for visual_param in self._visual_path_params:
+            visual_param.requires_grad_(False)
         # print (not logger.info): this module's logger defaults to WARN, and the
         # confirmation that the flag took effect should stay visible.
         if self.rank == 0:
@@ -545,12 +554,10 @@ class FSDPEngine(BaseEngine):
         # requires no trainable params inside the tower (vision LoRA / QAT):
         # mark_frozen_vision_tower_for_skip explains why.
         if exclude_modules is not None:
-            # Same tolerance as get_fsdp_wrap_policy: wrap_policy may be None
-            # (yaml `wrap_policy: null`) or an attribute-style config object.
-            min_num_params = _wrap_policy_get(self.engine_config.wrap_policy, "min_num_params", 0)
-            size_policy_blocks_exclusion = self.engine_config.strategy == "fsdp" and min_num_params > 0
-            if not size_policy_blocks_exclusion:
-                mark_frozen_vision_tower_for_skip(self._visual_path_modules)
+            # A non-zero min_num_params on FSDP1 already raised inside
+            # get_fsdp_wrap_policy (fail closed: the size policy cannot carry
+            # the exclusion); FSDP2's identity-based exclusion always applies.
+            mark_frozen_vision_tower_for_skip(self._visual_path_modules, self._visual_path_params)
 
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing
@@ -702,6 +709,9 @@ class FSDPEngine(BaseEngine):
             rediscovered = get_vlm_visual_path_modules(module)
             if rediscovered:
                 self._visual_path_modules = rediscovered
+            # Bare parameters are never re-parented by PEFT/QAT (they replace
+            # modules), but re-discover for symmetry with the module list.
+            self._visual_path_params = get_vlm_visual_path_params(module)
 
         # Synchronize all distributed processes before proceeding
         torch.distributed.barrier()

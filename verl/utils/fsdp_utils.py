@@ -93,19 +93,6 @@ def _excluded_subtree_scan(exclude_modules):
     return ids, cls_names
 
 
-def _wrap_policy_get(config, attr_name, default_value=None):
-    """Read a wrap-policy setting with the same tolerance ``get_fsdp_wrap_policy``
-    applies to its ``config``: ``None``, a dict/DictConfig (``.get``), or an
-    attribute-style object. A stored ``None`` falls back to the default."""
-    if config is None:
-        return default_value
-    if hasattr(config, "get"):
-        value = config.get(attr_name, default_value)
-    else:
-        value = getattr(config, attr_name, default_value)
-    return default_value if value is None else value
-
-
 def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=None):
     """Get FSDP wrap policy for the module.
 
@@ -123,7 +110,9 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
             class-based) and by module identity for the LoRA lambda policy and
             the FSDP2 path (``apply_fsdp2``). If the exclusion removes every
             wrap class, no per-module policy is built and the model trains in
-            the root unit (as ``apply_fsdp2`` already does).
+            the root unit (as ``apply_fsdp2`` already does). The size-based
+            policy (``min_num_params > 0``) cannot carry the exclusion and the
+            combination raises — see the check below.
     """
     if config is None:
         config = {}
@@ -147,10 +136,17 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     auto_wrap_policy = None
 
     if exclude_modules and min_num_params > 0:
-        logger.warning(
-            "exclude_modules is not applied under the size-based wrap policy (min_num_params > 0): "
-            "submodules of the excluded modules stay in per-module FSDP units, and the adapters "
-            "therefore keep the dummy visual forward enabled (cf. #3491)"
+        # Fail closed: the size policy cannot carry the exclusion, and "keep
+        # the dummy visual forward" only protects families whose adapter has a
+        # dummy branch — a size-wrapped image-only sibling (e.g. Mllama's
+        # projector) would still be entered by image ranks only, diverging the
+        # FSDP collective order on mixed-modality batches (cf. #3491).
+        raise ValueError(
+            "freeze_vision_tower is not supported with the size-based FSDP1 wrap policy "
+            "(wrap_policy.min_num_params > 0): the size policy cannot exclude the visual "
+            "path, and only the four Qwen/GLM adapter families are incidentally protected "
+            "by their dummy visual forward. Set wrap_policy.min_num_params=0 (default) or "
+            "disable freeze_vision_tower."
         )
 
     policies = []
@@ -253,35 +249,40 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     return auto_wrap_policy
 
 
-def mark_frozen_vision_tower_for_skip(visual_path_modules) -> bool:
+def mark_frozen_vision_tower_for_skip(visual_path_modules, visual_path_params=()) -> bool:
     """Mark a frozen visual path so the multimodal adapters may skip the dummy
     visual forward on text-only batches (cf. #3496).
 
     ``visual_path_modules`` is the tower (the marked module) plus its
-    visual-path siblings (``get_vlm_visual_path_modules``). Returns True iff
-    the tower was marked. Marking requires no trainable params anywhere in the
-    path: with the path wrap-excluded into the root FSDP unit, a text-only rank
-    never enters it while an image rank does, so a trainable param would
-    receive gradients on some ranks only — FSDP1's root-unit gradient reduce
-    does not support that (verified on torch 2.11: a 2-rank mixed-modality
-    backward hangs).
+    visual-path siblings (``get_vlm_visual_path_modules``);
+    ``visual_path_params`` are the bare visual-path parameters
+    (``get_vlm_visual_path_params``, e.g. LlavaNext's ``image_newline``).
+    Returns True iff the tower was marked. Marking requires no trainable
+    params anywhere in the path: with the path wrap-excluded into the root
+    FSDP unit, a text-only rank never enters it while an image rank does, so a
+    trainable param would receive gradients on some ranks only — FSDP1's
+    root-unit gradient reduce does not support that (verified on torch 2.11: a
+    2-rank mixed-modality backward hangs).
 
     Trainable params split by location: inside the tower (vision LoRA, QAT
     linears) keep the dummy visual forward, which makes every rank enter the
     tower once per step — the unmodified behavior, warning below. On a sibling
-    there is no equivalent: the dummy branches only run the tower, so a
-    trainable sibling would still receive gradients on image ranks only — that
-    combination is rejected up front instead of hanging at the first
-    mixed-modality backward.
+    or a bare visual-path parameter there is no equivalent: the dummy branches
+    only run the tower, so a trainable one would still receive gradients on
+    image ranks only — those combinations are rejected up front instead of
+    hanging at the first mixed-modality backward.
     """
     tower, siblings = visual_path_modules[0], visual_path_modules[1:]
-    if any(p.requires_grad for module in siblings for p in module.parameters()):
+    if any(p.requires_grad for module in siblings for p in module.parameters()) or any(
+        p.requires_grad for p in visual_path_params
+    ):
         raise ValueError(
-            "freeze_vision_tower: trainable params on a visual-path sibling (e.g. LoRA or "
-            "QAT targeting multi_modal_projector / resampler / projector). No dummy-forward "
-            "mechanism covers siblings, so on mixed-modality batches they would receive "
-            "gradients on image ranks only and hang FSDP. Remove the sibling from the "
-            "adapter targets, or disable freeze_vision_tower."
+            "freeze_vision_tower: trainable params on a visual-path sibling or bare "
+            "visual-path parameter (e.g. LoRA/QAT on multi_modal_projector / resampler / "
+            "projector, or a re-enabled image_newline). No dummy-forward mechanism covers "
+            "them, so on mixed-modality batches they would receive gradients on image "
+            "ranks only and hang FSDP. Remove them from the adapter targets, or disable "
+            "freeze_vision_tower."
         )
     if any(p.requires_grad for p in tower.parameters()):
         logger.warning(
