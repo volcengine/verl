@@ -853,6 +853,8 @@ class RayPPOTrainer:
         # for more information.
         all_wg = {}
         wg_kwargs = build_worker_group_profile_kwargs(self.config, device_name=self.device_name)
+        if OmegaConf.select(self.config.trainer, "ray_wait_register_center_timeout") is not None:
+            wg_kwargs["ray_wait_register_center_timeout"] = self.config.trainer.ray_wait_register_center_timeout
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
             if not class_dict:
