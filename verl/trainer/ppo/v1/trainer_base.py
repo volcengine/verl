@@ -127,6 +127,10 @@ def validate_remax_config(config: DictConfig) -> None:
     filter_groups = config.algorithm.get("filter_groups", None)
     if filter_groups is not None and filter_groups.get("enable", False):
         raise NotImplementedError("algorithm.adv_estimator=remax does not support algorithm.filter_groups.")
+    skip_tq = (config.get("skip", None) or {}).get("rollout_tq", None)
+    if skip_tq is not None and skip_tq.get("enable", False):
+        # replayed rollouts are rebuilt from range(n) sessions and would lose the greedy baseline session
+        raise NotImplementedError("algorithm.adv_estimator=remax does not support skip.rollout_tq.")
 
 
 class PPOTrainer(ABC):
@@ -1659,7 +1663,8 @@ class PPOTrainer(ABC):
             fields=TensorDict({"reward_baselines": baselines}, batch_size=len(sampled_keys)),
         )
         tq.kv_clear(keys=baseline_keys, partition_id=batch.partition_id)
-        metrics["remax/baseline_reward_mean"] = float(rewards.mean())
+        # one baseline per prompt (the selected final output), not one per greedy output row
+        metrics["remax/baseline_reward_mean"] = sum(r for _, r in baseline_by_uid.values()) / len(baseline_by_uid)
         return KVBatchMeta(partition_id=batch.partition_id, keys=sampled_keys, tags=sampled_tags)
 
     @staticmethod
