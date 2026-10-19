@@ -798,6 +798,23 @@ def test_lora_adapter_path_skips_normalization():
     assert added == [{"language_model.model.layers.0.self_attn.q_proj.lora_A.weight"}]
 
 
+def test_lora_adapter_tensors_are_cloned_out_of_the_bucket():
+    """add_lora keeps the adapter tensors, so they must not alias the reused IPC bucket buffer (#6454)."""
+    model = _FakeModel({"model.layers.0.self_attn.q_proj.base_layer.weight": torch.empty(0)})
+    added = []
+    worker = _make_worker(model)
+    worker.add_lora = lambda request: added.append(request.lora_tensors)
+
+    name = "model.layers.0.self_attn.q_proj.lora_A.weight"
+    bucket = torch.arange(4.0)
+    worker._update_weights([(name, bucket)], peft_config={"r": 1}, base_sync_done=True)
+    bucket.zero_()  # the receiver reuses the buffer for the next bucket
+
+    (tensors,) = added
+    assert tensors[name].data_ptr() != bucket.data_ptr()
+    torch.testing.assert_close(tensors[name], torch.arange(4.0))
+
+
 # ---------------------------------------------------------------------------
 # Multi-bucket LoRA accumulation: add_lora is called exactly once, with the
 # complete adapter, after is_last — never per-bucket.

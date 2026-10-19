@@ -336,12 +336,12 @@ def process_fp8_weights_after_loading(layers):
 
         quant_method = getattr(layer, "quant_method", None)
         process = getattr(quant_method, "process_weights_after_loading", None)
-        if process is not None:
-            # Patch replace_parameter so the repack folds into the live storage
-            # the CUDA graph captured, not a fresh Parameter (which leaves the
-            # captured storage zero).
-            from vllm.model_executor.layers.quantization import fp8 as _vllm_fp8
+        # Patch replace_parameter so the repack folds into the live storage
+        # the CUDA graph captured, not a fresh Parameter (which leaves the
+        # captured storage zero). Both branches below repack under it.
+        from vllm.model_executor.layers.quantization import fp8 as _vllm_fp8
 
+        if process is not None:
             with patch.object(_vllm_fp8, "replace_parameter", replace_parameter_preserve_subclass):
                 process(layer)
         else:
