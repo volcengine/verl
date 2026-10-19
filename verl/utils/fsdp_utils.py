@@ -249,7 +249,9 @@ def get_fsdp_wrap_policy(module, config=None, is_lora=False, exclude_modules=Non
     return auto_wrap_policy
 
 
-def mark_frozen_vision_tower_for_skip(visual_path_modules, visual_path_params=()) -> bool:
+def mark_frozen_vision_tower_for_skip(
+    visual_path_modules, visual_path_params=(), tower_protected_by_dummy=True
+) -> bool:
     """Mark a frozen visual path so the multimodal adapters may skip the dummy
     visual forward on text-only batches (cf. #3496).
 
@@ -257,20 +259,25 @@ def mark_frozen_vision_tower_for_skip(visual_path_modules, visual_path_params=()
     visual-path siblings (``get_vlm_visual_path_modules``);
     ``visual_path_params`` are the bare visual-path parameters
     (``get_vlm_visual_path_params``, e.g. LlavaNext's ``image_newline``).
-    Returns True iff the tower was marked. Marking requires no trainable
-    params anywhere in the path: with the path wrap-excluded into the root
-    FSDP unit, a text-only rank never enters it while an image rank does, so a
-    trainable param would receive gradients on some ranks only — FSDP1's
-    root-unit gradient reduce does not support that (verified on torch 2.11: a
-    2-rank mixed-modality backward hangs).
+    ``tower_protected_by_dummy`` says whether this model's family has a verl
+    adapter that runs the dummy visual forward
+    (``VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES``). Returns True iff the tower was
+    marked. Marking requires no trainable params anywhere in the path: with
+    the path wrap-excluded into the root FSDP unit, a text-only rank never
+    enters it while an image rank does, so a trainable param would receive
+    gradients on some ranks only — FSDP1's root-unit gradient reduce does not
+    support that (verified on torch 2.11: a 2-rank mixed-modality backward
+    hangs).
 
     Trainable params split by location: inside the tower (vision LoRA, QAT
-    linears) keep the dummy visual forward, which makes every rank enter the
-    tower once per step — the unmodified behavior, warning below. On a sibling
-    or a bare visual-path parameter there is no equivalent: the dummy branches
-    only run the tower, so a trainable one would still receive gradients on
-    image ranks only — those combinations are rejected up front instead of
-    hanging at the first mixed-modality backward.
+    linears) keep the dummy visual forward — which makes every rank enter the
+    tower once per step — but only for families that have such an adapter;
+    elsewhere there is nothing to align the excluded trainable tower, so that
+    too is rejected. On a sibling or a bare visual-path parameter there is no
+    equivalent even for the protected families: the dummy branches only run
+    the tower, so a trainable one would still receive gradients on image
+    ranks only — rejected up front instead of hanging at the first
+    mixed-modality backward.
     """
     tower, siblings = visual_path_modules[0], visual_path_modules[1:]
     if any(p.requires_grad for module in siblings for p in module.parameters()) or any(
@@ -285,6 +292,17 @@ def mark_frozen_vision_tower_for_skip(visual_path_modules, visual_path_params=()
             "freeze_vision_tower."
         )
     if any(p.requires_grad for p in tower.parameters()):
+        if not tower_protected_by_dummy:
+            raise ValueError(
+                "freeze_vision_tower: trainable params inside the tower (e.g. vision "
+                "LoRA/QAT) are only safe for families whose verl adapter runs the dummy "
+                "visual forward on text-only batches (Qwen-VL / Qwen3-VL / GLM-4V / "
+                "Qwen3.5, see VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES). This model has no "
+                "such adapter, so on mixed-modality batches the wrap-excluded trainable "
+                "tower would receive gradients on image ranks only and hang FSDP. Remove "
+                "the vision modules from the adapter targets, or disable "
+                "freeze_vision_tower."
+            )
         logger.warning(
             "freeze_vision_tower: trainable params found inside the visual path "
             "(e.g. vision LoRA or QAT); keeping the dummy visual forward (#3496): ranks "

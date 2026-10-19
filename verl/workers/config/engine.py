@@ -274,8 +274,12 @@ class FSDPEngineConfig(EngineConfig):
             text-only batches. The skip itself additionally requires the exclusion to be
             guaranteed (``fsdp_turbo`` keeps the dummy forward; the size-based FSDP1 wrap
             policy is rejected at build — it cannot carry the exclusion) and no trainable
-            params inside the tower (vision LoRA / QAT keep it,
-            so every rank still enters the tower once). Plumbed from the worker-level flag
+            params inside the tower (vision LoRA / QAT keep it — for the Qwen-VL / Qwen3-VL /
+            GLM-4V / Qwen3.5 families only, whose adapter runs the dummy forward; elsewhere
+            the combination is rejected). Note Mllama's conditional cross-attention layers
+            live in the language model and stay trainable with this flag; mixed-modality
+            safety for them is the upstream behavior, unchanged by the freeze.
+            Plumbed from the worker-level flag
             in the config ``__post_init__``s (``FSDPActorConfig`` / ``FSDPCriticConfig`` and
             the other engine-bearing worker configs — the choke point every construction
             path goes through); the ref worker (``engine_workers.py``) and the separation

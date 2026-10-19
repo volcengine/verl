@@ -557,7 +557,17 @@ class FSDPEngine(BaseEngine):
             # A non-zero min_num_params on FSDP1 already raised inside
             # get_fsdp_wrap_policy (fail closed: the size policy cannot carry
             # the exclusion); FSDP2's identity-based exclusion always applies.
-            mark_frozen_vision_tower_for_skip(self._visual_path_modules, self._visual_path_params)
+            # Trainable tower params (vision LoRA / QAT) are only safe for
+            # families whose verl adapter runs the dummy visual forward — the
+            # mark rejects the combination for everyone else.
+            from verl.models.transformers.monkey_patch import VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES
+
+            model_type = getattr(self.model_config.hf_config, "model_type", None)
+            mark_frozen_vision_tower_for_skip(
+                self._visual_path_modules,
+                self._visual_path_params,
+                tower_protected_by_dummy=model_type in VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES,
+            )
 
         if self.model_config.enable_activation_offload:
             enable_gradient_checkpointing = self.model_config.enable_gradient_checkpointing

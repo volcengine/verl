@@ -207,8 +207,9 @@ VISUAL_PATH_SIBLING_ATTRS = ("multi_modal_projector", "mm_projector", "resampler
 # Bare parameters (not submodules) that also live only on the visual path and
 # must be frozen together with the tower for the same reason as the siblings.
 # LlavaNext registers its per-image newline embedding as a top-level
-# ``image_newline`` nn.Parameter beside the tower.
-VISUAL_PATH_PARAM_ATTRS = ("image_newline",)
+# ``image_newline`` nn.Parameter beside the tower; DeepSeek-VL2's remote code
+# registers ``view_seperator`` the same way (upstream spelling).
+VISUAL_PATH_PARAM_ATTRS = ("image_newline", "view_seperator")
 
 
 def _visual_path_probe_candidates(model: nn.Module) -> list:

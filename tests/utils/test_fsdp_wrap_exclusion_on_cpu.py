@@ -502,3 +502,61 @@ def test_mark_rejects_trainable_bare_visual_path_param():
     assert mark_frozen_vision_tower_for_skip([tower], visual_path_params=[frozen_newline]) is True
     with pytest.raises(ValueError, match="trainable params on a visual-path sibling"):
         mark_frozen_vision_tower_for_skip([tower], visual_path_params=[trainable_newline])
+
+
+def test_get_vlm_visual_path_params_finds_deepseek_vl2_view_seperator():
+    """DeepSeek-VL2's remote code registers a second bare image-only parameter,
+    ``view_seperator`` (upstream spelling), beside the tower."""
+    from verl.utils.model import get_vlm_visual_path_params
+
+    class _DeepseekVL2Style(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision = _MockVisionTower()
+            self.projector = nn.Linear(32, 32)
+            self.view_seperator = nn.Parameter(torch.zeros(1))
+            self.language = nn.Module()
+
+    params = get_vlm_visual_path_params(_DeepseekVL2Style())
+    assert len(params) == 1 and isinstance(params[0], nn.Parameter)
+
+
+def test_mark_rejects_trainable_tower_without_dummy_forward_protection():
+    """Trainable params inside the tower are only safe for families whose verl
+    adapter runs the dummy visual forward (VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES);
+    a model without such an adapter has nothing aligning the excluded trainable
+    tower across ranks, so the combination is rejected at build."""
+    import pytest
+
+    from verl.utils.fsdp_utils import mark_frozen_vision_tower_for_skip
+
+    tower_with_adapter = _MockVisionTower()
+    tower_with_adapter.requires_grad_(False)
+    _lora_leaf(tower_with_adapter)  # trainable leaf inside the tower, as PEFT attaches
+
+    # Protected family (default True): warning + not marked, dummy stays on.
+    assert mark_frozen_vision_tower_for_skip([tower_with_adapter]) is False
+    assert not hasattr(tower_with_adapter, "_verl_frozen_vision_tower")
+
+    # Unprotected family: rejected at build.
+    tower_unprotected = _MockVisionTower()
+    tower_unprotected.requires_grad_(False)
+    _lora_leaf(tower_unprotected)
+    with pytest.raises(ValueError, match="only safe for families whose verl adapter"):
+        mark_frozen_vision_tower_for_skip([tower_unprotected], tower_protected_by_dummy=False)
+
+
+def test_vl_dummy_visual_forward_model_types_match_the_patch_dispatch():
+    """The protection set is the single source of truth shared with the
+    patch_forward_with_backends dispatch — pin the members so a new family
+    added to one place trips this test until the other is updated."""
+    import inspect
+
+    from verl.models.transformers.monkey_patch import (
+        VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES,
+        patch_forward_with_backends,
+    )
+
+    source = inspect.getsource(patch_forward_with_backends)
+    for model_type in VL_DUMMY_VISUAL_FORWARD_MODEL_TYPES:
+        assert f'"{model_type}"' in source, f"{model_type} missing from the patch dispatch"
