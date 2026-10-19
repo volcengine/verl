@@ -52,8 +52,6 @@ def _render_nsight_output_name(output, *, rank: int, role: str) -> str:
 def build_worker_group_profile_kwargs(config, *, device_name: str) -> dict:
     """Build WorkerGroup profiling options."""
     wg_kwargs = {}  # Setting up kwargs for RayWorkerGroup
-    if OmegaConf.select(config.trainer, "ray_wait_register_center_timeout") is not None:
-        wg_kwargs["ray_wait_register_center_timeout"] = config.trainer.ray_wait_register_center_timeout
     if OmegaConf.select(config.global_profiler, "steps") is not None:
         wg_kwargs["profile_steps"] = OmegaConf.select(config.global_profiler, "steps")
         # Only require nsight worker options when tool is nsys
@@ -63,6 +61,12 @@ def build_worker_group_profile_kwargs(config, *, device_name: str) -> dict:
             ), "worker_nsight_options must be set when using nsys with profile_steps"
             wg_kwargs["worker_nsight_options"] = OmegaConf.to_container(
                 OmegaConf.select(config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
+            )
+            wg_kwargs["profiler_discrete"] = bool(
+                OmegaConf.select(config.global_profiler.global_tool_config.nsys, "discrete")
+            )
+            wg_kwargs["profile_continuous_steps"] = bool(
+                OmegaConf.select(config.global_profiler, "profile_continuous_steps")
             )
     wg_kwargs["device_name"] = device_name
     return wg_kwargs
