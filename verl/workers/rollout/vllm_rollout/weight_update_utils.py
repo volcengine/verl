@@ -18,50 +18,6 @@ from vllm.model_executor.layers.vocab_parallel_embedding import VocabParallelEmb
 WeightUpdate = tuple[str, torch.Tensor]
 
 
-def normalize_deepseek_v4_weight_names(model: torch.nn.Module, weights: list[WeightUpdate]) -> list[WeightUpdate]:
-    """Translate Transformers DeepSeek V4 names for the Ascend weight loader."""
-    config = getattr(model, "config", None)
-    if getattr(config, "model_type", None) != "deepseek_v4":
-        return weights
-
-    replacements = (
-        (".self_attn.q_a_proj.", ".self_attn.wq_a."),
-        (".self_attn.kv_proj.", ".self_attn.wkv."),
-        (".self_attn.kv_a_proj_with_mqa.", ".self_attn.wkv."),
-        (".self_attn.q_b_proj.", ".self_attn.wq_b."),
-        (".self_attn.o_a_proj.", ".self_attn.wo_a."),
-        (".self_attn.o_b_proj.", ".self_attn.wo_b."),
-        (".self_attn.q_a_norm.", ".self_attn.q_norm."),
-        (".self_attn.sinks", ".self_attn.attn_sink"),
-        (".self_attn.compressor.kv_proj.", ".self_attn.compressor.wkv."),
-        (".self_attn.compressor.gate_proj.", ".self_attn.compressor.wgate."),
-        (".self_attn.compressor.kv_norm.", ".self_attn.compressor.norm."),
-        (".self_attn.compressor.position_bias", ".self_attn.compressor.ape"),
-        (".self_attn.compressor.indexer.position_bias", ".self_attn.indexer.compressor.ape"),
-        (".self_attn.compressor.indexer.kv_proj.", ".self_attn.indexer.compressor.wkv."),
-        (".self_attn.compressor.indexer.gate_proj.", ".self_attn.indexer.compressor.wgate."),
-        (".self_attn.compressor.indexer.q_b_proj.", ".self_attn.indexer.wq_b."),
-        (".self_attn.compressor.indexer.kv_norm.", ".self_attn.indexer.compressor.norm."),
-        (".self_attn.compressor.indexer.", ".self_attn.indexer."),
-        (".self_attn.indexer.scorer.weights_proj.", ".self_attn.indexer.weights_proj."),
-        ("hc_head.hc_fn", "hc_head_fn"),
-        ("hc_head.hc_base", "hc_head_base"),
-        ("hc_head.hc_scale", "hc_head_scale"),
-        (".attn_hc.fn", ".hc_attn_fn"),
-        (".attn_hc.base", ".hc_attn_base"),
-        (".attn_hc.scale", ".hc_attn_scale"),
-        (".ffn_hc.fn", ".hc_ffn_fn"),
-        (".ffn_hc.base", ".hc_ffn_base"),
-        (".ffn_hc.scale", ".hc_ffn_scale"),
-    )
-    normalized = []
-    for name, tensor in weights:
-        for source, target in replacements:
-            name = name.replace(source, target)
-        normalized.append((name, tensor))
-    return normalized
-
-
 def tied_embedding_aliases(model: torch.nn.Module) -> set[str]:
     """Names of tied word-embedding parameters vLLM skips when loading.
 

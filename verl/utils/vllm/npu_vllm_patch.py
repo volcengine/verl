@@ -18,8 +18,11 @@
 import inspect
 import logging
 import os
+from collections.abc import Iterable
 from contextvars import ContextVar
 from functools import wraps
+
+import torch
 
 from verl.utils.device import is_torch_npu_available
 
@@ -29,6 +32,74 @@ _GLM52_PATCH_ENV = "VERL_VLLM_ASCEND_GLM52_PATCH"
 _GLM52_PATCH_TRUTHY_VALUES = {"1", "true", "yes"}
 _GLM52_PATCH_MARKER = "_verl_vllm_ascend_glm52_patched"
 _glm52_original_run_engine_core = None
+
+
+def normalize_deepseek_v4_weight_names(
+    model: torch.nn.Module, weights: Iterable[tuple[str, torch.Tensor]]
+) -> Iterable[tuple[str, torch.Tensor]]:
+    """Translate Transformers DeepSeek V4 names for the Ascend weight loader."""
+    config = getattr(model, "config", None)
+    if getattr(config, "model_type", None) != "deepseek_v4":
+        return weights
+
+    replacements = (
+        (".self_attn.q_a_proj.", ".self_attn.wq_a."),
+        (".self_attn.kv_proj.", ".self_attn.wkv."),
+        (".self_attn.kv_a_proj_with_mqa.", ".self_attn.wkv."),
+        (".self_attn.q_b_proj.", ".self_attn.wq_b."),
+        (".self_attn.o_a_proj.", ".self_attn.wo_a."),
+        (".self_attn.o_b_proj.", ".self_attn.wo_b."),
+        (".self_attn.q_a_norm.", ".self_attn.q_norm."),
+        (".self_attn.sinks", ".self_attn.attn_sink"),
+        (".self_attn.compressor.kv_proj.", ".self_attn.compressor.wkv."),
+        (".self_attn.compressor.gate_proj.", ".self_attn.compressor.wgate."),
+        (".self_attn.compressor.kv_norm.", ".self_attn.compressor.norm."),
+        (".self_attn.compressor.position_bias", ".self_attn.compressor.ape"),
+        (".self_attn.compressor.indexer.position_bias", ".self_attn.indexer.compressor.ape"),
+        (".self_attn.compressor.indexer.kv_proj.", ".self_attn.indexer.compressor.wkv."),
+        (".self_attn.compressor.indexer.gate_proj.", ".self_attn.indexer.compressor.wgate."),
+        (".self_attn.compressor.indexer.q_b_proj.", ".self_attn.indexer.wq_b."),
+        (".self_attn.compressor.indexer.kv_norm.", ".self_attn.indexer.compressor.norm."),
+        (".self_attn.compressor.indexer.", ".self_attn.indexer."),
+        (".self_attn.indexer.scorer.weights_proj.", ".self_attn.indexer.weights_proj."),
+        ("hc_head.hc_fn", "hc_head_fn"),
+        ("hc_head.hc_base", "hc_head_base"),
+        ("hc_head.hc_scale", "hc_head_scale"),
+        (".attn_hc.fn", ".hc_attn_fn"),
+        (".attn_hc.base", ".hc_attn_base"),
+        (".attn_hc.scale", ".hc_attn_scale"),
+        (".ffn_hc.fn", ".hc_ffn_fn"),
+        (".ffn_hc.base", ".hc_ffn_base"),
+        (".ffn_hc.scale", ".hc_ffn_scale"),
+    )
+    normalized = []
+    for name, tensor in weights:
+        for source, target in replacements:
+            name = name.replace(source, target)
+        normalized.append((name, tensor))
+    return normalized
+
+
+def _patch_deepseek_v4_weight_loader(model_class) -> bool:
+    original_load_weights = model_class.load_weights
+    if getattr(original_load_weights, "_verl_deepseek_v4_weight_names_patched", False):
+        return False
+
+    @wraps(original_load_weights)
+    def load_weights(self, weights, *args, **kwargs):
+        weights = normalize_deepseek_v4_weight_names(self, weights)
+        return original_load_weights(self, weights, *args, **kwargs)
+
+    load_weights._verl_deepseek_v4_weight_names_patched = True
+    model_class.load_weights = load_weights
+    return True
+
+
+def patch_vllm_ascend_deepseek_v4_weight_loader() -> None:
+    """Adapt training names without modifying the installed vllm-ascend source."""
+    from vllm_ascend.models.deepseek_v4 import DeepseekV4ForCausalLM
+
+    _patch_deepseek_v4_weight_loader(DeepseekV4ForCausalLM)
 
 
 def patch_vllm_ascend_v023_sched_yield():
@@ -439,6 +510,7 @@ def apply_npu_vllm_patches() -> None:
         # Only genuine single-token decode may skip the causal attention mask; mixed
         # prefill-decode and spec-decode FULL graph capture batches still need it.
         patch_vllm_ascend_v023_fia_decode_mask()
+        patch_vllm_ascend_deepseek_v4_weight_loader()
 
     # Disable flash_attn in RotaryEmbedding (NPU)
     from vllm.model_executor.layers import fused_moe
