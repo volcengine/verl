@@ -340,9 +340,6 @@ class SFTTrainer:
 
         # Calculate which epoch we're starting from for sampler.set_epoch()
         start_epoch = global_step // self.steps_per_epoch
-        # Either limit can end training. Drain the final save even when epochs run out first,
-        # without changing the configured optimizer/scheduler training horizon.
-        last_training_step = min(self.total_training_steps, self.steps_per_epoch * self.config.trainer.total_epochs)
 
         meta_info = {
             "use_remove_padding": self.config.model.use_remove_padding,
@@ -415,7 +412,7 @@ class SFTTrainer:
                     if self.engine.get_data_parallel_rank() == 0:
                         tracking.log(data=metrics, step=global_step)
 
-                is_last_step = global_step >= last_training_step
+                is_last_step = global_step >= self.total_training_steps
                 is_valid_step = global_step % self.test_freq == 0
                 is_save_step = global_step % self.save_freq == 0
 
