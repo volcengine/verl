@@ -121,3 +121,69 @@ def test_wrapped_layer_preserves_outputs_and_structure():
     assert torch.equal(outputs[2], expected[2])
     assert outputs[3] is None
     assert outputs[0].requires_grad and outputs[1].requires_grad
+
+
+class _DetachedFirstOutputLayer(_TwoOutputLayer):
+    def forward(self, x):
+        hidden, state, mask, _ = super().forward(x)
+        return hidden.detach(), state, mask, None
+
+
+def test_detached_first_output_stays_detached_and_secondary_gradient_matches():
+    torch.manual_seed(0)
+    layer = _DetachedFirstOutputLayer()
+    reference = copy.deepcopy(layer)
+    handler = _RecordingOffloadHandler()
+    _wrap_with_offload(layer, handler)
+    x = torch.randn(2, 8, requires_grad=True)
+    reference_x = x.detach().clone().requires_grad_()
+
+    outputs = layer(x)
+    expected = reference(reference_x)
+    assert not outputs[0].requires_grad
+    assert outputs[0].grad_fn is None
+    assert outputs[1].requires_grad
+    torch.testing.assert_close(outputs[0], expected[0])
+    assert torch.equal(outputs[2], expected[2])
+    assert outputs[3] is None
+
+    outputs[1].sum().backward()
+    expected[1].sum().backward()
+    torch.testing.assert_close(x.grad, reference_x.grad)
+    for actual, baseline in zip(layer.parameters(), reference.parameters(), strict=True):
+        torch.testing.assert_close(actual.grad, baseline.grad)
+    assert handler.events.count("commit_backward") == 1
+    assert handler.events.index("commit_backward") < handler.events.index("pop")
+
+
+def test_combined_output_backward_commits_once_and_matches_gradients():
+    torch.manual_seed(0)
+    layer = _TwoOutputLayer()
+    reference = copy.deepcopy(layer)
+    handler = _RecordingOffloadHandler()
+    _wrap_with_offload(layer, handler)
+    x = torch.randn(2, 8, requires_grad=True)
+    reference_x = x.detach().clone().requires_grad_()
+    outputs = layer(x)
+    expected = reference(reference_x)
+
+    (outputs[0].sum() + outputs[1].sum()).backward()
+    (expected[0].sum() + expected[1].sum()).backward()
+
+    assert handler.events.count("commit_backward") == 1
+    assert handler.events.index("commit_backward") < handler.events.index("pop")
+    torch.testing.assert_close(x.grad, reference_x.grad)
+    for actual, baseline in zip(layer.parameters(), reference.parameters(), strict=True):
+        torch.testing.assert_close(actual.grad, baseline.grad)
+
+
+def test_commit_helper_returns_tuple_for_single_input():
+    handler = _RecordingOffloadHandler()
+    x = torch.randn(2, 8, requires_grad=True)
+    outputs = group_prefetch_offload_commit(handler, x)
+    assert isinstance(outputs, tuple)
+    assert len(outputs) == 1
+    torch.testing.assert_close(outputs[0], x)
+    outputs[0].sum().backward()
+    torch.testing.assert_close(x.grad, torch.ones_like(x))
+    assert handler.events == ["commit_forward", "commit_backward"]

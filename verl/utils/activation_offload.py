@@ -117,6 +117,10 @@ class GroupCommitFunction(torch.autograd.Function):
     All differentiable outputs of a layer go through the same node, so autograd
     runs ``backward`` (and reloads the group) before a gradient entering through
     any of them reaches the layer's saved activations.
+
+    The helper returns a tuple even for a single input. The offload handlers
+    consume saved tensors and group state during backward; repeated backward
+    passes through a retained graph are not supported by this mechanism.
     """
 
     @staticmethod
@@ -124,6 +128,10 @@ class GroupCommitFunction(torch.autograd.Function):
         # pylint: disable=missing-function-docstring
         cpu_offload_handler.on_group_commit_forward()
         ctx.cpu_offload_handler = cpu_offload_handler
+        # A detached input must remain detached even when another input requires grad.
+        non_differentiable = tuple(tensor for tensor in tensors if not tensor.requires_grad)
+        if non_differentiable:
+            ctx.mark_non_differentiable(*non_differentiable)
         # return the identical tensors
         return tensors
 
