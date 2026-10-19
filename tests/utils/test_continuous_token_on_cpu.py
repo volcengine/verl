@@ -609,6 +609,20 @@ def test_qwen2_auto_uses_qwen_builder_and_newline_boundary_logic():
     assert result.inserted_token_ids == [tokenizer.newline_id]
 
 
+def test_qwen2_auto_without_im_end_falls_back_to_default_builder(caplog):
+    # e.g. DeepSeek-R1-Distill-Qwen: model_type "qwen2" but no ChatML tokens.
+    with caplog.at_level(logging.WARNING, logger="verl.utils.tokenizer.continuous_token_wiring"):
+        builder = create_continuous_token_builder(_MissingSpecialTokenTokenizer(), hf_model_type="qwen2")
+
+    assert type(builder) is ContinuousTokenBuilder
+    assert "<|im_end|>" in caplog.text
+
+
+def test_explicit_qwen_family_without_im_end_still_raises():
+    with pytest.raises(ValueError, match="im_end"):
+        create_continuous_token_builder(_MissingSpecialTokenTokenizer(), model_family="qwen")
+
+
 def test_unknown_model_with_non_multimodal_processor_uses_default_text_builder(caplog):
     class TextProcessor:
         pass
