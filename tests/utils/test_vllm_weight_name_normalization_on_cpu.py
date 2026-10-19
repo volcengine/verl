@@ -1233,6 +1233,37 @@ def _flat_outer(params):
     return _OuterModel(_FakeFlatInner(), params)
 
 
+@pytest.mark.parametrize("prefix", ["mlp.experts.", "ffn.experts."])
+@pytest.mark.parametrize("leaf", ["weight", "weight_scale_inv", "aux"])
+@pytest.mark.parametrize("has_routed_experts", [False, True])
+@pytest.mark.parametrize("has_lora_prefix", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_precomputed_routed_expert_prefixes_avoid_namespace_scan(
+    monkeypatch, prefix, leaf, has_routed_experts, has_lora_prefix, strict
+):
+    """Cached membership preserves routing, including misses, without enumerating live names."""
+    monkeypatch.setattr(_vllm_utils_real, "_HAS_LORA_BASE_LAYER_PREFIX", has_lora_prefix)
+    live = f"language_model.model.layers.0.{prefix}base_layer.routed_experts.w13_weight"
+    model = (_strict_outer if strict else _flat_outer)({live: torch.empty(0)})
+    names = {live} if has_routed_experts else set()
+    name = f"language_model.model.layers.0.{prefix}0.gate_proj.{leaf}"
+    expected = resolve_weight_name(model, name, names)
+
+    class MembershipOnlySet(set):
+        def __iter__(self):
+            raise AssertionError("routed expert resolution must not scan the live namespace")
+
+    assert (
+        resolve_weight_name(
+            model,
+            name,
+            MembershipOnlySet(names),
+            routed_expert_prefixes={prefix} if has_routed_experts else set(),
+        )
+        == expected
+    )
+
+
 def test_strict_loader_keeps_base_layer_suffix_on_newer_vllm(monkeypatch):
     """A *strict* loader (DeepseekV2 params_dict[name] lookup) receives the
     SUFFIXED name unchanged — the unconditional strip flat loaders need would

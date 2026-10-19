@@ -257,7 +257,15 @@ def load_quanted_weights(weights, model_runner, is_drafter=False, peft_config=No
 
         live_names = {n for n, _ in model.named_parameters(remove_duplicate=False)}
         live_names.update(n for n, _ in model.named_buffers())
-        weights = [(resolve_weight_name(model, n, live_names), t) for n, t in weights]
+        routed_expert_prefixes = {
+            prefix
+            for prefix in ("mlp.experts.", "ffn.experts.")
+            if any(f"{prefix}base_layer." in n for n in live_names)
+        }
+        weights = [
+            (resolve_weight_name(model, n, live_names, routed_expert_prefixes=routed_expert_prefixes), t)
+            for n, t in weights
+        ]
     weights = list(weights)
 
     # Monkey patch the param class to their subclass, as certain models

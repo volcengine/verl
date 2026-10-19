@@ -228,7 +228,9 @@ def _name_reaches_strict_loader(model, name: str) -> bool:
     return live.startswith(prefix)
 
 
-def resolve_weight_name(model, name: str, model_weight_names: set[str]) -> str:
+def resolve_weight_name(
+    model, name: str, model_weight_names: set[str], *, routed_expert_prefixes: set[str] | None = None
+) -> str:
     """Reconcile an incoming weight-sync name with the live vLLM namespace.
 
     Toggles one ``.base_layer`` segment: STRIP for flat loaders (Llama/Qwen3.5)
@@ -237,11 +239,19 @@ def resolve_weight_name(model, name: str, model_weight_names: set[str]) -> str:
     by model_type. The mapper / packed_modules_mapping decide the toggle only;
     the return is always the *unmapped* name — vLLM does the stacking, and a
     mapped name would double-map and corrupt shard_id.
+
+    Bucket loaders may precompute ``routed_expert_prefixes`` to avoid scanning
+    the live namespace for every routed expert weight.
     """
     mapper = getattr(model, "hf_to_vllm_mapper", None)
     packed = getattr(model, "packed_modules_mapping", None) or {}
     leaf = name.rsplit(".", 1)[-1]
     is_leaf = leaf in {"weight", "bias"} or leaf.endswith(("_weight", "_bias"))
+
+    def _has_routed_experts(prefix: str) -> bool:
+        if routed_expert_prefixes is not None:
+            return prefix in routed_expert_prefixes
+        return any(f"{prefix}base_layer." in n for n in model_weight_names)
 
     def _exists(candidate: str) -> bool:
         """Check the live weight namespace, including mapped names and packed projection owners."""
@@ -295,7 +305,7 @@ def resolve_weight_name(model, name: str, model_weight_names: set[str]) -> str:
             tail
             and tail.split(".", 1)[0].isdigit()
             and (is_leaf or leaf in ("scale", "weight_scale", "weight_scale_inv"))
-            and any(f"{marker[1:]}base_layer." in n for n in model_weight_names)
+            and _has_routed_experts(marker[1:])
         )
         if is_per_expert_leaf:
             if _inner_load_weights_is_strict(model) is not None:
@@ -359,7 +369,7 @@ def resolve_weight_name(model, name: str, model_weight_names: set[str]) -> str:
             and ".base_layer." not in tail
             and not is_leaf
             and tail.split(".", 1)[0].isdigit()
-            and any("mlp.experts.base_layer." in n for n in model_weight_names)
+            and _has_routed_experts("mlp.experts.")
         ):
             return name.replace(marker, marker + "base_layer.", 1)
 
