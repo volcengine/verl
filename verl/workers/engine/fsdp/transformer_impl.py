@@ -104,6 +104,30 @@ def _scale_logits_by_temperature(logits, temperature, *, is_unit_temperature: bo
     return logits / temperature.clamp(min=1e-8).to(logits.dtype)
 
 
+def _exclude_with_heads(exclude, head_names: list[str]):
+    """Add the critic head(s) to a PEFT ``exclude_modules`` value of any form (None, list, or regex string)."""
+    if isinstance(exclude, str):
+        # A str is a full-match regex in PEFT. Keep the user's pattern untouched as a top-level alternative
+        # (so inline flags, whitespace and comments keep working) and add the heads as another one.
+        newline = "\n" if re.compile(exclude).flags & re.VERBOSE else ""  # a trailing "# comment" would swallow "|..."
+        head_regex = "|".join(re.escape(name) for name in head_names)
+        return rf"{exclude}{newline}|(?:.*\.)?(?:{head_regex})"
+    return list(exclude or []) + head_names
+
+
+def _reject_head_lora_weights(adapter_dir: str, head_names: list[str]) -> None:
+    """A critic head is trained in full, so saved LoRA weights for it cannot be loaded; fail, do not drop them."""
+    weights = os.path.join(adapter_dir, "adapter_model.safetensors")
+    if not os.path.exists(weights):
+        return
+    from safetensors import safe_open
+
+    with safe_open(weights, framework="pt") as f:
+        bad = [k for k in f.keys() if any(f".{name}.lora_" in k for name in head_names)]
+    if bad:
+        raise ValueError(f"LoRA adapter at {adapter_dir} contains LoRA weights for the critic head: {bad[:3]}")
+
+
 def _value_head_names(module) -> list[str]:
     """Names of the critic's output head(s) on an AutoModelForTokenClassification."""
     return [name for name in ("score", "classifier") if hasattr(module, name)]
@@ -374,6 +398,11 @@ class FSDPEngine(BaseEngine):
 
                 adapter_config = PeftConfig.from_pretrained(local_adapter_path)
                 adapter_config.task_type = None
+                head_names = _value_head_names(module)
+                if head_names:
+                    # keep LoRA off the critic head even if the adapter's target_modules would match it
+                    adapter_config.exclude_modules = _exclude_with_heads(adapter_config.exclude_modules, head_names)
+                    _reject_head_lora_weights(local_adapter_path, head_names)
                 adapter_kwargs["config"] = adapter_config
 
             head_names = _value_head_names(module) if is_value_model else []
@@ -410,17 +439,7 @@ class FSDPEngine(BaseEngine):
             if is_value_model:
                 head_names = _value_head_names(module)
                 if head_names:
-                    exclude = lora_config["exclude_modules"]
-                    if isinstance(exclude, str):
-                        # a str is a regex in PEFT: keep it a regex instead of turning it into a name list.
-                        # Leading inline flags such as (?i) are only valid at the start of the pattern, so hoist them.
-                        flags, body = re.match(r"((?:\(\?[aiLmsux]+\))*)(.*)", exclude, re.S).groups()
-                        head_regex = "|".join(re.escape(name) for name in head_names)
-                        # in verbose mode a trailing "# comment" would swallow what follows, so end the line
-                        newline = "\n" if re.compile(exclude).flags & re.VERBOSE else ""
-                        lora_config["exclude_modules"] = rf"{flags}(?:{body}{newline})|(?:.*\.)?(?:{head_regex})"
-                    else:
-                        lora_config["exclude_modules"] = list(exclude or []) + head_names
+                    lora_config["exclude_modules"] = _exclude_with_heads(lora_config["exclude_modules"], head_names)
                     lora_config["modules_to_save"] = head_names
             module = get_peft_model(module, LoraConfig(**lora_config))
 

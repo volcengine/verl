@@ -15,6 +15,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 from transformers import Qwen2Config, Qwen2ForCausalLM, Qwen2ForTokenClassification
 
@@ -212,3 +213,48 @@ def test_exported_critic_adapter_reloads_on_the_token_classification_model(tmp_p
     reloaded = PeftModel.from_pretrained(Qwen2ForTokenClassification(_tiny_config()), lora_path)
     head = reloaded.base_model.model.score.modules_to_save["default"].weight
     assert torch.allclose(head, torch.full_like(head, 0.5))
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["(?x)\n(?i).*Q_PROJ", r"(?x) (?i).*\.q_proj", r"(?i)(?x).*\.q_proj # c", r"(?x).*\.q_proj # trailing comment"],
+)
+def test_exclude_regex_with_separated_or_verbose_flags_stays_valid(pattern):
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", exclude_modules=pattern)
+    names = [n for n, _ in peft_model.named_parameters()]
+    assert not any("q_proj.lora_" in n for n in names)
+    assert any("k_proj.lora_A" in n for n in names)
+    assert not any("score" in n and "lora_" in n for n in names)
+
+
+def test_loaded_adapter_targeting_the_head_name_does_not_put_lora_on_the_head(tmp_path):
+    from peft import LoraConfig, TaskType, get_peft_model
+
+    # source model has no `score`, so the adapter can still list it as a target
+    get_peft_model(
+        Qwen2ForCausalLM(_tiny_config()),
+        LoraConfig(task_type=TaskType.CAUSAL_LM, r=4, lora_alpha=8, target_modules=["q_proj", "v_proj", "score"]),
+    ).save_pretrained(tmp_path)
+
+    peft_model = _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", lora_adapter_path=str(tmp_path))
+
+    names = [n for n, _ in peft_model.named_parameters()]
+    assert not any("score" in n and "lora_" in n for n in names)
+    assert any("score.modules_to_save" in n for n in names)
+    assert any("q_proj.lora_A" in n for n in names)
+
+
+def test_loaded_adapter_with_head_lora_weights_is_rejected(tmp_path):
+    from peft import LoraConfig, get_peft_model
+
+    # an adapter that already carries LoRA weights on a layer named like the critic head
+    class _LM(Qwen2ForCausalLM):
+        def __init__(self, config):
+            super().__init__(config)
+            self.score = torch.nn.Linear(config.hidden_size, 1)
+
+    get_peft_model(
+        _LM(_tiny_config()), LoraConfig(r=4, lora_alpha=8, target_modules=["score", "q_proj"])
+    ).save_pretrained(tmp_path)
+    with pytest.raises(ValueError, match="critic head"):
+        _build(Qwen2ForTokenClassification(_tiny_config()), "value_model", lora_adapter_path=str(tmp_path))
