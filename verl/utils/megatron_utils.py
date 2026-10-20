@@ -676,6 +676,15 @@ def load_megatron_copy_params(optimizers):
 
 @torch.no_grad()
 def offload_megatron_optimizer(optimizers):
+    """Offload optimizer state to CPU to free GPU memory.
+
+    Note: HybridDeviceOptimizer (HDO) is left untouched. It manages the
+    placement of its own sub-optimizer state (a CPU half plus the GPU-resident
+    half, split by ``optimizer_offload_fraction``). Offloading the GPU half
+    here corrupts the fused optimizer's device assumption and crashes the next
+    step (issue #8237).
+    """
+
     def _iter_opts(opt):
         if isinstance(opt, ChainedOptimizer):
             return opt.chained_optimizers
@@ -685,9 +694,7 @@ def offload_megatron_optimizer(optimizers):
         offload_megatron_copy_params(_opt)
         ## worker may hold zero parameter when enabling custom pipeline layout
         if _opt.optimizer is not None:
-            # HybridDeviceOptimizer owns the placement of its sub-optimizer
-            # state; leave it untouched here (issue #8237).
-            # TODO: this should be a method in Megatron-LM's HybridDeviceOptimizer
+            # Only non-HDO optimizers below; HDO owns its own placement.
             if not all(
                 hasattr(_opt.optimizer, attr) for attr in ("sub_optimizers", "inner_param_to_orig_param", "state")
             ):
