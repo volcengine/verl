@@ -17,6 +17,7 @@ import json
 from math import sqrt
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -292,3 +293,67 @@ def test_bayes_validation_rejects_async_and_legacy_trainers(monkeypatch):
     with pytest.raises(ValueError, match="trainer.use_v1=true"):
         RayPPOTrainer._validate(trainer)
     assert submitted == []
+
+
+@pytest.mark.parametrize("val_before_train", [False, True])
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        ("trainer.v1.trainer_mode", "separate_async"),
+        ("actor_rollout_ref.rollout.val_kwargs.do_sample", False),
+        ("actor_rollout_ref.rollout.val_kwargs.top_k", 1),
+        ("actor_rollout_ref.rollout.agent.agent_loop_config_path", "/tmp/custom-agent.yaml"),
+        ("reward.reward_manager.name", "limited"),
+        ("actor_rollout_ref.rollout.val_kwargs.n", 0),
+    ],
+)
+def test_bayes_static_config_rejected_during_v1_construction(monkeypatch, path, value, val_before_train):
+    """Reject unsupported experiments before callback setup, even without initial validation."""
+    config = _config()
+    config.trainer.val_before_train = val_before_train
+    OmegaConf.update(config, path, value, force_add=True)
+    callback_setup = Mock(side_effect=AssertionError("callback setup must not run"))
+    monkeypatch.setattr(trainer_base, "build_checkpoint_callback", callback_setup)
+
+    with pytest.raises(ValueError, match="Bayes@N"):
+        _Trainer(config)
+    callback_setup.assert_not_called()
+
+
+@pytest.mark.parametrize("val_before_train", [False, True])
+def test_bayes_legacy_rejected_during_construction(monkeypatch, val_before_train):
+    """Legacy Bayes@N must fail before logger or dataset setup."""
+    config = _config()
+    config.trainer.val_before_train = val_before_train
+    logger_setup = Mock(side_effect=AssertionError("logger setup must not run"))
+    monkeypatch.setattr("verl.trainer.ppo.ray_trainer.ValidationGenerationsLogger", logger_setup)
+
+    with pytest.raises(ValueError, match="trainer.use_v1=true"):
+        RayPPOTrainer(
+            config,
+            tokenizer=None,
+            role_worker_mapping={trainer_base.Role.ActorRollout: object()},
+            resource_pool_manager=None,
+        )
+    logger_setup.assert_not_called()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_bayes_supported_or_disabled_constructor_accepts_config(monkeypatch, enabled):
+    """Valid Bayes@N and disabled non-Bayes configurations still construct normally."""
+    config = _config()
+    config.trainer.val_before_train = False
+    config.trainer.val_bayes_at_n = enabled
+    if not enabled:
+        config.trainer.v1.trainer_mode = "separate_async"
+        config.actor_rollout_ref.rollout.val_kwargs.do_sample = False
+    callback_setup = Mock(return_value=None)
+    replay_setup = Mock(return_value=object())
+    monkeypatch.setattr(trainer_base, "build_checkpoint_callback", callback_setup)
+    monkeypatch.setattr(_Trainer, "_build_replay_buffer", replay_setup)
+    monkeypatch.setattr(trainer_base, "RolloutMoELoadBalanceMetricsAccumulator", Mock(return_value=object()))
+
+    trainer = _Trainer(config)
+    assert trainer.trainer_mode == config.trainer.v1.trainer_mode
+    callback_setup.assert_called_once_with(config)
+    replay_setup.assert_called_once_with()

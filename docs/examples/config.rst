@@ -649,7 +649,7 @@ Trainer
   for the ray register center to be ready. Default is 300 seconds.
 
 Bayes@N validation
-~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~
 
 Set ``trainer.val_bayes_at_n=true`` to report uncertainty about average binary
 accuracy over the fixed validation questions. This implements the binary,

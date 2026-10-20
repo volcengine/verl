@@ -121,6 +121,8 @@ class PPOTrainer(ABC):
 
     def __init__(self, config: DictConfig):
         self.config = config
+        self.trainer_mode = self.config.trainer.v1.trainer_mode
+        self._check_bayes_at_n_config()
         self.checkpoint_callback = build_checkpoint_callback(config)
         self.use_critic = need_critic(self.config)
         self.use_reference_policy = need_reference_policy(self.config)
@@ -128,7 +130,6 @@ class PPOTrainer(ABC):
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
-        self.trainer_mode = self.config.trainer.v1.trainer_mode
         self.parameter_sync_step = self.config.trainer.v1.get(self.trainer_mode, {}).get("parameter_sync_step", 1)
         self.replay_buffer = self._build_replay_buffer()
         self._rollout_moe_lb_metrics_accumulator = RolloutMoELoadBalanceMetricsAccumulator(
@@ -1030,43 +1031,49 @@ class PPOTrainer(ABC):
             trainer=self, global_step=self.global_steps, checkpoint_dir=local_global_step_folder, async_save=False
         )
 
+    def _check_bayes_at_n_config(self) -> int | None:
+        """Check the supported Bayes@N experiment and return its trial count when enabled."""
+        if not self.config.trainer.get("val_bayes_at_n", False):
+            return None
+        rollout = self.config.actor_rollout_ref.rollout
+        reward = self.config.reward
+        if self.trainer_mode != "sync":
+            raise ValueError("Bayes@N validation requires trainer.v1.trainer_mode=sync")
+        temperature = rollout.val_kwargs.temperature
+        top_p = rollout.val_kwargs.top_p
+        if (
+            not rollout.val_kwargs.do_sample
+            or not math.isfinite(temperature)
+            or temperature <= 0
+            or not math.isfinite(top_p)
+            or not 0 < top_p <= 1
+            or rollout.val_kwargs.top_k == 1
+            or rollout.full_determinism
+        ):
+            raise ValueError(
+                "Bayes@N validation requires do_sample=true, full_determinism=false, "
+                "finite positive temperature, 0 < top_p <= 1, and top_k != 1"
+            )
+        if (
+            rollout.agent.default_agent_loop != "single_turn_agent"
+            or rollout.agent.get("agent_loop_manager_class")
+            or rollout.agent.get("agent_loop_config_path")
+        ):
+            raise ValueError("Bayes@N validation supports the built-in single_turn_agent manager only")
+        if (
+            reward.reward_manager.source != "register"
+            or reward.reward_manager.name != "naive"
+            or reward.reward_model.enable
+        ):
+            raise ValueError("Bayes@N validation requires the registered naive rule reward manager")
+        trial_count = rollout.val_kwargs.n
+        if isinstance(trial_count, bool) or not isinstance(trial_count, Integral) or trial_count < 1:
+            raise ValueError("Bayes@N validation requires a positive integer val_kwargs.n")
+        return int(trial_count)
+
     def _validate(self) -> dict[str, float]:
-        bayes_at_n = self.config.trainer.get("val_bayes_at_n", False)
-        if bayes_at_n:
-            rollout = self.config.actor_rollout_ref.rollout
-            reward = self.config.reward
-            if self.trainer_mode != "sync":
-                raise ValueError("Bayes@N validation requires trainer.v1.trainer_mode=sync")
-            temperature = rollout.val_kwargs.temperature
-            top_p = rollout.val_kwargs.top_p
-            if (
-                not rollout.val_kwargs.do_sample
-                or not math.isfinite(temperature)
-                or temperature <= 0
-                or not math.isfinite(top_p)
-                or not 0 < top_p <= 1
-                or rollout.val_kwargs.top_k == 1
-                or rollout.full_determinism
-            ):
-                raise ValueError(
-                    "Bayes@N validation requires do_sample=true, full_determinism=false, "
-                    "finite positive temperature, 0 < top_p <= 1, and top_k != 1"
-                )
-            if (
-                rollout.agent.default_agent_loop != "single_turn_agent"
-                or rollout.agent.get("agent_loop_manager_class")
-                or rollout.agent.get("agent_loop_config_path")
-            ):
-                raise ValueError("Bayes@N validation supports the built-in single_turn_agent manager only")
-            if (
-                reward.reward_manager.source != "register"
-                or reward.reward_manager.name != "naive"
-                or reward.reward_model.enable
-            ):
-                raise ValueError("Bayes@N validation requires the registered naive rule reward manager")
-            trial_count = rollout.val_kwargs.n
-            if isinstance(trial_count, bool) or not isinstance(trial_count, Integral) or trial_count < 1:
-                raise ValueError("Bayes@N validation requires a positive integer val_kwargs.n")
+        trial_count = self._check_bayes_at_n_config()
+        bayes_at_n = trial_count is not None
 
         # Lists to collect samples for the table
         sample_uids = []
