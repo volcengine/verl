@@ -57,7 +57,10 @@ MXFP4 routed experts, and the bucket-level orchestration is in
 
 Only MXFP4 MoE backends whose weight conversion can be replayed onto the live
 parameters are refittable: DeepGEMM, Marlin and FlashInfer CUTLASS (MXFP8
-activations). vLLM's own ``auto`` selection prefers FlashInfer TRT-LLM on
+activations). The CUTLASS kernel is refittable but not recommended for a native
+DeepSeek-V4 checkpoint: it is reachable only through an internal alias that the
+vLLM CLI rejects, and on vLLM 0.29 / flashinfer 0.6.18 (GB200) it returned NaN
+rollout log-probabilities. vLLM's own ``auto`` selection prefers FlashInfer TRT-LLM on
 SM100+, which is not, so verl redirects ``auto`` to the first refittable
 backend the oracle accepts (DeepGEMM when it is installed, otherwise Marlin;
 Marlin is also what ``auto`` resolves to on Hopper) and logs the redirect. An
