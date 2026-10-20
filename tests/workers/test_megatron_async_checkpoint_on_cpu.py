@@ -56,9 +56,23 @@ def _load_methods(path, class_name, methods, namespace, base=object):
     return scope[class_name]
 
 
+def _load_noop_writer():
+    """Use the production empty-rank writer in the simulated persistent caller."""
+    path = ROOT / "verl/utils/checkpoint/megatron_checkpoint_manager.py"
+    tree = ast.parse(path.read_text())
+    writer = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_noop_async_checkpoint_write"
+    )
+    namespace = {}
+    exec(compile(ast.Module(body=[writer], type_ignores=[]), str(path), "exec"), namespace)
+    return namespace["_noop_async_checkpoint_write"]
+
+
 class _Request:
     def __init__(self):
         self.async_fn = None
+        self.async_fn_args = ()
+        self.async_fn_kwargs = {}
         self.finalize_fns = []
         self.ready = False
 
@@ -94,7 +108,7 @@ def _manager():
         log_with_rank=lambda *args, **kwargs: None,
         local_mkdir_safe=local_mkdir_safe,
         get_checkpoint_tracker_filename=get_checkpoint_tracker_filename,
-        _noop_async_checkpoint_write=lambda: None,
+        _noop_async_checkpoint_write=_load_noop_writer(),
     )
     for content in ("model", "optimizer", "extra"):
         namespace[f"get_{content}_dist_checkpoint_path"] = lambda root, content=content: os.path.join(
@@ -364,7 +378,11 @@ def test_async_content_results_match_their_write_plans():
     assert results.empty()
 
 
-def test_empty_rank_requests_keep_persistent_completion_events_aligned():
+@pytest.mark.parametrize(
+    "args,kwargs",
+    [((), {}), (("unused",), {}), (("unused",), {"ignored": True})],
+)
+def test_empty_rank_requests_keep_persistent_completion_events_aligned(args, kwargs):
     """An empty content must still complete before publishing on this rank."""
     completed = queue.Queue()
 
@@ -376,7 +394,7 @@ def test_empty_rank_requests_keep_persistent_completion_events_aligned():
             self.pending.append(request)
             # MCore's persistent caller does not enqueue async_fn=None.
             if request.async_fn is not None:
-                request.async_fn()
+                request.async_fn(*request.async_fn_args, **request.async_fn_kwargs)
                 completed.put(True)
 
         def maybe_finalize_async_calls(self, blocking=False):
@@ -391,6 +409,8 @@ def test_empty_rank_requests_keep_persistent_completion_events_aligned():
     manager._async_calls_queue = PersistentQueue()
     requests = [_Request() for _ in range(3)]
     requests[0].async_fn = lambda: None
+    requests[1].async_fn_args = args
+    requests[1].async_fn_kwargs = kwargs
     requests[2].async_fn = lambda: None
     published = []
 

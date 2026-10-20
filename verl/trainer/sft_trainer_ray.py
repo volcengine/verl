@@ -352,7 +352,11 @@ class SFTTrainer:
                 metrics["train/total_tokens(B)"] = total_tokens / 1e9
                 tracking.log(data=metrics, step=global_step)
 
-                is_last_step = global_step >= self.total_training_steps
+                # Epoch exhaustion also needs the final blocking save, even
+                # when the configured step limit is larger than the dataset.
+                is_last_step = global_step >= min(
+                    self.total_training_steps, self.steps_per_epoch * self.config.trainer.total_epochs
+                )
                 is_valid_step = global_step % self.test_freq == 0
                 is_save_step = global_step % self.save_freq == 0
 

@@ -111,8 +111,8 @@ def _config_to_shallow_dict(config):
     return vars(config)
 
 
-def _noop_async_checkpoint_write():
-    """Give an empty-rank request a persistent-worker completion event."""
+def _noop_async_checkpoint_write(*args, **kwargs):
+    """Ignore request arguments so the persistent worker can signal empty-rank completion."""
 
 
 class MegatronCheckpointManager(BaseCheckpointManager):
