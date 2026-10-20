@@ -53,7 +53,6 @@ from verl.utils.profiler import (
 )
 from verl.utils.tokenizer import normalize_token_ids
 from verl.utils.tracking import RLInsightLogger
-from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.utils import (
@@ -318,7 +317,7 @@ class vLLMHttpServer:
 
             set_expandable_segments(True)
 
-        quantization, hf_overrides = self._apply_quantization()
+        hf_overrides = self._apply_quantization()
 
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
@@ -358,7 +357,6 @@ class vLLMHttpServer:
             "tensor_parallel_size": self.config.tensor_model_parallel_size,
             "seed": self.replica_rank + self.config.seed,
             "override_generation_config": json.dumps(override_generation_config),
-            "quantization": quantization,
             "hf_overrides": hf_overrides,
             "scheduling_policy": self.config.scheduling_policy,
             "compilation_config": compilation_config,
@@ -1392,69 +1390,30 @@ class vLLMHttpServer:
             max_new_tokens=self.config.response_length,
         )
 
-    def _apply_quantization(self) -> tuple[Optional[str], dict]:
-        """Process quantization config. Returns (quantization_str, hf_overrides)."""
+    def _apply_quantization(self) -> dict:
+        """hf_overrides for a rollout quantization set in the rollout config.
+
+        Models shipping their own ``quantization_config`` need nothing here; either way the
+        workers install the refit patches from the resulting vLLM ``quant_config``.
+        """
         quantization = self.config.quantization
-        hf_overrides = {}
+        if not quantization.enabled:
+            return {}
 
-        # Handle QAT (Quantization-Aware Training) configuration
-        qat_config_dict = getattr(self.config, "qat", {}) or {}
-        if qat_config_dict.get("enable", False):
-            from verl.utils.qat import QATConfig, load_quantization_config
-
-            qat_config = QATConfig(**qat_config_dict)
-            quantization_config_dict = load_quantization_config(qat_config)
-            quant_method = quantization_config_dict.get("quant_method", None)
-
-            if quant_method == "modelopt":
-                from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-                apply_modelopt_nvfp4_patches()
-                quantization = "modelopt"
-            elif quant_method == "compressed-tensors":
-                from verl.utils.qat import apply_qat_patches
-
-                apply_qat_patches()
-                quantization = "compressed-tensors"
-            else:
-                raise ValueError(f"Unsupported quant_method: {quant_method}")
-
-            logger.info(f"QAT quantization config injected (quant_method={quant_method})")
-            hf_overrides["quantization_config"] = quantization_config_dict
-        elif quantization is not None:
-            # Handle other quantization methods (fp8, torchao)
-            _SUPPORTED_QUANTIZATION = ["fp8", "torchao", "ascend"]
-            if quantization not in _SUPPORTED_QUANTIZATION:
-                raise ValueError(f"Currently only support {_SUPPORTED_QUANTIZATION} quantization, got: {quantization}")
-
-            if quantization == "fp8":
-                # Ignore MoE router layers for FP8 quantization
-                all_mlp_gate_layers = []
-                for layer in range(self.model_config.hf_config.num_hidden_layers):
-                    all_mlp_gate_layers.append(f"model.layers.{layer}.mlp.gate")
-
-                FP8_BLOCK_QUANT_KWARGS = {
-                    "activation_scheme": "dynamic",
-                    "fmt": "e4m3",
-                    "quant_method": "fp8",
-                    "weight_block_size": [128, 128],
-                    "ignored_layers": all_mlp_gate_layers,
-                }
-                hf_overrides["quantization_config"] = dict(FP8_BLOCK_QUANT_KWARGS)
-                # Will remove the patch after vllm support on-the-fly quant for rollout natively.
-                apply_vllm_quant_patches()
-                # for subprocesses patching
-                os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-
-        model_quantization_config = getattr(self.model_config.hf_config, "quantization_config", {}) or {}
-        if quantization is None and model_quantization_config.get("quant_method") == "fp8":
-            apply_vllm_quant_patches()
-            os.environ["VERL_VLLM_FP8_QUANT_ENABLED"] = "1"
-
-        if quantization is not None and self.config.quantization_config_file is not None:
-            hf_overrides["quantization_config_file"] = self.config.quantization_config_file
-
-        return quantization, hf_overrides
+        # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
+        quantization_config = quantization.build_quantization_config(self.model_config.local_path)
+        # FP8_BLOCK carries FP32 block scales. DeepGEMM's E8M0 mode (vLLM's default) would round them
+        # to powers of two and drift from the trainer. MX formats carry E8M0 scales natively and must
+        # retain vLLM's E8M0 path.
+        uses_fp32_block_scales = any(
+            group.get("weights", {}).get("strategy") == "block"
+            and group.get("weights", {}).get("scale_dtype") in {None, "torch.float32"}
+            for group in quantization_config.get("config_groups", {}).values()
+        )
+        if uses_fp32_block_scales:
+            os.environ.setdefault("VLLM_USE_DEEP_GEMM_E8M0", "0")
+        logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
+        return {"quantization_config": quantization_config}
 
     def _get_worker_extension_cls(self) -> str:
         """Return the fully-qualified colocate worker extension class name."""

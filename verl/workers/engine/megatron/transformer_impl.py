@@ -205,6 +205,7 @@ class MegatronEngine(BaseEngine):
         self._qat_enabled = self._qat_config is not None and getattr(self._qat_config, "enable", False)
         if self._qat_enabled:
             logger.info(f"QAT enabled in MegatronEngine: mode={self._qat_config.mode}")
+        self._rollout_weight_quantizer = None
 
         # Router replay configuration for MoE models
         self.enable_routing_replay = self.engine_config.router_replay.mode != "disabled"
@@ -529,7 +530,7 @@ class MegatronEngine(BaseEngine):
         self.module = self._build_megatron_module()
 
         if self._qat_enabled and not self.engine_config.forward_only:
-            from verl.utils.modelopt import apply_qat_to_modules
+            from verl.utils.qat.modelopt import apply_qat_to_modules
 
             self.module = apply_qat_to_modules(self.module, self._qat_config)
 
@@ -1000,13 +1001,19 @@ class MegatronEngine(BaseEngine):
                 else self.bridge.export_hf_weights(self.module, conversion_tasks=conversion_tasks)
             )
 
-        # QAT: process weights through QATWeightExporter for quantized weight sync to vLLM
         if self._qat_enabled:
-            from verl.utils.modelopt import export_qat_weights
-
-            per_tensor_param = export_qat_weights(per_tensor_param, self.module, self._qat_config.mode, self.bridge)
+            per_tensor_param = ((name, tensor) for name, tensor in per_tensor_param if "_quantizer." not in name)
+        if self._rollout_weight_quantizer is not None and not adapter_only:
+            # QAT-trained master weights quantize to the same values the fake quant used in training.
+            refresh_scales = getattr(self._rollout_weight_quantizer, "refresh_input_global_scales", None)
+            if refresh_scales is not None:
+                refresh_scales(self.module)
+            per_tensor_param = self._rollout_weight_quantizer(per_tensor_param)
 
         return per_tensor_param, peft_config
+
+    def set_rollout_weight_quantizer(self, quantizer) -> None:
+        self._rollout_weight_quantizer = quantizer
 
     def _mcore_export_index(self):
         """Build (once) the per-parameter delta export index: geometry specs and

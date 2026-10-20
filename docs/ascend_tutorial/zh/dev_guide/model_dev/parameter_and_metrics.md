@@ -120,8 +120,8 @@ verl 通过层级化的 YAML 配置文件管理所有参数，涉及到的所有
 | `actor_rollout_ref.rollout.calculate_log_probs` | `false` | 是否在 rollout 阶段计算 log probs |
 | `actor_rollout_ref.rollout.skip_tokenizer_init` | `true` | 是否跳过分词器初始化 |
 | `actor_rollout_ref.rollout.enable_rollout_routing_replay` | `false` | 是否启用 rollout 路由重放 |
-| `actor_rollout_ref.rollout.quantization` | `null` | 量化方式 |
-| `actor_rollout_ref.rollout.quantization_config_file` | `null` | 量化配置文件路径 |
+| `actor_rollout_ref.rollout.quantization.linear` / `.moe` | `null` | compressed-tensors 量化 preset（如 `FP8_BLOCK`） |
+| `actor_rollout_ref.rollout.quantization.config_file` | `null` | compressed-tensors 量化配置文件路径 |
 | `actor_rollout_ref.rollout.layered_summon` | `false` | 是否启用分层召唤（仅 FSDP 方案） |
 
 #### 1.1.5 Rollout 验证采样配置

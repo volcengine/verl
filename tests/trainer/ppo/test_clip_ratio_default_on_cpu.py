@@ -22,12 +22,14 @@ from verl.workers.config.distillation import DistillationLossConfig
 
 
 def _actor_config(**kwargs) -> ActorConfig:
+    """Build a valid actor config with the requested clipping settings."""
     return ActorConfig(
         strategy="fsdp", rollout_n=1, ppo_micro_batch_size_per_gpu=1, loss_agg_mode="token-mean", **kwargs
     )
 
 
 def _clipfrac(config: ActorConfig) -> float:
+    """Measure the clipped fraction for a fixed positive-advantage PPO update."""
     # ratio = exp(0.4) = 1.49 with a positive advantage: clipped at 0.2 or 0.3, not at 0.5.
     old_log_prob = torch.zeros(1, 1)
     log_prob = torch.full((1, 1), 0.4)
@@ -38,15 +40,18 @@ def _clipfrac(config: ActorConfig) -> float:
 
 
 def test_clip_ratio_alone_sets_the_clip_range():
+    """A symmetric clip override changes the effective PPO clipping range."""
     assert _clipfrac(_actor_config()) == 1.0
     assert _clipfrac(_actor_config(clip_ratio=0.5)) == 0.0
 
 
 def test_explicit_bounds_still_override_clip_ratio():
+    """Explicit asymmetric bounds take precedence over the symmetric setting."""
     assert _clipfrac(_actor_config(clip_ratio=0.5, clip_ratio_low=0.1, clip_ratio_high=0.3)) == 1.0
 
 
 def test_distillation_bounds_default_to_clip_ratio():
+    """Distillation leaves both asymmetric bounds unset for the shared fallback."""
     config = DistillationLossConfig(clip_ratio=0.3)
     assert config.clip_ratio_low is None
     assert config.clip_ratio_high is None
