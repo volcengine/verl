@@ -1286,3 +1286,28 @@ def test_wait_for_sampleable_replaces_groups_sample_would_have_evicted(tq_init, 
         assert _uids_of(batch.keys) == {refiller.produced_uids[0]}
     finally:
         _clear_partition(partition_id)
+
+
+@pytest.mark.parametrize("trainer_mode", ["sync", "async"])
+def test_sample_wakes_on_completion_notification(tq_init, partition_id, trainer_mode):
+    """A prompt reaching a terminal status must wake ``sample`` via the completion notifier, not after poll_interval."""
+    from verl.trainer.ppo.v1.agent_loop_tq import _notify_replay_buffer
+
+    running = PromptSpec(uid=_uid(), status="running")
+    _produce(partition_id, [running]).join_and_check()
+
+    # A poll interval far longer than the result timeout: only the notification can wake the consumer in time.
+    rb = _make_rb(poll_interval=30.0, trainer_mode=trainer_mode)
+    consumer = SampleConsumer(rb, partition_id, batch_size=1)
+    try:
+        consumer.start()
+        time.sleep(1.0)
+        assert consumer.is_alive()
+
+        _set_prompt_status(partition_id, running.uid, "finished", global_steps=0)
+        _notify_replay_buffer(partition_id)
+        batch = consumer.result_or_raise(timeout=5.0)
+
+        assert _uids_of(batch.keys) == {running.uid}
+    finally:
+        _clear_partition(partition_id)

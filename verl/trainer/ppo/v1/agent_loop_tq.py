@@ -31,11 +31,20 @@ from verl.experimental.agent_loop import (
     AgentLoopWorker,
     get_trajectory_info,
 )
+from verl.trainer.ppo.v1.replay_buffer import completion_notifier
 from verl.utils.ray_utils import auto_await
 from verl.utils.tensordict_utils import list_of_dict_to_tensordict
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "INFO"))
+
+
+def _notify_replay_buffer(partition_id: str):
+    """Best effort: wake the replay buffer; if this fails it falls back to polling."""
+    try:
+        completion_notifier().notify.remote(partition_id)
+    except Exception:
+        pass
 
 
 def apply_greedy_sampling_params(params: dict[str, Any]) -> None:
@@ -146,11 +155,13 @@ class AgentLoopWorkerTQ(AgentLoopWorker):
             else:
                 status = "finished"
             await tq.async_kv_put(key=uid, partition_id=partition_id, tag={"status": status})
+            _notify_replay_buffer(partition_id)
         except Exception as e:
             logger.exception(f"Error in _run_prompt: {e}")
             if tasks:
                 await _settle_session_tasks(tasks)
             await tq.async_kv_put(key=uid, partition_id=partition_id, tag={"status": "failure"})
+            _notify_replay_buffer(partition_id)
 
     async def _agent_loop_postprocess(
         self, output: AgentLoopOutput | list[AgentLoopOutput], validate, **kwargs

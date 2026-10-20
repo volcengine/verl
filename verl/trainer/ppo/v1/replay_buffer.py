@@ -11,12 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
+import functools
 import logging
 import os
 import time
 from collections import Counter, defaultdict
 
 import numpy as np
+import ray
 import transfer_queue as tq
 from omegaconf import DictConfig
 from transfer_queue import KVBatchMeta
@@ -59,6 +62,44 @@ def _accumulate_eviction_metrics(acc: dict, new: dict, stale_count: int) -> None
 
 # TODO: Pass custom sampler to TransferQueue:
 # https://github.com/Ascend/TransferQueue/blob/main/tutorial/05_custom_sampler.py
+
+
+NOTIFIER_NAME = "verl_replay_buffer_notifier"
+
+
+@ray.remote(num_cpus=0)
+class CompletionNotifier:
+    """Per-partition counter of prompts that reached a terminal status, so the replay buffer can block until enough
+    of them finished instead of polling TransferQueue every ``poll_interval`` seconds."""
+
+    def __init__(self):
+        self._seq, self._cond = {}, asyncio.Condition()
+
+    async def notify(self, partition_id: str):
+        async with self._cond:
+            self._seq[partition_id] = self._seq.get(partition_id, 0) + 1
+            self._cond.notify_all()
+
+    async def wait(self, partition_id: str, since: int, timeout: float) -> int:
+        async with self._cond:
+            try:
+                await asyncio.wait_for(self._cond.wait_for(lambda: self._seq.get(partition_id, 0) > since), timeout)
+            except asyncio.TimeoutError:
+                pass
+            return self._seq.get(partition_id, 0)
+
+
+@functools.cache
+def _notifier_for_job(job_id: str):
+    return CompletionNotifier.options(name=NOTIFIER_NAME, get_if_exists=True).remote()
+
+
+def completion_notifier():
+    """Process-wide handle to the named CompletionNotifier, shared by producers and the replay buffer.
+
+    Cached per process (not per ReplayBuffer) so the actor outlives individual ReplayBuffer instances; a new Ray job
+    id (e.g. after a Ray restart) re-creates it."""
+    return _notifier_for_job(ray.get_runtime_context().get_job_id())
 
 
 class ReplayBuffer:
@@ -155,6 +196,7 @@ class ReplayBuffer:
         self.max_off_policy_strategy = max_off_policy_strategy
         self.sampler_kwargs = sampler_kwargs
         self.poll_interval = poll_interval
+        self._notify_seq: dict[str, int] = {}  # completion counter seen at the last wake
         self.refill_fn = refill_fn
         self.filter_groups_metric = filter_groups_metric
         self.train_batch_size = train_batch_size
@@ -405,8 +447,19 @@ class ReplayBuffer:
                 tags.append(tag)
         return KVBatchMeta(partition_id=partition_id, keys=keys, tags=tags)
 
-    def _wait_for_next_poll(self, partition_id: str, last_debug_time: float) -> float:
-        time.sleep(self.poll_interval)
+    def _wait_for_next_poll(self, partition_id: str, last_debug_time: float, need: int = 1) -> float:
+        # Block until `need` more prompts of this partition reach a terminal status; poll_interval is only a fallback
+        # timeout. The counter kept from the previous wake is read before the caller's next metadata sync, so a wake
+        # can only be early (one extra sync), never late.
+        seen = self._notify_seq.get(partition_id)
+        since = -1 if seen is None else seen + max(need, 1) - 1
+        try:
+            notifier = completion_notifier()
+            self._notify_seq[partition_id] = ray.get(notifier.wait.remote(partition_id, since, self.poll_interval))
+        except Exception:  # notifier unavailable (no Ray, actor died): drop it, fall back to plain polling this round
+            _notifier_for_job.cache_clear()
+            self._notify_seq.pop(partition_id, None)
+            time.sleep(self.poll_interval)
         now = time.time()
         if now - last_debug_time > VERL_REPLAY_BUFFER_DEBUG_INTERVAL_SECONDS:
             logger.info(
@@ -500,7 +553,8 @@ class ReplayBuffer:
                         eviction_metrics[key] = eviction_metrics.get(key, 0) + len(surplus_uids)
                 break
 
-            last_debug_time = self._wait_for_next_poll(partition_id, last_debug_time)
+            need = batch_size - len(sampleable_keys) if not has_enough_samples else inflight_count
+            last_debug_time = self._wait_for_next_poll(partition_id, last_debug_time, need)
 
         selected_uids = set(selected_prompt_uids)
         if partition_id != "val" and not any(key.split("_")[0] in selected_uids for key in partition_snapshot):
@@ -587,7 +641,8 @@ class ReplayBufferAsync(ReplayBuffer):
             if self._has_enough_samples(global_steps, partition_id, target_count, sampleable_keys):
                 return sampleable_keys, eviction_metrics
 
-            last_debug_time = self._wait_for_next_poll(partition_id, last_debug_time)
+            need = target_count - len(sampleable_keys)
+            last_debug_time = self._wait_for_next_poll(partition_id, last_debug_time, need)
 
     @SkipManager.annotate_tq(role="rollout_tq", phase="sample")
     def sample(self, global_steps: int, partition_id: str, batch_size: int) -> tuple[KVBatchMeta, dict]:
