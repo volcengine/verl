@@ -306,8 +306,16 @@ class SGLangHttpServer:
             # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
             # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
             quantization_config = self.config.quantization.build_quantization_config(self.model_config.local_path)
+            from verl.utils.sglang.mxfp8 import prepare_sglang_quantization
+
+            quantization_config = prepare_sglang_quantization(
+                quantization_config,
+                custom_weight_loader,
+                engine_kwargs,
+                enable_router_replay=self.config.enable_rollout_routing_replay,
+            )
             model_override_args["quantization_config"] = quantization_config
-            logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
+            logger.info(f"Rollout quantization_config: {quantization_config}")
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,

@@ -1,0 +1,147 @@
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+from types import SimpleNamespace
+
+import pytest
+import torch
+
+pytest.importorskip("compressed_tensors")
+pytest.importorskip("sglang")
+
+from verl.utils.qat.compressed_tensors import (
+    CompressedTensorsWeightQuantizer,
+    build_compressed_tensors_config,
+    dispatch_rollout_weight_quantizer,
+)
+from verl.utils.sglang.mxfp8 import (
+    SGLangMxfp8WeightQuantizer,
+    prepare_sglang_quantization,
+    translate_mxfp8_to_sglang_fp8_config,
+)
+from verl.workers.rollout.sglang_rollout.mxfp8_refit_loader import LOADER_FQN
+
+
+def _config(linear="MXFP8", moe=None):
+    return build_compressed_tensors_config(
+        linear=linear,
+        moe=moe,
+        ignore=[r"re:.*linear_attn\.in_proj_[ab]$"],
+        config_file=None,
+    )
+
+
+@pytest.mark.parametrize("moe", [None, "MXFP8"])
+def test_all_mxfp8_translation_uses_native_sglang_schema(moe):
+    ct_config = _config(moe=moe)
+
+    native = translate_mxfp8_to_sglang_fp8_config(ct_config)
+
+    assert native == {
+        "quant_method": "mxfp8",
+        "activation_scheme": "dynamic",
+        "weight_block_size": [1, 32],
+        "ignored_layers": [
+            "lm_head",
+            "embed_tokens",
+            "visual",
+            "mtp",
+            "mlp.gate",
+            "shared_expert_gate",
+            "in_proj_ba",
+            "in_proj_b",
+            "in_proj_a",
+            *(["mlp.experts"] if moe is None else []),
+        ],
+    }
+
+
+def test_mixed_scheme_translation_is_rejected():
+    with pytest.raises(ValueError, match="every config group"):
+        translate_mxfp8_to_sglang_fp8_config(_config(moe="FP8_BLOCK"))
+
+
+def test_native_sglang_config_honors_ct_regex_ignores():
+    from sglang.srt.layers.quantization.fp8 import Fp8Config
+    from sglang.srt.layers.quantization.utils import is_layer_skipped
+
+    native = translate_mxfp8_to_sglang_fp8_config(_config(moe=None))
+    config = Fp8Config.from_config(native)
+
+    assert is_layer_skipped("model.layers.0.linear_attn.in_proj_ba", config.ignored_layers)
+    assert is_layer_skipped("model.layers.0.linear_attn.in_proj_b", config.ignored_layers)
+    assert is_layer_skipped("model.layers.0.linear_attn.in_proj_a", config.ignored_layers)
+    assert is_layer_skipped("model.layers.0.mlp.experts", config.ignored_layers)
+    assert not is_layer_skipped("model.layers.0.self_attn.q_proj", config.ignored_layers)
+
+
+def test_unknown_regex_ignore_is_rejected_before_sglang_launch():
+    config = _config()
+    config["ignore"].append(r"re:.*custom_proj$")
+    with pytest.raises(ValueError, match="does not support regex"):
+        translate_mxfp8_to_sglang_fp8_config(config)
+
+
+def test_sglang_export_renames_only_the_ct_mxfp8_scale():
+    ct_config = _config(moe="MXFP8")
+    weight = torch.linspace(-1, 1, 64 * 64, dtype=torch.bfloat16).reshape(64, 64)
+    name = "model.layers.0.self_attn.q_proj.weight"
+    ct = dict(CompressedTensorsWeightQuantizer(ct_config)([(name, weight)]))
+    native = dict(SGLangMxfp8WeightQuantizer(ct_config)([(name, weight)]))
+
+    assert native.keys() == {name, name + "_scale_inv"}
+    assert torch.equal(native[name], ct[name])
+    assert torch.equal(native[name + "_scale_inv"], ct[name + "_scale"])
+
+
+def test_dispatch_selects_native_names_only_for_sglang_override():
+    model = SimpleNamespace(
+        local_path="/model",
+        hf_config=SimpleNamespace(model_type="qwen", text_config=None, quantization_config=None),
+    )
+
+    def rollout(name):
+        return SimpleNamespace(
+            name=name,
+            quantization=SimpleNamespace(linear="MXFP8", moe=None, ignore=[], config_file=None),
+        )
+
+    assert isinstance(
+        dispatch_rollout_weight_quantizer(model_config=model, rollout_config=rollout("sglang")),
+        SGLangMxfp8WeightQuantizer,
+    )
+    assert isinstance(
+        dispatch_rollout_weight_quantizer(model_config=model, rollout_config=rollout("vllm")),
+        CompressedTensorsWeightQuantizer,
+    )
+
+
+def test_sglang_launch_translation_registers_loader_and_rejects_unsafe_backend(monkeypatch):
+    monkeypatch.delenv("SGLANG_FP8_IGNORED_LAYERS", raising=False)
+    loaders = []
+    native = prepare_sglang_quantization(_config(moe="MXFP8"), loaders, {})
+    assert native["quant_method"] == "mxfp8"
+    assert loaders == [LOADER_FQN]
+    assert "in_proj_ba" in os.environ["SGLANG_FP8_IGNORED_LAYERS"].split(",")
+
+    with pytest.raises(ValueError, match="flashinfer_trtllm"):
+        prepare_sglang_quantization(
+            _config(),
+            [],
+            {"fp8_gemm_runner_backend": "flashinfer_trtllm"},
+        )
+
+    with pytest.raises(ValueError, match="routing replay"):
+        prepare_sglang_quantization(_config(moe="MXFP8"), [], {}, enable_router_replay=True)

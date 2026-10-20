@@ -52,6 +52,15 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
+def _uses_mxfp8_refit(config: RolloutConfig, model_config: HFModelConfig) -> bool:
+    quantization = getattr(config, "quantization", None)
+    if quantization is None or not quantization.enabled:
+        return False
+    from verl.utils.qat.compressed_tensors import is_all_mxfp8_config
+
+    return is_all_mxfp8_config(quantization.build_quantization_config(model_config.local_path))
+
+
 def _strip_lora_base_layer(name: str) -> str:
     """Drop the ``.base_layer`` segment ``replace_lora_wrapper()`` inserts for vLLM; SGLang
     has no such level and its loader raises KeyError on it."""
@@ -311,12 +320,18 @@ class ServerAdapter(BaseRollout):
             - runtime envs: https://github.com/THUDM/slime/blob/fb7605cc5fb09af0f9369d37f7192f12bddee577/slime/ray/ppo_actor.py#L39
         """
         await self._init_server_adapter()
+        use_mxfp8_refit = _uses_mxfp8_refit(self.config, self.model_config)
 
         # Delta checkpoint-engine wire (standalone replicas): the generator yields
         # per-flush sparse payloads, applied in place through the verl custom
         # weight loader. Hybrid replicas pass full (name, tensor) pairs with no
         # wire_format kwarg and take the bucketed path below.
         if wire_format == "delta_flush":
+            if use_mxfp8_refit:
+                raise ValueError(
+                    "SGLang MXFP8 custom refit is not supported with wire_format='delta_flush'; "
+                    "use the regular bucketed weight sync"
+                )
             await self._update_weights_delta(weights, global_steps=global_steps)
             return
 
@@ -354,11 +369,27 @@ class ServerAdapter(BaseRollout):
             async for params_batch in get_named_tensor_buckets(
                 weights, update_weights_bucket_bytes, fusion_groups=fusion_groups
             ):
+                load_format = None
+                if use_mxfp8_refit:
+                    from verl.workers.rollout.sglang_rollout.mxfp8_refit_loader import LOADER_FQN
+
+                    load_format = LOADER_FQN
                 await sgl_update_weights(
                     engine=self._engine,
                     params_batch=[(_strip_lora_base_layer(name), _to_ipc_device(t)) for name, t in params_batch],
                     device_mesh_key="infer_tp",
                     device_mesh=self.device_mesh,
+                    load_format=load_format,
+                )
+            if use_mxfp8_refit:
+                from verl.workers.rollout.sglang_rollout.mxfp8_refit_loader import LOADER_FQN, finalize_tensors
+
+                await sgl_update_weights(
+                    engine=self._engine,
+                    params_batch=[(name, _to_ipc_device(t)) for name, t in finalize_tensors()],
+                    device_mesh_key="infer_tp",
+                    device_mesh=self.device_mesh,
+                    load_format=LOADER_FQN,
                 )
 
         if self._engine is not None and self._is_server_tp_leader():
