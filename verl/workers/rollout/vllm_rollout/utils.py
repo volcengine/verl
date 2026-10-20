@@ -33,6 +33,7 @@ from verl.utils.vllm.patch import patch_vllm_moe_model_weight_loader
 from verl.utils.vllm.rocm_vllm_moe_expert_map import restore_moe_expert_maps
 from verl.utils.vllm.vllm_quant_utils import (
     apply_vllm_quant_patches,
+    configure_fp8_ignored_layers_match_mode,
     is_quantized_model,
     load_quanted_weights,
     prepare_quanted_weights_for_loading,
@@ -186,24 +187,12 @@ class vLLMColocateWorkerExtension:
             )
 
             register_verl_delta_weight_transfer_engine()
-        # 2. patch online fp8 quant. Some models, including DeepSeek-V4, get
-        # fp8 from the HF config rather than an explicit rollout quantization arg.
-        if os.environ.get("VERL_VLLM_FP8_QUANT_ENABLED", "0") == "1" or is_quantized_model(vllm_config):
+
+        # 2. patch the refit of quantized weights, whether the quantization_config comes
+        # from the checkpoint (e.g. DeepSeek-V4) or from rollout.quantization via hf_overrides.
+        if is_quantized_model(vllm_config):
+            configure_fp8_ignored_layers_match_mode(vllm_config)
             apply_vllm_quant_patches()
-        # 3. patch QAT (compressed-tensors NVFP4) for dynamic weight loading
-        quant_config = getattr(vllm_config, "quant_config", None) if vllm_config else None
-        _is_qat_model = getattr(quant_config, "quant_format", None) == "nvfp4-pack-quantized"
-        _is_modelopt_qat = type(quant_config).__name__ == "ModelOptNvFp4Config"
-        if _is_qat_model:
-            from verl.utils.qat import apply_qat_patches
-
-            apply_qat_patches()
-            logger.info("Applied QAT (compressed-tensors) patches in vLLM worker subprocess")
-        elif _is_modelopt_qat:
-            from verl.utils.modelopt import apply_modelopt_nvfp4_patches
-
-            apply_modelopt_nvfp4_patches()
-            logger.info("Applied ModelOpt NVFP4 patches in vLLM worker subprocess")
 
         # TODO: For ascend NPU, when the corresponding vllm-ascend version is upgraded to v0.13.0,
         # please remove the VLLM_ASCEND_REQUIRED_ENV_VARS variable replacement action.
@@ -214,8 +203,6 @@ class vLLMColocateWorkerExtension:
                     os.environ[k] = VLLM_ASCEND_REQUIRED_ENV_VARS[k]
 
         instance = super().__new__(cls)
-        instance._is_qat_model = _is_qat_model
-        instance._is_modelopt_qat = _is_modelopt_qat
         return instance
 
     def _get_drafter_model(self):
@@ -276,19 +263,7 @@ class vLLMColocateWorkerExtension:
             for model in self._iter_all_models():
                 restore_moe_expert_maps(model)
 
-        if self._is_qat_model:
-            # QAT (compressed-tensors): Prepare for weight loading BEFORE receiving any buckets
-            from verl.utils.qat import prepare_qat_for_load_weights
-
-            for model in self._iter_all_models():
-                prepare_qat_for_load_weights(model, device=self.device)
-            logger.info("QAT: prepare_qat_for_load_weights completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import prepare_modelopt_for_weight_reload
-
-            prepare_modelopt_for_weight_reload(self.model_runner.model, device=self.device)
-            logger.info("ModelOpt: prepare_modelopt_for_weight_reload completed")
-        elif peft_config and base_sync_done:
+        if peft_config and base_sync_done:
             # Remove the old LoRA before the new one arrives (applied after is_last below).
             self.remove_lora(VLLM_LORA_INT_ID)
             logger.info("LoRA adapter sync: remove old lora and prepare new lora")
@@ -339,19 +314,7 @@ class vLLMColocateWorkerExtension:
         receiver.receive_weights(on_bucket_received=on_bucket_received)
 
         # =========================== step 3: process weights after loading ===========================
-        if self._is_qat_model:
-            # QAT (compressed-tensors): call process_weights_after_loading AFTER all buckets are received
-            from verl.utils.qat import manual_process_weights_after_loading
-
-            for model in self._iter_all_models():
-                manual_process_weights_after_loading(model)
-            logger.info("QAT: process_weights_after_loading completed")
-        elif self._is_modelopt_qat:
-            from verl.utils.modelopt.vllm_modelopt_patch import modelopt_process_weights_after_loading
-
-            modelopt_process_weights_after_loading(self.model_runner.model)
-            logger.info("ModelOpt QAT: process_weights_after_loading completed")
-        elif peft_config and base_sync_done:
+        if peft_config and base_sync_done:
             logger.info("LoRA adapter sync, no post-process needed")
         elif is_quantized_model(self.model_runner.vllm_config):
             for model, reload_state in quant_reload_states:
