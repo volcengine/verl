@@ -13,11 +13,16 @@
 # limitations under the License.
 """CPU tests for the quantized-rollout sentinel."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
 
-from verl.utils.quant_sentinel import QuantizedRolloutSentinel, check_quantized_rollout_metrics
+from verl.utils.quant_sentinel import (
+    QuantizedRolloutSentinel,
+    check_quantized_rollout_metrics,
+    rollout_quantization_label,
+)
 
 HEALTHY = {
     "training/rollout_probs_diff_mean": 0.014,
@@ -27,9 +32,14 @@ HEALTHY = {
 }
 
 
-def _cfg(quantization):
+def _cfg(quantization, model_path=None):
     rollout = {"quantization": quantization}
-    return SimpleNamespace(actor_rollout_ref=SimpleNamespace(rollout=rollout))
+    return SimpleNamespace(actor_rollout_ref=SimpleNamespace(rollout=rollout, model=SimpleNamespace(path=model_path)))
+
+
+def _structured(**fields):
+    # rollout.quantization as the trainer config holds it: always present, all fields null when off.
+    return {"linear": None, "moe": None, "ignore": [], "config_file": None, **fields}
 
 
 def test_healthy_metrics_pass():
@@ -87,3 +97,45 @@ def test_trainer_hook_caches_sentinel_and_reads_config(monkeypatch):
         check_quantized_rollout_metrics(trainer, {**HEALTHY, "rollout_corr/kl": 3.0}, 2)
     plain = SimpleNamespace(config=_cfg(None))
     check_quantized_rollout_metrics(plain, {**HEALTHY, "rollout_corr/kl": 3.0}, 2)  # bf16 rollout: no-op
+
+
+def test_default_structured_quantization_is_not_checked():
+    # rollout.quantization is an object even when the rollout runs in BF16; that alone must not arm the guard.
+    s = QuantizedRolloutSentinel.from_config(_cfg(_structured()))
+    assert not s.enabled
+    s.check({**HEALTHY, "rollout_corr/kl": 50.0}, 1)
+
+
+@pytest.mark.parametrize(
+    ("fields", "label"),
+    [
+        ({"linear": "MXFP8", "moe": "MXFP8"}, "linear=MXFP8, moe=MXFP8"),
+        ({"linear": "MXFP8"}, "linear=MXFP8"),
+        ({"moe": "FP8_BLOCK"}, "moe=FP8_BLOCK"),
+        ({"config_file": "/cfg/quant.json"}, "config_file=/cfg/quant.json"),
+    ],
+)
+def test_structured_override_arms_the_guard(monkeypatch, fields, label):
+    monkeypatch.delenv("VERL_QUANT_SENTINEL", raising=False)
+    s = QuantizedRolloutSentinel.from_config(_cfg(_structured(**fields)))
+    assert s.enabled and s.quantization == label
+    with pytest.raises(RuntimeError, match=label):
+        s.check({**HEALTHY, "rollout_corr/kl": 3.0}, 1)
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_natively_quantized_model_arms_the_guard(monkeypatch, tmp_path, nested):
+    monkeypatch.delenv("VERL_QUANT_SENTINEL", raising=False)
+    quant = {"quant_method": "fp8", "weight_block_size": [128, 128]}
+    hf_config = {"text_config": {"quantization_config": quant}} if nested else {"quantization_config": quant}
+    (tmp_path / "config.json").write_text(json.dumps(hf_config))
+    assert rollout_quantization_label(_cfg(_structured(), model_path=str(tmp_path))) == "native fp8"
+    assert QuantizedRolloutSentinel.from_config(_cfg(_structured(), model_path=str(tmp_path))).enabled
+
+
+def test_bf16_model_or_unreadable_path_is_not_checked(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps({"model_type": "qwen3"}))
+    assert rollout_quantization_label(_cfg(_structured(), model_path=str(tmp_path))) is None
+    # Remote paths are not fetched from the driver.
+    assert rollout_quantization_label(_cfg(_structured(), model_path="hdfs://models/qwen3")) is None
+    assert rollout_quantization_label(_cfg(_structured(), model_path=str(tmp_path / "missing"))) is None
