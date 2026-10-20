@@ -29,6 +29,7 @@ torch_index=https://download.pytorch.org/whl/cpu
 # jax/jaxlib: the vllm-torchtpu pin; libtpu, tokamax and torchao: torchtitan/experiments/tpu/requirements.txt.
 torch=2.13.0 torchvision=0.28.0 jax=0.11.2 libtpu=0.0.50
 transformers="transformers>=5.10.4,<5.11"
+tensordict="tensordict==0.15.1"
 export PIP_CACHE_DIR=/root/.cache/pip PIP_ROOT_USER_ACTION=ignore
 
 pip install --upgrade pip uv pandas==2.3.3
@@ -52,7 +53,7 @@ TORCH_DEVICE_BACKEND_AUTOLOAD=0 SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VLLM_TORCHTPU
 cd /
 
 pip install accelerate codetiming datasets dill hydra-core peft "pyarrow>=19.0.0" pybind11 pylatexenc \
-    "tensordict>=0.10.0" torchdata "${transformers}" wandb "packaging>=20.0" uvicorn "fastapi<0.137" \
+    "${tensordict}" orjson torchdata "${transformers}" wandb "packaging>=20.0" uvicorn "fastapi<0.137" \
     latex2sympy2_extended math_verify tensorboard TransferQueue==0.1.8
 
 # Later installs may replace these, so reinstall the pinned builds last.
