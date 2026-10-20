@@ -189,6 +189,59 @@ class _Mxfp4MoE(torch.nn.Module):
         self.quant_method.process_weights_after_loading(self)
 
 
+class _Nvfp4Scheme:
+    _verl_nvfp4_moe_scheme = True
+    use_flashinfer_trtllm = False
+
+    def process_weights_after_loading(self, layer):
+        for name in ("w13_weight", "w2_weight"):
+            packed = getattr(layer, f"{name}_packed")
+            setattr(layer, name, torch.nn.Parameter(packed.data, requires_grad=False))
+            delattr(layer, f"{name}_packed")
+        for name in ("w13_weight_scale", "w2_weight_scale"):
+            source = getattr(layer, name).data
+            data = (source.float() + 1).to(source.dtype)
+            setattr(layer, name, torch.nn.Parameter(data, requires_grad=False))
+        layer.w13_weight_scale_2 = torch.nn.Parameter(1 / layer.w13_weight_global_scale[:, 0])
+        layer.w2_weight_scale_2 = torch.nn.Parameter(1 / layer.w2_weight_global_scale)
+        layer.g1_alphas = torch.nn.Parameter(layer.w13_weight_scale_2 / layer.w13_input_global_scale.min(dim=1).values)
+        layer.g2_alphas = torch.nn.Parameter(layer.w2_weight_scale_2 / layer.w2_input_global_scale)
+        layer.w13_input_scale_quant = torch.nn.Parameter(layer.w13_input_global_scale.min(dim=1).values)
+        layer.w2_input_scale_quant = torch.nn.Parameter(layer.w2_input_global_scale.data)
+
+
+class _Nvfp4QuantMethod:
+    def process_weights_after_loading(self, layer):
+        layer.scheme.process_weights_after_loading(layer)
+
+
+class _Nvfp4MoE(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.scheme = _Nvfp4Scheme()
+        self.quant_method = _Nvfp4QuantMethod()
+        self.weight_loader = lambda *args, **kwargs: None
+        self.register_parameter(
+            "w13_weight_packed", torch.nn.Parameter(torch.zeros(2, 128, 32, dtype=torch.uint8), requires_grad=False)
+        )
+        self.register_parameter(
+            "w2_weight_packed", torch.nn.Parameter(torch.zeros(2, 64, 32, dtype=torch.uint8), requires_grad=False)
+        )
+        self.register_parameter(
+            "w13_weight_scale",
+            torch.nn.Parameter(torch.zeros(2, 128, 4, dtype=torch.float8_e4m3fn), requires_grad=False),
+        )
+        self.register_parameter(
+            "w2_weight_scale",
+            torch.nn.Parameter(torch.zeros(2, 64, 4, dtype=torch.float8_e4m3fn), requires_grad=False),
+        )
+        self.register_parameter("w13_weight_global_scale", torch.nn.Parameter(torch.ones(2, 2), requires_grad=False))
+        self.register_parameter("w2_weight_global_scale", torch.nn.Parameter(torch.ones(2), requires_grad=False))
+        self.register_parameter("w13_input_global_scale", torch.nn.Parameter(torch.ones(2, 2), requires_grad=False))
+        self.register_parameter("w2_input_global_scale", torch.nn.Parameter(torch.ones(2), requires_grad=False))
+        self.quant_method.process_weights_after_loading(self)
+
+
 def _mxfp4_tensors(value):
     return [
         ("moe.w13_weight_packed", torch.full((2, 128, 32), value, dtype=torch.uint8)),
@@ -229,6 +282,32 @@ def test_failed_mxfp4_refit_restores_every_captured_parameter():
     for name, data in live.items():
         assert getattr(m.moe, name).data_ptr() == data.data_ptr()
     assert quant._SYNC_FP4_ATTR not in m.__dict__
+
+
+def test_nvfp4_cutlass_experts_are_reprocessed_in_captured_storage():
+    m = _Model()
+    m.nvmoe = _Nvfp4MoE()
+    captured = {name: getattr(m.nvmoe, name).data for name in fp4._NVFP4_PARAMS + fp4._NVFP4_DERIVED_PARAMS}
+    tensors = [
+        ("nvmoe.w13_weight_packed", torch.full((2, 128, 32), 3, dtype=torch.uint8)),
+        ("nvmoe.w2_weight_packed", torch.full((2, 64, 32), 4, dtype=torch.uint8)),
+        ("nvmoe.w13_weight_scale", torch.full((2, 128, 4), 5, dtype=torch.float8_e4m3fn)),
+        ("nvmoe.w2_weight_scale", torch.full((2, 64, 4), 6, dtype=torch.float8_e4m3fn)),
+        ("nvmoe.w13_weight_global_scale", torch.full((2, 2), 0.5)),
+        ("nvmoe.w2_weight_global_scale", torch.full((2,), 0.25)),
+        ("nvmoe.w13_input_global_scale", torch.full((2, 2), 0.125)),
+        ("nvmoe.w2_input_global_scale", torch.full((2,), 0.0625)),
+    ]
+
+    quant.load_and_reprocess(m, tensors)
+    quant.load_and_reprocess(m, quant.finalize_tensors())
+
+    for name, storage in captured.items():
+        assert getattr(m.nvmoe, name).data_ptr() == storage.data_ptr()
+    assert torch.equal(m.nvmoe.w13_weight, torch.full_like(m.nvmoe.w13_weight, 3))
+    assert torch.equal(m.nvmoe.w13_weight_scale, torch.full_like(m.nvmoe.w13_weight_scale, 6))
+    assert torch.equal(m.nvmoe.g1_alphas, torch.full_like(m.nvmoe.g1_alphas, 16))
+    assert not hasattr(m.nvmoe, "w13_weight_packed") and not hasattr(m.nvmoe, "w2_weight_packed")
 
 
 def test_cutlass_backend_reprocesses_every_mxfp8_layer_after_load():

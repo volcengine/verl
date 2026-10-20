@@ -184,6 +184,25 @@ def test_sglang_mxfp4_moe_registers_refit_loader_and_pins_deep_gemm_backend():
         prepare_sglang_quantization(config, [], {"moe_runner_backend": "flashinfer_mxfp4"})
 
 
+def test_sglang_nvfp4_moe_registers_refit_loader_and_allows_only_the_cutlass_scheme():
+    config = build_compressed_tensors_config(
+        linear=None,
+        moe="NVFP4",
+        ignore=[],
+        config_file=None,
+    )
+    loaders, engine_kwargs = [], {}
+
+    native = prepare_sglang_quantization(config, loaders, engine_kwargs)
+    assert native is not config
+    assert r"re:^(?!.*mlp\.experts(?:\.|$)).*$" in native["ignore"]
+    assert loaders == [LOADER_FQN]
+    assert engine_kwargs == {}
+
+    with pytest.raises(ValueError, match="supports only FlashInfer CUTLASS"):
+        prepare_sglang_quantization(config, [], {"moe_runner_backend": "flashinfer_trtllm"})
+
+
 def test_deep_gemm_is_forced_for_fp8_override_and_native_hf_configs_but_not_nvfp4():
     fp8_config = build_compressed_tensors_config(
         linear="FP8_BLOCK",

@@ -70,7 +70,7 @@ The trainer must be Megatron (FSDP is not yet supported for this feature). The r
 | FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8`<br>`fp8_gemm_runner_backend=deep_gemm` | `W8A8Fp8MoE`<br>`moe_runner_backend=deep_gemm` | ✅ Hopper | ✅ Hopper |
 | MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | native `Fp8Config`<br>`fp8_gemm_runner_backend=deep_gemm` | native `Fp8MoEMethod`<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell | ⚠️ Blackwell; R3 unsupported |
 | MXFP4 (MoE only) | `MXFP4` | `mxfp4` / `mxfp4_mxfp8` | Blackwell | ❌ | MXFP4×MXFP8<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | MXFP4×MXFP8<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
-| NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | W4A4<br>`moe_runner_backend=flashinfer_cutlass` / `flashinfer_trtllm` | ✅ Blackwell (MoE only) | 🚧 kernel supported; refit pending |
+| NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | W4A4<br>`moe_runner_backend=flashinfer_cutlass` | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
 
 MXFP8, MXFP4 and NVFP4 need Blackwell (SM100). On Hopper, vLLM falls back to Marlin weight-only kernels for these formats, whose numerics differ from Blackwell W8A8 / W4A4; verl does not support that path.
 
@@ -178,8 +178,10 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
   stable. DeepGEMM is the only supported backend. Dense layers remain BF16;
   SGLang 0.5.20 does not support the mixed MXFP8-linear + MXFP4-MoE
   compressed-tensors override.
-- **SGLang NVFP4**: the W4A4 kernel is present, but its post-load transform
-  still requires a format-specific refit loader.
+- **SGLang NVFP4**: routed experts are loaded from compressed-tensors packed
+  weights and re-swizzled in-place after each refit so CUDA Graph storage
+  remains stable. FlashInfer CUTLASS is the only supported backend; dense
+  layers remain BF16.
 
 ## Example
 
@@ -226,16 +228,16 @@ Qwen3.5-35B-A3B (EP=8; vLLM rollout TP=2, SGLang MXFP8 rollout TP=4):
 | Hopper | SGLang | ✅ | FP8_BLOCK + FP8 QAT | - | 0.00188 |
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE | auto | 0.00148 |
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE + MXFP8 QAT | auto | 0.00315 |
-| Blackwell | SGLang | ❌ | MXFP8 linear + MoE | FlashInfer CUTLASS / TRT-LLM MoE | 0.00328 |
-| Blackwell | SGLang | ❌ | MXFP8 linear + MoE + MXFP8 QAT | FlashInfer CUTLASS / TRT-LLM MoE | 0.00340 |
 | Blackwell | SGLang | ❌ | MXFP8 linear + MoE | DeepGEMM | 0.00361 / 0.00333 (two refits) |
-| Blackwell | SGLang | ✅ | MXFP8 linear + MoE | FlashInfer CUTLASS / TRT-LLM MoE | 1.91930 ⚠️ |
+| Blackwell | SGLang | ❌ | MXFP8 linear + MoE + MXFP8 QAT | DeepGEMM | 0.00285 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE | FlashInfer CUTLASS | 0.00858 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE + MXFP4 QAT | FlashInfer CUTLASS | 0.00210 |
 | Blackwell | SGLang | ❌ | MXFP4 MoE | DeepGEMM | 0.00754 / 0.00736 (two refits) |
 | Blackwell | SGLang | ❌ | MXFP4 MoE + MXFP4 QAT | DeepGEMM | 0.00181 |
 | Blackwell | vLLM | ✅ | NVFP4 MoE | FlashInfer CUTLASS | 0.00813 |
 | Blackwell | vLLM | ✅ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.00574 |
+| Blackwell | SGLang | ❌ | NVFP4 MoE | FlashInfer CUTLASS | 0.01112 / 0.00727 (two refits) |
+| Blackwell | SGLang | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.00631 |
 
 ## Limitations
 
