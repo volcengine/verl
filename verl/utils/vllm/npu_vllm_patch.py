@@ -72,12 +72,14 @@ def normalize_deepseek_v4_weight_names(
         (".ffn_hc.base", ".hc_ffn_base"),
         (".ffn_hc.scale", ".hc_ffn_scale"),
     )
-    normalized = []
-    for name, tensor in weights:
-        for source, target in replacements:
-            name = name.replace(source, target)
-        normalized.append((name, tensor))
-    return normalized
+
+    def normalized_weights():
+        for name, tensor in weights:
+            for source, target in replacements:
+                name = name.replace(source, target)
+            yield name, tensor
+
+    return normalized_weights()
 
 
 def _patch_deepseek_v4_hash_route_init(moe_class) -> bool:

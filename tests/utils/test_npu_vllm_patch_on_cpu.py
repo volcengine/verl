@@ -144,12 +144,12 @@ def test_deepseek_v4_weight_name_mapping(source, target):
     tensor = torch.ones(2)
     weights = [(f"model.layers.0.{source}", tensor)]
 
-    normalized = normalize_deepseek_v4_weight_names(model, weights)
+    normalized = list(normalize_deepseek_v4_weight_names(model, weights))
 
     assert normalized[0][0] == f"model.layers.0.{target}"
     assert normalized[0][1] is tensor
     assert weights[0][0] == f"model.layers.0.{source}"
-    assert normalize_deepseek_v4_weight_names(model, normalized)[0][0] == normalized[0][0]
+    assert list(normalize_deepseek_v4_weight_names(model, normalized))[0][0] == normalized[0][0]
 
 
 @pytest.mark.parametrize("prefix", ["", "model."])
@@ -158,7 +158,7 @@ def test_deepseek_v4_hc_head_weight_name_mapping(prefix, suffix):
     model = SimpleNamespace(config=SimpleNamespace(model_type="deepseek_v4"))
     tensor = torch.ones(2)
 
-    normalized = normalize_deepseek_v4_weight_names(model, [(f"{prefix}hc_head.hc_{suffix}", tensor)])
+    normalized = list(normalize_deepseek_v4_weight_names(model, [(f"{prefix}hc_head.hc_{suffix}", tensor)]))
 
     assert normalized[0][0] == f"{prefix}hc_head_{suffix}"
     assert normalized[0][1] is tensor
@@ -171,6 +171,28 @@ def test_deepseek_v4_name_mapping_preserves_other_models(model_type):
 
     assert normalize_deepseek_v4_weight_names(model, weights) is weights
     assert normalize_deepseek_v4_weight_names(object(), weights) is weights
+
+
+@pytest.mark.parametrize("weight_count", [0, 3])
+def test_deepseek_v4_weight_name_mapping_consumes_weights_lazily(weight_count):
+    model = SimpleNamespace(config=SimpleNamespace(model_type="deepseek_v4"))
+    tensor = torch.ones(2)
+    consumed = []
+
+    def weights():
+        for index in range(weight_count):
+            consumed.append(index)
+            yield f"model.layers.{index}.self_attn.q_a_proj.weight", tensor
+
+    normalized = iter(normalize_deepseek_v4_weight_names(model, weights()))
+    assert consumed == []
+    for index in range(weight_count):
+        name, normalized_tensor = next(normalized)
+        assert consumed == list(range(index + 1))
+        assert name == f"model.layers.{index}.self_attn.wq_a.weight"
+        assert normalized_tensor is tensor
+    with pytest.raises(StopIteration):
+        next(normalized)
 
 
 def test_deepseek_v4_load_weights_patch_is_idempotent_and_accepts_generators():
@@ -199,6 +221,32 @@ def test_deepseek_v4_load_weights_patch_is_idempotent_and_accepts_generators():
     assert observed[0][0][0][1] is tensor
     assert observed[0][1] == {"extra": True}
     assert OtherModel.load_weights is other_loader
+
+
+def test_deepseek_v4_load_weights_patch_preserves_lazy_consumption():
+    patch_module = _load_npu_vllm_patch_module()
+    consumed = []
+    tensor = torch.ones(2)
+
+    def weights():
+        for index in range(3):
+            consumed.append(index)
+            yield f"model.layers.{index}.self_attn.q_a_proj.weight", tensor
+
+    class Model:
+        config = SimpleNamespace(model_type="deepseek_v4")
+
+        def load_weights(self, weights):
+            assert consumed == []
+            name, loaded_tensor = next(iter(weights))
+            assert consumed == [0]
+            assert name == "model.layers.0.self_attn.wq_a.weight"
+            assert loaded_tensor is tensor
+            return {name}
+
+    assert patch_module._patch_deepseek_v4_weight_loader(Model)
+    assert Model().load_weights(weights()) == {"model.layers.0.self_attn.wq_a.weight"}
+    assert consumed == [0]
 
 
 def test_apply_npu_vllm_patches_installs_deepseek_v4_patch(monkeypatch):

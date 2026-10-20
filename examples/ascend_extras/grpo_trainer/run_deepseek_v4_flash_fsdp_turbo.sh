@@ -35,6 +35,15 @@ max_num_batched_tokens=$(((max_prompt_length + max_response_length) * 1))
 WORKING_DIR=${WORKING_DIR:-"${PWD}"}
 RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/verl/trainer/runtime_env.yaml"}
 
+: "${FSDPTURBO_ROOT:?Set FSDPTURBO_ROOT to the FSDPTurbo checkout path available on every Ray node}"
+FSDPTURBO_ROOT=$(cd -- "${FSDPTURBO_ROOT}" && pwd -P)
+if [[ ! -f "${FSDPTURBO_ROOT}/fsdp_turbo/fsdp_turbo.py" ||
+      ! -f "${FSDPTURBO_ROOT}/examples/deepseekv4/modeling_deepseek_v4.py" ]]; then
+    printf 'Invalid FSDPTurbo checkout: %s\n' "${FSDPTURBO_ROOT}" >&2
+    exit 1
+fi
+export PYTHONPATH="${FSDPTURBO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+
 ########################### shared turbo config values ###########################
 ACTOR_TURBO="actor_rollout_ref.actor.fsdp_config.turbo_config"
 REF_TURBO="actor_rollout_ref.ref.fsdp_config.turbo_config"
@@ -209,5 +218,5 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     "${REF[@]}" \
     "${ROLLOUT[@]}" \
     "${TRAINER[@]}" \
+    "++ray_kwargs.ray_init.runtime_env.env_vars.PYTHONPATH=${PYTHONPATH}" \
     "$@"
-
