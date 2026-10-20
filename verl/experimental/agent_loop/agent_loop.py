@@ -45,12 +45,12 @@ from pydantic import BaseModel, ConfigDict
 from tensordict import TensorDict
 from transformers import AutoProcessor, AutoTokenizer
 
-from verl.experimental.agent_loop.utils import resolve_config_path
 from verl.protocol import DataProto
 from verl.tools.tool_registry import load_all_tools
 from verl.trainer.distillation import is_distillation_enabled
 from verl.utils.config import omega_conf_to_dataclass
 from verl.utils.dataset.rl_dataset import RLHFDataset, get_dataset_class
+from verl.utils.import_utils import resolve_config_path
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.profiler import simple_timer
 from verl.utils.ray_utils import auto_await, get_event_loop
@@ -110,6 +110,9 @@ class AgentLoopOutput(BaseModel):
     """Extra fields for dynamic addition."""
     mm_processor_kwargs: Optional[dict[str, Any]] = None
     """Processor/backend kwargs that must stay aligned across rollout and training paths."""
+    mm_processor_output: Optional[list[dict[str, Any]]] = None
+    """SGLang video payload (see AgentLoopBase.build_sglang_video_payload); reused by the teacher
+    (OPD) path so an SGLang teacher receives the video instead of raw frames. None otherwise."""
 
     def as_dict(self) -> dict[str, Any]:
         """Convert agent loop output to a dictionary."""
@@ -155,6 +158,36 @@ class AgentLoopOutput(BaseModel):
             output["teacher_ids"] = teacher_ids
         if teacher_logprobs is not None:
             output["teacher_logprobs"] = teacher_logprobs
+        response_topk_ids, response_topk_log_probs = (
+            extra_fields.pop("response_topk_ids", None),
+            extra_fields.pop("response_topk_log_probs", None),
+        )
+        if response_topk_ids is not None and response_topk_log_probs is not None:
+            from verl.trainer.ppo.score_centering import pad_rollout_topk
+
+            if self.num_turns > 2:
+                raise ValueError("rollout.topk_log_probs supports the single-turn agent loop only.")
+            if len(response_topk_ids) != output["responses"].size(0):
+                raise ValueError(
+                    f"sampler top-k heads cover {len(response_topk_ids)} tokens, "
+                    f"but the response has {output['responses'].size(0)}."
+                )
+            output["rollout_topk_ids"], output["rollout_topk_log_probs"] = pad_rollout_topk(
+                response_topk_ids, response_topk_log_probs, prompt_length=output["prompts"].size(0)
+            )
+            # Same prediction-row layout as the heads. Dummy prompt/padding heads are complete
+            # by construction; a legacy response without provider evidence remains unknown.
+            response_complete = extra_fields.pop("response_support_complete", None)
+            if response_complete is None:
+                response_complete = torch.zeros(len(response_topk_ids), dtype=torch.bool)
+            else:
+                response_complete = torch.as_tensor(response_complete)
+                if response_complete.dtype != torch.bool or response_complete.shape != (len(response_topk_ids),):
+                    raise ValueError("sampler support coverage must have one bool per response token")
+            complete = torch.ones(output["rollout_topk_ids"].size(0), dtype=torch.bool)
+            start = output["prompts"].size(0) - 1
+            complete[start : start + len(response_topk_ids)] = response_complete
+            output["rollout_support_complete"] = complete
         return output
 
 
@@ -319,6 +352,7 @@ class AgentLoopBase(ABC):
         images: list[Image.Image] = None,
         videos: list[tuple[torch.Tensor, dict]] = None,
         audios: list[Any] = None,
+        mm_inputs_out: dict[str, Any] = None,
     ) -> list[int]:
         """Build the initial prompt token ids with Continuous Token.
 
@@ -336,6 +370,7 @@ class AgentLoopBase(ABC):
                 images=images,
                 videos=videos,
                 audios=audios,
+                mm_inputs_out=mm_inputs_out,
             ),
         )
 
@@ -356,7 +391,32 @@ class AgentLoopBase(ABC):
             )
         return self._cap_text_prompt_length(prompt_ids)
 
-    async def ct_merge_non_assistant_msg(
+    @staticmethod
+    def build_sglang_video_payload(videos, mm_inputs: dict[str, Any]) -> Optional[list[dict[str, Any]]]:
+        """Wrap already-computed video features for SGLang's ``video_data``.
+
+        SGLang cannot ingest raw frames — its ``video_data`` accepts a path / URL / base64 string or
+        a dict. ``mm_inputs`` is the processor output captured during tokenization (via the
+        ``mm_inputs_out`` hook). Tagging it ``format="processor_output"`` makes
+        ``BaseMultimodalProcessor`` pass the dict through untouched instead of re-decoding the video,
+        which would re-sample frames and desync the rollout from the actor. Returns ``None`` when
+        there is no video, so callers can hand the result straight to ``generate(...)``.
+
+        Shared by SingleTurnAgentLoop and ToolAgentLoop; vLLM keeps the raw frames and ignores this
+        (the per-backend split lives in ``LLMServerClient.generate``).
+        """
+        if not videos or "pixel_values_videos" not in mm_inputs:
+            return None
+        payload = {
+            "format": "processor_output",
+            "pixel_values_videos": mm_inputs["pixel_values_videos"],
+            "video_grid_thw": mm_inputs["video_grid_thw"],
+        }
+        if "second_per_grid_ts" in mm_inputs:
+            payload["second_per_grid_ts"] = mm_inputs["second_per_grid_ts"]
+        return [payload]
+
+    async def ct_merge_context_msg(
         self,
         previous_messages: list[dict],
         updated_messages: list[dict],
@@ -365,10 +425,10 @@ class AgentLoopBase(ABC):
         response_logprobs: Optional[list[float]] = None,
         tools: list[dict] = None,
     ):
-        """Merge appended non-assistant messages into runtime tokens and metadata."""
+        """Merge appended context messages into runtime tokens and metadata."""
         merge_result = await self.loop.run_in_executor(
             None,
-            lambda: self.continuous_token_builder.merge_non_assistant_tokens(
+            lambda: self.continuous_token_builder.merge_context_tokens(
                 previous_messages,
                 updated_messages,
                 runtime_token_ids,
@@ -566,6 +626,7 @@ class AgentLoopWorker:
         )
 
         def apply_greedy_sampling_params(params: dict[str, Any]) -> None:
+            params.pop("topk_log_probs", None)
             params["top_p"] = 1.0
             params["top_k"] = -1
             params["temperature"] = 0
@@ -1018,6 +1079,7 @@ class AgentLoopWorker:
                 sequence_ids=prompt_ids + response_ids,
                 multi_modal_data=output.multi_modal_data,
                 mm_processor_kwargs=output.mm_processor_kwargs,
+                mm_processor_output=getattr(output, "mm_processor_output", None),
                 routing_key=routing_key,
             )
             output.extra_fields["teacher_ids"] = teacher_ids

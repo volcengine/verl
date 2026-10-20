@@ -14,6 +14,7 @@
 
 
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass, field, fields
 from typing import Any, Callable, Optional, Sequence
 
@@ -21,9 +22,8 @@ import torch
 import torch.distributed as dist
 from tensordict import TensorDict
 from torch.distributed.tensor import DTensor
-from veomni.arguments import MixedPrecisionConfig, OpsImplementationConfig
+from veomni.arguments import AcceleratorConfig, FSDPConfig, MixedPrecisionConfig, OpsImplementationConfig
 from veomni.distributed import parallel_state
-from veomni.distributed.offloading import build_activation_offloading_context
 from veomni.distributed.torch_parallelize import build_parallelize_model
 from veomni.models.auto import build_foundation_model
 from veomni.models.checkpoint_tensor_loading import get_checkpoint_tensor_converter
@@ -164,14 +164,23 @@ class VeOmniEngine(FSDPEngine):
             data_parallel_replicate_size = dp_size // fsdp_size
             data_parallel_shard_size = fsdp_size
 
-        parallel_state.init_parallel_state(
-            dp_size=dp_size,
+        accelerator = AcceleratorConfig(
             dp_replicate_size=data_parallel_replicate_size,
             dp_shard_size=data_parallel_shard_size,
-            extra_parallel_sizes=(self.engine_config.expert_parallel_size,),
+            ep_size=self.engine_config.expert_parallel_size,
             ulysses_size=self.engine_config.ulysses_parallel_size,
-            dp_mode=self.data_parallel_mode,
+            init_device=self.engine_config.init_device,
+            fsdp_config=FSDPConfig(fsdp_mode=self.data_parallel_mode),
         )
+        if accelerator.dp_size != dp_size:
+            raise ValueError(
+                f"VeOmni derived dp_size={accelerator.dp_size} from WORLD_SIZE, "
+                f"but the distributed process group requires dp_size={dp_size}."
+            )
+        # Actor and reference engines may initialize in the same process.
+        # Keep their meshes unnamed so the trainer's 'base' registry entry
+        # cannot cause a later engine's topology to be silently ignored.
+        parallel_state.init_parallel_state_from_config(accelerator, name=None)
 
         if self.engine_config.full_determinism:
             enable_full_determinism(seed=self.engine_config.seed)
@@ -250,6 +259,13 @@ class VeOmniEngine(FSDPEngine):
             # or disabling router_replay).
             self._router_replay.install(self.module)
 
+        mixed_precision_config = MixedPrecisionConfig(enable=self.engine_config.mixed_precision)
+        converter = get_checkpoint_tensor_converter(self.module)
+        # A converter's export_weights picks its own output dtypes (e.g. FP8 weights with FP32 scales).
+        if mixed_precision_config.enable and not hasattr(converter, "export_weights"):
+            hf_export_dtype = getattr(torch, mixed_precision_config.param_dtype)
+        else:
+            hf_export_dtype = None
         self.checkpoint_manager = FSDPCheckpointManager(
             model=self.module,
             optimizer=self.optimizer,
@@ -257,6 +273,8 @@ class VeOmniEngine(FSDPEngine):
             processing_class=self.model_config.get_processor(),
             checkpoint_config=self.checkpoint_config,
             trust_remote_code=self.model_config.trust_remote_code,
+            per_tensor_param_fn=self.get_per_tensor_param,
+            hf_export_dtype=hf_export_dtype,
         )
 
         self.to(
@@ -306,6 +324,28 @@ class VeOmniEngine(FSDPEngine):
         """
         return self.model_config.local_hf_config_path
 
+    def _maybe_apply_async_activation_offload(self, module):
+        """Attach VeOmni's stream-based activation offload to the decoder layers.
+
+        Must run on the unparallelized module: the offload wraps each selected layer's
+        ``__call__`` so that ``saved_tensors_hooks`` sits *outside* the gradient-checkpoint
+        boundary and the FSDP2 sharding that ``build_parallelize_model`` installs. Applying it
+        afterwards would put the hooks inside the checkpoint region, where the packed
+        activations are recomputed rather than saved, so nothing would be offloaded.
+        """
+        if not self.engine_config.enable_async_activation_offload:
+            return
+
+        # Imported lazily so a VeOmni predating stream-based offload only fails when asked for it.
+        from veomni.distributed.async_offload import apply_async_activation_offload
+
+        apply_async_activation_offload(
+            module,
+            list(self.engine_config.activation_offload_modules),
+            host_cache_limit_bytes=int(self.engine_config.activation_offload_host_cache_limit_gb * 1024**3),
+        )
+        log_gpu_memory_usage("After apply async activation offload", logger=logger)
+
     def _build_model_optimizer(self):
         # build_foundation_model runs apply_ops_config(ops_implementation)
         # before constructing the model, so per-model device_patch files see
@@ -325,13 +365,15 @@ class VeOmniEngine(FSDPEngine):
         )
         log_gpu_memory_usage("After load base model", logger=logger)
 
+        self._maybe_apply_async_activation_offload(module)
+
         # Applies parallel strategies to the model.
         log_gpu_memory_usage("Before parallelize model", logger=logger)
         module = build_parallelize_model(
             module,
             init_device=self.engine_config.init_device,
             weights_path=self.model_config.local_path,
-            enable_full_shard=self.engine_config.enable_full_shard,
+            enable_reshard_after_forward=self.engine_config.enable_full_shard,
             mixed_precision=veomni_mixed_precision_config,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
@@ -357,11 +399,6 @@ class VeOmniEngine(FSDPEngine):
         self.module = module
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
-        self.model_fwd_context, self.model_bwd_context = build_activation_offloading_context(
-            self.model_config.enable_activation_offload,
-            self.model_config.enable_gradient_checkpointing,
-            self.engine_config.activation_gpu_limit,
-        )
 
     def optimizer_step(self):
         """
@@ -420,6 +457,8 @@ class VeOmniEngine(FSDPEngine):
             else:
                 self._router_replay.begin_replay()
 
+        ctx = torch.no_grad() if forward_only else nullcontext()
+
         # Wrap the per-step body in try/finally so the controller is always
         # reset to DISABLED even if forward / backward / postprocess raises.
         # Without this, an exception leaves _recorded / _targets pinned
@@ -430,13 +469,12 @@ class VeOmniEngine(FSDPEngine):
             output_lst = []
 
             for micro_batch in micro_batches:
-                with self.model_fwd_context:
+                with ctx:
                     loss, meta_info = self.forward_step(
                         micro_batch, loss_function=loss_function, forward_only=forward_only
                     )
                 if not forward_only:
-                    with self.model_bwd_context:
-                        loss.backward()
+                    loss.backward()
 
                 output_lst.append(meta_info)
 
