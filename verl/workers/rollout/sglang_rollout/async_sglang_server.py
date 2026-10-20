@@ -302,11 +302,13 @@ class SGLangHttpServer:
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
         model_override_args = {}
         quantization_config = None
+        hf_quantization_config = getattr(self.model_config.hf_config, "quantization_config", None)
+        from verl.utils.sglang.sglang_quant_utils import enforce_sglang_deep_gemm, prepare_sglang_quantization
+
         if self.config.quantization.enabled:
             # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
             # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
             quantization_config = self.config.quantization.build_quantization_config(self.model_config.local_path)
-            from verl.utils.sglang.mxfp8 import prepare_sglang_quantization
 
             quantization_config = prepare_sglang_quantization(
                 quantization_config,
@@ -316,6 +318,8 @@ class SGLangHttpServer:
             )
             model_override_args["quantization_config"] = quantization_config
             logger.info(f"Rollout quantization_config: {quantization_config}")
+
+        enforce_sglang_deep_gemm(quantization_config or hf_quantization_config, engine_kwargs)
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,

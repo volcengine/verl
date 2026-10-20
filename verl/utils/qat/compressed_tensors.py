@@ -578,7 +578,7 @@ def dispatch_rollout_weight_quantizer(
             and getattr(rollout_config, "name", None) == "sglang"
             and is_all_mxfp8_config(quantization_config)
         ):
-            from verl.utils.sglang.mxfp8 import SGLangMxfp8WeightQuantizer
+            from verl.utils.sglang.sglang_quant_utils import SGLangMxfp8WeightQuantizer
 
             quantizer = SGLangMxfp8WeightQuantizer(quantization_config)
         else:

@@ -26,12 +26,13 @@ from verl.utils.qat.compressed_tensors import (
     build_compressed_tensors_config,
     dispatch_rollout_weight_quantizer,
 )
-from verl.utils.sglang.mxfp8 import (
+from verl.utils.sglang.sglang_quant_utils import (
+    LOADER_FQN,
     SGLangMxfp8WeightQuantizer,
+    enforce_sglang_deep_gemm,
     prepare_sglang_quantization,
     translate_mxfp8_to_sglang_fp8_config,
 )
-from verl.workers.rollout.sglang_rollout.mxfp8_refit_loader import LOADER_FQN
 
 
 def _config(linear="MXFP8", moe=None):
@@ -131,12 +132,17 @@ def test_dispatch_selects_native_names_only_for_sglang_override():
 def test_sglang_launch_translation_registers_loader_and_rejects_unsafe_backend(monkeypatch):
     monkeypatch.delenv("SGLANG_FP8_IGNORED_LAYERS", raising=False)
     loaders = []
-    native = prepare_sglang_quantization(_config(moe="MXFP8"), loaders, {})
+    engine_kwargs = {}
+    native = prepare_sglang_quantization(_config(moe="MXFP8"), loaders, engine_kwargs)
     assert native["quant_method"] == "mxfp8"
     assert loaders == [LOADER_FQN]
+    assert engine_kwargs == {
+        "fp8_gemm_runner_backend": "deep_gemm",
+        "moe_runner_backend": "deep_gemm",
+    }
     assert "in_proj_ba" in os.environ["SGLANG_FP8_IGNORED_LAYERS"].split(",")
 
-    with pytest.raises(ValueError, match="flashinfer_trtllm"):
+    with pytest.raises(ValueError, match="requires fp8_gemm_runner_backend=deep_gemm"):
         prepare_sglang_quantization(
             _config(),
             [],
@@ -145,3 +151,85 @@ def test_sglang_launch_translation_registers_loader_and_rejects_unsafe_backend(m
 
     with pytest.raises(ValueError, match="routing replay"):
         prepare_sglang_quantization(_config(moe="MXFP8"), [], {}, enable_router_replay=True)
+
+
+def test_sglang_mxfp4_moe_registers_refit_loader_and_pins_deep_gemm_backend():
+    config = build_compressed_tensors_config(
+        linear=None,
+        moe="MXFP4",
+        ignore=[],
+        config_file=None,
+    )
+    loaders, engine_kwargs = [], {}
+
+    native = prepare_sglang_quantization(config, loaders, engine_kwargs)
+    assert native is not config
+    assert r"re:.*" in native["ignore"] and r"re:.*" not in config["ignore"]
+    from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import CompressedTensorsConfig
+
+    parsed = CompressedTensorsConfig.from_config(native)
+    assert parsed.get_linear_scheme(torch.nn.Linear(8, 8), "model.layers.0.self_attn.q_proj") is None
+    assert parsed._is_mxfp4_moe("model.layers.0.mlp.experts")
+    assert loaders == [LOADER_FQN]
+    assert engine_kwargs == {
+        "fp8_gemm_runner_backend": "deep_gemm",
+        "moe_runner_backend": "deep_gemm",
+    }
+
+    explicit = {"moe_runner_backend": "deep_gemm"}
+    prepare_sglang_quantization(config, [], explicit)
+    assert explicit["moe_runner_backend"] == "deep_gemm"
+
+    with pytest.raises(ValueError, match="requires moe_runner_backend=deep_gemm"):
+        prepare_sglang_quantization(config, [], {"moe_runner_backend": "flashinfer_mxfp4"})
+
+
+def test_deep_gemm_is_forced_for_fp8_override_and_native_hf_configs_but_not_nvfp4():
+    fp8_config = build_compressed_tensors_config(
+        linear="FP8_BLOCK",
+        moe="FP8_BLOCK",
+        ignore=[],
+        config_file=None,
+    )
+    kwargs = {"fp8_gemm_runner_backend": "auto", "moe_runner_backend": "auto"}
+    assert prepare_sglang_quantization(fp8_config, [], kwargs) is fp8_config
+    assert kwargs == {
+        "fp8_gemm_runner_backend": "deep_gemm",
+        "moe_runner_backend": "deep_gemm",
+    }
+
+    for hf_config in (
+        {"quant_method": "fp8"},
+        {"quant_method": "mxfp8"},
+        {"quant_method": "modelopt", "quantization": {"quant_algo": "FP8"}},
+    ):
+        kwargs = {}
+        enforce_sglang_deep_gemm(hf_config, kwargs)
+        assert kwargs == {
+            "fp8_gemm_runner_backend": "deep_gemm",
+            "moe_runner_backend": "deep_gemm",
+        }
+
+    nvfp4_config = build_compressed_tensors_config(
+        linear=None,
+        moe="NVFP4",
+        ignore=[],
+        config_file=None,
+    )
+    kwargs = {"fp8_gemm_runner_backend": "flashinfer_cutlass", "moe_runner_backend": "flashinfer_trtllm"}
+    enforce_sglang_deep_gemm(nvfp4_config, kwargs)
+    assert kwargs == {
+        "fp8_gemm_runner_backend": "flashinfer_cutlass",
+        "moe_runner_backend": "flashinfer_trtllm",
+    }
+
+
+def test_sglang_mixed_mxfp8_linear_mxfp4_moe_is_rejected():
+    config = build_compressed_tensors_config(
+        linear="MXFP8",
+        moe="MXFP4",
+        ignore=[],
+        config_file=None,
+    )
+    with pytest.raises(NotImplementedError, match="MXFP8-linear"):
+        prepare_sglang_quantization(config, [], {})
