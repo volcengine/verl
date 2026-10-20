@@ -119,7 +119,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path /root/.cache/modelscope/dataset/openai/gsm8k
       # Function RM
       - name: Running GSM8K E2E training tests on 8 L20 GPUs with rmpad using function rm with validation and saving (DDP_SIZE=2, FSDP_SIZE=4)
         run: |
