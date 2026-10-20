@@ -41,6 +41,7 @@ Last updated: 06/05/2026.
    dev_guide/model_dev/parameter_and_metrics
    dev_guide/model_dev/transfer_to_npu_guide
    dev_guide/precision_analysis/precision_alignment
+   dev_guide/precision_analysis/precision_debugger
    dev_guide/performance/ascend_performance_analysis_guide
    dev_guide/performance/perf_tuning_on_ascend
    dev_guide/performance/ascend_profiling
