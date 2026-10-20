@@ -117,6 +117,7 @@ class FSDPEngine(BaseEngine):
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
 
+    # Class-level default so engines built without __init__ (e.g. in unit tests) take the unpacked path.
     use_prefix_packing: bool = False
 
     def __init__(

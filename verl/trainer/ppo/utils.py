@@ -108,7 +108,11 @@ def need_critic(config: DictConfig) -> bool:
 
 
 def need_prefix_packing(config: DictConfig) -> bool:
-    """Whether the actor or the critic FSDP engine has ``use_prefix_packing`` enabled."""
+    """Whether the actor or the critic FSDP engine has ``use_prefix_packing`` enabled.
+
+    Only the engine-based configs (``actor.fsdp_config`` and ``critic.fsdp``) carry the flag; the legacy
+    ``critic.model.fsdp_config`` block does not, so it is not consulted.
+    """
     actor_fsdp = config.actor_rollout_ref.actor.get("fsdp_config", None) or {}
     critic_fsdp = (config.get("critic", None) or {}).get("fsdp", None) or {}
     return bool(actor_fsdp.get("use_prefix_packing", False) or critic_fsdp.get("use_prefix_packing", False))

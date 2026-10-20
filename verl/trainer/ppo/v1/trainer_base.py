@@ -1631,8 +1631,9 @@ class PPOTrainer(ABC):
 
         # reorder based on index. The data will be automatically equally partitioned by dispatch function
         if need_prefix_packing(self.config):
-            # Keep each prompt's samples on one rank so their prompt can be shared; keys start with the uid.
-            group_ids = [key.split("_", 1)[0] for key in batch.keys]
+            # Keep each prompt's samples on one rank so their prompt can be shared.
+            # Keys have format {uid}_{session_id}_{index}; split from the right in case the uid holds "_".
+            group_ids = [key.rsplit("_", 2)[0] for key in batch.keys]
             global_partition_lst = get_equal_size_group_partitions(
                 workload_lst.tolist(), group_ids=group_ids, k_partitions=dp_size
             )
