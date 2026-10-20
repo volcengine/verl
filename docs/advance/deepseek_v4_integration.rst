@@ -55,6 +55,16 @@ FP8 linear and MoE methods, ``verl/utils/vllm/vllm_fp4_utils.py`` handles the
 MXFP4 routed experts, and the bucket-level orchestration is in
 ``verl/workers/rollout/vllm_rollout/utils.py``.
 
+Only MXFP4 MoE backends whose weight conversion can be replayed onto the live
+parameters are refittable: DeepGEMM, Marlin and FlashInfer CUTLASS (MXFP8
+activations). vLLM's own ``auto`` selection prefers FlashInfer TRT-LLM on
+SM100+, which is not, so verl redirects ``auto`` to the first refittable
+backend the oracle accepts (DeepGEMM when it is installed, otherwise Marlin;
+Marlin is also what ``auto`` resolves to on Hopper) and logs the redirect. An
+explicit ``actor_rollout_ref.rollout.engine_kwargs.vllm.moe_backend`` is
+always honoured; choosing a non-refittable backend there fails at the first
+weight sync with ``NotImplementedError``.
+
 Incorrect synchronization can fail immediately with an expert shape mismatch
 such as ``target 1024 vs loaded 2048``. It can also complete ``load_weights``
 while leaving the expert layout or scales incorrect. In that case, the visible

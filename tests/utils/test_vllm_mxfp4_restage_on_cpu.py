@@ -15,9 +15,11 @@
 """Exercise FP4 refit helpers without importing the optional vLLM package."""
 
 import importlib.util
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -166,3 +168,92 @@ def test_nvfp4_restage_retains_kernel_config_and_updates_derived_scales():
     assert module.quant_method.moe_quant_config is retained_config
     torch.testing.assert_close(retained_config.a1_gscale, torch.tensor([2.0, 4.0]))
     torch.testing.assert_close(retained_config.a2_gscale, torch.tensor([5.0, 10.0]))
+
+
+resolve_refittable_mxfp4_moe_config = _FP4_UTILS.resolve_refittable_mxfp4_moe_config
+
+
+@dataclass
+class _MoeConfig:
+    moe_backend: str = "auto"
+
+
+_REFITTABLE = ("MARLIN", "DEEPGEMM_MXFP4")
+
+
+def _selector(resolution):
+    """Fake vLLM oracle: maps moe_backend -> resolved backend, or raises ValueError."""
+    calls = []
+
+    def select(moe):
+        calls.append(moe.moe_backend)
+        outcome = resolution[moe.moe_backend]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome, object
+
+    select.calls = calls
+    return select
+
+
+def test_mxfp4_auto_backend_kept_when_refittable():
+    select = _selector({"auto": "MARLIN"})
+    moe = _MoeConfig()
+    assert resolve_refittable_mxfp4_moe_config(moe, select, _REFITTABLE) is moe
+    assert select.calls == ["auto"]
+
+
+def test_mxfp4_explicit_backend_is_never_touched():
+    select = _selector({})
+    moe = _MoeConfig(moe_backend="flashinfer_trtllm")
+    assert resolve_refittable_mxfp4_moe_config(moe, select, _REFITTABLE) is moe
+    assert select.calls == []
+
+
+def test_mxfp4_auto_backend_redirected_to_first_refittable_fallback():
+    select = _selector(
+        {
+            "auto": "FLASHINFER_TRTLLM_MXFP4_MXFP8",
+            "deep_gemm": "DEEPGEMM_MXFP4",
+            "marlin": "MARLIN",
+        }
+    )
+    resolved = resolve_refittable_mxfp4_moe_config(_MoeConfig(), select, _REFITTABLE)
+    assert resolved.moe_backend == "deep_gemm"
+    assert select.calls == ["auto", "deep_gemm"]
+
+
+def test_mxfp4_auto_backend_skips_fallbacks_the_oracle_rejects():
+    select = _selector(
+        {
+            "auto": "FLASHINFER_TRTLLM_MXFP4_MXFP8",
+            "deep_gemm": ValueError("DeepGEMM is not installed"),
+            "marlin": "MARLIN",
+        }
+    )
+    resolved = resolve_refittable_mxfp4_moe_config(_MoeConfig(), select, _REFITTABLE)
+    assert resolved.moe_backend == "marlin"
+    assert select.calls == ["auto", "deep_gemm", "marlin"]
+
+
+def test_mxfp4_auto_backend_skips_fallbacks_that_resolve_to_non_refittable_backends():
+    select = _selector(
+        {
+            "auto": "FLASHINFER_TRTLLM_MXFP4_MXFP8",
+            "deep_gemm": "TRITON",  # resolves, but not refittable
+            "marlin": "MARLIN",
+        }
+    )
+    assert resolve_refittable_mxfp4_moe_config(_MoeConfig(), select, _REFITTABLE).moe_backend == "marlin"
+
+
+def test_mxfp4_auto_backend_raises_when_nothing_refittable_is_available():
+    select = _selector(
+        {
+            "auto": "FLASHINFER_TRTLLM_MXFP4_MXFP8",
+            "deep_gemm": ValueError("no"),
+            "marlin": "TRITON",
+        }
+    )
+    with pytest.raises(NotImplementedError, match="FLASHINFER_TRTLLM_MXFP4_MXFP8"):
+        resolve_refittable_mxfp4_moe_config(_MoeConfig(), select, _REFITTABLE)

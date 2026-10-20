@@ -37,6 +37,7 @@ import torch
 from packaging import version
 
 from verl.utils.vllm.vllm_fp4_utils import (
+    install_deepseek_v4_mxfp4_refittable_backend_patch,
     install_mxfp4_mxfp8_compressed_tensors_patch,
     install_nvfp4_cutlass_compressed_tensors_patch,
     is_deepseek_v4_model,
@@ -222,9 +223,10 @@ def apply_vllm_quant_patches():
     These have to be in place before the engine builds, because recording each
     layer's checkpoint layout happens inside the patched hook during the
     initial load. The MXFP4 refit path derives the checkpoint layout from the
-    quant method; its startup patch only makes compressed-tensors honor MXFP8
-    activations.
+    quant method; its startup patches only make compressed-tensors honor MXFP8
+    activations and keep vLLM's auto-selected DeepSeek-V4 backend refittable.
     """
+    install_deepseek_v4_mxfp4_refittable_backend_patch()
     install_mxfp4_mxfp8_compressed_tensors_patch()
     install_nvfp4_cutlass_compressed_tensors_patch()
     if fp8_state.vllm_patches:

@@ -165,6 +165,85 @@ def install_nvfp4_cutlass_compressed_tensors_patch():
     CompressedTensorsW4A4Nvfp4MoEMethod._verl_cutlass_patch = True
 
 
+# Refittable backends a user could also pick by hand, in preference order. The
+# FlashInfer CUTLASS MXFP8 kernel is refittable too, but for a native checkpoint
+# the oracle only reaches it through an internal alias that the vLLM CLI rejects,
+# and on vLLM 0.29 / flashinfer 0.6.18 (GB200) it returned NaN rollout log-probs
+# for DeepSeek-V4, so it is deliberately not a fallback.
+_MXFP4_REFITTABLE_FALLBACK_BACKENDS = ("deep_gemm", "marlin")
+# One redirect notice per (auto pick, fallback) pair: the resolver runs once per MoE layer.
+_MXFP4_REDIRECTS_LOGGED = set()
+
+
+def resolve_refittable_mxfp4_moe_config(moe, select_backend, supported, fallbacks=_MXFP4_REFITTABLE_FALLBACK_BACKENDS):
+    """Return ``moe`` with a ``moe_backend`` whose MXFP4 kernel verl can refit.
+
+    An explicit ``moe_backend`` is honoured as is. For ``"auto"`` the oracle's
+    own pick is kept when it is refittable (Marlin on Hopper); otherwise the
+    first fallback the oracle accepts whose resolved backend is refittable is
+    used (DeepGEMM when it is installed, else Marlin) and the redirect is
+    logged once. ``select_backend`` is vLLM's selector
+    (``FusedMoEConfig -> (Mxfp4MoeBackend, kernel_cls)``); it is injected so
+    the decision can be unit-tested without vLLM.
+    """
+    if moe.moe_backend != "auto":
+        return moe
+    chosen, _ = select_backend(moe)
+    if chosen in supported:
+        return moe
+    for fallback in fallbacks:
+        candidate = replace(moe, moe_backend=fallback)
+        try:
+            resolved, _ = select_backend(candidate)
+        except (ValueError, NotImplementedError):
+            continue
+        if resolved in supported:
+            if (chosen, fallback) not in _MXFP4_REDIRECTS_LOGGED:
+                _MXFP4_REDIRECTS_LOGGED.add((chosen, fallback))
+                logger.warning(
+                    "vLLM auto-selected %s for the MXFP4 routed experts, which verl cannot refit after a weight "
+                    "sync; using moe_backend=%r (%s) instead. Set rollout.engine_kwargs.vllm.moe_backend to override.",
+                    chosen,
+                    fallback,
+                    resolved,
+                )
+            return candidate
+    raise NotImplementedError(
+        f"vLLM auto-selected {chosen} for the MXFP4 routed experts, which verl cannot refit, and none of "
+        f"{list(fallbacks)} resolves to a refittable backend on this platform. Supported backends: "
+        f"{', '.join(str(b) for b in supported)}."
+    )
+
+
+def install_deepseek_v4_mxfp4_refittable_backend_patch():
+    """Keep vLLM's auto-selected DeepSeek-V4 MXFP4 MoE backend refittable.
+
+    ``select_deepseek_v4_mxfp4_moe_backend`` prefers FlashInfer TRT-LLM on
+    SM100+. That kernel's post-processing does not publish its weights through
+    ``replace_parameter``, so the refit cannot replay it: left alone, the engine
+    JIT-compiles and autotunes TRT-LLM and only the first ``update_weights``
+    raises ``NotImplementedError`` from ``stage_mxfp4_moe_params_for_loading``.
+    Explicit choices are untouched; ``auto`` is redirected to the first
+    refittable backend the oracle accepts (DeepGEMM when installed, else
+    Marlin). Must run before the engine builds its layers.
+    """
+    from vllm.model_executor.layers.fused_moe.oracle.mxfp4 import select_deepseek_v4_mxfp4_moe_backend
+    from vllm.model_executor.layers.quantization.mxfp4 import Mxfp4MoEMethod
+
+    if getattr(Mxfp4MoEMethod, "_verl_refittable_backend_patch", False):
+        return
+    original_init = Mxfp4MoEMethod.__init__
+
+    def __init__(self, moe, *args, **kwargs):
+        moe = resolve_refittable_mxfp4_moe_config(
+            moe, select_deepseek_v4_mxfp4_moe_backend, _refittable_mxfp4_backends()
+        )
+        original_init(self, moe, *args, **kwargs)
+
+    Mxfp4MoEMethod.__init__ = __init__
+    Mxfp4MoEMethod._verl_refittable_backend_patch = True
+
+
 def is_deepseek_v4_model(model):
     if model is None:
         return False
