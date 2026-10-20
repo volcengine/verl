@@ -24,13 +24,19 @@ code 0 and every metric still being logged:
 
 Both are visible in step-level metrics from step 1. This sentinel reads the
 metrics the trainers already compute and raises instead of logging when the
-rollout is quantized (``actor_rollout_ref.rollout.quantization`` set) and any of
-these hold:
+rollout is quantized and any of these hold:
 
 1. ``training/rollout_probs_diff_mean`` is non-finite while the batch had valid tokens;
 2. ``rollout_corr/kl`` is non-finite or above ``kl_max`` (default 1.0);
 3. ``response_length/clip_ratio`` is ~1.0 (every response truncated at the cap) on
    ``clip_steps`` consecutive steps (default 2).
+
+The rollout counts as quantized under the rule the trainer-side weight exporter uses
+(``verl.utils.qat.dispatch_rollout_weight_quantizer``): ``rollout.quantization`` sets
+``linear``, ``moe`` or ``config_file``, or the model's own ``config.json`` carries a
+``quantization_config`` (top level or under ``text_config``). The model config is read only
+when ``actor_rollout_ref.model.path`` is a local directory. ``rollout.quantization`` is an
+object even when it is off, so its presence alone says nothing.
 
 Disable with ``VERL_QUANT_SENTINEL=0``; tune with ``VERL_QUANT_SENTINEL_KL_MAX`` and
 ``VERL_QUANT_SENTINEL_CLIP_STEPS``. Runs without rollout quantization are never checked.
@@ -38,6 +44,7 @@ Disable with ``VERL_QUANT_SENTINEL=0``; tune with ``VERL_QUANT_SENTINEL_KL_MAX``
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -61,6 +68,44 @@ def _as_float(v: Any) -> float | None:
         return None
 
 
+def _field(obj: Any, key: str) -> Any:
+    """``obj[key]`` for mappings (dict, DictConfig), ``obj.key`` for dataclasses and namespaces."""
+    if obj is None:
+        return None
+    if hasattr(obj, "get"):
+        return obj.get(key, None)
+    return getattr(obj, key, None)
+
+
+def _native_quant_method(model_path: Any) -> str | None:
+    """``quant_method`` of the model's own ``quantization_config``, read from a local ``config.json``."""
+    if not isinstance(model_path, str) or not os.path.isdir(model_path):
+        return None
+    try:
+        with open(os.path.join(model_path, "config.json")) as f:
+            hf_config = json.load(f)
+    except (OSError, ValueError) as err:
+        logger.debug("quantized-rollout sentinel: cannot read %s/config.json (%s)", model_path, err)
+        return None
+    quant = hf_config.get("quantization_config") or (hf_config.get("text_config") or {}).get("quantization_config")
+    if not quant:
+        return None
+    return str(quant.get("quant_method") or "quantized")
+
+
+def rollout_quantization_label(config: Any) -> str | None:
+    """Describe the quantization the rollout runs with, or return None for a high-precision rollout."""
+    ref = config.actor_rollout_ref
+    quantization = _field(ref.rollout, "quantization")
+    if isinstance(quantization, str):  # configs older than the structured rollout.quantization
+        return quantization or None
+    override = [f"{key}={value}" for key in ("linear", "moe", "config_file") if (value := _field(quantization, key))]
+    if override:
+        return ", ".join(override)
+    native = _native_quant_method(_field(_field(ref, "model"), "path"))
+    return f"native {native}" if native else None
+
+
 class QuantizedRolloutSentinel:
     def __init__(
         self,
@@ -78,8 +123,7 @@ class QuantizedRolloutSentinel:
 
     @classmethod
     def from_config(cls, config) -> QuantizedRolloutSentinel:
-        rollout_cfg = config.actor_rollout_ref.rollout
-        quantization = rollout_cfg.get("quantization", None) if hasattr(rollout_cfg, "get") else None
+        quantization = rollout_quantization_label(config)
         enabled = os.environ.get("VERL_QUANT_SENTINEL", "1") != "0"
         kl_max = float(os.environ.get("VERL_QUANT_SENTINEL_KL_MAX", "1.0"))
         clip_steps = int(os.environ.get("VERL_QUANT_SENTINEL_CLIP_STEPS", "2"))

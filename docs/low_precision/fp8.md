@@ -126,14 +126,17 @@ Results and observations:
 
 Two failures met while validating quantized rollouts on B200 were silent: the run kept going with
 exit code 0 and normal-looking logs while every sample was garbage (a quantized `lm_head` producing
-`nan` logits; an engine serving stale kernel scale layouts after a weight sync). When
-`actor_rollout_ref.rollout.quantization` is set, both trainers therefore check the step metrics after
-each step and raise a `RuntimeError` naming the likely causes if
+`nan` logits; an engine serving stale kernel scale layouts after a weight sync). When the rollout is
+quantized, both trainers therefore check the step metrics after each step and raise a `RuntimeError`
+naming the likely causes if
 
 - `training/rollout_probs_diff_mean` is non-finite while the batch had valid tokens;
 - `rollout_corr/kl` is non-finite or above 1.0 (healthy quantized rollouts read about 0.001–0.03);
 - every response hits the length cap (`response_length/clip_ratio` close to 1) on two consecutive steps.
 
+The rollout counts as quantized when `actor_rollout_ref.rollout.quantization` sets `linear`, `moe` or
+`config_file`, or when the model's own `config.json` carries a `quantization_config` (read when
+`actor_rollout_ref.model.path` is a local directory), the rule the trainer-side weight exporter uses.
 Disable with `VERL_QUANT_SENTINEL=0`; tune with `VERL_QUANT_SENTINEL_KL_MAX` and
 `VERL_QUANT_SENTINEL_CLIP_STEPS`. Runs without rollout quantization are never checked. The sentinel
 only catches gross failures: a moderate fault, such as one layer type left unquantized (KL 0.007–0.010),
