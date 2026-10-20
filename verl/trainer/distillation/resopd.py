@@ -83,7 +83,10 @@ def resopd_loss(
 
     # mu_B = log(tau_p/tau_q) * grad log(tau_p). Complement clamps are
     # numerical guards, matching the training implementation; event centering
-    # still uses the unmodified support mass P.
+    # still uses the unmodified support mass P. Unlike the `tail_mass_eps` of
+    # `forward_kl_topk_tail`, which is an objective parameter that carries
+    # gradient, this clamp only guards log(0) inside a detached coefficient, so
+    # machine epsilon is used rather than a configurable floor.
     epsilon = torch.finfo(dtype).eps
     student_tail_mass = (1.0 - student_mass).clamp_min(epsilon)
     teacher_tail_mass = (1.0 - teacher_mass).clamp_min(epsilon)

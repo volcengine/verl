@@ -55,62 +55,7 @@ In practice, the sampled rollout is treated as fixed during the student update. 
 
 ### Loss Variants
 
-Supported variants are described below.
-
-#### ResOPD
-
-[ResOPD: Tail Residualization for Sparse On-Policy Distillation](https://arxiv.org/abs/2610.04882)
-estimates the full-vocabulary reverse-KL gradient using teacher top-k probabilities
-and the teacher score of the actual student-sampled token. It integrates the head
-and aggregate tail contributions exactly and samples only the within-tail residual.
-The implementation is adapted from the [authors' release](https://github.com/InternLM/ResOPD).
-
-For student probabilities $p$, teacher probabilities $q$, teacher top-k support $S$,
-and action $A\sim p$, let $r_i=\log(p_i/q_i)$, $s_i=\nabla\log p_i$,
-$\tau_p=1-\sum_{i\in S}p_i$, and $\tau_q=1-\sum_{i\in S}q_i$. The estimator is
-
-$$
-\widehat g=\sum_{i\in S}p_i r_i s_i+\tau_p\mu_B
-+\mathbf{1}[A\notin S](r_A s_A-\mu_B),\qquad
-\mu_B=\log(\tau_p/\tau_q)\nabla\log\tau_p.
-$$
-
-`loss_mode=resopd` uses a stopped-coefficient surrogate with this backward gradient.
-Its logged forward value can be negative and must not be clipped. FP16/BF16 logits
-are promoted to FP32; tail masses are clamped at machine epsilon for numerical stability.
-
-Add these overrides to an existing synchronous FSDP/FSDP2 OPD configuration:
-
-```yaml
-distillation:
-  enabled: true
-  distillation_loss:
-    loss_mode: resopd
-    topk: 4
-    use_task_rewards: false
-    use_policy_gradient: false
-    loss_max_clamp: null
-    log_prob_min_clamp: null
-actor_rollout_ref:
-  model:
-    use_fused_kernels: false
-  actor:
-    use_torch_compile: false
-    ppo_epochs: 1
-    ppo_mini_batch_size: ${data.train_batch_size}
-  rollout:
-    temperature: 1.0
-    top_p: 1.0
-    top_k: -1
-    n: 1
-```
-
-Use a vLLM teacher with the same token-ID vocabulary as the student, and keep
-`use_chunked_topk=false`. Eager FSDP/FSDP2/VeOmni logits are supported; Megatron
-and fused loss kernels are not supported. The teacher appends the observed token
-as column K of the existing `teacher_ids` / `teacher_logprobs` tensors, retaining
-the first K columns as the top-k support, even when the observed token is in it.
-vLLM already returns this score; no additional teacher query is needed.
+We implement three OPD variants.
 
 #### GKD OPD
 
@@ -182,6 +127,47 @@ $$
 
 The stop-gradient is required because the reward is used inside a policy-gradient objective. Without it, differentiating through the estimator with respect to student parameters would zero the teacher's logprob, leading to a loss that is independent of the teacher signal. 
 
+#### ResOPD
+
+ResOPD [9] targets the full-vocabulary **reverse** KL using the teacher top-$k$
+probabilities plus the teacher score of the actual sampled token. Writing the
+reverse KL over the coarse-graining induced by the teacher top-$k$ support
+$S$ and one aggregate tail bucket, the head and bucket terms are available in
+closed form and only the *within-tail* residual is sampled.
+
+Let $r_v=\log\bigl(\pi_\theta(v \mid s_t)/\nu(v \mid s_t)\bigr)$,
+$s_v=\nabla_\theta\log\pi_\theta(v \mid s_t)$,
+$\tau_\pi=1-\sum_{v\in S}\pi_\theta(v \mid s_t)$ and
+$\tau_\nu=1-\sum_{v\in S}\nu(v \mid s_t)$. For
+$y_t\sim\pi_\theta(\cdot \mid s_t)$ the gradient estimator is
+
+$$
+\widehat{g}(s_t)
+=
+\sum_{v\in S}\pi_\theta(v \mid s_t)\, r_v s_v
++
+\tau_\pi \mu_B
++
+\mathbf{1}[y_t\notin S]\bigl(r_{y_t} s_{y_t}-\mu_B\bigr),
+\qquad
+\mu_B=\log\frac{\tau_\pi}{\tau_\nu}\nabla_\theta\log\tau_\pi .
+$$
+
+When the rollout is sampled from the current student at temperature 1, this is
+an unbiased estimator of the full-vocabulary reverse-KL gradient; the third term
+is the residual that `forward_kl_topk_tail` drops in the forward direction.
+
+Relation to the other variants: `forward_kl_topk_tail` optimizes the coarse
+**forward** KL and discards the within-tail term, yielding a deterministic lower
+bound, whereas ResOPD estimates that term and so needs one extra teacher score,
+namely the log-probability of the sampled token. PG OPD uses a single sampled
+token only and carries no distributional head.
+
+`loss_mode=resopd` is implemented as a stopped-coefficient surrogate whose
+backward pass is $\widehat{g}$. Its logged forward value is a Monte Carlo
+estimate and can be negative, so it must not be clamped. FP16/BF16 logits are
+promoted to FP32 before the log-softmax.
+
 ### Multi-Teacher OPD
 
 Multi-teacher OPD (MOPD) extends OPD to multiple domain-specialized teachers [4,5,6,7]. This is useful when distilling knowledge to a student across multiple domains. In each domain, such as math, coding, or instruction following, different teachers specialized to the domain can be used.
@@ -207,6 +193,8 @@ MOPD consolidates multiple specialized policies into a single student model whil
 [7] Yang, Zhuolin, et al. "Nemotron-Cascade 2: Post-Training LLMs with Cascade RL and Multi-Domain On-Policy Distillation." arXiv preprint arXiv:2603.19220, 2026.
 
 [8] Li, Yaxuan, et al. "Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe." arXiv preprint arXiv:2604.13016, 2026.
+
+[9] Yang, Penghui, et al. "ResOPD: Tail Residualization for Sparse On-Policy Distillation." arXiv preprint arXiv:2610.04882, 2026.
 
 ## Configuration Parameters
 
@@ -336,6 +324,8 @@ Two registered families:
     teacher's top-k support.
   - `forward_kl_topk_tail`: a coarse-grained forward KL that additionally
     collapses every non-top-k token into one aggregate tail bucket.
+  - `resopd`: a reverse-KL estimator that keeps the coarse head and tail terms
+    in closed form and samples the within-tail residual.
 - **Single-sample KL estimators** (`kl`, `k1`, `abs`, `mse`, `k2`,
   `low_var_kl`, `k3`): per-token Monte Carlo estimators of reverse KL
   computed from the student's `log_probs` and the teacher's single
@@ -345,8 +335,8 @@ Two registered families:
 
 `k` for top-k distillation losses. Default: `32`.
 
-Only used when `loss_mode` requires top-$k$ (e.g. `forward_kl_topk` or
-`forward_kl_topk_tail`). Drives both
+Only used when `loss_mode` requires top-$k$ (e.g. `forward_kl_topk`,
+`forward_kl_topk_tail` or `resopd`). Drives both
 the teacher's `prompt_logprobs` request size and (for vLLM) the engine's
 `max_logprobs` cap.
 
@@ -572,6 +562,53 @@ distillation:
 
 Currently, only `policy_loss_mode=vanilla` is supported. Other policy-loss modes, such as `dppo_tv`, require additional parameters and are not implemented for OPD.
 
+### ResOPD
+
+ResOPD requires the teacher log-probability of the sampled token, which vLLM
+already returns, so the teacher is queried no more than for `forward_kl_topk`.
+The observed token is appended as column $K$ of the existing `teacher_ids` /
+`teacher_logprobs` tensors; the first $K$ columns remain the top-$k$ support,
+even when the sampled token is among them.
+
+```yaml
+distillation:
+   distillation_loss:
+      loss_mode: resopd
+      topk: 4
+      use_policy_gradient: false
+      use_task_rewards: false
+      loss_max_clamp: null
+      log_prob_min_clamp: null
+```
+
+Unbiasedness assumes the rollout is drawn from the current student
+distribution, so the sampler must be left untruncated and the update kept
+on-policy:
+
+```yaml
+actor_rollout_ref:
+   model:
+      use_fused_kernels: false
+   actor:
+      use_torch_compile: false
+      ppo_epochs: 1
+      ppo_mini_batch_size: ${data.train_batch_size}
+   rollout:
+      temperature: 1.0
+      top_p: 1.0
+      top_k: -1
+      n: 1
+```
+
+Use a vLLM teacher sharing the student's token-ID vocabulary, and keep
+`use_chunked_topk=false`. Eager FSDP/FSDP2/VeOmni student logits are supported;
+Megatron and the fused loss kernels are not.
+
+Unlike `forward_kl_topk_tail`, ResOPD does not use `tail_mass_eps`: it clamps
+the tail masses at machine epsilon instead. In `forward_kl_topk_tail` that
+epsilon is part of the objective and carries gradient, while in ResOPD it only
+guards `log(0)` inside a term whose coefficient is detached.
+
 ### Task rewards
 
 OPD can be optimized alone or combined with the standard PPO/GRPO task-reward loss.
@@ -723,6 +760,18 @@ These metrics are logged for top-$k$ loss modes such as `forward_kl_topk`.
 - `actor/distillation/teacher_tail_mass` / `actor/distillation/student_tail_mass`
   Mean probability mass outside the teacher-selected top-$k$ support. Emitted
   by `forward_kl_topk_tail`.
+
+- `actor/distillation/resopd_head_hit`
+  Fraction of tokens whose sampled token lies inside the teacher top-$k$
+  support. Emitted by `resopd`.
+
+- `actor/distillation/resopd_centered_event`
+  Mean of the centered membership indicator used as the control variate.
+  Emitted by `resopd`.
+
+- `actor/distillation/resopd_tail_log_ratio`
+  Mean $\log(\tau_\pi/\tau_\nu)$ between the student and teacher tail masses.
+  Emitted by `resopd`.
 
 - `actor/distillation/overlap_ratio`
   Average fraction of teacher top-$k$ tokens that also appear in the student's
