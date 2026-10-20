@@ -91,11 +91,15 @@ def pad_packed_inputs(
     return input_ids_rmpad, position_ids_rmpad
 
 
-def _prefix_groups_for_budget(data: TensorDict, max_token_len: int) -> tuple[list[int], list[int]]:
-    """Same-prompt sample groups and their packed token counts, split to fit ``max_token_len``."""
+def _prefix_groups_for_budget(data: TensorDict, max_token_len: int) -> tuple[list[int], list[int], list[int]]:
+    """Same-prompt sample groups, their packed token counts and their trunk lengths, split to fit ``max_token_len``."""
     group_sizes, seq_lens, prompt_lens = find_prefix_groups(data["input_ids"], get_prompt_lens(data))
     group_sizes = split_groups_to_budget(group_sizes, seq_lens, prompt_lens, max_token_len)
-    return group_sizes, packed_group_lens(group_sizes, seq_lens, prompt_lens)
+    trunk_lens, row = [], 0
+    for size in group_sizes:
+        trunk_lens.append(max(prompt_lens[row] - 1, 0))
+        row += size
+    return group_sizes, packed_group_lens(group_sizes, seq_lens, prompt_lens), trunk_lens
 
 
 def prepare_micro_batches(
@@ -119,9 +123,9 @@ def prepare_micro_batches(
         assert "max_token_len_per_gpu" in data.keys(), "max_token_len_per_gpu must be set when use_dynamic_bsz is True"
         max_token_len_per_gpu = data["max_token_len_per_gpu"]
         max_token_len = max_token_len_per_gpu * sp_size
-        group_sizes, group_token_lens = None, None
+        group_sizes, group_token_lens, group_trunk_lens = None, None, None
         if use_prefix_packing and force_group_size == 1:
-            group_sizes, group_token_lens = _prefix_groups_for_budget(data, max_token_len)
+            group_sizes, group_token_lens, group_trunk_lens = _prefix_groups_for_budget(data, max_token_len)
         micro_batches, batch_idx_list = rearrange_micro_batches(
             data,
             max_token_len=max_token_len,
@@ -133,6 +137,7 @@ def prepare_micro_batches(
             force_group_size=force_group_size,
             group_sizes=group_sizes,
             group_token_lens=group_token_lens,
+            group_trunk_lens=group_trunk_lens,
         )
     else:
         total_data_size = len(data)

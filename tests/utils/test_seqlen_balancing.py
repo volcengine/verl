@@ -177,6 +177,89 @@ def _constraint_error_worker(rank, world_size, init_method, scenario):
     dist.destroy_process_group()
 
 
+def _mask_batch(seq_lens):
+    attention_mask = torch.zeros((len(seq_lens), max(seq_lens)), dtype=torch.long)
+    for i, seq_len in enumerate(seq_lens):
+        attention_mask[i, :seq_len] = 1
+    return DataProto.from_single_dict(
+        {"input_ids": torch.zeros_like(attention_mask), "attention_mask": attention_mask}
+    ).batch
+
+
+def _splittable_groups_worker(rank, world_size, init_method, scenario):
+    """Prefix-packed groups: a rank with fewer groups must split them to match the agreed micro-batch count."""
+    import verl.utils.seqlen_balancing as seqlen_balancing
+
+    dist.init_process_group(backend="gloo", init_method=init_method, world_size=world_size, rank=rank)
+    seqlen_balancing.get_device_name = lambda: "cpu"
+
+    if rank == 0:
+        # One group of 4 samples sharing a 51-token prompt: packed 50 + 4 * 10 = 90 tokens, so it asks for
+        # one micro-batch. Rank 1 forces more, and this rank has to split the group to keep up.
+        seq_lens = [60, 60, 60, 60] if scenario == "two_splits" else [60, 60]
+        kwargs = dict(group_sizes=[len(seq_lens)], group_token_lens=[50 + 10 * len(seq_lens)], group_trunk_lens=[50])
+    else:
+        # Four singleton groups of 55 tokens. ceil(220 / 100) = 3, but no 3-way partition fits 100 tokens,
+        # so the loop raises the count to 4 after the first partition attempt.
+        seq_lens = [55, 55, 55, 55]
+        kwargs = dict(group_sizes=[1] * 4, group_token_lens=[55] * 4, group_trunk_lens=[0] * 4)
+
+    batch = _mask_batch(seq_lens)
+    try:
+        micro_batches, idx_lists = seqlen_balancing.rearrange_micro_batches(
+            batch, max_token_len=100, dp_group=dist.group.WORLD, same_micro_num_in_dp=True, **kwargs
+        )
+    except ValueError as error:
+        assert scenario == "too_few_samples", str(error)
+        assert "a rank has only 2 samples" in str(error)
+    else:
+        assert scenario == "two_splits"
+        # Rank 0 asked for 1 micro-batch, was raised to 3 by the initial MAX (first split), then to 4 when
+        # rank 1's 3-way partition went over budget (second split, inside the loop).
+        assert len(micro_batches) == 4
+        assert sorted(i for idx in idx_lists for i in idx) == list(range(len(seq_lens)))
+        assert all(int(mb["attention_mask"].sum()) <= 100 for mb in micro_batches)
+
+    dist.barrier()
+    dist.destroy_process_group()
+
+
+def test_splittable_groups_follow_dp_micro_batch_count(tmp_path):
+    world_size = 2
+    for scenario in ("two_splits", "too_few_samples"):
+        init_file = tmp_path / f"dist_init_{scenario}"
+        init_file.write_text("")
+        mp.spawn(
+            _splittable_groups_worker,
+            args=(world_size, f"file://{init_file}", scenario),
+            nprocs=world_size,
+            join=True,
+        )
+
+
+def test_splittable_group_meets_min_num_micro_batch():
+    """Single rank: min_num_micro_batch above the group count splits the group instead of raising."""
+    from verl.utils.seqlen_balancing import rearrange_micro_batches
+
+    batch = _mask_batch([60, 60, 60, 60])
+    group_sizes = [4]
+    micro_batches, idx_lists = rearrange_micro_batches(
+        batch,
+        max_token_len=100,
+        min_num_micro_batch=3,
+        group_sizes=group_sizes,
+        group_token_lens=[90],
+        group_trunk_lens=[50],
+    )
+    assert len(micro_batches) == 3
+    assert sorted(len(idx) for idx in idx_lists) == [1, 1, 2]
+    assert sorted(i for idx in idx_lists for i in idx) == [0, 1, 2, 3]
+    assert group_sizes == [4], "caller's group_sizes must not be mutated"
+
+    with pytest.raises(ValueError, match="forced groups atomic"):
+        rearrange_micro_batches(batch, max_token_len=100, min_num_micro_batch=3, group_sizes=[4], group_token_lens=[90])
+
+
 def test_dataproto_split_uneven():
     """Test DataProto.split with uneven splits"""
     # Create test data with 10 items

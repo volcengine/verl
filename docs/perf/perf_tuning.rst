@@ -1,7 +1,7 @@
 Performance Tuning Guide
 ==============================
 
-Last updated: 10/18/2026.
+Last updated: 10/20/2026.
 
 Author: `Guangming Sheng <https://github.com/PeterSH6>`_, `Jiali Zheng <https://github.com/CurryRice233>`_
 
@@ -332,10 +332,7 @@ The gain grows with the prompt length. In GRPO on Qwen3-4B with ``rollout.n=8`` 
 a training step was 2.7x faster; with 80-token GSM8K prompts it was 1.2x faster. The trainer logs
 ``actor/prefix_packing_token_ratio`` (tokens before / after packing).
 
-This is the FSDP-engine counterpart of ``actor_rollout_ref.actor.use_prefix_grouper``: PrefixGrouper
-groups the prompts at the attention-module level, whereas shared-prefix packing rewrites the packed row and
-calls flash-attention once per layer. Enable one or the other; when both are set, ``balance_batch`` follows
-the prefix-packing grouping.
+``actor_rollout_ref.actor.use_prefix_grouper`` has no effect on the FSDP engine; shared-prefix packing replaces it.
 
 It requires ``use_remove_padding=True``, ``attn_implementation`` ``flash_attention_2`` or
 ``flash_attention_3``, and a text-only model. It is not supported with Ulysses sequence parallelism,

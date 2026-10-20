@@ -357,6 +357,7 @@ def rearrange_micro_batches(
     force_group_size=1,
     group_sizes: list[int] | None = None,
     group_token_lens: list[int] | None = None,
+    group_trunk_lens: list[int] | None = None,
 ):
     """
     Split a batch into micro-batches by total token count, with optional DP sync and padding.
@@ -380,6 +381,10 @@ def rearrange_micro_batches(
         group_token_lens (list[int], optional): token count of each group, checked against
             ``max_token_len``. Defaults to the sum of the member sequence lengths. Pass a smaller value
             when the group is stored more compactly, e.g. shared-prefix packing.
+        group_trunk_lens (list[int], optional): tokens shared by the members of each group (the
+            packed trunk). When given, a group may be split into smaller groups, each keeping its
+            own trunk, so that this rank can always provide the micro-batch count agreed across DP
+            ranks. A group's packed length is then ``trunk + sum(seq_len - trunk)`` over its members.
 
     Returns:
         List[TensorDict]: the micro-batches.
@@ -404,6 +409,7 @@ def rearrange_micro_batches(
         assert force_group_size == 1, "group_sizes and force_group_size > 1 are mutually exclusive"
         assert all(size > 0 for size in group_sizes), f"group_sizes must be positive, got {group_sizes}"
         assert sum(group_sizes) == batch_size, f"group_sizes {group_sizes} do not sum to batch size {batch_size}"
+        group_sizes = list(group_sizes)  # may be split below; never mutate the caller's list
     else:
         assert batch_size % force_group_size == 0, (
             f"Batch size {batch_size} must be divisible by force_group_size {force_group_size}"
@@ -427,6 +433,32 @@ def rearrange_micro_batches(
         assert len(group_token_lens) == num_groups, (
             f"group_token_lens has {len(group_token_lens)} entries but there are {num_groups} groups"
         )
+
+    if group_trunk_lens is not None:
+        group_trunk_lens = [int(x) for x in group_trunk_lens]
+        assert len(group_trunk_lens) == num_groups, (
+            f"group_trunk_lens has {len(group_trunk_lens)} entries but there are {num_groups} groups"
+        )
+
+    def split_largest_group() -> bool:
+        """Split the longest group with more than one sample into two, each part keeping its own trunk.
+
+        Returns False when every group is a single sample and nothing can be split.
+        """
+        candidates = [g for g in range(len(group_sizes)) if group_sizes[g] > 1]
+        if not candidates:
+            return False
+        g = max(candidates, key=lambda idx: group_token_lens[idx])
+        start, end = group_offsets[g], group_offsets[g + 1]
+        mid = start + group_sizes[g] // 2
+        trunk = group_trunk_lens[g]
+        parts = [(start, mid), (mid, end)]
+        group_sizes[g : g + 1] = [hi - lo for lo, hi in parts]
+        group_trunk_lens[g : g + 1] = [trunk, trunk]
+        group_token_lens[g : g + 1] = [trunk + sum(sample_token_lens[lo:hi]) - (hi - lo) * trunk for lo, hi in parts]
+        workloads[g : g + 1] = [sum(sample_workloads[lo:hi]) for lo, hi in parts]
+        group_offsets.insert(g + 1, mid)
+        return True
 
     total_seqlen = sum(group_token_lens)
     # NOTE: num_microbatches <= num_groups, so take the min of this two.
@@ -461,21 +493,43 @@ def rearrange_micro_batches(
     # Increase the number of micro-batches until the balanced partition also respects the hard limit.
     step = num_batches_divided_by or 1
     while True:
-        if num_micro_batches > min_num_groups:
+        if group_trunk_lens is not None:
+            # Groups can be split, so split on this rank until it can fill the agreed micro-batch count;
+            # each part keeps its trunk and fits the budget.
+            while num_micro_batches > len(group_sizes) and split_largest_group():
+                pass
+            short = num_micro_batches > len(group_sizes)
+        else:
+            short = num_micro_batches > min_num_groups
+        if short and group_trunk_lens is None:
+            # min_num_groups was agreed across ranks above, so every rank raises together.
             raise ValueError(
                 "Cannot satisfy max_token_len while keeping forced groups atomic and using the same "
                 "micro-batch count across DP ranks. "
                 f"Requested {num_micro_batches} non-empty micro-batches, but a rank has only "
                 f"{min_num_groups} forced groups."
             )
-        micro_bsz_group_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
-        within_limit = all(
-            sum(group_token_lens[idx] for idx in partition) <= max_token_len for partition in micro_bsz_group_idx
-        )
+        if short:
+            within_limit = False
+        else:
+            micro_bsz_group_idx = get_seqlen_balanced_partitions(workloads, num_micro_batches, equal_size=False)
+            within_limit = all(
+                sum(group_token_lens[idx] for idx in partition) <= max_token_len for partition in micro_bsz_group_idx
+            )
+        fewest_groups = len(group_sizes)
         if sync_micro_batch_count:
-            within_limit_tensor = torch.tensor([int(within_limit)], device=get_device_name())
-            dist.all_reduce(within_limit_tensor, op=dist.ReduceOp.MIN, group=dp_group)
-            within_limit = bool(within_limit_tensor.item())
+            flags = torch.tensor([int(not within_limit), int(short), -fewest_groups], device=get_device_name())
+            dist.all_reduce(flags, op=dist.ReduceOp.MAX, group=dp_group)
+            within_limit = not bool(flags[0].item())
+            short = bool(flags[1].item())
+            fewest_groups = -int(flags[2].item())
+        if short:
+            # Agreed across ranks, so every rank raises together.
+            raise ValueError(
+                "Cannot satisfy max_token_len with the same micro-batch count across DP ranks. "
+                f"Requested {num_micro_batches} non-empty micro-batches, but a rank has only "
+                f"{fewest_groups} samples."
+            )
         if within_limit:
             break
         num_micro_batches += step
