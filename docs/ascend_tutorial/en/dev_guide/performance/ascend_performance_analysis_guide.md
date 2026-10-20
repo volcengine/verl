@@ -14,7 +14,7 @@ Following the release of DeepSeek-R1, large-model reinforcement learning (RL) tr
 4. **reward**: Based on the prompt and the generated response, the reward model evaluates the reward value R_N.
 5. **update**: Based on the computed R_N, ref logprob, and logprob, compute the optimization function and policy gradient, and update the actor model.
 
-![rl_data_stream](../../figures/rl_data_stream.png)
+![rl_data_stream](https://github.com/wucong25/verl-data/blob/main/en/figures/rl_data_stream.png)
 
 ## Enabling the Profiling Tool
 
@@ -32,7 +32,7 @@ For the enabling and configuration tutorial, refer to: [Profiling Collection Gui
 - **Value**: Quickly grasp the time proportion of different stages.
 - **Demo**:
 
-![Bubble_analysis](../../figures/Bubble_analysis.png)
+![Bubble_analysis](https://github.com/wucong25/verl-data/blob/main/en/figures/Bubble_analysis.png)
 
 #### 2. Load Balancing Analysis
 

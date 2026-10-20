@@ -159,7 +159,7 @@ Ascend General Configuration
 
 ``TASK_QUEUE_ENABLE`` configures the optimization level of the task_queue operator dispatch queue, defaulting to Level 1. This configuration can reduce host dispatch time and can be used to alleviate the issue of excessive overall free time caused by dispatch.
 
-.. image :: ../../figures/perf_tuning_task_queue.png
+.. image :: https://github.com/wucong25/verl-data/blob/main/en/figures/perf_tuning_task_queue.png
     :width: 500px
 
 Level 0: Dispatch pipeline optimization is not enabled.

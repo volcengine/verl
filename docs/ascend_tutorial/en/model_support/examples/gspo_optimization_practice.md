@@ -294,7 +294,7 @@ The following describes two expansion mechanisms:
 
 ##### HOST Expansion
 
-<img src="../../figures/ascend_task_queue1.png" alt="image-20260113194257095" style="zoom:50%;" />
+<img src="https://github.com/wucong25/verl-data/blob/main/en/figures/ascend_task_queue1.png" alt="image-20260113194257095" style="zoom:50%;" />
 
 - The software stack runs on the host CPU, expanding communication algorithms into individual tasks.
 - Each task calls the runtime interface and is dispatched to the device's rtsqueue.
@@ -304,7 +304,7 @@ The following describes two expansion mechanisms:
 
 ##### AICPU Mechanism Expansion
 
-<img src="../../figures/ascend_task_queue3.png" alt="image-20260113194333218" style="zoom:50%;" />
+<img src="https://github.com/wucong25/verl-data/blob/main/en/figures/ascend_task_queue3.png" alt="image-20260113194333218" style="zoom:50%;" />
 
 - The host side does not dispatch individual tasks. Instead, it treats communication operators as kernels and places them on the communication operator kernel queue.
 - STARS schedules kernels from the kernel queue stream and places them on the AiCPU for execution.
@@ -320,7 +320,7 @@ TASK_QUEUE_ENABLE: dispatch optimization. Set to 1 for graph mode (that is, when
 
 Schematic diagram:
 
-![ascend task queue](../../figures/ascend_task_queue2.png)
+![ascend task queue](https://github.com/wucong25/verl-data/blob/main/en/figures/ascend_task_queue2.png)
 
 ##### CPU Affinity Optimization
 
@@ -366,7 +366,7 @@ Usage: `export VLLM_ASCEND_ENABLE_PREFETCH_MLP=1`
 
 Enables the weight prefetch mechanism for MLP layers.
 
-<img src="../../figures/ascend_prefetch.png" alt="image-20251124173132677" style="zoom:50%;" />
+<img src="https://github.com/wucong25/verl-data/blob/main/en/figures/ascend_prefetch.png" alt="image-20251124173132677" style="zoom:50%;" />
 
 ### verl Framework Parameter Settings
 
