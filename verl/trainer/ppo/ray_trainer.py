@@ -594,6 +594,8 @@ class RayPPOTrainer:
         return batch_reward
 
     def _validate(self, merged: bool = False):
+        if self.config.trainer.get("val_bayes_at_n", False):
+            raise ValueError("Bayes@N validation requires trainer.use_v1=true and trainer.v1.trainer_mode=sync")
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
 

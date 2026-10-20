@@ -21,6 +21,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from numbers import Integral
 from pprint import pprint
 from typing import Any, Optional
 
@@ -1030,8 +1031,46 @@ class PPOTrainer(ABC):
         )
 
     def _validate(self) -> dict[str, float]:
+        bayes_at_n = self.config.trainer.get("val_bayes_at_n", False)
+        if bayes_at_n:
+            rollout = self.config.actor_rollout_ref.rollout
+            reward = self.config.reward
+            if self.trainer_mode != "sync":
+                raise ValueError("Bayes@N validation requires trainer.v1.trainer_mode=sync")
+            temperature = rollout.val_kwargs.temperature
+            top_p = rollout.val_kwargs.top_p
+            if (
+                not rollout.val_kwargs.do_sample
+                or not math.isfinite(temperature)
+                or temperature <= 0
+                or not math.isfinite(top_p)
+                or not 0 < top_p <= 1
+                or rollout.val_kwargs.top_k == 1
+                or rollout.full_determinism
+            ):
+                raise ValueError(
+                    "Bayes@N validation requires do_sample=true, full_determinism=false, "
+                    "finite positive temperature, 0 < top_p <= 1, and top_k != 1"
+                )
+            if (
+                rollout.agent.default_agent_loop != "single_turn_agent"
+                or rollout.agent.get("agent_loop_manager_class")
+                or rollout.agent.get("agent_loop_config_path")
+            ):
+                raise ValueError("Bayes@N validation supports the built-in single_turn_agent manager only")
+            if (
+                reward.reward_manager.source != "register"
+                or reward.reward_manager.name != "naive"
+                or reward.reward_model.enable
+            ):
+                raise ValueError("Bayes@N validation requires the registered naive rule reward manager")
+            trial_count = rollout.val_kwargs.n
+            if isinstance(trial_count, bool) or not isinstance(trial_count, Integral) or trial_count < 1:
+                raise ValueError("Bayes@N validation requires a positive integer val_kwargs.n")
+
         # Lists to collect samples for the table
         sample_uids = []
+        sample_trial_ids = []
         sample_inputs = []
         sample_outputs = []
         sample_gts = []
@@ -1056,9 +1095,24 @@ class PPOTrainer(ABC):
             batch_rollout_ns = batch_dict.get(
                 "__rollout_n__", [self.config.actor_rollout_ref.rollout.val_kwargs.n] * batch_size
             )
+            if bayes_at_n and any(
+                name != "single_turn_agent" for name in batch_dict.get("agent_name", ["single_turn_agent"] * batch_size)
+            ):
+                raise ValueError("Bayes@N validation does not support per-question agent overrides")
             for uid, data_source, rollout_n in zip(
                 batch_dict["uid"], batch_data_sources, batch_rollout_ns, strict=True
             ):
+                if bayes_at_n:
+                    if not isinstance(data_source, str) or not data_source or not isinstance(uid, str) or not uid:
+                        raise ValueError("Bayes@N validation requires nonempty source and uid strings")
+                    if (data_source, uid) in expected_acc_counts:
+                        raise ValueError("Bayes@N validation encountered a duplicate question uid")
+                    if (
+                        isinstance(rollout_n, bool | np.bool_)
+                        or not isinstance(rollout_n, Integral)
+                        or rollout_n != trial_count
+                    ):
+                        raise ValueError("Bayes@N validation does not support per-question trial counts")
                 rollout_n = int(rollout_n)
                 expected_acc_counts[(str(data_source), str(uid))] = rollout_n
 
@@ -1100,6 +1154,8 @@ class PPOTrainer(ABC):
             sorted_sessions = sorted(session_max.items(), key=lambda x: x[1][1])
             final_indices = [pos for _, (_, pos) in sorted_sessions]
             final_keys = [batch.keys[i] for i in final_indices]
+            if bayes_at_n and not final_keys:
+                raise ValueError("Bayes@N validation requires observed trials for every scheduled question")
             base_offset = len(sample_scores)
             session_to_sample_idx.update(
                 {session_key: base_offset + j for j, (session_key, _) in enumerate(sorted_sessions)}
@@ -1116,7 +1172,14 @@ class PPOTrainer(ABC):
             fields = ["uid", "rm_scores", "num_turns", "reward_model", "data_source", "extra_fields"]
             data = tq.kv_batch_get(keys=final_keys, partition_id=batch.partition_id, select_fields=fields)
 
-            sample_uids.extend(data.pop("uid").tolist())
+            batch_uids = data.pop("uid").tolist()
+            sample_uids.extend(batch_uids)
+            if bayes_at_n:
+                for key, uid in zip(final_keys, batch_uids, strict=True):
+                    parts = key.rsplit("_", 2)
+                    if len(parts) != 3 or parts[0] != uid or not parts[1].isdecimal() or parts[2] != "0":
+                        raise ValueError("Bayes@N validation requires native uid_session_output trajectory keys")
+                    sample_trial_ids.append(int(parts[1]))
             sample_outputs.extend(all_outputs[i] for i in final_indices)
             sample_inputs.extend(all_inputs[i] for i in final_indices)
             scores = data["rm_scores"].sum(dim=1).tolist()
@@ -1201,6 +1264,7 @@ class PPOTrainer(ABC):
             reward_extra_infos_dict,
             sample_turns,
             expected_acc_counts=expected_acc_counts,
+            sample_trial_ids=sample_trial_ids if bayes_at_n else None,
         )
 
     def _maybe_log_val_generations(self, inputs, outputs, scores):
@@ -1347,12 +1411,15 @@ class PPOTrainer(ABC):
         reward_extra_infos_dict,
         sample_turns,
         expected_acc_counts: dict[tuple[str, str], int] | None = None,
+        sample_trial_ids: list[int] | None = None,
     ) -> dict[str, float]:
         data_src2var2metric2val = process_validation_metrics(
             data_sources,
             sample_uids,
             reward_extra_infos_dict,
             expected_acc_counts=expected_acc_counts,
+            bayes_at_n=self.config.trainer.get("val_bayes_at_n", False),
+            sample_trial_ids=sample_trial_ids,
         )
         metric_dict = {}
         for data_source, var2metric2val in data_src2var2metric2val.items():
