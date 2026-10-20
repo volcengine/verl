@@ -7,5 +7,6 @@ Last updated: 06/05/2026.
    :maxdepth: 1
    :caption: Developer Guide
 
+   model_support/examples/otb_ascend_practice
    dev_guide/performance/ascend_profiling
    dev_guide/precision_analysis/precision_debugger
