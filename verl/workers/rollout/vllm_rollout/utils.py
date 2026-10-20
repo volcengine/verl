@@ -253,7 +253,10 @@ class vLLMColocateWorkerExtension:
             # patch weight loader to support MoE model
             patch_vllm_moe_model_weight_loader(model)
         if self._nvfp4_per_token_config is not None:
+            from verl.utils.vllm.vllm_nvfp4_per_token_utils import clear_kv_cache
+
             self._attest_nvfp4_per_token_runtime()
+            clear_kv_cache(self.model_runner.get_model())
 
     def _attest_nvfp4_per_token_runtime(self):
         """Check the routed-expert precision layout and the refit scale state."""

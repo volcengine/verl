@@ -128,6 +128,17 @@ def _logprobs(llm):
     return [[next(iter(lp.values())).logprob for lp in o.outputs[0].logprobs] for o in outputs]
 
 
+def _kv_caches(llm):
+    from vllm.model_executor.layers.attention import Attention
+
+    caches = []
+    for module in _runner(llm).get_model().modules():
+        if isinstance(module, Attention):
+            kv = module.kv_cache
+            caches.extend(t for t in (kv if isinstance(kv, list | tuple) else [kv]) if isinstance(t, torch.Tensor))
+    return caches
+
+
 def _close(llm):
     del llm
     gc.collect()
@@ -135,7 +146,7 @@ def _close(llm):
 
 
 def test_preset_refit_matches_online_quantization(model_dir):
-    from verl.utils.vllm.vllm_nvfp4_per_token_utils import attest_nvfp4_per_token_runtime
+    from verl.utils.vllm.vllm_nvfp4_per_token_utils import attest_nvfp4_per_token_runtime, clear_kv_cache
     from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
 
     carved = [0, NUM_LAYERS - 1]
@@ -164,6 +175,10 @@ def test_preset_refit_matches_online_quantization(model_dir):
         return _logprobs(llm)
 
     preset = _engine(model_dir, eager=True, load_format="dummy", hf_overrides={"quantization_config": config})
+    # Start-up forwards with the dummy weights can leave NaN in the KV cache; the rollout
+    # clears it once the engine is up (monkey_patch_model).
+    clear_kv_cache(_runner(preset).get_model())
+    assert _kv_caches(preset) and all(torch.isfinite(t).all() for t in _kv_caches(preset))
     assert refit(preset, 1.0) == expected
     _close(preset)
 

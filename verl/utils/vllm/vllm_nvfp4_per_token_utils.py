@@ -238,6 +238,28 @@ def _attest_scale_references(module) -> None:
         raise RuntimeError("NVFP4_PER_TOKEN g1_scale_c does not match the current weight scales")
 
 
+def clear_kv_cache(model: torch.nn.Module) -> None:
+    """Zero the KV cache that vLLM's start-up forwards wrote with the dummy weights.
+
+    Dummy loading leaves the FP8 block scales at zero, so the MoE intermediate rows are
+    all zero and the per-token activation quantization turns them into NaN. Attention
+    reads unwritten slots of a partly filled block, so a stale NaN there poisons later
+    requests unless a sleep discards the cache first.
+    """
+    from vllm.model_executor.layers.attention import Attention
+
+    caches = {}
+    for module in model.modules():
+        if isinstance(module, Attention):
+            kv = module.kv_cache
+            for tensor in kv if isinstance(kv, list | tuple) else [kv]:
+                if isinstance(tensor, torch.Tensor):
+                    caches[tensor.data_ptr()] = tensor
+    with torch.no_grad():
+        for tensor in caches.values():
+            tensor.zero_()
+
+
 def attest_nvfp4_per_token_runtime(
     model: torch.nn.Module,
     *,
