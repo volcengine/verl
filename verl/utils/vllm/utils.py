@@ -126,7 +126,21 @@ class VLLMHijack:
         def do_hijack(target_cls, target_method_name, hooking_method):
             setattr(target_cls, target_method_name, hooking_method)
 
-        do_hijack(LRUCacheWorkerLoRAManager, "_load_adapter", hijack__load_adapter)
+        try:
+            from vllm.lora.worker_manager import WorkerLoRAManager as _WLM
+        except ImportError:
+            _WLM = None
+        _owner = None
+        for _c in (LRUCacheWorkerLoRAManager, _WLM):
+            if _c is not None and hasattr(_c, "_load_adapter"):
+                _owner = _c
+                break
+        if _owner is None:
+            raise RuntimeError(
+                "Cannot hijack vLLM LoRA loading: neither LRUCacheWorkerLoRAManager nor WorkerLoRAManager "
+                "provides _load_adapter."
+            )
+        do_hijack(_owner, "_load_adapter", hijack__load_adapter)
 
 
 def is_version_ge(pkg: str = "vllm", minver: str = "0.7.3"):
