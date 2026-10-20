@@ -80,6 +80,71 @@ def normalize_deepseek_v4_weight_names(
     return normalized
 
 
+def _patch_deepseek_v4_hash_route_init(moe_class) -> bool:
+    original_init = moe_class.__init__
+    if getattr(original_init, "_verl_deepseek_v4_hash_route_patched", False):
+        return False
+
+    @wraps(original_init)
+    def init(self, config, *args, **kwargs):
+        original_init(self, config, *args, **kwargs)
+        if not self.hash:
+            return
+        tid2eid = self.gate.tid2eid
+        token_ids = torch.arange(tid2eid.shape[0], dtype=tid2eid.dtype, device=tid2eid.device).unsqueeze(1)
+        expert_offsets = torch.arange(tid2eid.shape[1], dtype=tid2eid.dtype, device=tid2eid.device).unsqueeze(0)
+        with torch.no_grad():
+            tid2eid.copy_((token_ids + expert_offsets) % config.n_routed_experts)
+
+    init._verl_deepseek_v4_hash_route_patched = True
+    moe_class.__init__ = init
+    return True
+
+
+def _filter_deepseek_v4_layer_weights(
+    model: torch.nn.Module, weights: Iterable[tuple[str, torch.Tensor]]
+) -> Iterable[tuple[str, torch.Tensor]]:
+    """Skip checkpoint layers beyond the constructed DeepSeek V4 model."""
+    config = getattr(model, "config", None)
+    layers = getattr(getattr(model, "model", None), "layers", None)
+    if getattr(config, "model_type", None) != "deepseek_v4" or layers is None:
+        yield from weights
+        return
+
+    num_layers = len(layers)
+    for name, tensor in weights:
+        prefixed_name = name if name.startswith("model") else f"model.{name}"
+        if prefixed_name.startswith("model.layers."):
+            layer_field = prefixed_name[len("model.layers.") :].split(".", 1)[0]
+            if layer_field.isdigit() and int(layer_field) >= num_layers:
+                continue
+        yield name, tensor
+
+
+def _restore_deepseek_v4_expert_weight_loaders(model: torch.nn.Module) -> None:
+    """Restore expert loaders lost when Ascend replaces the processed Parameters."""
+    if not isinstance(model, torch.nn.Module):
+        return
+    config = getattr(model, "config", None)
+    if getattr(config, "model_type", None) != "deepseek_v4":
+        return
+
+    for name, param in model.named_parameters():
+        owner_name, _, param_name = name.rpartition(".")
+        if ".mlp.experts." not in name or param_name not in {"w13_weight", "w2_weight"}:
+            continue
+        if getattr(param, "weight_loader", None) is not None:
+            continue
+        owner = model.get_submodule(owner_name)
+        weight_loader = getattr(owner, "weight_loader", None)
+        if not callable(weight_loader):
+            raise AttributeError(
+                f"DeepSeek V4 expert parameter {name!r} has no weight_loader and "
+                f"its owner {type(owner).__name__} provides no callable fallback."
+            )
+        param.weight_loader = weight_loader
+
+
 def _patch_deepseek_v4_weight_loader(model_class) -> bool:
     original_load_weights = model_class.load_weights
     if getattr(original_load_weights, "_verl_deepseek_v4_weight_names_patched", False):
@@ -88,6 +153,8 @@ def _patch_deepseek_v4_weight_loader(model_class) -> bool:
     @wraps(original_load_weights)
     def load_weights(self, weights, *args, **kwargs):
         weights = normalize_deepseek_v4_weight_names(self, weights)
+        weights = _filter_deepseek_v4_layer_weights(self, weights)
+        _restore_deepseek_v4_expert_weight_loaders(self)
         return original_load_weights(self, weights, *args, **kwargs)
 
     load_weights._verl_deepseek_v4_weight_names_patched = True
@@ -96,10 +163,11 @@ def _patch_deepseek_v4_weight_loader(model_class) -> bool:
 
 
 def patch_vllm_ascend_deepseek_v4_weight_loader() -> None:
-    """Adapt training names without modifying the installed vllm-ascend source."""
-    from vllm_ascend.models.deepseek_v4 import DeepseekV4ForCausalLM
+    """Patch DeepSeek V4 initialization and loading without editing vllm-ascend."""
+    from vllm_ascend.models.deepseek_v4 import AscendDeepseekV4ForCausalLM, DeepseekV4MoE
 
-    _patch_deepseek_v4_weight_loader(DeepseekV4ForCausalLM)
+    _patch_deepseek_v4_hash_route_init(DeepseekV4MoE)
+    _patch_deepseek_v4_weight_loader(AscendDeepseekV4ForCausalLM)
 
 
 def patch_vllm_ascend_v023_sched_yield():
