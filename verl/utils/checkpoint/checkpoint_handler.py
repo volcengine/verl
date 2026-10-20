@@ -67,6 +67,12 @@ class CheckpointHandler:
         lora_train_meta=None,
         async_save=False,
     ):
+        """Configure paths, retention, and rank ownership for an SFT checkpoint stream.
+
+        When ``async_save`` is enabled, the engine owns publication after write
+        completion. Otherwise this handler publishes the tracker after saving
+        both engine and auxiliary state.
+        """
         self.default_local_dir = default_local_dir
         self.max_ckpt_to_keep = max_ckpt_to_keep
         self.default_hdfs_dir = default_hdfs_dir

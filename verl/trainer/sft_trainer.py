@@ -48,6 +48,8 @@ logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
 
 class SFTTrainer:
+    """Coordinate SPMD supervised training, validation, and checkpoint recovery."""
+
     def __init__(
         self,
         config,
@@ -80,6 +82,7 @@ class SFTTrainer:
         log_gpu_memory_usage(f"rank {self.rank}: After SFTTrainer init", logger=logger)
 
     def _build_ckpt_handler(self):
+        """Bind the local engine and dataloader to SFT checkpoint and resume settings."""
         resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
         resume_from_path = getattr(self.config.trainer, "resume_from_path", None)
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
@@ -307,6 +310,12 @@ class SFTTrainer:
         return batch_seqlens
 
     def fit(self):
+        """Train SFT batches and wait for checkpoint publication at the final configured step.
+
+        The earlier of the step and epoch limits selects the final step. Periodic
+        saves may remain asynchronous; the final save waits for all queued writes
+        and completion callbacks on every rank.
+        """
         is_logging = self.engine.is_mp_src_rank_with_outputs() and self.engine.get_data_parallel_rank() == 0
 
         # TODO: add a unified tracking

@@ -83,6 +83,11 @@ class TrainingWorker(Worker, DistProfilerExtension):
     """
 
     def __init__(self, config: TrainingWorkerConfig):
+        """Initialize distributed state and construct the configured training engine.
+
+        Async checkpointing is accepted only for the Megatron engine, which
+        implements queue progress and blocking save completion.
+        """
         Worker.__init__(self)
 
         from verl.workers.engine import BaseEngine, EngineRegistry

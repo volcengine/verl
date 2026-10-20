@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_methods(path, class_name, methods, namespace, base=object):
+    """Compile selected production methods against injected dependencies and a test base class."""
     tree = ast.parse((ROOT / path).read_text())
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
     cls.bases = [ast.Name(id="TestBase", ctx=ast.Load())]
@@ -69,7 +70,10 @@ def _load_noop_writer():
 
 
 class _Request:
+    """Represent a replaceable async write request with deferred completion callbacks."""
+
     def __init__(self):
+        """Start with an empty writer, no arguments, and an unfinished request."""
         self.async_fn = None
         self.async_fn_args = ()
         self.async_fn_kwargs = {}
@@ -77,9 +81,11 @@ class _Request:
         self.ready = False
 
     def add_finalize_fn(self, fn):
+        """Append a callback to run after this request completes."""
         self.finalize_fns.append(fn)
 
     def _replace(self, **updates):
+        """Copy the request while preserving fields not explicitly replaced."""
         result = copy.copy(self)
         for name, value in updates.items():
             setattr(result, name, value)
@@ -87,21 +93,27 @@ class _Request:
 
 
 class _Queue:
+    """Model FIFO request completion without starting distributed writer processes."""
+
     def __init__(self):
+        """Initialize pending requests and the total number of scheduled writes."""
         self.pending = []
         self.scheduled = 0
 
     def schedule_async_request(self, request):
+        """Record a new write without completing or publishing it."""
         self.pending.append(request)
         self.scheduled += 1
 
     def maybe_finalize_async_calls(self, blocking=False):
+        """Finalize ready requests in order, or drain every request when blocking."""
         while self.pending and (blocking or self.pending[0].ready):
             for fn in self.pending.pop(0).finalize_fns:
                 fn()
 
 
 def _manager():
+    """Build a production-method manager with fake writes and real local publication markers."""
     namespace = dict(
         os=os,
         logger=None,
@@ -145,8 +157,13 @@ def _manager():
 
 
 def _engine(manager, output=None):
+    """Wrap a test manager with the production train-batch and save-checkpoint methods."""
+
     class BaseEngine:
+        """Provide the training operation delegated to by the Megatron engine."""
+
         def train_batch(self, data, loss_function):
+            """Run the supplied training action and return the configured output."""
             loss_function()
             return output
 
@@ -173,6 +190,7 @@ def _engine(manager, output=None):
 
 @pytest.mark.parametrize("relative_path", ["global_step_3", "global_step_3/actor"])
 def test_blocking_save_waits_for_older_and_current_publication(tmp_path, relative_path):
+    """Drain both earlier and current saves through the worker's blocking save API."""
     manager = _manager()
     previous = str(tmp_path / relative_path.replace("step_3", "step_2"))
     current = str(tmp_path / relative_path)
@@ -194,6 +212,7 @@ def test_blocking_save_waits_for_older_and_current_publication(tmp_path, relativ
 @pytest.mark.parametrize("has_output", [False, True])
 @pytest.mark.parametrize("opt_in", [False, True])
 def test_training_progresses_ready_save_without_scheduling_another(tmp_path, has_output, opt_in):
+    """Publish completed writes after training only when the batch opts into SFT finalization."""
     manager = _manager()
     manager.save_checkpoint(str(tmp_path / "global_step_2"), global_step=2)
     tracker = tmp_path / "latest_checkpointed_iteration.txt"
@@ -208,6 +227,7 @@ def test_training_progresses_ready_save_without_scheduling_another(tmp_path, has
     assert not tracker.exists()
 
     def finish_writes_during_training():
+        """Mark pending writes ready while their tracker remains unpublished."""
         assert not tracker.exists()
         for request in manager._async_calls_queue.pending:
             request.ready = True
@@ -221,6 +241,7 @@ def test_training_progresses_ready_save_without_scheduling_another(tmp_path, has
 
 
 def test_failed_training_does_not_enter_checkpoint_collectives():
+    """Propagate a training failure without entering subsequent checkpoint synchronization."""
     manager = _manager()
     manager._maybe_finalize_async_save = MagicMock()
     engine = _engine(manager)
@@ -228,6 +249,7 @@ def test_failed_training_does_not_enter_checkpoint_collectives():
     tu.assign_non_tensor(data, finalize_async_checkpoint=True)
 
     def fail():
+        """Raise before the engine can advance checkpoint completion."""
         raise RuntimeError("training failed")
 
     with pytest.raises(RuntimeError, match="training failed"):
@@ -237,6 +259,7 @@ def test_failed_training_does_not_enter_checkpoint_collectives():
 
 @pytest.mark.parametrize("checkpoint_config", [None, SimpleNamespace(async_save=False)])
 def test_training_without_async_checkpointing_does_not_progress_queue(checkpoint_config):
+    """Skip queue progress when checkpoint configuration is absent or async saving is disabled."""
     manager = _manager()
     manager.checkpoint_config = checkpoint_config
     manager._maybe_finalize_async_save = MagicMock()
@@ -249,6 +272,7 @@ def test_training_without_async_checkpointing_does_not_progress_queue(checkpoint
 
 
 def test_manager_initialization_without_checkpoint_config():
+    """Preserve default checkpoint contents without allocating an async queue."""
     manager_cls = _load_methods(
         "verl/utils/checkpoint/megatron_checkpoint_manager.py",
         "MegatronCheckpointManager",
@@ -295,14 +319,19 @@ def test_async_content_results_match_their_write_plans():
     published = []
 
     class SharedResultsQueue:
+        """Model shared write results with serial persistent or concurrent temporal writers."""
+
         def __init__(self, persistent=False):
+            """Choose writer concurrency and initialize the ordered finalization queue."""
             self.executor = ThreadPoolExecutor(max_workers=1 if persistent else 4)
             self.pending = []
 
         def schedule_async_request(self, request):
+            """Submit a writer and retain its future beside the matching callbacks."""
             self.pending.append((self.executor.submit(request.async_fn), request))
 
         def maybe_finalize_async_calls(self, blocking=False):
+            """Wait for eligible writes and finalize their requests in submission order."""
             while self.pending and (blocking or self.pending[0][0].done()):
                 future, request = self.pending.pop(0)
                 future.result()
@@ -350,9 +379,11 @@ def test_async_content_results_match_their_write_plans():
         )
 
     def request_for(content):
+        """Build a request that pairs a content write with its metadata finalizer."""
         request = _Request()
 
         def write():
+            """Delay the first optimizer write to expose result-order mismatches."""
             if content == "step1/optimizer":
                 second_written.wait(timeout=0.2)
             results.put(content)
@@ -387,10 +418,14 @@ def test_empty_rank_requests_keep_persistent_completion_events_aligned(args, kwa
     completed = queue.Queue()
 
     class PersistentQueue:
+        """Require one writer completion event for each queued request."""
+
         def __init__(self):
+            """Initialize the sequence of requests awaiting completion events."""
             self.pending = []
 
         def schedule_async_request(self, request):
+            """Execute callable writers with retained arguments and record their completion."""
             self.pending.append(request)
             # MCore's persistent caller does not enqueue async_fn=None.
             if request.async_fn is not None:
@@ -398,6 +433,7 @@ def test_empty_rank_requests_keep_persistent_completion_events_aligned(args, kwa
                 completed.put(True)
 
         def maybe_finalize_async_calls(self, blocking=False):
+            """Consume completion events before running request finalizers, failing on missing events."""
             while self.pending:
                 if completed.empty():
                     raise TimeoutError("Persistent caller is waiting for an absent completion event")
@@ -424,6 +460,7 @@ def test_empty_rank_requests_keep_persistent_completion_events_aligned(args, kwa
 
 @pytest.mark.parametrize("blocking", [False, True])
 def test_async_save_without_distributed_requests_publishes_immediately(tmp_path, blocking):
+    """Publish immediately when the save produces no asynchronous distributed writes."""
     manager = _manager()
     manager._build_extra_state_dict = lambda: {}
     manager.save_checkpoint(str(tmp_path / "global_step_2"), global_step=2, blocking=blocking)
@@ -433,6 +470,7 @@ def test_async_save_without_distributed_requests_publishes_immediately(tmp_path,
 
 
 def test_non_megatron_async_save_rejected_before_engine_construction():
+    """Reject unsupported async checkpointing before constructing a non-Megatron engine."""
     config = SimpleNamespace(
         model_config={},
         engine_config=SimpleNamespace(strategy="fsdp"),

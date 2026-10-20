@@ -22,6 +22,7 @@ from verl.utils.checkpoint.checkpoint_handler import CheckpointHandler, Orchestr
 
 
 def _make_handler(tmp_path, *, async_save):
+    """Create a Ray-mode handler with mock engine and dataloader state."""
     engine = MagicMock()
     dataloader = MagicMock()
     dataloader.state_dict.return_value = {"step": 3}
@@ -38,11 +39,13 @@ def _make_handler(tmp_path, *, async_save):
 
 @pytest.mark.parametrize("blocking", [False, True])
 def test_async_sft_saves_auxiliary_state_before_engine_and_defers_publication(tmp_path, blocking):
+    """Write auxiliary state before async engine saving and leave publication to its callback."""
     handler, engine = _make_handler(tmp_path, async_save=True)
     step_dir = tmp_path / "global_step_3"
     tracker = tmp_path / "latest_checkpointed_iteration.txt"
 
     def check_auxiliary_state(**kwargs):
+        """Verify auxiliary state and blocking options at the engine-save boundary."""
         assert (step_dir / "data_0.pt").exists()
         assert kwargs["hdfs_path"] == "hdfs://test/checkpoints"
         assert kwargs["blocking"] is blocking
@@ -57,10 +60,12 @@ def test_async_sft_saves_auxiliary_state_before_engine_and_defers_publication(tm
 
 
 def test_sync_sft_publishes_after_engine_save(tmp_path):
+    """Publish the tracker and HDFS copy only after a synchronous engine save."""
     handler, engine = _make_handler(tmp_path, async_save=False)
     step_dir = tmp_path / "global_step_3"
 
     def check_auxiliary_state(**kwargs):
+        """Verify that synchronous engine saving precedes auxiliary-state writing."""
         assert not (step_dir / "data_0.pt").exists()
         assert kwargs["hdfs_path"] is None
 

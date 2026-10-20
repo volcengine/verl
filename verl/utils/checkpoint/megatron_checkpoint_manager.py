@@ -179,6 +179,12 @@ class MegatronCheckpointManager(BaseCheckpointManager):
         peft_cls=None,
         **kwargs,
     ):
+        """Bind training state and select the checkpoint content layout and save backend.
+
+        Async saving allocates a persistent request queue whose completion must
+        be progressed collectively by callers. Model-format and bridge checks
+        reject unsupported content combinations before any save is scheduled.
+        """
         super().__init__(
             model,
             optimizer=optimizer,

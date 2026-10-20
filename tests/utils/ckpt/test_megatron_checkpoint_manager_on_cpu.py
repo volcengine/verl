@@ -112,6 +112,7 @@ def _make_manager(
     use_distributed_optimizer=False,
     async_save=False,
 ):
+    """Build a manager with mock training state and configurable checkpoint contents."""
     if save_contents is None:
         save_contents = ["model", "optimizer", "extra"]
     if load_contents is None:
@@ -660,8 +661,11 @@ class TestModelShardedStateDictNotBuiltUnnecessarily:
 
 
 class TestAsyncSaveFinalization:
+    """Check that async completion gates tracker, HDFS, and retention publication."""
+
     @pytest.mark.parametrize("relative_path", ["global_step_3", "global_step_3/actor"])
     def test_requests_publish_only_after_queue_finalizes_last_request(self, tmp_path, relative_path):
+        """Require every queued request to finalize before publishing an SFT or actor checkpoint."""
         mgr = _make_manager(async_save=True)
         requests = [AsyncRequest(None, (), []), AsyncRequest(None, (), [])]
         step_dir = tmp_path / relative_path
@@ -669,13 +673,18 @@ class TestAsyncSaveFinalization:
         tracker = tmp_path / "latest_checkpointed_iteration.txt"
 
         class Queue:
+            """Hold requests until a blocking finalization explicitly releases them."""
+
             def __init__(self):
+                """Start with no pending write requests."""
                 self.pending = []
 
             def schedule_async_request(self, request):
+                """Append a request without running its completion callbacks."""
                 self.pending.append(request)
 
             def maybe_finalize_async_calls(self, blocking=False):
+                """Execute queued completion callbacks only for a blocking drain."""
                 if blocking:
                     for request in self.pending:
                         for finalize_fn in request.finalize_fns:

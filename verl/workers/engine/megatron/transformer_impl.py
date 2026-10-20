@@ -161,6 +161,8 @@ def _attach_dcp_recorded_routes(losses_reduced: list[dict], layers_topk_idx: tor
 
 
 class MegatronEngine(BaseEngine):
+    """Implement MCore training, inference, and checkpoint handling behind the engine API."""
+
     # mcore keeps model-parallel-local params resident and moves large host
     # buffers every step; pinning the whole delta snapshot set on top of that
     # starves the node's cudaHostAlloc pool and surfaces as CUDA OOM in

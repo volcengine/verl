@@ -53,14 +53,18 @@ def test_final_sft_save_publishes_before_exit(mode, async_save, step_limit, resu
     steps_per_epoch = 3
 
     class ResumedLoader:
+        """Yield the remaining first epoch, then full epochs after resumption."""
+
         first_epoch = True
 
         def __iter__(self):
+            """Apply the resumed batch offset only to the first iteration."""
             count = steps_per_epoch - resume_step % steps_per_epoch if self.first_epoch else steps_per_epoch
             self.first_epoch = False
             return iter([{} for _ in range(count)])
 
     def save_checkpoint(*, step, blocking):
+        """Keep async saves pending until a blocking save publishes the queue."""
         saves.append((step, blocking))
         pending.append(step)
         if blocking or not async_save:
@@ -72,6 +76,7 @@ def test_final_sft_save_publishes_before_exit(mode, async_save, step_limit, resu
     client = MagicMock()
 
     def train_batch(*args, **kwargs):
+        """Return minimal metrics using the direct or Ray-style result interface."""
         metrics = {"loss": 1.0, "grad_norm": 1.0, "lr": 0.1, "mfu": 0.1}
         result = {"metrics": metrics}
         return SimpleNamespace(get=lambda: result) if mode == "ray" else result

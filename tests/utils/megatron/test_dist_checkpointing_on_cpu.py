@@ -24,6 +24,7 @@ import pytest
 
 
 def _load_checkpointing(save):
+    """Load the production wrapper against a minimal MCore module tree and supplied save API."""
     names = [
         "megatron",
         "megatron.core",
@@ -53,11 +54,13 @@ def _load_checkpointing(save):
 
 @pytest.mark.parametrize("async_save", [False, True])
 def test_save_without_optional_nvrx_dependency(async_save):
+    """Select native MCore for async requests while preserving the synchronous API default."""
     request = object()
     calls = []
 
     # Match MCore's default: async saves select NVRx unless explicitly overridden.
     def save(state, path, *, async_strategy="nvrx", **kwargs):
+        """Model an MCore save API whose default async backend needs an optional dependency."""
         calls.append((state, path, async_strategy, kwargs))
         if kwargs["async_sharded_save"]:
             if async_strategy == "nvrx":
@@ -81,9 +84,11 @@ def test_save_without_optional_nvrx_dependency(async_save):
 
 @pytest.mark.parametrize("async_save", [False, True])
 def test_legacy_save_api_without_backend_selector(async_save):
+    """Keep async and synchronous saves compatible with older MCore signatures."""
     request = object()
 
     def save(state, path, *, sharded_strategy, async_sharded_save, validate_access_integrity, content_metadata=None):
+        """Accept only the legacy save keywords and return an async request when requested."""
         assert async_sharded_save is async_save
         return request if async_sharded_save else None
 

@@ -47,6 +47,8 @@ logger.setLevel(os.getenv("VERL_SFT_LOGGING_LEVEL", "WARN"))
 
 
 class SFTTrainer:
+    """Coordinate supervised training and checkpoint recovery through Ray workers."""
+
     def __init__(
         self,
         config,
@@ -68,6 +70,7 @@ class SFTTrainer:
         print(self.config)
 
     def _build_ckpt_handler(self):
+        """Bind the Ray training client and dataloader to SFT checkpoint and resume settings."""
         resume_mode = getattr(self.config.trainer, "resume_mode", "auto")
         resume_from_path = getattr(self.config.trainer, "resume_from_path", None)
         max_ckpt_to_keep = getattr(self.config.trainer, "max_ckpt_to_keep", None)
@@ -246,6 +249,12 @@ class SFTTrainer:
         return batch_seqlens
 
     def fit(self):
+        """Drive SFT workers through training and block on the final checkpoint save.
+
+        The earlier of the step and epoch limits selects the final step. Batch
+        metadata enables per-step async progress, and the final save waits for
+        pending writes and completion callbacks through the worker group.
+        """
         tracking = Tracking(
             project_name=self.config.trainer.project_name,
             experiment_name=self.config.trainer.experiment_name,
