@@ -87,7 +87,7 @@ jobs:
       - name: Prepare weights
         run: ln -s /root/.cache/modelscope/hub/models "${HOME}/models"
       - name: Prepare GSM8K dataset
-        run: python examples/data_preprocess/gsm8k.py --local_dataset_path "${HOME}/.cache/datasets/openai/gsm8k"
+        run: python examples/data_preprocess/gsm8k.py --local_dataset_path "${HOME}/.cache/modelscope/dataset/openai/gsm8k"
       - name: Run V1 separate_async with FSDP2
         run: |
           ray stop --force
@@ -140,7 +140,7 @@ jobs:
       - name: Prepare weights
         run: ln -s /root/.cache/modelscope/hub/models "${HOME}/models"
       - name: Prepare GSM8K dataset
-        run: python examples/data_preprocess/gsm8k.py --local_dataset_path "${HOME}/.cache/datasets/openai/gsm8k"
+        run: python examples/data_preprocess/gsm8k.py --local_dataset_path "${HOME}/.cache/modelscope/dataset/openai/gsm8k"
       - name: Run V1 separate_async with Megatron
         run: |
           ray stop --force

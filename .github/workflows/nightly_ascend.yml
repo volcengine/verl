@@ -86,7 +86,7 @@ jobs:
           pip list
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running nightlyCI_ppo-qwen3-8b-fsdp-vllm_ascend
         run: |
           ray stop --force
@@ -137,7 +137,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Preprocess geo3k dataset
         run: |
-          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/hiyouga/geometry3k
       - name: Running nightlyCI_grpo_qwen3_vl_8b_Instruct_fsdp2_vllm_ascend
         run: |
           ray stop --force
@@ -204,7 +204,7 @@ jobs:
   #         ln -s /root/.cache/modelscope/hub/models ~/models
   #     - name: Preprocess geo3k dataset
   #       run: |
-  #         python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+  #         python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
   #     - name: Running nightlyCI_dapo-moonlight-16b-megatron-vllm_ascend
   #       run: |
   #         ray stop --force
@@ -261,7 +261,7 @@ jobs:
           clean: true
       - name: Preprocess GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running nightlyCI_gspo-qwen3-30b-megatron-vllm_ascend
         env:
           MODEL_PATH: /root/.cache/models/Qwen/Qwen3-30B-A3B-Instruct-2507
@@ -363,7 +363,7 @@ jobs:
           pip list
       - name: Preprocess geo3k dataset
         run: |
-          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/hiyouga/geometry3k
       - name: Running nightlyCI_grpo_qwen3_5_2b_fsdp2_vllm_ascend
         run: |
           ray stop --force
@@ -408,7 +408,7 @@ jobs:
           pip list
       - name: Preprocess geo3k dataset
         run: |
-          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/hiyouga/geometry3k
       - name: Running nightlyCI_grpo_qwen3_5_2b_fsdp_turbo_vllm_ascend
         run: |
           ray stop --force
@@ -454,7 +454,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running quick_start_qwen3_0_6b_fsdp2_vllm_ascend
         run: |
           ray stop --force
@@ -491,7 +491,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running quick_start_qwen3_0_6b_megatron_vllm_ascend
         run: |
           ray stop --force
@@ -528,7 +528,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running quick_start_qwen3_0_6b_megatron_sglang_ascend
         run: |
           ray stop --force
@@ -565,7 +565,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running quick_start_qwen3_0_6b_fsdp2_sglang_ascend
         run: |
           ray stop --force
@@ -618,7 +618,7 @@ jobs:
           ln -s /root/.cache/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running nightlyCI_grpo-qwen3-30b-veomni-fsdp_ascend
         run: |
           ray stop --force
@@ -658,7 +658,7 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running nightlyCI_gspo-qwen3-8b-fsdp2-vllm_ascend
         run: |
           ray stop --force
@@ -709,7 +709,7 @@ jobs:
   #         ln -s /root/.cache/modelscope/hub/models ~/models
   #     - name: Preprocess geo3k dataset
   #       run: |
-  #         python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+  #         python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/hiyouga/geometry3k
   #     - name: Running nightlyCI_grpo-qwen3_5-35b-megatron-vllm_ascend
   #       run: |
   #         ray stop --force
