@@ -466,14 +466,43 @@ class AgentLoopBase(ABC):
 
     def _cap_text_prompt_length(self, prompt_ids: list[int]) -> list[int]:
         prompt_length = self.rollout_config.prompt_length
-        if len(prompt_ids) > prompt_length:
+        if len(prompt_ids) <= prompt_length:
+            return prompt_ids
+        # Respect the documented ``data.truncation`` policy instead of hard-coding a
+        # left-truncation (suffix-only) cap. See docs/examples/config.rst: ``error``
+        # (default) fails loudly rather than silently dropping the leading instruction;
+        # ``left`` keeps the tail, ``right`` keeps the head, ``middle`` keeps head+tail.
+        truncation = self.data_config.get("truncation", "error")
+        if truncation == "left":
             logger.warning(
-                "Prompt of %d tokens exceeds rollout.prompt_length=%d; left-truncating.",
+                "Prompt of %d tokens exceeds rollout.prompt_length=%d; truncating (keep tail).",
                 len(prompt_ids),
                 prompt_length,
             )
             return prompt_ids[-prompt_length:]
-        return prompt_ids
+        if truncation == "right":
+            logger.warning(
+                "Prompt of %d tokens exceeds rollout.prompt_length=%d; truncating (keep head).",
+                len(prompt_ids),
+                prompt_length,
+            )
+            return prompt_ids[:prompt_length]
+        if truncation == "middle":
+            # Keep roughly half from each end, discarding the middle. Mirrors the
+            # documented behavior: split the allowed length in half, keep head + tail.
+            logger.warning(
+                "Prompt of %d tokens exceeds rollout.prompt_length=%d; truncating (keep head+tail).",
+                len(prompt_ids),
+                prompt_length,
+            )
+            head = (prompt_length + 1) // 2
+            return prompt_ids[:head] + prompt_ids[-(prompt_length - head):]
+        # ``error`` (default): fail loudly, mirroring the multimodal ValueError path above.
+        raise ValueError(
+            f"Prompt of {len(prompt_ids)} tokens exceeds rollout.prompt_length={prompt_length}; "
+            f"configured data.truncation='{truncation}' which does not truncate. "
+            f"Increase rollout.prompt_length or set data.truncation to 'left'/'right'/'middle'."
+        )
 
     @abstractmethod
     async def run(self, sampling_params: dict[str, Any], **kwargs) -> AgentLoopOutput:
