@@ -270,6 +270,27 @@ What it does not show:
   updated rests on indirect evidence (the re-derived layouts are copied back in place, and the KL stays in
   its healthy range), not on a graph replay.
 
+### Quantized-layer audit
+
+Training decides implicitly which layers run FP8 (TE linear modules inside `fp8_autocast`); the rollout
+decides by name (`rollout.quantization`, read by both the trainer-side exporter and the engine). When
+training runs a TE FP8 recipe and the rollout is quantized, verl compares them at the first weight sync
+after a training step:
+
+- **Training vs export**: each decoder layer's FP8 trace (TE's FP8 weight workspaces) against the format
+  the sync sends for that layer's GEMM projections (attention, MLP, experts, linear-attention and SSM in /
+  out projections). Weights the exporter keeps in BF16 by design are skipped. Other decoder-layer weights,
+  such as a convolution, are not judged, and the audit reports how many it left out.
+- **Export vs engine**: on vLLM, the format of every synced weight against the quant method of the module
+  that receives it. On SGLang, the refit loader compares each incoming weight's dtype with the parameter
+  that receives it before writing it (switched by `VERL_MXFP8_REFIT_CHECK`).
+
+`VERL_QUANT_LAYER_AUDIT=warn` (the default) logs a disagreement, `=raise` stops the run, `=0` disables the
+audit, and `VERL_QUANT_LAYER_AUDIT_TRACE=1` logs each step of the audit itself. The training-side trace is
+per layer, so a TE module kept in BF16 inside an FP8 layer would go unnoticed (Megatron has no such
+per-module option today). With `disable_parameter_transpose_cache=True` TE keeps no FP8 workspace, and the
+audit warns once that it cannot run.
+
 ---
 
 ## Citation

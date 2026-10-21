@@ -40,9 +40,13 @@ What. Three sources, compared at the first weight sync after a training step:
 
 Training vs export skips the modules the exporter keeps in BF16 by design (its
 ``DEFAULT_IGNORE``: ``lm_head``, embeddings, vision towers, MTP layers, routers,
-the shared-expert gate) and reports every other disagreement. Export vs engine
-reports every disagreement: both sides read ``rollout.quantization``, so one
-means the engine matched a layer differently from the exporter.
+the shared-expert gate) and judges the GEMM projections of each decoder layer
+(attention, MLP, experts, linear-attention / SSM in and out projections) against
+that layer's FP8 trace. A decoder-layer weight of any other kind, such as a
+convolution, is not judged, since the layer-level trace says nothing about it;
+the audit reports how many it left out. Export vs engine reports every
+disagreement: both sides read ``rollout.quantization``, so one means the engine
+matched a layer differently from the exporter.
 
 Runs once, at the first weight sync that happens after an FP8 forward (the first
 sync, before any step, has no workspaces yet). Controlled by
@@ -218,6 +222,28 @@ def is_linear_weight_name(name: str) -> bool:
     return name.endswith(".weight") or bool(_FUSED_EXPERT_RE.search(name))
 
 
+# HF leaf modules of the projections a decoder layer runs as TE GEMMs: attention (including MLA), MLP,
+# experts (Mixtral's w1/w2/w3 too) and the in / out projections of linear-attention and SSM mixers.
+_GEMM_WEIGHT_RE = re.compile(
+    r"(?:^|\.)(?:q_proj|k_proj|v_proj|o_proj|qkv_proj|query_key_value|q_a_proj|q_b_proj|kv_a_proj_with_mqa|"
+    r"kv_b_proj|gate_proj|up_proj|down_proj|gate_up_proj|in_proj\w*|out_proj|fc1|fc2|w1|w2|w3)\.weight$"
+)
+
+
+def is_gemm_weight_name(name: str) -> bool:
+    return bool(_GEMM_WEIGHT_RE.search(name) or _FUSED_EXPERT_RE.search(name))
+
+
+def _of_unjudged_kind(name: str) -> bool:
+    """A decoder-layer weight that is neither a known GEMM projection nor a known non-GEMM leaf."""
+    return (
+        is_linear_weight_name(name)
+        and _LAYER_RE.search(name) is not None
+        and not (_ROUTER_RE.search(name) or _NON_LINEAR_RE.search(name))
+        and not is_gemm_weight_name(name)
+    )
+
+
 def expected_train_quantized(name: str, report: TrainFp8Report) -> Optional[bool]:
     """Training-side expectation for one HF weight name; ``None`` when this rank cannot judge."""
     if not is_linear_weight_name(name):
@@ -231,6 +257,8 @@ def expected_train_quantized(name: str, report: TrainFp8Report) -> Optional[bool
         return None  # another pipeline stage owns this layer
     if _ROUTER_RE.search(name) or _NON_LINEAR_RE.search(name):
         return False
+    if not is_gemm_weight_name(name):
+        return None  # e.g. a convolution: the layer's FP8 trace does not say how training ran it
     return idx in report.quantized_layers
 
 
@@ -255,6 +283,18 @@ def kept_high_precision_by_design(name: str) -> bool:
 
     module = name[: -len(".weight")] if name.endswith(".weight") else name
     return _matches(module, DEFAULT_IGNORE)
+
+
+def unjudged_weights(exported: Mapping[str, tuple[bool, str]]) -> list[str]:
+    """Exported decoder-layer weights of a kind the training-vs-export comparison does not judge."""
+    return [name for name in exported if _of_unjudged_kind(name) and not kept_high_precision_by_design(name)]
+
+
+def _unjudged_note(unjudged: list[str]) -> str:
+    if not unjudged:
+        return ""
+    shown = ", ".join(unjudged[:3]) + (", ..." if len(unjudged) > 3 else "")
+    return f"; {len(unjudged)} decoder-layer weights of a kind the audit does not judge, e.g. {shown}"
 
 
 def audit_train_vs_export(report: TrainFp8Report, exported: Mapping[str, tuple[bool, str]]) -> tuple[list[str], int]:
@@ -502,17 +542,19 @@ class QuantLayerAuditor:
             )
             return None
         problems, by_design = audit_train_vs_export(report, self.exported)
+        unjudged = unjudged_weights(self.exported)
         self.done = True
         self._verdict = report
         n_q, n_seen = len(report.quantized_layers), len(report.seen_layers)
         if not problems:
             logger.info(
                 "quantized-layer audit: training and the exported weights agree (%d of %d decoder layers on this "
-                "rank ran FP8 GEMMs; %d weights checked, %d kept in BF16 on the rollout by design)",
+                "rank ran FP8 GEMMs; %d weights checked, %d kept in BF16 on the rollout by design%s)",
                 n_q,
                 n_seen,
-                len(self.exported) - by_design,
+                len(self.exported) - by_design - len(unjudged),
                 by_design,
+                _unjudged_note(unjudged),
             )
             return []
         if self.engine == "sglang":
@@ -525,7 +567,7 @@ class QuantLayerAuditor:
             engine_note = ""
         self._report(
             f"quantized-layer audit: training and the exported weights disagree on {len(problems)} weight(s) "
-            f"({n_q} of {n_seen} decoder layers on this rank ran FP8 GEMMs):"
+            f"({n_q} of {n_seen} decoder layers on this rank ran FP8 GEMMs{_unjudged_note(unjudged)}):"
             + _listing(problems)
             + "\nThe trainer ran these layers in one precision and the rollout is served them in another. Fix with "
             "rollout.quantization.ignore (rollout) or first_last_layers_bf16 / model wiring (training)."

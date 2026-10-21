@@ -29,6 +29,7 @@ from verl.utils.quant_layer_audit import (
     merge_worker_methods,
     remember_fp8_workspaces,
     trace,
+    unjudged_weights,
     vllm_quant_methods,
 )
 
@@ -517,3 +518,40 @@ def test_trace_is_silent_unless_enabled(monkeypatch, caplog):
     list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers={1, 2})]))
     for where in ("trace: record", "record.stream_end", "trace: run"):
         assert where in caplog.text, where
+
+
+def test_a_non_gemm_weight_in_an_fp8_layer_is_left_unjudged_not_reported(caplog):
+    # Qwen3-Next's linear attention: the exporter keeps the convolution in BF16, as training does, inside a
+    # layer whose projections ran FP8 GEMMs. The layer-level trace cannot tell, so the audit does not judge it.
+    r = collect_train_fp8_report([_Chunk(quantized_layers=set(range(N_LAYERS)))])
+    conv = "model.layers.0.linear_attn.conv1d.weight"
+    names = _hf_names() + [conv]
+    exported = _recorded(names)
+    assert exported[conv] == (False, "bfloat16")
+    assert audit_train_vs_export(r, exported)[0] == [] and unjudged_weights(exported) == [conv]
+    auditor = QuantLayerAuditor("warn")
+    list(auditor.record(iter(_export(names))))
+    assert auditor.run([_Chunk(quantized_layers=set(range(N_LAYERS)))]) == []
+    assert "1 decoder-layer weights of a kind the audit does not judge, e.g. " + conv in caplog.text
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [
+        "self_attn.qkv_proj.weight",
+        "self_attn.q_a_proj.weight",  # MLA
+        "self_attn.kv_b_proj.weight",
+        "mlp.gate_up_proj.weight",
+        "linear_attn.in_proj_qkvz.weight",  # Qwen3-Next linear attention
+        "linear_attn.out_proj.weight",
+        "mixer.in_proj.weight",  # SSM
+        "block_sparse_moe.experts.0.w1.weight",
+        "mlp.experts.gate_up_proj",
+    ],
+)
+def test_the_known_gemm_projections_are_judged(leaf):
+    r = collect_train_fp8_report([_Chunk(quantized_layers={1})])
+    name = "model.layers.0." + leaf
+    problems, _ = audit_train_vs_export(r, {name: (True, "float8_e4m3fn")})  # layer 0 ran in BF16
+    assert _problem_names(problems) == {name}
+    assert unjudged_weights({name: (True, "float8_e4m3fn")}) == []
