@@ -161,31 +161,6 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
 - **vLLM**: `VLLM_USE_DEEP_GEMM_E8M0` defaults to `0` for `FP8_BLOCK`, so its block scales stay in FP32. MX formats retain the E8M0 path.
 - **vLLM MXFP4**: vLLM 0.29's compressed-tensors path otherwise ignores the MXFP8 input scheme and selects W4A4 CUTLASS. verl routes this explicit W4A8(MX) scheme through vLLM's MXFP4 backend oracle with `kMxfp8Dynamic` and defaults to FlashInfer CUTLASS. The TRTLLM MXFP4×MXFP8 backend is not used because it produced a large numerical mismatch on Qwen3.5-35B-A3B.
 - **vLLM NVFP4**: verl supports only W4A4 routed experts and forces FlashInfer CUTLASS. W4A16, dense NVFP4 and other MoE backends are rejected.
-- **SGLang**: the first launch of a quantized MoE model can take several
-  minutes while DeepGEMM warms up its kernels during CUDA Graph capture. Later
-  launches use the cache.
-- **SGLang refit utilities**: `sglang_quant_utils.py` is the public
-  configuration and custom-loader entry point. Format-specific staging and
-  post-load transforms live in `sglang_fp8_utils.py` and
-  `sglang_fp4_utils.py`.
-- **SGLang MXFP8**: SGLang 0.5.20 has native MXFP8 Linear and MoE methods on
-  Blackwell. The rollout override is translated to native `quant_method: mxfp8`
-  at engine launch, while the trainer continues exporting the same MXFP8
-  checkpoint tensors. Online refit uses a custom weight loader to rebuild
-  backend-derived scale layouts only after all sync buckets arrive and copies
-  them back into CUDA-graph-captured storage. Both Linear and MoE are pinned to
-  DeepGEMM.
-- **SGLang MXFP4**: routed experts are loaded from compressed-tensors packed
-  weights, staged back into checkpoint layout for each refit, and then
-  transformed into the backend layout in-place so CUDA Graph storage remains
-  stable. DeepGEMM is the only supported backend. Dense layers remain BF16;
-  SGLang 0.5.20 does not support the mixed MXFP8-linear + MXFP4-MoE
-  compressed-tensors override.
-- **SGLang NVFP4**: routed experts are loaded from compressed-tensors packed
-  weights and re-swizzled in-place after each refit so CUDA Graph storage
-  remains stable. Leave `moe_runner_backend` at `auto`, which selects the only
-  supported backend, FlashInfer CUTLASS. Dense layers remain BF16; unsupported
-  backend selections are reported by SGLang during engine initialization.
 
 ## Example
 
@@ -246,23 +221,10 @@ SGLang uses the default CUDA Graph configuration):
 
 ## Limitations
 
-- `FP8_BLOCK` is supported on Hopper. On Blackwell with rollout TP=2, SGLang
-  0.5.20 fails during prefill CUDA Graph capture before rollout because
-  `CompressedTensorsW8A8Fp8MoE.runner` has not been initialized. This occurs
-  with both the default and `tc_piecewise` prefill graph backends; disabling
-  prefill CUDA Graph was not used for validation.
-- `MXFP8` with vLLM is supported on Blackwell. SGLang MXFP8 refit and QAT are
-  validated on Blackwell with CUDA Graph and rollout TP=2. Its native config
-  supports ignored layers but applies one MXFP8 scheme to both selected Linear
-  and MoE layers; arbitrary mixed per-layer compressed-tensors MXFP8 configs
-  are not supported.
 - SGLang MXFP8, MXFP4 and NVFP4 custom refit requires the default bucketed
   weight sync so all derived kernel layouts can be rebuilt after the final
   bucket. The checkpoint engine's `delta_flush` wire format is not supported.
 - Native vLLM `Fp8Config` rollout is supported without a rollout override. Standard
   128x128 block-FP8 models are quantized by the trainer-side exporter; DeepSeek-V4
   keeps the private mixed FP8/FP4 layout already exported by Megatron-Bridge.
-- Native compressed-tensors configs are also supported without an override. The
-  same trainer-side dispatcher handles native FP8, native compressed-tensors and
-  `rollout.quantization` compressed-tensors overrides.
 - Megatron QAT and the rollout use separate ignore lists and naming conventions. Users must keep them aligned.

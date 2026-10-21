@@ -122,6 +122,8 @@ def _sglang_refit_kind(quantization_config: Mapping[str, Any]) -> _SGLangRefitKi
         return None
 
     modes = qat_modes_for_config(quantization_config)
+    if "mxfp4_mxfp8" in modes:
+        raise ValueError("SGLang does not support MXFP8 dense linear layers with MXFP4 routed experts.")
     if "nvfp4" in modes:
         return "nvfp4"
     if any("mxfp4" in mode for mode in modes):
