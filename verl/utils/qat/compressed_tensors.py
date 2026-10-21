@@ -49,6 +49,7 @@ __all__ = [
     "Fp8ConfigWeightQuantizer",
     "dispatch_rollout_weight_quantizer",
     "build_compressed_tensors_config",
+    "is_all_mxfp8_config",
     "qat_modes_for_config",
 ]
 
@@ -140,6 +141,13 @@ def qat_modes_for_config(ct_config: Mapping[str, Any]) -> set[Optional[str]]:
     if presets == {"MXFP4", "MXFP8"}:
         return {"mxfp4_mxfp8"}
     return {SUPPORTED_SCHEMES[preset] for preset in presets}
+
+
+def is_all_mxfp8_config(ct_config: Mapping[str, Any]) -> bool:
+    """Whether every compressed-tensors group uses the MXFP8 preset."""
+    if ct_config.get("quant_method") != "compressed-tensors" or not ct_config.get("config_groups"):
+        return False
+    return all(_preset_of(scheme) == "MXFP8" for scheme in _group_schemes(ct_config))
 
 
 def _matches(name: str, targets: Iterable[str]) -> bool:
@@ -521,7 +529,7 @@ def dispatch_rollout_weight_quantizer(
     model_config: Any,
     rollout_config: Any,
     qat_config: Any = None,
-) -> Optional[CompressedTensorsWeightQuantizer | Fp8ConfigWeightQuantizer]:
+) -> Optional[Any]:
     """Select the trainer-side exporter for native or overridden rollout quantization.
 
     The rollout engine keeps its native ``quantization_config`` unless
@@ -565,7 +573,12 @@ def dispatch_rollout_weight_quantizer(
     quant_method = str(quantization_config.get("quant_method", "")).lower()
     if quant_method == "compressed-tensors":
         qat_modes = qat_modes_for_config(quantization_config) if qat_mode is not None else set()
-        quantizer = CompressedTensorsWeightQuantizer(quantization_config)
+        if getattr(rollout_config, "name", None) == "sglang" and is_all_mxfp8_config(quantization_config):
+            from verl.utils.sglang.sglang_quant_utils import SGLangMxfp8WeightQuantizer
+
+            quantizer = SGLangMxfp8WeightQuantizer(quantization_config)
+        else:
+            quantizer = CompressedTensorsWeightQuantizer(quantization_config)
     elif "fp8" in quant_method:
         qat_modes = {"fp8"}
         model_types = {
