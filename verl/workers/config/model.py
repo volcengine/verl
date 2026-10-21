@@ -33,11 +33,13 @@ class MtpConfig(BaseConfig):
 
     enable: Enable loading and saving of MTP parameters, but do not use them
 
-    enable_train: Whether to enable using MTP parameters during training
+    enable_train: Whether to enable using MTP parameters during training. Native
+        HybridModel currently requires this when MTP is enabled.
     enable_rollout: Whether to enable using MTP parameters during rollout
 
     Training parameters:
-        detach_encoder: Whether to detach encoder parameters during MTP training
+        detach_encoder: Whether to isolate the base model from auxiliary MTP
+            gradients. Native HybridModel maps this to MCore's mtp_detach_heads.
         mtp_loss_scaling_factor: Loss scaling factor during MTP training
 
     vLLM rollout parameters:
@@ -234,14 +236,16 @@ class HFModelConfig(BaseConfig):
         # When MTP is disabled, zero out MTP layer counts from hf_config so that
         # downstream engine/worker code does not need to handle each MTP field format
         # individually. Supports both DeepSeek-style (num_nextn_predict_layers) and
-        # Qwen3.5-style (mtp_num_hidden_layers, possibly nested under text_config).
+        # Qwen3.5-style fields, including text_config/llm_config in multimodal models.
         if not self.mtp.enable:
-            if hasattr(self.hf_config, "num_nextn_predict_layers"):
-                self.hf_config.num_nextn_predict_layers = 0
-            if hasattr(self.hf_config, "mtp_num_hidden_layers"):
-                self.hf_config.mtp_num_hidden_layers = 0
-            if hasattr(self.hf_config, "text_config") and hasattr(self.hf_config.text_config, "mtp_num_hidden_layers"):
-                self.hf_config.text_config.mtp_num_hidden_layers = 0
+            for config in (
+                self.hf_config,
+                getattr(self.hf_config, "text_config", None),
+                getattr(self.hf_config, "llm_config", None),
+            ):
+                for field_name in ("num_nextn_predict_layers", "mtp_num_hidden_layers"):
+                    if hasattr(config, field_name):
+                        setattr(config, field_name, 0)
 
         # Ensure target_modules is a str or list[str] (only if not None)
         if self.target_modules is not None:

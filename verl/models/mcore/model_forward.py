@@ -20,6 +20,7 @@ from torch.nested._internal.nested_tensor import NestedTensor
 
 from verl.utils.megatron_utils import unwrap_model
 
+from .mtp_support import is_native_hybrid_model
 from .util import (
     build_vlm_attn_mask_bshd,
     postprocess_bshd_engine,
@@ -31,7 +32,7 @@ from .util import (
 
 
 def _convert_to_nested_tensor(v, input_ids_lengths):
-    """Convert regular tensor to NestedTensor, slicing according to input_ids_lengths.
+    """Align labels to jagged full-input lengths, trimming dense right-padding.
 
     Args:
         v: Tensor to convert, shape [batch, seq_len]
@@ -55,7 +56,10 @@ def _convert_to_nested_tensor(v, input_ids_lengths):
         if vi.shape[0] > target_len:
             vi = vi[:target_len]
         elif vi.shape[0] < target_len:
-            vi = torch.cat([vi, torch.ones(target_len - vi.shape[0], dtype=vi.dtype, device=vi.device)])
+            raise ValueError(
+                f"sample {i}: label length {vi.shape[0]} is shorter than input length {target_len}; "
+                "missing labels cannot be inferred"
+            )
         v_split_list.append(vi)
 
     v = torch.nested.nested_tensor(v_split_list, layout=torch.jagged)
@@ -137,6 +141,16 @@ def gptmodel_forward_model_engine(
     assert data_format in ["thd", "bshd"], "data_format must be 'thd' or 'bshd'"
     pre_process = unwrap_model(model).pre_process
     post_process = unwrap_model(model).post_process
+    native_hybrid_model = is_native_hybrid_model(unwrap_model(model))
+    native_hybrid_mtp = mtp_enable_train and native_hybrid_model
+    native_hybrid_vlm = native_hybrid_model and vision_model
+    if native_hybrid_vlm:
+        if getattr(unwrap_model(model), "model_owns_packing", True):
+            raise RuntimeError("Native hybrid VLM training requires Bridge's expanded-sequence model wrapper.")
+        if getattr(unwrap_model(model).config, "context_parallel_size", 1) != 1 or local_cp_size not in (None, 1):
+            raise ValueError("Native hybrid VLM training currently requires context_parallel_size=1.")
+        if "pixel_values_videos" in multi_modal_inputs or "sound_clips" in multi_modal_inputs:
+            raise ValueError("Native hybrid VLM training currently supports image/text inputs only.")
 
     fp8 = unwrap_model(model).config.fp8
     use_fp8_padding = fp8 in ["e4m3", "hybrid"]
@@ -150,6 +164,11 @@ def gptmodel_forward_model_engine(
         model_kwargs["pixel_values_videos"] = multi_modal_inputs["pixel_values_videos"].to(input_ids.device)
     if "video_grid_thw" in multi_modal_inputs:
         model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
+    if native_hybrid_vlm and "pixel_values" in multi_modal_inputs:
+        if "imgs_sizes" not in multi_modal_inputs or "num_frames" not in multi_modal_inputs:
+            raise ValueError("Nemotron image inputs require imgs_sizes and num_frames from the SFT dataset.")
+        for key in ("imgs_sizes", "num_frames"):
+            model_kwargs[key] = multi_modal_inputs[key].to(input_ids.device)
 
     batch_size = input_ids.shape[0]
     if data_format == "thd":
@@ -159,13 +178,16 @@ def gptmodel_forward_model_engine(
             local_cp_size=local_cp_size,
             pad_to_length_bucket=pad_to_length_bucket,
             cp_layout=cp_layout,
+            include_total_tokens=native_hybrid_model,
         )
         # Rank-local THD rows + positions for every model and PP stage: rope LLMs only read positions
         # in MTP; MRoPE positions, when present, are read on every stage.
         input_ids_rmpad, packed_seq_params, position_ids_rmpad = preprocess_thd_engine(
             input_ids, pre_process=True, **thd_kwargs
         )
-        if vision_model:
+        # Nemotron inserts vision embeddings one-for-one into our packed stream;
+        # Qwen-style wrappers instead need the VLM-specific preprocessing below.
+        if vision_model and not native_hybrid_vlm:
             input_ids_rmpad, attention_mask, position_ids_rmpad = preprocess_vlm_thd_engine(
                 model, input_ids, input_ids_rmpad, packed_seq_params, position_ids, pad_token_id, **thd_kwargs
             )
@@ -181,25 +203,41 @@ def gptmodel_forward_model_engine(
             input_ids_lengths = input_ids_offsets.diff().tolist()
             response_attention_mask = logits_processor_args.get("response_attention_mask", None)
 
-            for k in ["label", "loss_mask"]:
-                v = logits_processor_args[k]
-                if k == "loss_mask":
-                    v = _build_mtp_loss_mask_nested(v, input_ids_lengths, response_attention_mask)
-                else:
-                    v = _convert_to_nested_tensor(v, input_ids_lengths)
-                logits_processor_args[k] = v
-                args[k] = preprocess_thd_engine(
-                    v,
+            label = _convert_to_nested_tensor(logits_processor_args["label"], input_ids_lengths)
+            loss_mask = _build_mtp_loss_mask_nested(
+                logits_processor_args["loss_mask"],
+                input_ids_lengths,
+                response_attention_mask,
+            )
+            logits_processor_args["label"] = label
+            logits_processor_args["loss_mask"] = loss_mask
+
+            if native_hybrid_mtp:
+                # Native MCore derives MTP targets from input_ids, attaches the
+                # auxiliary loss, and still returns logits when labels is None.
+                model_kwargs["labels"] = None
+                model_kwargs["loss_mask"] = preprocess_thd_engine(
+                    loss_mask,
                     pre_process=True,
-                    need_roll=True,
+                    need_roll=False,
                     use_fp8_padding=use_fp8_padding,
                     local_cp_size=local_cp_size,
                     pad_to_length_bucket=pad_to_length_bucket,
                     cp_layout=cp_layout,
-                )[0]
-
-            model_kwargs["labels"] = args["label"].contiguous()
-            model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
+                )[0].contiguous()
+            else:
+                for k, v in (("label", label), ("loss_mask", loss_mask)):
+                    args[k] = preprocess_thd_engine(
+                        v,
+                        pre_process=True,
+                        need_roll=True,
+                        use_fp8_padding=use_fp8_padding,
+                        local_cp_size=local_cp_size,
+                        pad_to_length_bucket=pad_to_length_bucket,
+                        cp_layout=cp_layout,
+                    )[0]
+                model_kwargs["labels"] = args["label"].contiguous()
+                model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
 
         if logits_processor_args and "loss_mask" in logits_processor_args:
             logits_processor_args.pop("loss_mask")
@@ -271,28 +309,41 @@ def gptmodel_forward_model_engine(
         )
 
         if mtp_enable_train and post_process:
-            args = {}
             # Use input_ids sequence length to ensure label and loss_mask alignment
             input_ids_offsets = input_ids.offsets()
             input_ids_lengths = input_ids_offsets.diff().tolist()
             response_attention_mask = logits_processor_args.get("response_attention_mask", None)
 
-            for k in ["label", "loss_mask"]:
-                v = logits_processor_args[k]
-                if k == "loss_mask":
-                    v = _build_mtp_loss_mask_nested(v, input_ids_lengths, response_attention_mask)
-                else:
-                    v = _convert_to_nested_tensor(v, input_ids_lengths)
-                logits_processor_args[k] = v
-                args[k] = preprocess_bshd_engine(
-                    v,
+            label = _convert_to_nested_tensor(logits_processor_args["label"], input_ids_lengths)
+            loss_mask = _build_mtp_loss_mask_nested(
+                logits_processor_args["loss_mask"],
+                input_ids_lengths,
+                response_attention_mask,
+            )
+            logits_processor_args["label"] = label
+            logits_processor_args["loss_mask"] = loss_mask
+
+            if native_hybrid_mtp:
+                model_kwargs["labels"] = None
+                model_kwargs["loss_mask"] = preprocess_bshd_engine(
+                    loss_mask,
                     pre_process=True,
-                    need_roll=True,
+                    need_roll=False,
                     use_fp8_padding=use_fp8_padding,
                     forced_max_seqlen=forced_max_seqlen,
-                )[0]
-            model_kwargs["labels"] = args["label"].contiguous()
-            model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
+                )[0].contiguous()
+            else:
+                args = {}
+                for k, v in (("label", label), ("loss_mask", loss_mask)):
+                    args[k] = preprocess_bshd_engine(
+                        v,
+                        pre_process=True,
+                        need_roll=True,
+                        use_fp8_padding=use_fp8_padding,
+                        forced_max_seqlen=forced_max_seqlen,
+                    )[0]
+                model_kwargs["labels"] = args["label"].contiguous()
+                model_kwargs["loss_mask"] = args["loss_mask"].contiguous()
 
         if logits_processor_args and "loss_mask" in logits_processor_args:
             logits_processor_args.pop("loss_mask")
@@ -300,7 +351,7 @@ def gptmodel_forward_model_engine(
             logits_processor_args.pop("response_attention_mask")
 
         # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
-        if vision_model:
+        if vision_model and not native_hybrid_vlm:
             input_ids_bshd, attention_mask = build_vlm_attn_mask_bshd(
                 input_ids, batch_size, pad_token_id, forced_max_seqlen=forced_max_seqlen
             )
@@ -310,7 +361,7 @@ def gptmodel_forward_model_engine(
         output_orig = model(
             input_ids=input_ids_bshd,
             attention_mask=attention_mask,
-            position_ids=None if vision_model else position_ids_bshd,
+            position_ids=None if vision_model and not native_hybrid_vlm else position_ids_bshd,
             **model_kwargs,
         )
         if post_process and logits_processor is not None:

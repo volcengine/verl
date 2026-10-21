@@ -310,6 +310,9 @@ class MegatronEngine(BaseEngine):
             )
         self.provider = None
         from verl.models.mcore.bridge import AutoBridge
+        from verl.models.mcore.mtp_support import validate_nemotron_super_vl_config
+
+        validate_nemotron_super_vl_config(self.model_config.hf_config, self.engine_config)
 
         # Use Megatron-Bridge to convert HF config to Megatron config
         bridge = AutoBridge.from_hf_pretrained(
@@ -345,6 +348,14 @@ class MegatronEngine(BaseEngine):
         # the provider here rather than via override_transformer_config.
         if self.is_value_model and hasattr(provider, "share_embeddings_and_output_weights"):
             provider_overrides["share_embeddings_and_output_weights"] = False
+
+        from verl.models.mcore.mtp_support import configure_native_hybrid_mtp
+
+        configure_native_hybrid_mtp(
+            provider,
+            self.model_config.mtp,
+            provider_overrides,
+        )
         if (
             self.model_config.hf_config.model_type == "deepseek_v4"
             and not self.model_config.mtp.enable

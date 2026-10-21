@@ -20,6 +20,7 @@ import logging
 import os
 import re
 from functools import wraps
+from io import BytesIO
 from typing import Any, Optional
 
 import numpy as np
@@ -27,8 +28,10 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, ListConfig
+from PIL import Image
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, ProcessorMixin
+from transformers.image_utils import load_image
 
 from verl.models.transformers.qwen2_vl import get_rope_index
 from verl.utils import hf_tokenizer
@@ -40,6 +43,36 @@ from verl.utils.tokenizer.chat_template import apply_chat_template, extract_syst
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def _pack_nemotron_omni_images(inputs: dict, patch_size: int) -> dict:
+    """Pack dynamic-resolution images for Megatron's RADIO encoder before collation."""
+    if "pixel_values_videos" in inputs or "sound_clips" in inputs:
+        raise NotImplementedError("Nemotron 3.5 Super VL SFT currently supports images and text only.")
+    if "pixel_values" not in inputs:
+        return inputs
+
+    pixel_values = inputs["pixel_values"]
+    sizes = torch.as_tensor(inputs["imgs_sizes"], dtype=torch.long)
+    if sizes.shape != (len(pixel_values), 2):
+        raise ValueError("Nemotron image sizes must contain one (height, width) pair per image.")
+    patches = []
+    for image, (height, width) in zip(pixel_values, sizes.tolist(), strict=True):
+        if image.shape != (3, height, width) or height % patch_size or width % patch_size:
+            raise ValueError("Nemotron pixel_values must be RGB images with dimensions divisible by patch_size.")
+        # RADIO flattens each patch in channel/row/column order and visits patches row by row.
+        patches.append(
+            image.reshape(3, height // patch_size, patch_size, width // patch_size, patch_size)
+            .permute(1, 3, 0, 2, 4)
+            .reshape(-1, 3 * patch_size * patch_size)
+        )
+    inputs["pixel_values"] = torch.cat(patches, dim=0)
+    inputs["imgs_sizes"] = sizes
+    inputs["num_frames"] = torch.ones(len(sizes), dtype=torch.long)
+    # These counts are used by the HF processor to expand image placeholders, not by the forward pass.
+    inputs.pop("num_patches", None)
+    inputs.pop("num_tokens", None)
+    return inputs
 
 
 def once(func):
@@ -103,6 +136,7 @@ class MultiTurnSFTDataset(Dataset):
         self.messages_key = config.get("messages_key", "messages")
         self.image_key = config.get("image_key", "images")
         self.video_key = config.get("video_key", "videos")
+        self.audio_key = config.get("audio_key", "audio")
         self.image_patch_size = config.get(
             "image_patch_size", processor.image_processor.patch_size if processor else None
         )
@@ -124,6 +158,9 @@ class MultiTurnSFTDataset(Dataset):
             tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
         self.processor = processor
+        self.is_nemotron_omni = (
+            processor is not None and processor.__class__.__name__ == "NemotronH_Omni_Reasoning_V3Processor"
+        )
 
         self._download()
         self._read_files_and_process()
@@ -218,13 +255,17 @@ class MultiTurnSFTDataset(Dataset):
             add_generation_prompt=False,
             tokenize=True,
             return_dict=True,
-            return_tensors="pt",
+            # This processor returns a list of images when resolutions differ. Its BatchFeature
+            # cannot convert that ragged list to a tensor; pack the images ourselves below.
+            return_tensors=None if self.is_nemotron_omni else "pt",
             **apply_chat_template_kwargs,
         )
 
         inputs = dict(inputs)
-        input_ids = inputs.pop("input_ids")[0]
-        attention_mask = inputs.pop("attention_mask")[0]
+        input_ids = torch.as_tensor(inputs.pop("input_ids"))[0]
+        attention_mask = torch.as_tensor(inputs.pop("attention_mask"))[0]
+        if self.is_nemotron_omni:
+            inputs = _pack_nemotron_omni_images(inputs, self.processor.image_processor.patch_size)
 
         # remove system prompt if exists
         if index != 0 and message["role"] != "system":
@@ -255,6 +296,21 @@ class MultiTurnSFTDataset(Dataset):
         messages: list = convert_nested_value_to_list_recursive(example[self.messages_key])
         images = example[self.image_key] if self.image_key in example else []
         videos = example[self.video_key] if self.video_key in example else []
+        if self.is_nemotron_omni:
+            audio = example.get(self.audio_key, [])
+            if len(videos) or (audio is not None and len(audio)):
+                raise NotImplementedError("Nemotron 3.5 Super VL SFT currently supports images and text only.")
+            for message in messages:
+                content = message["content"]
+                if isinstance(content, str):
+                    unsupported = any(token in content for token in ("<video>", "<audio>", "<so_embedding>"))
+                else:
+                    unsupported = any(
+                        part.get("type") in ("video", "video_url", "input_video", "audio", "audio_url", "input_audio")
+                        for part in content or []
+                    )
+                if unsupported:
+                    raise NotImplementedError("Nemotron 3.5 Super VL SFT currently supports images and text only.")
 
         image_offset, video_offset = 0, 0
         for message in messages:
@@ -273,7 +329,17 @@ class MultiTurnSFTDataset(Dataset):
             segments = [item for item in segments if item != ""]
             for segment in segments:
                 if segment == "<image>":
-                    image = process_image(images[image_offset], image_patch_size=self.image_patch_size)
+                    image = images[image_offset]
+                    if self.is_nemotron_omni:
+                        # Let the model's own processor choose the resolution and interpolation.
+                        if isinstance(image, dict):
+                            if image.get("bytes") is not None:
+                                image = Image.open(BytesIO(image["bytes"]))
+                            else:
+                                image = image.get("image", image.get("path"))
+                        image = load_image(image)
+                    else:
+                        image = process_image(image, image_patch_size=self.image_patch_size)
                     content_list.append({"type": "image", "image": image})
                     image_offset += 1
                 elif segment == "<video>":
@@ -398,7 +464,7 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-            if len(multi_modal_inputs) > 0:
+            if len(multi_modal_inputs) > 0 or self.is_nemotron_omni:
                 res["multi_modal_inputs"] = multi_modal_inputs
             return res
         elif self.pad_mode == DatasetPadMode.NO_PADDING:
@@ -416,7 +482,7 @@ class MultiTurnSFTDataset(Dataset):
                 "position_ids": position_ids,
                 "loss_mask": loss_mask,
             }
-            if len(multi_modal_inputs) > 0:
+            if len(multi_modal_inputs) > 0 or self.is_nemotron_omni:
                 res["multi_modal_inputs"] = multi_modal_inputs
             return res
         else:
@@ -436,7 +502,7 @@ class MultiTurnSFTDataset(Dataset):
             add_generation_prompt=False,
             tokenize=True,
             return_dict=True,
-            return_tensors="pt",
+            return_tensors=None if self.is_nemotron_omni else "pt",
             **apply_chat_template_kwargs,
         )
 
@@ -449,7 +515,7 @@ class MultiTurnSFTDataset(Dataset):
             "input_ids as the final input_ids. "
         )
 
-        if not torch.equal(input_ids, inputs["input_ids"].squeeze(0)):
+        if not torch.equal(input_ids, torch.as_tensor(inputs["input_ids"]).squeeze(0)):
             if self.ignore_input_ids_mismatch:
                 logger.warning_once(error_message)
             else:

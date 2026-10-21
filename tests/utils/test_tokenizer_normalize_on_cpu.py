@@ -66,3 +66,18 @@ def test_normalize_token_ids_valid_outputs(tokenized_output, expected):
 def test_normalize_token_ids_invalid_outputs(tokenized_output):
     with pytest.raises(TypeError):
         normalize_token_ids(tokenized_output)
+
+
+def test_hf_processor_accepts_nemotron_omni(monkeypatch):
+    from transformers import AutoConfig, AutoProcessor
+
+    from verl.utils.tokenizer import hf_processor
+
+    processor = type("NemotronH_Omni_Reasoning_V3Processor", (), {})()
+    config = object()
+    monkeypatch.setattr(AutoProcessor, "from_pretrained", lambda *args, **kwargs: processor)
+    monkeypatch.setattr(AutoConfig, "from_pretrained", lambda *args, **kwargs: config)
+
+    assert hf_processor("nemotron-omni", trust_remote_code=True) is processor
+    assert processor.config is config
+    assert not hasattr(processor, "get_rope_index")

@@ -142,7 +142,7 @@ def wrap_model_chunks_with_layerwise_aware_ddp(
     return ddp_models
 
 
-_HF_CONFIG_CHILD_NAMES = ("text_config", "language_config", "thinker_config", "model_config")
+_HF_CONFIG_CHILD_NAMES = ("text_config", "llm_config", "language_config", "thinker_config", "model_config")
 
 
 def _get_hf_text_config(hf_config: PretrainedConfig):
@@ -1142,27 +1142,24 @@ def _get_mtp_num_layers(hf_config):
     """Get MTP layer count from various config formats.
 
     Supports:
-        - num_nextn_predict_layers (DeepSeek, Qwen3 style)
-        - mtp_num_hidden_layers (Qwen3.5 style, in hf_config or text_config)
+        - num_nextn_predict_layers (DeepSeek, Nemotron style)
+        - mtp_num_hidden_layers (Qwen3.5 style)
+        - Either field under text_config or llm_config for multimodal models
     """
-    if hasattr(hf_config, "num_nextn_predict_layers") and hf_config.num_nextn_predict_layers > 0:
-        return hf_config.num_nextn_predict_layers
-    if hasattr(hf_config, "mtp_num_hidden_layers") and hf_config.mtp_num_hidden_layers > 0:
-        return hf_config.mtp_num_hidden_layers
-    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
-        if hf_config.text_config.mtp_num_hidden_layers > 0:
-            return hf_config.text_config.mtp_num_hidden_layers
+    for config in (hf_config, getattr(hf_config, "text_config", None), getattr(hf_config, "llm_config", None)):
+        for field in ("num_nextn_predict_layers", "mtp_num_hidden_layers"):
+            count = getattr(config, field, 0)
+            if count is not None and count > 0:
+                return count
     return 0
 
 
 def _set_mtp_num_layers(hf_config, value: int):
     """Set MTP layer count in the appropriate config field."""
-    if hasattr(hf_config, "num_nextn_predict_layers"):
-        hf_config.num_nextn_predict_layers = value
-    if hasattr(hf_config, "mtp_num_hidden_layers"):
-        hf_config.mtp_num_hidden_layers = value
-    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
-        hf_config.text_config.mtp_num_hidden_layers = value
+    for config in (hf_config, getattr(hf_config, "text_config", None), getattr(hf_config, "llm_config", None)):
+        for field in ("num_nextn_predict_layers", "mtp_num_hidden_layers"):
+            if hasattr(config, field):
+                setattr(config, field, value)
 
 
 def check_mtp_config(model_config: HFModelConfig, engine_config: McoreEngineConfig):
@@ -1187,6 +1184,15 @@ def check_mtp_config(model_config: HFModelConfig, engine_config: McoreEngineConf
         # Force the provider override so MTP remains disabled after that reload.
         engine_config.override_transformer_config["mtp_num_layers"] = None
         engine_config.override_transformer_config.pop("mtp_loss_scaling_factor", None)
+        # Provider type is not known yet. Remove stale HybridProvider-only
+        # settings here; configure_native_hybrid_mtp will add explicit disabled
+        # values later if the resolved provider is actually hybrid.
+        for hybrid_key in (
+            "mtp_hybrid_override_pattern",
+            "mtp_use_repeated_layer",
+            "keep_mtp_spec_in_bf16",
+        ):
+            engine_config.override_transformer_config.pop(hybrid_key, None)
 
         # Reference models may inherit an actor layout containing MTP layers.
         # Reference scoring only needs next-token log probabilities, not auxiliary
@@ -1227,17 +1233,26 @@ def patch_engine_mtp(module, model_config):
         module: The model module to patch. Can be a single module or a list of modules.
         model_config: The model configuration containing MTP settings.
     """
-    logger.warning("Applying mtp patch...")
-    from verl.models.mcore.mtp_patch import (
-        patch_mtp_layer_checkpointed_forward,
-        patch_mtp_layer_get_embeddings,
-        patch_postprocess,
-    )
-
-    print(module)
+    from verl.models.mcore.mtp_support import is_native_hybrid_model
 
     modules = module if isinstance(module, list) else [module]
     for m in modules:
+        if is_native_hybrid_model(unwrap_model(m)):
+            if not model_config.mtp.enable_train:
+                raise ValueError(
+                    "HybridModel does not support model.mtp.enable=True with model.mtp.enable_train=False "
+                    "in this Megatron-Core version."
+                )
+            logger.info("Using Megatron-Core native HybridModel MTP; legacy GPT MTP patches are disabled.")
+            continue
+
+        from verl.models.mcore.mtp_patch import (
+            patch_mtp_layer_checkpointed_forward,
+            patch_mtp_layer_get_embeddings,
+            patch_postprocess,
+        )
+
+        logger.warning("Applying legacy GPT MTP patches.")
         patch_postprocess(m)
         patch_mtp_layer_checkpointed_forward(m)
         if model_config.mtp.detach_encoder:
