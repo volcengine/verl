@@ -981,8 +981,11 @@ def _nvfp4_per_token_worker(monkeypatch, events, load_weights):
     monkeypatch.setattr(vllm_reload, "initialize_layerwise_reload", lambda model: events.append("initialize"))
     monkeypatch.setattr(vllm_reload, "finalize_layerwise_reload", lambda model, config: events.append("finalize"))
     monkeypatch.setattr(
-        per_token, "attest_nvfp4_per_token_runtime", lambda model, **partition: events.append(("attest", partition))
+        per_token, "attest_nvfp4_per_token_runtime", lambda model, config: events.append(("attest", config))
     )
+    # One routed-expert layer with one expert, quantized per token.
+    layer = types.SimpleNamespace(global_num_experts=1)
+    monkeypatch.setattr(per_token, "routed_expert_layers", lambda model, config: {0: (layer, True)})
     suffixes = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
     buckets = [
         [(f"model.layers.0.mlp.experts.0.{projection}.{suffix}", torch.ones(1)) for suffix in suffixes]
@@ -1000,7 +1003,6 @@ def _nvfp4_per_token_worker(monkeypatch, events, load_weights):
     worker._nvfp4_per_token_config = build_compressed_tensors_config(
         linear=None, moe="NVFP4_PER_TOKEN", ignore=[], config_file=None
     )
-    worker.model_runner.vllm_config.model_config.hf_config = types.SimpleNamespace(num_hidden_layers=1, num_experts=1)
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-nvfp4-per-token-reload.sock"
     return worker, [[name for name, _ in bucket] for bucket in buckets]
 
@@ -1022,7 +1024,7 @@ def test_nvfp4_per_token_update_uses_layerwise_reload_per_bucket(monkeypatch):
         ("load", names[2]),
         "ack2",
         "finalize",
-        ("attest", {"quantized_layers": [0], "bf16_layers": []}),
+        ("attest", worker._nvfp4_per_token_config),
     ]
 
 
