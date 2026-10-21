@@ -51,8 +51,9 @@ check = _load_by_path("vllm_mxfp8_refit_check_under_test", "verl/utils/vllm/vllm
 
 
 @pytest.fixture(autouse=True)
-def _check_enabled(monkeypatch):
-    monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK", raising=False)
+def _check_raises(monkeypatch):
+    # These tests exercise the failure path; the default mode (warn) is tested on its own.
+    monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", "raise")
     monkeypatch.setattr(check, "_WARNED", set())
 
 
@@ -292,3 +293,78 @@ def test_refit_finalize_checks_the_layers_against_the_weights_the_sync_wrote(mon
     _sync(model, 1)
     with pytest.raises(RuntimeError, match="refit self-check failed on vllm layer 'proj'"):
         quant_utils.process_quanted_weights_after_loading(model, state)
+
+
+def _monolithic_experts(**routing):
+    """RoutedExperts on a monolithic kernel that, like vLLM's, routes inside and applies routed_scaling_factor."""
+    model = torch.nn.Module()
+    model.experts = layer = _RoutedExperts()
+    layer.quant_method.is_monolithic = True
+    layer.routed_scaling_factor = 1.0
+    for key, value in routing.items():
+        setattr(layer, key, value)
+
+    def forward_monolithic(x, router_logits):
+        s13, s2 = layer._kernel_scales
+        top = torch.softmax(router_logits.float(), dim=-1).topk(layer.top_k, dim=-1)
+        out = torch.zeros(x.shape[0], HID)
+        for r in range(x.shape[0]):
+            for weight, e in zip(top.values[r].tolist(), top.indices[r].tolist(), strict=True):
+                if weight:
+                    w13, w2 = layer.w13_weight.data[e], layer.w2_weight.data[e]
+                    out[r] += weight * mxfp8_moe_expert_reference(x[r : r + 1], w13, s13[e], w2, s2[e])[0]
+        return (out * layer.routed_scaling_factor).to(torch.bfloat16)
+
+    layer.forward_monolithic = forward_monolithic
+    return model
+
+
+def test_monolithic_probe_runs_where_the_routing_parameters_are_neutral():
+    model = _monolithic_experts()
+    staged = _stage(model)
+    _sync(model, 1)
+    snapshot = check.snapshot_mxfp8_moe_for_check(model)
+    _reprocess(staged)
+    check.self_check_mxfp8_moe(snapshot)  # the kernel's own routing gives the probed expert weight 1
+
+
+@pytest.mark.parametrize(
+    ("routing", "reason"),
+    [
+        ({"routed_scaling_factor": 2.5}, "routed scaling factor 2.5"),  # DeepSeek-V3: the kernel scales the output
+        ({"use_grouped_topk": True, "num_expert_group": 8}, "grouped top-k routing"),
+        ({"e_score_correction_bias": torch.zeros(E)}, "a score correction bias"),
+        ({"custom_routing_function": lambda *args: None}, "a custom routing function"),
+    ],
+)
+def test_monolithic_probe_is_skipped_once_where_the_kernel_routing_cannot_pin_one_expert(routing, reason, caplog):
+    model = _monolithic_experts(**routing)
+    _stage(model)
+    with caplog.at_level(logging.WARNING, logger=check.logger.name):
+        assert check.snapshot_mxfp8_moe_for_check(model) is None
+        assert check.snapshot_mxfp8_moe_for_check(model) is None
+    msgs = [r.getMessage() for r in caplog.records if "MoE refit check skipped on experts" in r.getMessage()]
+    assert len(msgs) == 1 and reason in msgs[0]
+
+
+def test_the_modular_probe_ignores_the_routing_parameters():
+    model = torch.nn.Module()
+    model.experts = _RoutedExperts()
+    model.experts.routed_scaling_factor = 2.5  # bypassed: forward_modular takes the hand-built top-k
+    staged = _stage(model)
+    _sync(model, 1)
+    snapshot = check.snapshot_mxfp8_moe_for_check(model)
+    _reprocess(staged)
+    check.self_check_mxfp8_moe(snapshot)
+
+
+def test_by_default_a_stale_expert_is_logged_and_the_sync_goes_on(monkeypatch, caplog):
+    monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK")
+    model = torch.nn.Module()
+    model.experts = _RoutedExperts()
+    _stage(model)
+    _sync(model, 1)
+    snapshot = check.snapshot_mxfp8_moe_for_check(model)  # nothing re-derives the kernel copy afterwards
+    with caplog.at_level(logging.WARNING):
+        check.self_check_mxfp8_moe(snapshot)
+    assert "vllm MoE layer 'experts', expert 0" in caplog.text and "The sync goes on" in caplog.text

@@ -30,7 +30,8 @@ a few percent; a layer reading a stale or mis-laid-out scale differs by O(1).
 
 Knobs (environment variables, read at call time):
 
-- ``VERL_MXFP8_REFIT_CHECK`` — ``0`` disables the check (default enabled).
+- ``VERL_MXFP8_REFIT_CHECK`` — ``warn`` (default) logs a failed check and lets the
+  sync go on, ``raise`` stops the sync with ``RuntimeError``, ``0`` skips the checks.
 - ``VERL_MXFP8_REFIT_CHECK_TOL`` — relative-error threshold (default ``0.25``).
 - ``VERL_MXFP8_REFIT_CHECK_MOE_TOL`` — threshold for the MoE expert probe
   (defaults to the linear threshold; the gated MLP compounds the activation
@@ -96,8 +97,20 @@ def _describe_probe_error(err: BaseException) -> str:
     return text
 
 
+def refit_check_mode() -> str:
+    """``VERL_MXFP8_REFIT_CHECK``: ``warn`` (default), ``raise`` or ``0`` (off)."""
+    return os.environ.get("VERL_MXFP8_REFIT_CHECK", "warn").strip().lower()
+
+
 def refit_check_enabled() -> bool:
-    return os.environ.get("VERL_MXFP8_REFIT_CHECK", "1") != "0"
+    return refit_check_mode() not in ("0", "off", "false")
+
+
+def report_refit_check_failure(msg: str) -> None:
+    """Raise ``msg`` under ``VERL_MXFP8_REFIT_CHECK=raise``; otherwise log it and let the sync go on."""
+    if refit_check_mode() == "raise":
+        raise RuntimeError(msg + " VERL_MXFP8_REFIT_CHECK=warn only logs this, =0 skips the check.")
+    logger.warning("%s The sync goes on; VERL_MXFP8_REFIT_CHECK=raise stops it here, =0 skips the check.", msg)
 
 
 def refit_check_tolerance() -> float:
@@ -164,34 +177,33 @@ def assert_mxfp8_linear_matches(
     *,
     engine: str,
 ) -> float:
-    """Run the probe and raise ``RuntimeError`` with an actionable message when it fails.
+    """Run the probe and report a failure with an actionable message (``report_refit_check_failure``).
 
     Returns the measured relative error. Errors inside the probe itself (an
     ``apply`` signature this engine version does not support, a CPU-only build)
-    are logged and skipped rather than raised: the check must never be the
+    are logged and skipped rather than reported: the check must never be the
     reason a healthy refit fails.
     """
     tol = refit_check_tolerance()
     try:
         rel = probe_mxfp8_linear(apply_fn, qweight, scale_u8)
     except _NonFiniteReference as err:
-        raise RuntimeError(
-            f"MXFP8 refit self-check failed on {engine} layer '{name}': {err}. Set VERL_MXFP8_REFIT_CHECK=0 to "
-            "bypass (not recommended)."
-        ) from err
+        report_refit_check_failure(f"MXFP8 refit self-check failed on {engine} layer '{name}': {err}.")
+        return float("nan")
     except Exception as err:  # noqa: BLE001 - the probe is best-effort
         logger.warning("mxfp8 refit check skipped on %s (%s): %s", name, engine, _describe_probe_error(err))
         return float("nan")
     if not rel <= tol:  # also fails a NaN error, which would compare as within tolerance
-        raise RuntimeError(
+        report_refit_check_failure(
             f"MXFP8 refit self-check failed on {engine} layer '{name}': the layer's quantized GEMM disagrees "
             f"with the dequantized reference by {rel:.3f} relative error (tolerance {tol}). This is the "
             "signature of kernel scale layouts that were not re-derived after a weight sync (fresh weights "
             "paired with stale swizzled/packed scales), or of a scale/weight layout the engine version "
             "changed. Check the engine version against docs/low_precision/fp8.md, the selected MXFP8 GEMM "
-            "backend, and that this layer is meant to be quantized at all. Set VERL_MXFP8_REFIT_CHECK=0 to "
-            "bypass (not recommended) or VERL_MXFP8_REFIT_CHECK_TOL to loosen the threshold."
+            "backend, and that this layer is meant to be quantized at all. VERL_MXFP8_REFIT_CHECK_TOL "
+            "loosens the threshold."
         )
+        return rel
     _announce(
         (engine, "linear"), "mxfp8 refit self-check passed on %s (%s): rel err %.4f <= tol %.2f", name, engine, rel, tol
     )
@@ -280,17 +292,17 @@ def assert_mxfp8_moe_expert_matches(
     reduce_ref: Callable[[torch.Tensor], torch.Tensor] | None = None,
     up_first: bool = False,
 ) -> float:
-    """MoE counterpart of ``assert_mxfp8_linear_matches``: raise on a mismatch, skip (warn) on probe errors."""
+    """MoE counterpart of ``assert_mxfp8_linear_matches``: report a mismatch, skip (warn) on probe errors."""
     tol = refit_check_moe_tolerance()
     try:
         rel = probe_mxfp8_moe_expert(
             apply_fn, w13_q, w13_scale_u8, w2_q, w2_scale_u8, reduce_ref=reduce_ref, up_first=up_first
         )
     except _NonFiniteReference as err:
-        raise RuntimeError(
-            f"MXFP8 refit self-check failed on {engine} MoE layer '{name}', expert {expert_id}: {err}. Set "
-            "VERL_MXFP8_REFIT_CHECK=0 to bypass (not recommended)."
-        ) from err
+        report_refit_check_failure(
+            f"MXFP8 refit self-check failed on {engine} MoE layer '{name}', expert {expert_id}: {err}."
+        )
+        return float("nan")
     except Exception as err:  # noqa: BLE001 - the probe is best-effort
         logger.warning(
             "mxfp8 MoE refit check skipped on %s expert %d (%s): %s",
@@ -301,14 +313,15 @@ def assert_mxfp8_moe_expert_matches(
         )
         return float("nan")
     if not rel <= tol:  # also fails a NaN error, which would compare as within tolerance
-        raise RuntimeError(
+        report_refit_check_failure(
             f"MXFP8 refit self-check failed on {engine} MoE layer '{name}', expert {expert_id}: the layer routed "
             f"to this expert disagrees with the dequantized reference by {rel:.3f} relative error (tolerance "
             f"{tol}). This is the signature of expert scales (w13_/w2_weight_scale) whose kernel layout was "
             "not re-derived after a weight sync, or of a MoE runner whose scale layout the loader does not "
-            "know. Check the engine version and MoE backend against docs/low_precision/fp8.md. Set "
-            "VERL_MXFP8_REFIT_CHECK=0 to bypass (not recommended) or VERL_MXFP8_REFIT_CHECK_MOE_TOL to loosen."
+            "know. Check the engine version and MoE backend against docs/low_precision/fp8.md. "
+            "VERL_MXFP8_REFIT_CHECK_MOE_TOL loosens the threshold."
         )
+        return rel
     _announce(
         (engine, "moe"),
         "mxfp8 MoE refit self-check passed on %s expert %d (%s): rel err %.4f <= tol %.2f",

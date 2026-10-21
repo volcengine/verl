@@ -30,7 +30,8 @@ logits cannot pin one expert at weight 1 (sigmoid, grouped, biased or custom rou
 fused shared experts, a routed scaling factor, or a TRT-LLM routing method other than
 the softmax ones), under expert parallelism, and under TP without ``reduce_results``.
 
-The probes run eagerly, so storage that a CUDA graph captured is not checked.
+A failed probe is reported (``VERL_MXFP8_REFIT_CHECK=raise`` stops the sync). The probes
+run eagerly, so storage that a CUDA graph captured is not checked.
 ``VERL_MXFP8_REFIT_CHECK=0`` disables them.
 """
 

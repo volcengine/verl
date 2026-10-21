@@ -103,6 +103,8 @@ _STUB_PATCHES: list = []
 @pytest.fixture(autouse=True)
 def _undo_sglang_stubs(monkeypatch):
     _STUB_PATCHES.append(monkeypatch)
+    # The self-check tests exercise the failure path; the default mode (warn) has its own tests.
+    monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", "raise")
     yield
     _STUB_PATCHES.pop()
 
@@ -807,3 +809,13 @@ def test_the_delta_engine_is_refused_for_any_quantized_rollout(rollout, model):
 
 def test_the_delta_engine_serves_a_bf16_rollout():
     quant_utils.refuse_delta_sync_if_quantized(_rollout(), _model())
+
+
+def test_by_default_unwritten_expert_scales_are_logged_and_the_sync_goes_on(monkeypatch, caplog):
+    monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK")
+    m = _two_moe_model()
+    quant_utils.load_and_reprocess(m, _moe_scales("moe1"))  # moe2's scales are not part of this sync
+    with caplog.at_level(logging.WARNING):
+        quant_utils.load_and_reprocess(m, quant_utils.finalize_tensors())
+    assert "moe2.w13_weight_scale_inv: the weight sync did not write 512 of 512" in caplog.text
+    assert m.moe2.quant_method.calls == 2 and quant_utils._SYNC_FP8_ATTR not in m.__dict__  # the sync finished

@@ -244,6 +244,32 @@ Two configurations are refused before anything is written:
 Do not set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` for an SGLang rollout: verl starts SGLang
 with `enable_memory_saver=True`, which refuses that allocator mode.
 
+### Post-sync self-check
+
+After loading, both engines derive kernel-specific copies of the MXFP8 weights and scales (swizzled
+scales, shuffled or packed experts). If a sync skips that step, the kernel pairs fresh weights with stale
+scales while every shape and dtype still matches. After every sync, verl therefore runs the smallest MXFP8
+linear layer and one expert of the smallest MXFP8 MoE layer through their own kernels on a small random
+input and compares the output with a BF16 reference on the dequantized canonical weights. Healthy layers
+read a relative error of about 0.03 (dense) and 0.05 (experts); a stale layout reads O(1).
+
+- `VERL_MXFP8_REFIT_CHECK=warn` (the default) logs a failed check and lets the sync go on, `=raise` stops
+  the sync, `=0` skips the checks. `VERL_MXFP8_REFIT_CHECK_TOL` (default 0.25) and
+  `VERL_MXFP8_REFIT_CHECK_MOE_TOL` set the thresholds.
+- On SGLang, the refit loader also reports experts whose scales the sync did not write.
+- The expert probe is skipped, with a warning, where its made-up routing cannot send every row to one
+  expert at weight 1. On vLLM: expert or data parallelism, non-SiLU gates, and, on monolithic MoE kernels, a
+  routed scaling factor, grouped top-k, a score correction bias or custom routing. On SGLang: expert
+  parallelism, TP without `reduce_results`, and non-softmax, grouped, biased or custom routing.
+
+What it does not show:
+
+- It samples one dense layer and one expert per sync; a layer outside the sample can still be stale.
+- It runs the kernels eagerly. A re-derivation into new storage, instead of the storage a CUDA graph
+  captured, passes the probe while graph replays keep reading the old values. That the captured storage is
+  updated rests on indirect evidence (the re-derived layouts are copied back in place, and the KL stays in
+  its healthy range), not on a graph replay.
+
 ---
 
 ## Citation

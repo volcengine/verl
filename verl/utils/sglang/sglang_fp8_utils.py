@@ -177,19 +177,21 @@ _UNWRITTEN_SCALE = 0xFF
 
 
 def _check_moe_scales_written(name: str, module: torch.nn.Module, staged_names: Iterable[str]) -> None:
-    """Raise if a staged expert scale still holds the staging sentinel after ``load_weights``."""
+    """Report a staged expert scale that still holds the staging sentinel after ``load_weights``."""
+    from verl.utils.mxfp8_refit_check import report_refit_check_failure
+
     for sname in staged_names:
         data = getattr(module, sname).data
         unwritten = int((data == _UNWRITTEN_SCALE).sum().item())
         if unwritten == 0:
             continue
-        raise RuntimeError(
+        report_refit_check_failure(
             f"{name}.{sname}: the weight sync did not write {unwritten} of {data.numel()} expert scale entries "
             "(they still hold the 0xFF staging sentinel). The sync shipped these experts without MXFP8 scales - "
             "typically their HF names miss the sync-side quantization rule (verl/utils/fp8_utils.py, e.g. "
             "Mixtral's block_sparse_moe.experts.N.w1/w2/w3) while the engine built them as fp8, so the engine "
             "cast bf16 weights into the fp8 buffer and would pair them with NaN scales. Fix the sync rule or "
-            "quantization_config.ignored_layers so both sides agree; VERL_MXFP8_REFIT_CHECK=0 bypasses this check."
+            "quantization_config.ignored_layers so both sides agree."
         )
 
 

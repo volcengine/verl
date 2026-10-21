@@ -21,7 +21,8 @@ linear layer (``CompressedTensorsLinearMethod`` with the
 MoE layer (``CompressedTensorsW8A8Mxfp8MoEMethod``); after it, the check
 functions run those layers through their own kernels and compare the output
 with the dequantized reference (``verl.utils.mxfp8_refit_check``). A kernel copy
-that did not follow the sync raises instead of serving the old weights.
+that did not follow the sync is reported (``VERL_MXFP8_REFIT_CHECK=raise`` stops the
+sync) instead of serving the old weights silently.
 
 The probes run eagerly, so storage that a CUDA graph captured is not checked.
 ``VERL_MXFP8_REFIT_CHECK=0`` disables both checks.
@@ -155,6 +156,16 @@ def snapshot_mxfp8_moe_for_check(model):
     if act is not None and "silu" not in str(getattr(act, "value", act)).lower():
         logger.debug("mxfp8 MoE refit check skipped on %s: activation %s is not the SiLU gate", name, act)
         return None
+    problem = _monolithic_routing_problem(module)
+    if problem is not None:
+        _warn_once(
+            f"moe-routing:{name}",
+            "mxfp8 MoE refit check skipped on %s (vllm): %s, which the monolithic MoE kernel applies to the probe's "
+            "router logits, so they cannot route every row to one expert at weight 1",
+            name,
+            problem,
+        )
+        return None
     w13, w2 = module.w13_weight.data, module.w2_weight.data
     s13, s2 = module.w13_weight_scale.data, module.w2_weight_scale.data
     if not (_is_canonical_scale(w13, s13) and _is_canonical_scale(w2, s2)):
@@ -177,12 +188,36 @@ def snapshot_mxfp8_moe_for_check(model):
     )
 
 
+def _monolithic_routing_problem(module) -> str | None:
+    """Why made-up router logits cannot pin one expert at weight 1 through this layer's kernel, or None.
+
+    A monolithic kernel (``CompressedTensorsW8A8Mxfp8MoEMethod.apply_monolithic``) routes inside the kernel and
+    receives the layer's routing parameters with the logits: ``routed_scaling_factor`` scales the output, and
+    grouped top-k, a score correction bias or a custom routing function change which experts the logits select.
+    A modular kernel takes the hand-built top-k and never sees them.
+    """
+    if not getattr(getattr(module, "quant_method", None), "is_monolithic", False):
+        return None
+    factor = getattr(module, "routed_scaling_factor", None)
+    if factor not in (None, 1, 1.0):
+        return f"routed scaling factor {factor}"
+    if getattr(module, "use_grouped_topk", False) or (getattr(module, "num_expert_group", None) or 1) > 1:
+        return "grouped top-k routing"
+    if getattr(module, "e_score_correction_bias", None) is not None:
+        return "a score correction bias"
+    if getattr(module, "custom_routing_function", None) is not None:
+        return "a custom routing function"
+    return None
+
+
 def _route_everything_to_vllm_expert(module, expert: int):
     """``apply_fn(x)`` running the RoutedExperts module with every row routed to ``expert`` at weight 1.
 
-    Bypasses the MoERunner (router, shared experts, routed_scaling_factor, final all-reduce) and
-    calls the weight holder directly: ``forward_modular`` with hand-built top-k for modular kernels,
-    ``forward_monolithic`` with a one-hot-dominant logit row for monolithic ones.
+    Calls the weight holder directly, past the MoERunner (router, shared experts, final all-reduce):
+    ``forward_modular`` with a hand-built top-k for modular kernels, which also bypasses the layer's
+    ``routed_scaling_factor``; ``forward_monolithic`` with a one-hot-dominant logit row for monolithic
+    ones, whose kernel still applies the layer's routing parameters (see ``_monolithic_routing_problem``,
+    which keeps the probe off the layers where they matter).
     """
 
     def _apply(x: torch.Tensor) -> torch.Tensor:

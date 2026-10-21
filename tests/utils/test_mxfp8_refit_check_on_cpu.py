@@ -13,6 +13,8 @@
 # limitations under the License.
 """CPU tests for the MXFP8 post-refit self-check (dequant reference + probe)."""
 
+import logging
+
 import pytest
 import torch
 
@@ -26,6 +28,12 @@ from verl.utils.mxfp8_refit_check import (
 )
 
 N, K = 16, 128
+
+
+@pytest.fixture(autouse=True)
+def _check_raises(monkeypatch):
+    # These tests exercise the failure path; the default mode (warn) has its own tests below.
+    monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", "raise")
 
 
 def _fake_layer(seed=0):
@@ -212,3 +220,25 @@ def test_a_nan_error_fails_the_check(monkeypatch):
         m.assert_mxfp8_moe_expert_matches("moe", 0, None, None, None, None, None, engine="sglang")
     with pytest.raises(RuntimeError, match="nan relative error"):
         m.assert_mxfp8_linear_matches("lin", None, None, None, engine="vllm")
+
+
+def test_by_default_a_failed_check_is_logged_and_the_sync_goes_on(monkeypatch, caplog):
+    monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK")
+    q, scale = _fake_layer()
+    stale = mxfp8_dequantize(q, scale + 1)
+    with caplog.at_level(logging.WARNING, logger="verl.utils.mxfp8_refit_check"):
+        rel = assert_mxfp8_linear_matches(
+            "l0", lambda x: (x.float() @ stale.t()).to(torch.bfloat16), q, scale, engine="test"
+        )
+    assert rel > 0.9
+    assert "refit self-check failed on test layer 'l0'" in caplog.text and "VERL_MXFP8_REFIT_CHECK=raise" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("value", "mode", "enabled"), [("warn", "warn", True), ("raise", "raise", True), ("0", "0", False)]
+)
+def test_the_three_modes(monkeypatch, value, mode, enabled):
+    from verl.utils import mxfp8_refit_check as m
+
+    monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", value)
+    assert m.refit_check_mode() == mode and m.refit_check_enabled() is enabled
