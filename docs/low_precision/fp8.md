@@ -218,6 +218,32 @@ Notes:
   the KV cache.
 - `lm_head`, the token embedding and MoE routers stay in BF16 on the rollout, as in training.
 
+### MXFP8 Rollout on SGLang
+
+```yaml
+actor_rollout_ref.rollout:
+  name: sglang
+  quantization:
+    linear: MXFP8
+    moe: MXFP8
+```
+
+SGLang serves this preset with its own MXFP8 method (`quant_method: mxfp8`): verl translates the
+configuration, exports the scales under SGLang's names and re-derives SGLang's kernel layouts after every
+weight sync; see [Low-Precision Rollout and Quantization-Aware Training](qat.md). verl pins SGLang's MXFP8
+dense and MoE kernels to DeepGEMM; `VERL_ROLLOUT_USE_DEEP_GEMM=0` leaves the choice to SGLang.
+
+Two configurations are refused before anything is written:
+
+- MoE layers kept in BF16 (`rollout.quantization.ignore`) whose experts the MoE runner re-laid out at load:
+  SGLang's FlashInfer TRT-LLM runner stores BF16 experts in a block layout a weight sync cannot write.
+  DeepGEMM keeps them in checkpoint layout.
+- The delta checkpoint engine with any quantized rollout (`rollout.quantization` or the checkpoint's own
+  `quantization_config`): it applies its payloads without the trainer-side weight quantization.
+
+Do not set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` for an SGLang rollout: verl starts SGLang
+with `enable_memory_saver=True`, which refuses that allocator mode.
+
 ---
 
 ## Citation
