@@ -179,8 +179,6 @@ python3 -m verl.trainer.main_ppo \
     ...
 ```
 
-Use `actor_rollout_ref.rollout.name=sglang` for SGLang. For complete scripts, see the [low-precision recipe directory](https://github.com/verl-project/verl-recipe/tree/main/low_precision).
-
 ## Measuring the mismatch
 
 `scripts/rollout_logprob_diff.py` runs one rollout, recomputes the log-probs with the Megatron actor, and reports the gap (`kl`, `k3_kl`, absolute log-prob difference, etc.). Use it to check a configuration before a long run:
