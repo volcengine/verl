@@ -29,6 +29,7 @@ actors and GPUs when the driver exits).
 """
 
 import logging
+import math
 import os
 from typing import Any
 
@@ -48,6 +49,25 @@ class CheckpointEngineInitError(RuntimeError):
     """Raised when checkpoint-engine process-group init exceeds its timeout."""
 
 
+def _resolve_timeout_s(timeout_s: float | None) -> float:
+    """Return the init timeout in seconds, rejecting values that would not bound the wait.
+
+    ``ray.get`` treats ``timeout=-1`` as "wait forever" and cannot convert inf/nan,
+    so an unchecked value could silently bring back the hang this guards against.
+    """
+    source = "timeout_s"
+    if timeout_s is None:
+        source = INIT_TIMEOUT_ENV
+        timeout_s = os.environ.get(INIT_TIMEOUT_ENV, DEFAULT_INIT_TIMEOUT_S)
+    try:
+        value = float(timeout_s)
+    except (TypeError, ValueError):
+        value = math.nan
+    if not (math.isfinite(value) and value > 0):
+        raise ValueError(f"{source} must be a positive, finite number of seconds, got {timeout_s!r}")
+    return value
+
+
 def wait_for_group_init(refs: list, *, timeout_s: float | None = None) -> Any:
     """``ray.get`` the process-group-init object refs under a bounded timeout.
 
@@ -61,10 +81,10 @@ def wait_for_group_init(refs: list, *, timeout_s: float | None = None) -> Any:
         The ``ray.get`` results.
 
     Raises:
+        ValueError: If the timeout is not a positive, finite number of seconds.
         CheckpointEngineInitError: If the init does not complete within the timeout.
     """
-    if timeout_s is None:
-        timeout_s = float(os.environ.get(INIT_TIMEOUT_ENV, DEFAULT_INIT_TIMEOUT_S))
+    timeout_s = _resolve_timeout_s(timeout_s)
 
     try:
         return ray.get(refs, timeout=timeout_s)
