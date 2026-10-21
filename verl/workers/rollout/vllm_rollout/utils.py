@@ -245,6 +245,12 @@ class vLLMColocateWorkerExtension:
             # patch weight loader to support MoE model
             patch_vllm_moe_model_weight_loader(model)
 
+    def quant_layer_audit_methods(self, names: list[str]) -> list[str | None]:
+        """For each HF weight name, the quant method of the module that receives it (quantized-layer audit)."""
+        from verl.utils.quant_layer_audit import vllm_quant_methods
+
+        return vllm_quant_methods(self.model_runner.model, names)
+
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""
         if self.device is None:
