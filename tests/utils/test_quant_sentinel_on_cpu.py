@@ -14,6 +14,7 @@
 """CPU tests for the quantized-rollout sentinel."""
 
 import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -32,8 +33,8 @@ HEALTHY = {
 }
 
 
-def _cfg(quantization, model_path=None):
-    rollout = {"quantization": quantization}
+def _cfg(quantization, model_path=None, ignore_eos=False):
+    rollout = {"quantization": quantization, "ignore_eos": ignore_eos}
     return SimpleNamespace(actor_rollout_ref=SimpleNamespace(rollout=rollout, model=SimpleNamespace(path=model_path)))
 
 
@@ -49,7 +50,7 @@ def test_healthy_metrics_pass():
 
 
 def test_nan_rollout_probs_raise():
-    s = QuantizedRolloutSentinel("mxfp8")
+    s = QuantizedRolloutSentinel("mxfp8", mode="raise")
     with pytest.raises(RuntimeError, match="non-finite"):
         s.check({**HEALTHY, "training/rollout_probs_diff_mean": float("nan")}, 1)
 
@@ -61,17 +62,17 @@ def test_nan_probs_with_empty_batch_is_not_flagged():
 
 
 def test_runaway_kl_raises():
-    s = QuantizedRolloutSentinel("mxfp8")
+    s = QuantizedRolloutSentinel("mxfp8", mode="raise")
     with pytest.raises(RuntimeError, match="rollout_corr/kl"):
         s.check({**HEALTHY, "rollout_corr/kl": 7.2}, 1)  # the FlashInfer stale-scale signature
 
 
 def test_all_truncated_needs_consecutive_steps():
-    s = QuantizedRolloutSentinel("mxfp8", clip_steps=2)
+    s = QuantizedRolloutSentinel("mxfp8", mode="raise", clip_steps=2)
     s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 1)  # one step: could be a hard batch
     with pytest.raises(RuntimeError, match="length cap"):
         s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 2)
-    s2 = QuantizedRolloutSentinel("mxfp8", clip_steps=2)
+    s2 = QuantizedRolloutSentinel("mxfp8", mode="raise", clip_steps=2)
     s2.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 1)
     s2.check({**HEALTHY, "response_length/clip_ratio": 0.4}, 2)  # streak resets
     s2.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 3)
@@ -89,7 +90,7 @@ def test_env_disable(monkeypatch):
 
 
 def test_trainer_hook_caches_sentinel_and_reads_config(monkeypatch):
-    monkeypatch.delenv("VERL_QUANT_SENTINEL", raising=False)
+    monkeypatch.setenv("VERL_QUANT_SENTINEL", "raise")
     trainer = SimpleNamespace(config=_cfg("mxfp8"))
     check_quantized_rollout_metrics(trainer, HEALTHY, 1)
     assert isinstance(trainer._quant_sentinel, QuantizedRolloutSentinel) and trainer._quant_sentinel.enabled
@@ -116,7 +117,7 @@ def test_default_structured_quantization_is_not_checked():
     ],
 )
 def test_structured_override_arms_the_guard(monkeypatch, fields, label):
-    monkeypatch.delenv("VERL_QUANT_SENTINEL", raising=False)
+    monkeypatch.setenv("VERL_QUANT_SENTINEL", "raise")
     s = QuantizedRolloutSentinel.from_config(_cfg(_structured(**fields)))
     assert s.enabled and s.quantization == label
     with pytest.raises(RuntimeError, match=label):
@@ -139,3 +140,37 @@ def test_bf16_model_or_unreadable_path_is_not_checked(tmp_path):
     # Remote paths are not fetched from the driver.
     assert rollout_quantization_label(_cfg(_structured(), model_path="hdfs://models/qwen3")) is None
     assert rollout_quantization_label(_cfg(_structured(), model_path=str(tmp_path / "missing"))) is None
+
+
+def test_by_default_a_finding_is_logged_and_the_run_goes_on(monkeypatch, caplog):
+    monkeypatch.delenv("VERL_QUANT_SENTINEL", raising=False)
+    s = QuantizedRolloutSentinel.from_config(_cfg("mxfp8"))
+    assert s.enabled and s.mode == "warn"
+    with caplog.at_level(logging.WARNING, logger="verl.utils.quant_sentinel"):
+        s.check({**HEALTHY, "rollout_corr/kl": 7.2}, 1)
+    assert "looks broken at step 1" in caplog.text and "VERL_QUANT_SENTINEL=raise" in caplog.text
+
+
+def test_two_fully_truncated_steps_only_warn_by_default(caplog):
+    s = QuantizedRolloutSentinel("mxfp8")
+    with caplog.at_level(logging.WARNING, logger="verl.utils.quant_sentinel"):
+        s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 1)
+        s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, 2)
+    assert "length cap" in caplog.text
+
+
+def test_ignore_eos_turns_the_clip_rule_off(monkeypatch):
+    # Every response runs to the cap by design; the other rules still apply.
+    monkeypatch.setenv("VERL_QUANT_SENTINEL", "raise")
+    s = QuantizedRolloutSentinel.from_config(_cfg("mxfp8", ignore_eos=True))
+    for step in range(1, 4):
+        s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, step)
+    with pytest.raises(RuntimeError, match="non-finite"):
+        s.check({**HEALTHY, "training/rollout_probs_diff_mean": float("nan")}, 4)
+
+
+def test_zero_clip_steps_turns_the_clip_rule_off():
+    s = QuantizedRolloutSentinel("mxfp8", mode="raise", clip_steps=0)
+    for step in range(1, 4):
+        s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, step)
+    s.check(HEALTHY, 4)
