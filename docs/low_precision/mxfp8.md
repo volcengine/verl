@@ -81,8 +81,8 @@ PRECISION=bf16 bash examples/mxfp8/run_qwen3_8b_megatron.sh
 - vLLM rollout with FlashInfer available to the workers (`nvcc` on their `PATH`), where vLLM picks FlashInfer
   CuTe-DSL for the MXFP8 dense GEMMs
 
-![Qwen3-8B on GSM8K, BF16 vs MXFP8](FIGURE_URL)
-*Blue: BF16, vermillion: MXFP8 end to end. wandb: [BF16](WANDB_BF16_URL), [MXFP8](WANDB_MXFP8_URL)*
+![Qwen3-8B on GSM8K, BF16 vs MXFP8](https://github.com/user-attachments/assets/58bc248c-91cf-4f3f-bff5-64f3052230d1)
+*Blue: BF16, vermillion: MXFP8 end to end. wandb: [BF16](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_grpo_gsm8k_mxfp8/runs/zodbg1pr), [MXFP8](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_grpo_gsm8k_mxfp8/runs/cr5dk8fs)*
 
 Results and observations:
 
