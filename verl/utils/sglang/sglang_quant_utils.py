@@ -271,16 +271,26 @@ def _finish_sync(model: torch.nn.Module) -> None:
         reprocess_mxfp8_layers,
         reprocess_mxfp8_moe_layers,
     )
+    from verl.utils.sglang.sglang_mxfp8_refit_check import (
+        self_check_mxfp8_linear,
+        self_check_mxfp8_moe,
+        snapshot_mxfp8_moe_for_check,
+    )
 
     if _SYNC_FP8_ATTR not in model.__dict__:
         return
     fp8_staged = model.__dict__[_SYNC_FP8_ATTR]
     fp4_staged = model.__dict__.get(_SYNC_FP4_ATTR, ())
     nvfp4_staged = model.__dict__.get(_SYNC_NVFP4_ATTR, ())
+    # Canonical expert weights and scales, copied before the MoE runner rewrites them.
+    moe_snapshot = snapshot_mxfp8_moe_for_check(model)
     reprocess_mxfp8_layers(model)
     reprocess_mxfp8_moe_layers(model, fp8_staged)
     reprocess_mxfp4_moe_layers(fp4_staged)
     reprocess_nvfp4_moe_layers(nvfp4_staged)
+    # The re-derived layouts are now what the kernels read; they must reproduce the canonical reference.
+    self_check_mxfp8_linear(model)
+    self_check_mxfp8_moe(moe_snapshot)
     del model.__dict__[_SYNC_FP8_ATTR]
     model.__dict__.pop(_SYNC_FP4_ATTR, None)
     model.__dict__.pop(_SYNC_NVFP4_ATTR, None)
