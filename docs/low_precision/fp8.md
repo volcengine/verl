@@ -182,17 +182,13 @@ Results and observations:
 
 ## MXFP8 Training (Blackwell)
 
-MXFP8 is the OCP microscaling FP8 format: E4M3 elements with one shared E8M0 scale per
-32-element block, natively accelerated by Blackwell tensor cores. Compared to the
-`blockwise` recipe above (1x128 activation / 128x128 weight scaling, designed for Hopper),
-MXFP8 uses hardware-decoded block scales and needs no `NVTE_FP8_BLOCK_SCALING_FP32_SCALES`
-workaround.
+MXFP8 is the OCP microscaling FP8 format: E4M3 elements with one E8M0 scale per 32-element block,
+decoded natively by Blackwell tensor cores. On Hopper, use the `blockwise` recipe above.
 
 ### Requirements
 
-- **Blackwell GPUs** (SM100+). On Hopper, use `fp8_recipe: "blockwise"` as described in
-  the FP8 End-to-End section instead — Hopper tensor cores cannot consume MXFP8 block scales.
-- **Megatron-Core >= 0.13** and **Transformer Engine >= 2.1**
+- Blackwell GPUs (SM100+)
+- Megatron-Core >= 0.13 and Transformer Engine >= 2.1
 
 ### Key Configuration
 
@@ -210,25 +206,17 @@ actor_rollout_ref.rollout.quantization:
 
 Notes:
 
-- Training uses the Megatron-Bridge model path (`actor_rollout_ref.actor.megatron.use_mbridge=True`),
-  which is now the only Megatron model-building path in verl.
-- Model weights stay in bf16 (`fp8_param` is not supported); only GEMM inputs are cast to
-  MXFP8 on the fly, so checkpointing is unchanged.
-- verl pads packed sequences to the 32-token block boundaries MXFP8 quantization requires
-  (`lcm(32, ...)` per sequence instead of the blockwise recipe's `lcm(16, ...)`); this is automatic
-  once `fp8_recipe: "mxfp8"` is set.
-- QAT and Transformer Engine FP8 training are mutually exclusive (QAT fake-quantizes weights inside
-  bf16 GEMMs, while an FP8 recipe switches the GEMMs themselves to FP8); the engine refuses the
-  combination at initialization.
-- The rollout's MXFP8 weights are quantized on the trainer side by the compressed-tensors exporter
-  (`rollout.quantization`) onto the grid the learner's forward GEMMs use: E4M3 elements with one
-  E8M0 scale per 32 elements along K (`weight` plus a uint8 `weight_scale` of shape `[N, K // 32]`).
-  compressed-tensors and Transformer Engine pick the same shared exponent except for blocks whose
-  amax is exactly `448 * 2**k`, where compressed-tensors picks the next one up. That changes the bytes
-  of such a block (0.4–0.6% of the blocks on Gaussian BF16 weights) but not its dequantized values,
-  except for elements below `amax / 14336`, which differ by at most about `4.4e-6 * amax`.
-- `lm_head`, the token embedding and MoE routers stay in BF16 on the rollout (the defaults of
-  `rollout.quantization`), as in training.
+- Weights stay in BF16 (`fp8_param` is not supported); only the GEMM inputs are cast to MXFP8, so
+  checkpoints are unchanged.
+- With `fp8_recipe: "mxfp8"`, verl pads packed sequences to the 32-token blocks MXFP8 needs.
+- QAT and Transformer Engine FP8 training are mutually exclusive; the engine refuses the combination.
+- The rollout's MXFP8 weights are quantized on the trainer side (the compressed-tensors exporter of
+  `rollout.quantization`). Given the same BF16 weight, compressed-tensors and Transformer Engine pick the
+  same E8M0 scale for every block except those whose amax is exactly `448 * 2**k`, where compressed-tensors
+  picks the next one up; in such a block only elements below `amax / 14336` dequantize differently, by at
+  most about `4.4e-6 * amax`. This compares the weight quantizers only, not activations, reduction order or
+  the KV cache.
+- `lm_head`, the token embedding and MoE routers stay in BF16 on the rollout, as in training.
 
 ---
 
