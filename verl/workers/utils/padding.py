@@ -112,8 +112,6 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
         }:
             raise ValueError(f"unsupported routed-experts transport semantics: {route_semantics!r}")
         full_model_transport = route_semantics == KIMI_FULL_MODEL_ROUTE_SEMANTICS
-        if routed_experts.max() <= 255:
-            routed_experts = routed_experts.to(torch.uint8)
         if full_model_transport:
             # Kimi full R3 uses vLLM's image-expanded model-row axis, which is
             # independent of tokenizer padding. Equal-length dense captures
@@ -135,6 +133,8 @@ def left_right_2_no_padding(data: TensorDict) -> TensorDict:
                     offsets=route_offsets,
                 )
         else:
+            if routed_experts.max() <= 255:
+                routed_experts = routed_experts.to(torch.uint8)
             if routed_experts.shape[1] != attention_mask.shape[1]:
                 raise ValueError(
                     "logical-token routed experts must match attention-mask "

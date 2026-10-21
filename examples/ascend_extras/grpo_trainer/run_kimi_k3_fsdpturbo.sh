@@ -2,8 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-source "$SCRIPT_DIR/kimi_k3_runtime.sh"
-PROJECT_ROOT=$BACKEND_ROOT
+PROJECT_ROOT="${KIMI_BACKEND_ROOT:-$(cd -- "$SCRIPT_DIR/../../../.." && pwd -P)}"
 run_mode="${KIMI_RUN_MODE:-single}"
 start_time="${VERL_RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}"
 project_name="${VERL_PROJECT_NAME:-GRPO-Kimi-K3-A3B}"
@@ -26,12 +25,13 @@ esac
 turbo_fsdp_size=$((nnodes * npus_per_node))
 turbo_ep_size=${TURBO_EP_SIZE:-$npus_per_node}
 rollout_tp_size=${ROLLOUT_TP:-$npus_per_node}
-if ((turbo_ep_size <= 0 || rollout_tp_size <= 0 || turbo_fsdp_size % turbo_ep_size != 0 || turbo_fsdp_size % rollout_tp_size != 0 || turbo_ep_size != rollout_tp_size)); then
-    echo "FSDP requires actor EP = rollout TP > 0, dividing the actor world size" >&2
+rollout_dp_size=${ROLLOUT_DP:-1}
+rollout_ep_size=$((rollout_tp_size * rollout_dp_size))
+if ((turbo_ep_size <= 0 || rollout_tp_size <= 0 || rollout_dp_size <= 0 || turbo_fsdp_size % turbo_ep_size != 0 || turbo_fsdp_size % rollout_ep_size != 0)); then
+    echo "Actor EP and rollout TP*DP must be positive and divide world size" >&2
     exit 2
 fi
 turbo_efsdp_size=$((turbo_fsdp_size / turbo_ep_size))
-rollout_ep_size=$rollout_tp_size
 visible_devices_default=$(seq -s, 0 $((npus_per_node - 1)))
 max_response_length=${VERL_MAX_RESPONSE_LENGTH:-512}
 rollout_max_num_seqs=${VERL_VLLM_MAX_NUM_SEQS:-32}
@@ -102,7 +102,12 @@ export VERL_KIMI_MLP_CHUNK_TOKENS="${VERL_KIMI_MLP_CHUNK_TOKENS:-128}"
 export NPUS_PER_NODE=$npus_per_node
 KIMI_RAY_ARGS=()
 if [[ "$run_mode" == single ]]; then
-    kimi_single_ray_args
+    KIMI_RAY_ARGS=(
+        '++ray_kwargs.ray_init.address=local'
+        "++ray_kwargs.ray_init.num_cpus=${RAY_NUM_CPUS:-64}"
+        "++ray_kwargs.ray_init.resources.NPU=$npus_per_node"
+        "++ray_kwargs.ray_init.object_store_memory=${RAY_OBJECT_STORE_MEMORY:-8589934592}"
+    )
 else
     : "${RAY_ADDRESS:?multinode mode must be started by ray_start_multi_nodes.sh}"
 fi
@@ -192,6 +197,7 @@ ROLLOUT_CONFIG=(
     +actor_rollout_ref.rollout.engine_kwargs.vllm.additional_config.kimi_kda_oproj_fp32_reduce=True
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1
     "actor_rollout_ref.rollout.tensor_model_parallel_size=${rollout_tp_size}"
+    "actor_rollout_ref.rollout.data_parallel_size=${rollout_dp_size}"
     +actor_rollout_ref.rollout.engine_kwargs.vllm.mm_encoder_tp_mode=data
     "actor_rollout_ref.rollout.expert_parallel_size=${rollout_ep_size}"
     actor_rollout_ref.rollout.name=vllm
@@ -271,7 +277,7 @@ FSDP_CONFIG+=(
 
 echo "Kimi run: mode=${run_mode} experiment=${exp_name} model=${model_path} steps=${total_training_steps}"
 echo "Kimi offload: actor_policy=False actor_param=False actor_optimizer=False ref_config_policy=False ref_forward_only_runtime_policy=True"
-echo "Kimi topology: nodes=${nnodes} NPU/node=${npus_per_node} FSDP=${turbo_fsdp_size} EP=${turbo_ep_size} eFSDP=${turbo_efsdp_size} rollout_TP=${rollout_tp_size}"
+echo "Kimi topology: nodes=${nnodes} NPU/node=${npus_per_node} FSDP=${turbo_fsdp_size} EP=${turbo_ep_size} eFSDP=${turbo_efsdp_size} rollout_TP=${rollout_tp_size} rollout_DP=${rollout_dp_size} rollout_EP=${rollout_ep_size}"
 echo "Kimi sequence: prompt=${max_prompt_length} response=${max_response_length} multimodal_margin=${rollout_multimodal_token_margin} model_len=${rollout_max_model_len} actor_ref_tokens_per_gpu=${ppo_max_token_len}"
 echo "Kimi batches: train=${train_batch_size} rollout_n=${rollout_n} effective=$((train_batch_size * rollout_n)) ppo_mini=${ppo_mini_batch_size} micro_per_gpu=1 max_num_seqs=${rollout_max_num_seqs} max_batched_tokens=${rollout_max_num_batched_tokens}"
 echo "Kimi training log: ${training_log}"

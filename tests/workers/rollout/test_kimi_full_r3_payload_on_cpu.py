@@ -54,6 +54,50 @@ def test_full_r3_payload_round_trips_ids_and_executed_bf16_weights():
     np.testing.assert_array_equal(decoded_weights, weights)
 
 
+def test_896_expert_routes_survive_scheduler_uint16_and_megatron_transport():
+    from verl.workers.rollout.r3_utils import pack_kimi_full_r3_for_megatron
+
+    ids = np.array([[[0, 255, 256, 895]]], dtype=np.uint16)
+    weights = np.array([[[0.125, 0.25, 0.5, 1.0]]], dtype=np.float32)
+    payload = _pack_exact_bf16(ids, weights).astype(np.uint16)
+    decoded_ids, decoded_weights = decode_kimi_full_r3_payload(payload, expected_topk=4)
+    assert decoded_ids.dtype == np.int32
+    routes = torch.nested.as_nested_tensor([torch.from_numpy(decoded_ids)], layout=torch.jagged)
+    route_weights = torch.nested.as_nested_tensor([torch.from_numpy(decoded_weights)], layout=torch.jagged)
+    packed = pack_kimi_full_r3_for_megatron(routes, route_weights)
+    assert packed.dtype == torch.int32
+    actual_ids, actual_weights = decode_kimi_full_r3_payload(packed.values().numpy(), expected_topk=4)
+    np.testing.assert_array_equal(actual_ids, ids)
+    np.testing.assert_array_equal(actual_weights, weights)
+
+
+@pytest.mark.parametrize("expert_ids", [[0, 7], [256, 895]])
+def test_kimi_dense_padding_preserves_int32_routes(expert_ids):
+    from tensordict import TensorDict
+
+    from verl.utils import tensordict_utils as tu
+    from verl.workers.rollout.r3_utils import KIMI_FULL_MODEL_ROUTE_SEMANTICS
+    from verl.workers.utils.padding import left_right_2_no_padding
+
+    ids = torch.tensor(expert_ids, dtype=torch.int32).reshape(1, 1, 1, 2).expand(2, 5, 1, 2)
+    data = TensorDict(
+        dict(
+            input_ids=torch.ones(2, 4, dtype=torch.long),
+            attention_mask=torch.ones(2, 4),
+            response_mask=torch.ones(2, 2),
+            position_ids=torch.arange(4).expand(2, 4),
+            routed_experts=ids,
+            routed_expert_weights=torch.full(ids.shape, 0.5),
+        ),
+        batch_size=[2],
+    )
+    tu.assign_non_tensor_data(data, "routed_experts_transport_semantics", KIMI_FULL_MODEL_ROUTE_SEMANTICS)
+    result = left_right_2_no_padding(data)
+    torch.testing.assert_close(result["routed_experts"].values(), ids.flatten(0, 1))
+    assert result["routed_experts"].dtype == torch.int32
+    assert result["routed_experts"].offsets().tolist() == [0, 5, 10]
+
+
 def test_id_only_payload_is_rejected_instead_of_silently_downgrading_r3():
     ids = np.zeros((3, 4, 2), dtype=np.uint8)
     with pytest.raises(ValueError, match="weight capture is not active"):

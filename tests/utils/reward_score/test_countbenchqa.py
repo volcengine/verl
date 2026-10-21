@@ -71,3 +71,11 @@ def test_stop_conditions_ignore_other_models():
     params = {}
     add_kimi_k3_stop_conditions(params, "qwen3", None)
     assert params == {}
+
+
+def test_kimi_ignore_eos_does_not_add_implicit_stop_conditions():
+    from verl.utils.model_adapters import add_kimi_k3_stop_conditions
+
+    params = {"ignore_eos": True, "stop": ["explicit"], "stop_token_ids": [7]}
+    add_kimi_k3_stop_conditions(params, "kimi_k3", 163586)
+    assert params == {"ignore_eos": True, "stop": ["explicit"], "stop_token_ids": [7]}

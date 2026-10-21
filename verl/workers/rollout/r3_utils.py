@@ -182,7 +182,7 @@ def decode_kimi_full_r3_payload(
     if not np.issubdtype(payload.dtype, np.integer):
         raise TypeError(f"Kimi full R3 packed payload must use an integer transport dtype, got {payload.dtype}")
 
-    expert_ids = np.array(payload[..., :expected_topk], copy=True)
+    expert_ids = np.array(payload[..., :expected_topk], dtype=np.int32, copy=True)
     low = payload[..., expected_topk : 2 * expected_topk]
     high = payload[..., 2 * expected_topk :]
     if low.size:
@@ -219,11 +219,9 @@ def pack_kimi_full_r3_for_megatron(ids, weights):
     id_values, weight_values = ids.values(), weights.values()
     if id_values.shape != weight_values.shape:
         raise ValueError("Kimi full R3 IDs and weights have different shapes")
-    if id_values.numel() and bool(((id_values < 0) | (id_values > 255)).any()):
-        raise ValueError("Kimi full R3 expert IDs must fit in uint8")
     bf16_weights = weight_values.to(torch.bfloat16)
     if not torch.equal(bf16_weights.float(), weight_values.float()):
         raise ValueError("Kimi full R3 weights must be finite exact BF16 values")
     bits = bf16_weights.contiguous().view(torch.uint8).reshape(*weight_values.shape, 2)
-    packed = torch.cat((id_values.to(torch.uint8), bits[..., 0], bits[..., 1]), dim=-1)
+    packed = torch.cat((id_values, bits[..., 0], bits[..., 1]), dim=-1)
     return torch.nested.nested_tensor_from_jagged(packed, offsets=ids.offsets())

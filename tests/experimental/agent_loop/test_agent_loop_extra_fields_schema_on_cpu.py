@@ -373,9 +373,11 @@ async def test_agent_loop_postprocess_accepts_read_only_routed_experts_on_cpu(fu
 
     worker = _DummyWorker()
     worker.model_config = SimpleNamespace(
-        hf_config=SimpleNamespace(model_type="kimi_k3", num_hidden_layers=2, num_experts=8, num_experts_per_token=1)
+        hf_config=SimpleNamespace(model_type="kimi_k3", num_hidden_layers=2, num_experts=896, num_experts_per_token=1)
     )
     routed_experts = np.arange(8, dtype=np.int64).reshape(4, 2, 1)
+    if full_r3:
+        routed_experts = np.array([0, 255, 256, 895] * 2, dtype=np.int32).reshape(4, 2, 1)
     routed_experts.setflags(write=False)
     assert not routed_experts.flags.writeable
 
@@ -405,9 +407,9 @@ async def test_agent_loop_postprocess_accepts_read_only_routed_experts_on_cpu(fu
 
     if full_r3:
         assert internal.routed_experts.is_nested
-        torch.testing.assert_close(
-            internal.routed_experts.values(), torch.tensor(routed_experts.copy()).to(torch.uint8)
-        )
+        expected = torch.tensor(routed_experts.copy())
+        torch.testing.assert_close(internal.routed_experts.values(), expected)
+        torch.testing.assert_close(output.as_dict()["routed_experts"], expected)
         torch.testing.assert_close(internal.routed_expert_weights.values(), torch.ones(4, 2, 1))
         return
 

@@ -207,7 +207,7 @@ def add_kimi_k3_stop_conditions(
     end_of_msg_token_id: int | None,
 ) -> None:
     """Stop Kimi-K3 after its first complete assistant response."""
-    if model_type != "kimi_k3":
+    if model_type != "kimi_k3" or sampling_params.get("ignore_eos", False):
         return
     if end_of_msg_token_id is None:
         raise ValueError("Kimi K3 config must define eos_token_id")

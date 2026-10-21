@@ -154,7 +154,7 @@ class AgentLoopOutput(BaseModel):
         ):
             raise ValueError("Kimi full R3 requires routed_experts and routed_expert_weights together")
         if routed_experts is not None:
-            routed_experts = _as_route_tensor(routed_experts, "routed_experts").to(torch.int64)
+            routed_experts = _as_route_tensor(routed_experts, "routed_experts")
             if routed_expert_weights is not None:
                 # Keep the exact BF16 values decoded by the rollout in an
                 # FP32 carrier while they pass through TensorDict and
@@ -190,18 +190,13 @@ class AgentLoopOutput(BaseModel):
                         "logical input: "
                         f"routes={routed_experts.size(0)}, logical={logical_rows}"
                     )
-                minimum = int(routed_experts.min().item()) if routed_experts.numel() else 0
-                maximum = int(routed_experts.max().item()) if routed_experts.numel() else 0
-                if minimum < 0 or maximum > 255:
-                    raise ValueError(
-                        f"Kimi full-model route transport requires uint8 expert IDs, got min={minimum}, max={maximum}"
-                    )
                 # Preserve every vLLM model row. list_of_dict_to_tensordict
                 # converts unequal row counts into a jagged tensor, so no
                 # max-model-length padding is needed in TransferQueue.
-                aligned = routed_experts.to(torch.uint8)
+                aligned = routed_experts
                 aligned_weights = routed_expert_weights
             elif route_semantics is None:
+                routed_experts = routed_experts.to(torch.int64)
                 # Backward-compatible text-only routing uses absolute logical
                 # token positions and therefore spans the complete sequence.
                 total_length = output["prompts"].size(0) + output["responses"].size(0)
@@ -904,7 +899,7 @@ class AgentLoopWorker:
                     self.model_config.hf_config,
                 )
                 routed_experts = torch.nested.as_nested_tensor(
-                    [experts_tensor.to(torch.uint8)],
+                    [experts_tensor],
                     layout=torch.jagged,
                 )
                 routed_expert_weights = torch.nested.as_nested_tensor(

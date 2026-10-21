@@ -4,8 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-BACKEND_ROOT=${BACKEND_ROOT:-$(cd -- "$SCRIPT_DIR/../../.." && pwd -P)}
-source "$SCRIPT_DIR/kimi_k3_runtime.sh"
+BACKEND_ROOT=${BACKEND_ROOT:-$(cd -- "$SCRIPT_DIR/../../../.." && pwd -P)}
 RUN_MODE=${KIMI_RUN_MODE:-single}
 RUN_TIMESTAMP=${VERL_RUN_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
 MODEL_PATH=${MODEL_PATH:-/mnt/share/w00848461/weights/K3-top16-pruned_bf16_countbench_128_n4}
@@ -464,12 +463,18 @@ ray_env_vars=(
     HCCL_NPU_SOCKET_PORT_RANGE HCCL_CONNECT_TIMEOUT HCCL_EXEC_TIMEOUT
 )
 for name in "${ray_env_vars[@]}"; do
+    [[ -v "$name" ]] || continue
     RAY+=("++ray_kwargs.ray_init.runtime_env.env_vars.${name}=\"${!name}\"")
 done
 
 KIMI_RAY_ARGS=()
 if [[ "$RUN_MODE" == single ]]; then
-    kimi_single_ray_args
+    KIMI_RAY_ARGS=(
+        '++ray_kwargs.ray_init.address=local'
+        "++ray_kwargs.ray_init.num_cpus=${RAY_NUM_CPUS:-64}"
+        "++ray_kwargs.ray_init.resources.NPU=$NPUS_PER_NODE"
+        "++ray_kwargs.ray_init.object_store_memory=${RAY_OBJECT_STORE_MEMORY:-8589934592}"
+    )
 else
     : "${RAY_ADDRESS:?multinode mode must be started by ray_start_multi_nodes.sh}"
 fi

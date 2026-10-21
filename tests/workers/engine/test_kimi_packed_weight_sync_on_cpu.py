@@ -1,12 +1,14 @@
 # Copyright 2026 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from unittest.mock import patch
+
 import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.distributed.device_mesh import DeviceMesh
-from torch.distributed.tensor import Shard, distribute_tensor
+from torch.distributed.tensor import DTensor, Replicate, Shard, distribute_tensor
 
 from verl.workers.engine.fsdp.kimi_packed_weights import export_kimi_packed_local_param
 from verl.workers.engine.fsdp.utils import unfuse_moe_params
@@ -56,17 +58,53 @@ def _check_colocated_export(rank, rendezvous):
             start = (rank % 2) * 2
             assert name == f"experts.gate_up_proj.__verl_packed_local__.{start}"
             torch.testing.assert_close(local, weights[start : start + 2], rtol=0, atol=0)
-            with pytest.raises(ValueError, match="matching actor/rollout EP"):
-                export_kimi_packed_local_param(
+            with patch.object(DTensor, "redistribute", side_effect=AssertionError("must send matrix shards directly")):
+                name, local = export_kimi_packed_local_param(
                     "experts.gate_up_proj",
                     param,
                     "cpu",
-                    {**layout, "expert_parallel_size": 4, "tensor_parallel_size": 4},
+                    {**layout, "expert_parallel_size": 4, "data_parallel_size": 2},
                 )
+            assert name.endswith(f".{rank}")
+            torch.testing.assert_close(local, weights[rank : rank + 1], rtol=0, atol=0)
         reordered = DeviceMesh("cpu", torch.tensor([[0, 2], [1, 3]]))
         param = distribute_tensor(original, reordered, [Shard(1), Shard(0)])
-        with pytest.raises(ValueError, match="ownership does not match"):
-            export_kimi_packed_local_param("experts.gate_up_proj", param, "cpu", layout)
+        _, local = export_kimi_packed_local_param("experts.gate_up_proj", param, "cpu", layout)
+        torch.testing.assert_close(local, original[rank % 2 * 2 : rank % 2 * 2 + 2], rtol=0, atol=0)
+
+        # 896 IDs, uneven matrix-row shards, both growing and shrinking EP,
+        # source replicas, and buffer chunks that cross expert boundaries.
+        original = torch.arange(896 * 7 * 5).reshape(896, 7, 5).float()
+        configurations = [
+            (torch.arange(4).reshape(2, 2), [Shard(1), Shard(0)], 4),
+            (torch.arange(4).reshape(2, 2), [Shard(1), Shard(0)], 1),
+            (torch.arange(4), [Shard(0)], 2),
+            (torch.arange(4).reshape(2, 2), [Replicate(), Shard(0)], 4),
+        ]
+        for ranks, placements, target_ep in configurations:
+            mesh = DeviceMesh("cpu", ranks)
+            for version in (0, 1):
+                weights = original + version
+                param = distribute_tensor(weights, mesh, placements)
+                with (
+                    patch("verl.workers.engine.fsdp.kimi_packed_weights._RESHARD_BUFFER_BYTES", 512),
+                    patch.object(DTensor, "redistribute", side_effect=AssertionError("must not gather")),
+                ):
+                    name, local = export_kimi_packed_local_param(
+                        "experts.gate_up_proj",
+                        param,
+                        "cpu",
+                        dict(
+                            expert_parallel_size=target_ep,
+                            tensor_parallel_size=1,
+                            data_parallel_size=target_ep,
+                            pipeline_model_parallel_size=1,
+                        ),
+                    )
+                count = 896 // target_ep
+                start = rank % target_ep * count
+                assert name.endswith(f".{start}")
+                torch.testing.assert_close(local, weights[start : start + count], rtol=0, atol=0)
     finally:
         dist.destroy_process_group()
 
