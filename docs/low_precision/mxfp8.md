@@ -128,8 +128,8 @@ rollout, FP8-BW verl's FP8 blockwise recipe end to end.
 | `rollout_corr/kl` | 0.0018 | 0.0058 | 0.0090 | 0.0045 |
 | score | −0.130 | −0.150 | −0.169 | −0.160 |
 
-wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group
-"D: Qwen3-30B-A3B, DAPO-Math-17k".
+![Qwen3-30B-A3B on DAPO-Math-17k, per step](https://github.com/user-attachments/assets/569f6f0f-1b78-4e62-9401-6c02c5cad49e)
+*Per step on one 4×B200 machine. wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group "D: Qwen3-30B-A3B, DAPO-Math-17k"*
 
 Results and observations:
 
@@ -156,8 +156,8 @@ GPU, 32 steps, the earlier version of the integration as above. Two more differe
 | response length | 6198 | 5748 | 6202 |
 | step time (s) | 407 | 345 | 386 |
 
-wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group
-"B: Qwen3-8B, DAPO-Math-17k".
+![Qwen3-8B on DAPO-Math-17k, per step](https://github.com/user-attachments/assets/444018cd-2219-49fe-a907-8b147ef9b804)
+*Per step on 2×B200, with an FP8 KV cache in every arm. wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group "B: Qwen3-8B, DAPO-Math-17k"*
 
 Results and observations:
 
