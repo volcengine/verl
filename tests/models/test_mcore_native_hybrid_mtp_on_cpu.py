@@ -191,6 +191,91 @@ def test_native_mtp_capability_detection(monkeypatch):
     assert mtp_support.has_native_mtp_support() is True
 
 
+def test_native_mtp_recognizes_multimodal_hybrid_decoder(monkeypatch):
+    mtp_support = _load_module("mtp_support_vlm_test", "verl/models/mcore/mtp_support.py")
+    monkeypatch.setattr(mtp_support, "has_native_mtp_support", lambda: True)
+
+    class HybridModel:
+        pass
+
+    hybrid_module = types.ModuleType("megatron.core.models.hybrid.hybrid_model")
+    hybrid_module.HybridModel = HybridModel
+    monkeypatch.setitem(sys.modules, hybrid_module.__name__, hybrid_module)
+
+    assert mtp_support.is_native_hybrid_model(HybridModel())
+    assert mtp_support.is_native_hybrid_model(SimpleNamespace(language_model=HybridModel()))
+    assert not mtp_support.is_native_hybrid_model(SimpleNamespace(language_model=object()))
+
+
+def test_super_vl_config_attributes_come_from_language_decoder(monkeypatch):
+    megatron_utils = _load_megatron_utils_with_stubs(monkeypatch)
+    hf_config = SimpleNamespace(
+        llm_config=SimpleNamespace(hidden_size=4096, vocab_size=131072),
+        vision_config=SimpleNamespace(hidden_size=1280),
+    )
+    assert megatron_utils.get_hf_config_attr(hf_config, "hidden_size") == 4096
+    assert megatron_utils.get_hf_config_attr(hf_config, "vocab_size") == 131072
+
+
+@pytest.mark.parametrize("nested_field", ["llm_config", "text_config"])
+@pytest.mark.parametrize("count_field", ["num_nextn_predict_layers", "mtp_num_hidden_layers"])
+def test_nested_multimodal_mtp_config_is_detected_and_can_be_disabled(monkeypatch, nested_field, count_field):
+    megatron_utils = _load_megatron_utils_with_stubs(monkeypatch)
+    text_config = SimpleNamespace(**{count_field: 1})
+    hf_config = SimpleNamespace(**{nested_field: text_config})
+    model_config = SimpleNamespace(
+        hf_config=hf_config,
+        mtp=SimpleNamespace(enable=True, mtp_loss_scaling_factor=0.3),
+    )
+    engine_config = SimpleNamespace(override_transformer_config={"mtp_num_layers": 2})
+
+    megatron_utils.check_mtp_config(model_config, engine_config)
+
+    assert engine_config.override_transformer_config == {"mtp_num_layers": 2, "mtp_loss_scaling_factor": 0.3}
+    assert getattr(text_config, count_field) == 1  # Serialized shared block count stays unchanged.
+    model_config.mtp.enable = False
+    megatron_utils.check_mtp_config(model_config, engine_config)
+    assert getattr(text_config, count_field) == 0
+    assert engine_config.override_transformer_config == {"mtp_num_layers": None}
+
+
+@pytest.mark.parametrize(
+    "owns_packing,cp_size,fused,expected_error",
+    [
+        (False, 1, False, None),
+        (True, 1, False, RuntimeError),
+        (False, 2, False, ValueError),
+        (False, 1, True, ValueError),
+    ],
+)
+def test_super_vl_checks_bridge_contract_and_parallelism(monkeypatch, owns_packing, cp_size, fused, expected_error):
+    mtp_support = _load_module("mtp_support_vlm_config_test", "verl/models/mcore/mtp_support.py")
+    model_module = types.ModuleType("megatron.bridge.models.nemotron_omni.modeling_nemotron_omni")
+    model_module.NemotronOmniModel = SimpleNamespace(model_owns_packing=owns_packing)
+    bridge_module = types.ModuleType("megatron.bridge.models.nemotron_omni.nemotron_omni_bridge")
+    bridge_module.Nemotron35SuperVLBridge = object
+    monkeypatch.setitem(sys.modules, model_module.__name__, model_module)
+    monkeypatch.setitem(sys.modules, bridge_module.__name__, bridge_module)
+    hf_config = SimpleNamespace(architectures=["NemotronH_Omni_Reasoning_V3"])
+    engine_config = SimpleNamespace(
+        context_parallel_size=cp_size, dynamic_context_parallel=False, use_fused_kernels=fused
+    )
+    if expected_error is None:
+        mtp_support.validate_nemotron_super_vl_config(hf_config, engine_config)
+    else:
+        with pytest.raises(expected_error):
+            mtp_support.validate_nemotron_super_vl_config(hf_config, engine_config)
+
+
+def test_super_vl_rejects_bridge_without_model_registration(monkeypatch):
+    mtp_support = _load_module("mtp_support_vlm_missing_bridge_test", "verl/models/mcore/mtp_support.py")
+    monkeypatch.setitem(sys.modules, "megatron.bridge.models.nemotron_omni.nemotron_omni_bridge", None)
+    with pytest.raises(RuntimeError, match="Bridge 0.6.2 predates"):
+        mtp_support.validate_nemotron_super_vl_config(
+            SimpleNamespace(architectures=["NemotronH_Omni_Reasoning_V3"]), SimpleNamespace()
+        )
+
+
 @pytest.mark.parametrize("detach_encoder", [False, True])
 def test_configure_native_hybrid_mtp_maps_detach_encoder(monkeypatch, detach_encoder):
     mtp_support = _load_module(
@@ -392,7 +477,8 @@ def test_convert_to_nested_tensor_rejects_short_labels(monkeypatch):
         model_forward._convert_to_nested_tensor(labels, [4])
 
 
-def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch):
+@pytest.mark.parametrize("vision_model", [False, True])
+def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch, vision_model):
     model_forward = _load_model_forward_with_stubs(monkeypatch)
     packed_seq_params = SimpleNamespace()
     preprocess_calls = []
@@ -428,6 +514,7 @@ def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch)
     class FakeHybridModel:
         pre_process = True
         post_process = True
+        model_owns_packing = False
         config = SimpleNamespace(fp8=None)
 
         def __init__(self):
@@ -439,6 +526,11 @@ def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch)
 
     model = FakeHybridModel()
     processor_args = {}
+    image_inputs = {
+        "pixel_values": torch.randn(8, 768),
+        "imgs_sizes": torch.tensor([[32, 32], [32, 32]]),
+        "num_frames": torch.ones(2, dtype=torch.long),
+    }
 
     def logits_processor(logits, **kwargs):
         processor_args.update(kwargs)
@@ -447,7 +539,7 @@ def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch)
     output = model_forward.gptmodel_forward_model_engine(
         model=model,
         input_ids=input_ids,
-        multi_modal_inputs={},
+        multi_modal_inputs=image_inputs if vision_model else {},
         logits_processor=logits_processor,
         logits_processor_args={
             "label": input_ids.clone(),
@@ -457,9 +549,16 @@ def test_native_hybrid_mtp_uses_input_ids_targets_and_raw_loss_mask(monkeypatch)
         },
         data_format="thd",
         mtp_enable_train=True,
+        vision_model=vision_model,
     )
 
     assert model.forward_kwargs["labels"] is None
+    assert model.forward_kwargs["input_ids"].shape == (1, 5)
+    assert model.forward_kwargs["packed_seq_params"] is packed_seq_params
+    if vision_model:
+        torch.testing.assert_close(model.forward_kwargs["pixel_values"], image_inputs["pixel_values"])
+        torch.testing.assert_close(model.forward_kwargs["imgs_sizes"], image_inputs["imgs_sizes"])
+        torch.testing.assert_close(model.forward_kwargs["num_frames"], image_inputs["num_frames"])
     torch.testing.assert_close(
         model.forward_kwargs["loss_mask"],
         torch.tensor([[False, True, False, False, True]]),

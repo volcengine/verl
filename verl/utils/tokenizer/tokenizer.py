@@ -228,6 +228,8 @@ def hf_processor(name_or_path, **kwargs):
                 model_class = Glm46VModel
             case "MllamaProcessor":
                 pass  # MllamaProcessor and MllamaModel doesn't have get_rope_index property
+            case "NemotronH_Omni_Reasoning_V3Processor":
+                pass  # Nemotron 3.5 Super VL uses 1D text positions, without multimodal RoPE.
             case "Gemma4Processor":
                 # Gemma4 uses standard 1D RoPE -> no get_rope_index to bind. Disable its strict
                 # per-image-token check (which Qwen's processor lacks).

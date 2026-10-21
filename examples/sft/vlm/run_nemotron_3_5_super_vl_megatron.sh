@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# NVIDIA Nemotron 3 Super 120B-A12B SFT with Megatron-Bridge and native MTP.
+# SFT | vision | Megatron training | NVIDIA GPUs
+# NVIDIA Nemotron 3.5 Super VL 120B-A12B image/text SFT with native MTP.
 #
 # This launcher is sized for 4 nodes with 8 GPUs per node (32 GPUs total).
 # Run it on every node with the same MASTER_ADDR/MASTER_PORT and a distinct
 # NODE_RANK in [0, 3], for example:
-#   MASTER_ADDR=<node-0-hostname> NODE_RANK=0 bash examples/sft/gsm8k/run_nemotron_3_super_megatron.sh
+#   MASTER_ADDR=<node-0-hostname> NODE_RANK=0 bash examples/sft/vlm/run_nemotron_3_5_super_vl_megatron.sh
 #
-# Current upstream uv.lock dependency set:
-#   Megatron-Bridge 0.6.2
-#   Megatron-Core 0.19.2
-#   Transformers 5.12.1
-# Use the repository's uv environment or CUDA 13 uv image so Bridge and MCore
-# stay on the tested pair instead of mixing unrelated snapshots.
+# Requires a Super-VL-capable Megatron-Bridge with the expanded-sequence model
+# wrapper. Bridge 0.6.2 in uv.lock predates this model; see docs/advance/mtp.md
+# for the matching Bridge/Core source revisions to install. Use
+# trust_remote_code=True with the checkpoint's processor on Transformers 5.20.1.
+# Image/text training only, CP=1. GPU validation of this recipe is pending.
 
 set -xeuo pipefail
 
@@ -28,16 +28,16 @@ PYTHON_BIN=${PYTHON_BIN:-python}
 # ============================================================
 # Data and model
 # ============================================================
-# Prepare the message-formatted SFT dataset with:
-#   python examples/data_preprocess/gsm8k_multiturn_sft.py \
-#     --revision 740312add88f781978c0658806c59bc2815b9866 \
-#     --local_save_dir "$HOME/data/gsm8k_sft"
-DATASET_DIR=${DATASET_DIR:-${HOME}/data/gsm8k_sft}
+# Prepare image-caption conversations with:
+#   python examples/data_preprocess/pokemon.py \
+#     --local_save_dir "$HOME/data/pokemon-gpt4o-captions"
+# Custom parquet data must contain messages and images; use <image> in messages.
+DATASET_DIR=${DATASET_DIR:-${HOME}/data/pokemon-gpt4o-captions}
 TRAIN_FILES=${TRAIN_FILES:-${DATASET_DIR}/train.parquet}
 VAL_FILES=${VAL_FILES:-${DATASET_DIR}/test.parquet}
 
-MODEL_PATH=${MODEL_PATH:-nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16}
-TOKENIZER_PATH=${TOKENIZER_PATH:-nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16}
+MODEL_PATH=${MODEL_PATH:-nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16}
+TOKENIZER_PATH=${TOKENIZER_PATH:-${MODEL_PATH}}
 
 # ============================================================
 # Parallelism and training
@@ -51,7 +51,7 @@ ETP_SIZE=${ETP_SIZE:-1}
 
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-32}
 MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-1}
-MAX_LENGTH=${MAX_LENGTH:-2048}
+MAX_LENGTH=${MAX_LENGTH:-8192}
 MAX_TOKEN_LEN_PER_GPU=${MAX_TOKEN_LEN_PER_GPU:-${MAX_LENGTH}}
 LR=${LR:-5e-6}
 MIN_LR=${MIN_LR:-5e-7}
@@ -59,15 +59,21 @@ DTYPE=${DTYPE:-bfloat16}
 
 BACKEND=${BACKEND:-megatron}
 RESUME_MODE=${RESUME_MODE:-auto}
-PROJECT_NAME=${PROJECT_NAME:-verl_sft_gsm8k}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-nemotron-3-super-${BACKEND}-tp${TP_SIZE}-pp${PP_SIZE}-cp${CP_SIZE}-ep${EP_SIZE}}
+PROJECT_NAME=${PROJECT_NAME:-verl_sft_nemotron_super_vl}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-nemotron-3-5-super-vl-${BACKEND}-tp${TP_SIZE}-pp${PP_SIZE}-cp${CP_SIZE}-ep${EP_SIZE}}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-${HOME}/verl/checkpoints/${PROJECT_NAME}/${EXPERIMENT_NAME}}
 mkdir -p "${CHECKPOINT_DIR}"
 
-# The official Super recipe repeats its single shared physical MTP block twice.
+# Super VL repeats one shared physical attention+MoE MTP block twice.
 MTP_NUM_LAYERS=${MTP_NUM_LAYERS:-2}
 MTP_LOSS_SCALING_FACTOR=${MTP_LOSS_SCALING_FACTOR:-0.3}
 MTP_DETACH_ENCODER=${MTP_DETACH_ENCODER:-True}
+FREEZE_VISION_MODEL=${FREEZE_VISION_MODEL:-True}
+
+if [[ "${CP_SIZE}" != "1" ]]; then
+    echo "Nemotron 3.5 Super VL currently requires CP_SIZE=1." >&2
+    exit 1
+fi
 
 MEGATRON_ENGINE_CONFIG=(
     "engine=${BACKEND}"
@@ -94,6 +100,10 @@ MEGATRON_ENGINE_CONFIG=(
     "engine.use_mbridge=True"
     "engine.dtype=${DTYPE}"
     "engine.use_remove_padding=True"
+    "+engine.use_fused_kernels=False"
+    "+engine.override_transformer_config.freeze_vision_model=${FREEZE_VISION_MODEL}"
+    "+engine.override_transformer_config.freeze_vision_projection=False"
+    "+engine.override_transformer_config.freeze_language_model=False"
     "+engine.override_ddp_config.data_parallel_sharding_strategy=optim_grads_params"
     "+engine.override_ddp_config.overlap_param_gather=True"
     "+engine.override_ddp_config.overlap_grad_reduce=False"
@@ -145,6 +155,7 @@ MEGATRON_ENGINE_CONFIG=(
     "data.use_dynamic_bsz=True" \
     "data.max_token_len_per_gpu=${MAX_TOKEN_LEN_PER_GPU}" \
     "data.messages_key=messages" \
+    "+data.image_key=images" \
     "data.ignore_input_ids_mismatch=True" \
     "model.path=${MODEL_PATH}" \
     "model.tokenizer_path=${TOKENIZER_PATH}" \

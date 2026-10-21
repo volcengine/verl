@@ -310,6 +310,9 @@ class MegatronEngine(BaseEngine):
             )
         self.provider = None
         from verl.models.mcore.bridge import AutoBridge
+        from verl.models.mcore.mtp_support import validate_nemotron_super_vl_config
+
+        validate_nemotron_super_vl_config(self.model_config.hf_config, self.engine_config)
 
         # Use Megatron-Bridge to convert HF config to Megatron config
         bridge = AutoBridge.from_hf_pretrained(

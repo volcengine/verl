@@ -142,7 +142,7 @@ def wrap_model_chunks_with_layerwise_aware_ddp(
     return ddp_models
 
 
-_HF_CONFIG_CHILD_NAMES = ("text_config", "language_config", "thinker_config", "model_config")
+_HF_CONFIG_CHILD_NAMES = ("text_config", "llm_config", "language_config", "thinker_config", "model_config")
 
 
 def _get_hf_text_config(hf_config: PretrainedConfig):
@@ -1142,27 +1142,24 @@ def _get_mtp_num_layers(hf_config):
     """Get MTP layer count from various config formats.
 
     Supports:
-        - num_nextn_predict_layers (DeepSeek, Qwen3 style)
-        - mtp_num_hidden_layers (Qwen3.5 style, in hf_config or text_config)
+        - num_nextn_predict_layers (DeepSeek, Nemotron style)
+        - mtp_num_hidden_layers (Qwen3.5 style)
+        - Either field under text_config or llm_config for multimodal models
     """
-    if hasattr(hf_config, "num_nextn_predict_layers") and hf_config.num_nextn_predict_layers > 0:
-        return hf_config.num_nextn_predict_layers
-    if hasattr(hf_config, "mtp_num_hidden_layers") and hf_config.mtp_num_hidden_layers > 0:
-        return hf_config.mtp_num_hidden_layers
-    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
-        if hf_config.text_config.mtp_num_hidden_layers > 0:
-            return hf_config.text_config.mtp_num_hidden_layers
+    for config in (hf_config, getattr(hf_config, "text_config", None), getattr(hf_config, "llm_config", None)):
+        for field in ("num_nextn_predict_layers", "mtp_num_hidden_layers"):
+            count = getattr(config, field, 0)
+            if count is not None and count > 0:
+                return count
     return 0
 
 
 def _set_mtp_num_layers(hf_config, value: int):
     """Set MTP layer count in the appropriate config field."""
-    if hasattr(hf_config, "num_nextn_predict_layers"):
-        hf_config.num_nextn_predict_layers = value
-    if hasattr(hf_config, "mtp_num_hidden_layers"):
-        hf_config.mtp_num_hidden_layers = value
-    if hasattr(hf_config, "text_config") and hasattr(hf_config.text_config, "mtp_num_hidden_layers"):
-        hf_config.text_config.mtp_num_hidden_layers = value
+    for config in (hf_config, getattr(hf_config, "text_config", None), getattr(hf_config, "llm_config", None)):
+        for field in ("num_nextn_predict_layers", "mtp_num_hidden_layers"):
+            if hasattr(config, field):
+                setattr(config, field, value)
 
 
 def check_mtp_config(model_config: HFModelConfig, engine_config: McoreEngineConfig):

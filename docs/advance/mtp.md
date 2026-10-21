@@ -6,7 +6,7 @@ Last updated: 10/21/2026
 
 ## 1. Scope of Support
 
-Currently, RL training can be performed on mimo-7B-RL, Qwen-next, and Deepseek series models based on the MTP architecture. SFT also supports NVIDIA Nemotron 3 Super and Nemotron 3.5 Lightning through Megatron-Core's native `HybridModel` MTP implementation. Nemotron 3.5 Lightning additionally has a GRPO recipe combining vLLM rollout, R3 router replay, and one-token MTP speculation. The support rules for training and inference engines are as follows:
+Currently, RL training can be performed on mimo-7B-RL, Qwen-next, and Deepseek series models based on the MTP architecture. SFT examples cover NVIDIA Nemotron 3.5 Super VL and Nemotron 3.5 Lightning through Megatron-Core's native `HybridModel` MTP implementation. Super VL adds image/text training through its multimodal wrapper and requires newer source dependencies, described below; GPU validation of this verl recipe is pending. Nemotron 3.5 Lightning additionally has a GRPO recipe combining vLLM rollout, R3 router replay, and one-token MTP speculation. The support rules for training and inference engines are as follows:
 
 - **Training Engine**: Only supports the `Megatron-Bridge + megatron` combination; other training engines are not compatible at this time;
 
@@ -14,7 +14,7 @@ Currently, RL training can be performed on mimo-7B-RL, Qwen-next, and Deepseek s
 
 - **Dependency Versions**:
 
-    - The CUDA environment in this checkout's `uv.lock` pins Megatron-Bridge **0.6.2**, Megatron-Core **0.19.2**, vLLM **0.29.0**, and Transformers **5.12.1**. This version set provides the native `HybridModel` and R3+MTP capabilities required by the Nemotron recipes.
+    - The CUDA environment in this checkout's `uv.lock` pins Megatron-Bridge **0.6.2**, Megatron-Core **0.19.2**, vLLM **0.29.0**, and Transformers **5.12.1**. This version set provides the native `HybridModel` and R3+MTP capabilities required by the Lightning recipes. Bridge 0.6.2 does not register Nemotron 3.5 Super VL; that recipe requires the newer Bridge/Core pair listed in section 7.
 
     - NVIDIA Nemotron 3.5 Lightning also provides an NGC-based reproducible image in `docker/Dockerfile.nemotron_3_5_lightning`. From the repository root, build it with:
 
@@ -134,7 +134,7 @@ Example launchers:
 
 - `examples/sft/gsm8k/run_mimo_7b_mtp_megatron.sh` for MiMo-7B;
 
-- `examples/sft/gsm8k/run_nemotron_3_super_megatron.sh` for NVIDIA Nemotron 3 Super with native Megatron-Core `HybridModel` MTP. This launcher uses Megatron Bridge (`engine.use_mbridge=True`) and enables MTP training.
+- `examples/sft/vlm/run_nemotron_3_5_super_vl_megatron.sh` for NVIDIA Nemotron 3.5 Super VL 120B-A12B image/text SFT with native Megatron-Core `HybridModel` MTP. This replaces the Nemotron 3 Super GSM8K example; see section 7 for dependencies and supported inputs.
 
 - `examples/sft/gsm8k/run_nemotron_3_5_lightning_megatron.sh` for full-parameter NVIDIA Nemotron 3.5 Lightning SFT with native MTP.
 
@@ -153,3 +153,37 @@ The presence of mtp layer has limited effect on main loss. However, when MTP lay
 Use `examples/grpo_trainer/run_nemotron_3_5_lightning_30b_a3b_megatron.sh` for the 2-node x 8-H100 topology. Its defaults enable R3 router replay and one-token MTP speculation, use raw rollout log probabilities, and disable dynamic batching and router/permutation fusion to keep Megatron and vLLM routing reproducible. These settings completed a four-hour validation on the v0.7 backport; run a GPU smoke test before treating a newly merged `main` revision as hardware-validated. The recipe supports vLLM only.
 
 verl also supports generic low-precision rollout and Megatron QAT as documented in `docs/low_precision/qat.md`. Nemotron 3.5 Lightning with native HybridModel MTP, R3, and quantized weight refits has not been validated as a combined configuration; MTP layers remain in BF16. Treat rollout quantization as experimental for this recipe and do not enable QAT without a dedicated end-to-end validation.
+
+## 7. Nemotron 3.5 Super VL SFT
+
+Use `examples/sft/vlm/run_nemotron_3_5_super_vl_megatron.sh` with `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16`. It defaults to 4 nodes × 8 GPUs, TP=2, PP=1, EP=16, CP=1, and two prediction depths sharing one physical MTP block. The vision encoder is frozen by default; the projector and language model train. Set `FREEZE_VISION_MODEL=False` to train the vision encoder as well. The tokenizer and processor must come from this checkpoint, rather than the older text-only Nano checkpoint.
+
+Super VL needs Bridge's expanded-sequence `NemotronOmniModel`: the processor expands image placeholders, verl packs the complete sequence, and Bridge replaces image positions with projected features without changing token lengths. verl forwards image sizes and one-frame metadata, preserves Mamba sequence boundaries, and uses the nested decoder's native MTP loss path. Images with different resolutions are converted to RADIO patches before batching.
+
+The stable Bridge 0.6.2 / Core 0.19.2 lock and the Lightning Docker image do not provide this model. Use a separate environment with [Bridge revision `e97a67ac`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/e97a67acbf1b7a8ae0a0e0f26c60fa9548e19bfe) and its matching [Megatron-Core revision `89b28875`](https://github.com/NVIDIA/Megatron-LM/commit/89b28875a8d786ab41333bc60e7e8022e83e8f65). Installing the newer Bridge alone over Core 0.19.2 is insufficient because Bridge imports newer Core APIs. Starting from the repository's CUDA environment, install both source revisions:
+
+```bash
+uv pip install --no-deps \
+  'megatron-core @ git+https://github.com/NVIDIA/Megatron-LM.git@89b28875a8d786ab41333bc60e7e8022e83e8f65' \
+  'megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@e97a67acbf1b7a8ae0a0e0f26c60fa9548e19bfe'
+uv pip install 'transformers==5.20.1'
+```
+
+Use Transformers 5.20.1 and `model.trust_remote_code=True` to use the checkpoint's processor within the newer Bridge's supported Transformers range. Launch with the environment's Python; a subsequent `uv sync` would restore the older locked dependencies. These source revisions establish the required interfaces; the combined verl environment still needs a GPU smoke test.
+
+Prepare an image-caption dataset and run once on each host with a distinct `NODE_RANK`:
+
+```bash
+python examples/data_preprocess/pokemon.py \
+  --local_save_dir "$HOME/data/pokemon-gpt4o-captions"
+
+hf download nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16 \
+  --revision 1f8953f7f0935358e3605150d22bc15df062061c \
+  --local-dir "$HOME/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16"
+
+MODEL_PATH="$HOME/models/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16" \
+MASTER_ADDR=node-0.example.internal NODE_RANK=0 \
+  bash examples/sft/vlm/run_nemotron_3_5_super_vl_megatron.sh
+```
+
+For custom data, set `TRAIN_FILES` and `VAL_FILES` to parquet files containing `messages` and `images`; include `<image>` placeholders in the user messages. Text-only conversations are also accepted. The recipe currently supports image/text SFT with CP=1 and fused verl kernels disabled. Video/audio batches and CP>1 are rejected. Super VL GRPO, R3, speculative rollout, quantization, and checkpoint restore have not been validated by this recipe. Earlier Nemotron 3 Super and Lightning H100 results do not validate Super VL.

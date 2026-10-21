@@ -143,6 +143,14 @@ def gptmodel_forward_model_engine(
     post_process = unwrap_model(model).post_process
     native_hybrid_model = is_native_hybrid_model(unwrap_model(model))
     native_hybrid_mtp = mtp_enable_train and native_hybrid_model
+    native_hybrid_vlm = native_hybrid_model and vision_model
+    if native_hybrid_vlm:
+        if getattr(unwrap_model(model), "model_owns_packing", True):
+            raise RuntimeError("Native hybrid VLM training requires Bridge's expanded-sequence model wrapper.")
+        if getattr(unwrap_model(model).config, "context_parallel_size", 1) != 1 or local_cp_size not in (None, 1):
+            raise ValueError("Native hybrid VLM training currently requires context_parallel_size=1.")
+        if "pixel_values_videos" in multi_modal_inputs or "sound_clips" in multi_modal_inputs:
+            raise ValueError("Native hybrid VLM training currently supports image/text inputs only.")
 
     fp8 = unwrap_model(model).config.fp8
     use_fp8_padding = fp8 in ["e4m3", "hybrid"]
@@ -156,6 +164,11 @@ def gptmodel_forward_model_engine(
         model_kwargs["pixel_values_videos"] = multi_modal_inputs["pixel_values_videos"].to(input_ids.device)
     if "video_grid_thw" in multi_modal_inputs:
         model_kwargs["video_grid_thw"] = multi_modal_inputs["video_grid_thw"].to(input_ids.device)
+    if native_hybrid_vlm and "pixel_values" in multi_modal_inputs:
+        if "imgs_sizes" not in multi_modal_inputs or "num_frames" not in multi_modal_inputs:
+            raise ValueError("Nemotron image inputs require imgs_sizes and num_frames from the SFT dataset.")
+        for key in ("imgs_sizes", "num_frames"):
+            model_kwargs[key] = multi_modal_inputs[key].to(input_ids.device)
 
     batch_size = input_ids.shape[0]
     if data_format == "thd":
@@ -172,7 +185,9 @@ def gptmodel_forward_model_engine(
         input_ids_rmpad, packed_seq_params, position_ids_rmpad = preprocess_thd_engine(
             input_ids, pre_process=True, **thd_kwargs
         )
-        if vision_model:
+        # Nemotron inserts vision embeddings one-for-one into our packed stream;
+        # Qwen-style wrappers instead need the VLM-specific preprocessing below.
+        if vision_model and not native_hybrid_vlm:
             input_ids_rmpad, attention_mask, position_ids_rmpad = preprocess_vlm_thd_engine(
                 model, input_ids, input_ids_rmpad, packed_seq_params, position_ids, pad_token_id, **thd_kwargs
             )
@@ -336,7 +351,7 @@ def gptmodel_forward_model_engine(
             logits_processor_args.pop("response_attention_mask")
 
         # For VLM model, need to pass bshd format `input_ids` and `attention_mask`.
-        if vision_model:
+        if vision_model and not native_hybrid_vlm:
             input_ids_bshd, attention_mask = build_vlm_attn_mask_bshd(
                 input_ids, batch_size, pad_token_id, forced_max_seqlen=forced_max_seqlen
             )
@@ -346,7 +361,7 @@ def gptmodel_forward_model_engine(
         output_orig = model(
             input_ids=input_ids_bshd,
             attention_mask=attention_mask,
-            position_ids=None if vision_model else position_ids_bshd,
+            position_ids=None if vision_model and not native_hybrid_vlm else position_ids_bshd,
             **model_kwargs,
         )
         if post_process and logits_processor is not None:

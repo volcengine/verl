@@ -67,11 +67,32 @@ def configure_native_hybrid_mtp(provider, mtp_config, transformer_overrides: dic
 
 
 def is_native_hybrid_model(model) -> bool:
-    """Return whether ``model`` is a HybridModel with the required native MTP API."""
+    """Recognize native HybridModel MTP, including a multimodal language decoder."""
     if not has_native_mtp_support():
         return False
     try:
         from megatron.core.models.hybrid.hybrid_model import HybridModel
     except ImportError:
         return False
-    return isinstance(model, HybridModel)
+    return isinstance(model, HybridModel) or isinstance(getattr(model, "language_model", None), HybridModel)
+
+
+def validate_nemotron_super_vl_config(hf_config, engine_config):
+    """Require the expanded-sequence Bridge contract used by Super VL SFT."""
+    if "NemotronH_Omni_Reasoning_V3" not in (getattr(hf_config, "architectures", None) or []):
+        return
+    try:
+        from megatron.bridge.models.nemotron_omni.modeling_nemotron_omni import NemotronOmniModel
+        from megatron.bridge.models.nemotron_omni.nemotron_omni_bridge import Nemotron35SuperVLBridge  # noqa: F401
+    except ImportError as error:
+        raise RuntimeError(
+            "Nemotron 3.5 Super VL requires Megatron-Bridge with Nemotron35SuperVLBridge and "
+            "expanded-sequence NemotronOmniModel support; the pinned Bridge 0.6.2 predates it. "
+            "See docs/advance/mtp.md for matching Bridge and Megatron-Core source revisions."
+        ) from error
+    if getattr(NemotronOmniModel, "model_owns_packing", True):
+        raise RuntimeError("Nemotron 3.5 Super VL requires Bridge's expanded-sequence NemotronOmniModel.")
+    if engine_config.context_parallel_size != 1 or engine_config.dynamic_context_parallel:
+        raise ValueError("Nemotron 3.5 Super VL currently requires context_parallel_size=1 and dynamic CP disabled.")
+    if engine_config.use_fused_kernels:
+        raise ValueError("Nemotron 3.5 Super VL currently requires engine.use_fused_kernels=False.")
