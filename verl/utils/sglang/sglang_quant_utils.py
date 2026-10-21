@@ -158,14 +158,15 @@ def enforce_sglang_deep_gemm(
     quantization_config: Mapping[str, Any] | None,
     engine_kwargs: dict[str, Any],
 ) -> None:
-    """Pin supported FP8/MXFP8/MXFP4 Linear and MoE kernels to DeepGEMM."""
+    """Pin supported FP8/MXFP8/MXFP4 kernels to DeepGEMM unless explicitly disabled."""
     if quantization_config is None or _is_nvfp4_quantization(quantization_config):
         return
+    backend = "auto" if os.environ.get("VERL_ROLLOUT_USE_DEEP_GEMM", "1") == "0" else "deep_gemm"
     for option in ("fp8_gemm_runner_backend", "moe_runner_backend"):
         requested = engine_kwargs.get(option)
         if requested not in (None, "auto", "deep_gemm"):
             raise ValueError(f"SGLang FP8/MXFP8/MXFP4 quantization requires {option}=deep_gemm; got {requested!r}")
-        engine_kwargs[option] = "deep_gemm"
+        engine_kwargs[option] = backend
 
 
 def _prepare_refit_config(
