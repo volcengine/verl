@@ -53,9 +53,9 @@ from verl.utils.profiler import (
     rollout_profiler_global_ranks,
 )
 from verl.utils.sglang.sglang_quant_utils import (
-    enforce_sglang_deep_gemm,
     prepare_sglang_quantization,
     resolve_sglang_quantization_config,
+    set_default_sglang_quantization_backends,
     uses_sglang_refit_loader,
 )
 from verl.utils.tracking import RLInsightLogger
@@ -321,7 +321,7 @@ class SGLangHttpServer:
             model_override_args["quantization_config"] = quantization_config
             logger.info(f"Rollout quantization_config: {quantization_config}")
 
-        enforce_sglang_deep_gemm(quantization_config, engine_kwargs)
+        set_default_sglang_quantization_backends(quantization_config, engine_kwargs)
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,

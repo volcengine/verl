@@ -65,14 +65,15 @@ express different schemes for linear and routed MoE layers.
 
 The trainer must be Megatron (FSDP is not yet supported for this feature). The rollout engine can be vLLM or SGLang; TRT-LLM raises an error if `rollout.quantization` is set. The engine columns list the compressed-tensors scheme each engine implements.
 
-verl requests DeepGEMM for supported FP8, MXFP8 and MXFP4 Linear/MoE kernels.
-The training path is moving to the same backend, so selecting it explicitly on
-both rollout engines avoids backend-dependent activation quantization, scale
-layouts and fused-MoE epilogues drifting between training and inference.
-Explicit selection also prevents an engine's `auto` policy from changing
-kernels across versions or GPU architectures. The exceptions are vLLM MXFP8
-Linear, for which vLLM 0.29 has no DeepGEMM kernel, and NVFP4, for which neither
-engine provides a DeepGEMM implementation.
+verl defaults supported FP8, MXFP8 and MXFP4 Linear/MoE kernels to DeepGEMM.
+The training path is moving to the same backend, so this default avoids
+backend-dependent activation quantization, scale layouts and fused-MoE
+epilogues drifting between training and inference. It also prevents an engine's
+`auto` policy from changing kernels across versions or GPU architectures.
+Explicit rollout engine kwargs take precedence and can select Linear and MoE
+backends independently. The exceptions are vLLM MXFP8 Linear, for which vLLM
+0.29 has no DeepGEMM kernel, and NVFP4, for which neither engine provides a
+DeepGEMM implementation.
 
 | Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | vLLM status in verl | SGLang status in verl |
 |---|---|---|---|---|---|---|---|---|---|
@@ -176,12 +177,16 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
 
 ### Engine notes
 
-- **vLLM**: quantized FP8/MXFP8/MXFP4 rollouts explicitly request
-  `linear_backend=deep_gemm` and select `moe_backend=deep_gemm` for routed
-  experts when vLLM supports the combination. MXFP8 Linear falls back as noted
-  above, while the MXFP4 preset has BF16 dense layers.
+- **vLLM**: quantized FP8/MXFP8/MXFP4 rollouts default to
+  `linear_backend=deep_gemm` and `moe_backend=deep_gemm` when those options are
+  omitted. Set either option under `engine_kwargs.vllm` to override it
+  independently. MXFP8 Linear falls back as noted above, while the MXFP4 preset
+  has BF16 dense layers.
   Hopper FP8 block configs with FP32 scales explicitly disable DeepGEMM E8M0;
   all other cases retain vLLM's architecture-specific default.
+- **SGLang**: quantized FP8/MXFP8/MXFP4 rollouts similarly default
+  `fp8_gemm_runner_backend` and `moe_runner_backend` to `deep_gemm`. Explicit
+  values under `engine_kwargs.sglang` take precedence.
 - **vLLM MXFP4**: vLLM 0.29's compressed-tensors path otherwise ignores the
   requested expert activation scheme. verl routes MXFP4 experts through the
   DeepGEMM FP4 backend, whose dynamic FP8 activations use group size 128.

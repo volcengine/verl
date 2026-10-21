@@ -90,22 +90,22 @@ def _is_hopper() -> bool:
     return current_platform.is_device_capability(90)
 
 
-def enforce_vllm_deep_gemm(
+def set_default_vllm_quantization_backends(
     quantization_config: Mapping[str, Any] | None,
     engine_kwargs: dict[str, Any],
 ) -> None:
-    """Use DeepGEMM for quantization except NVFP4 unless explicitly disabled."""
+    """Default non-NVFP4 quantization backends to DeepGEMM."""
     if hasattr(quantization_config, "to_dict"):
         quantization_config = quantization_config.to_dict()
     if not isinstance(quantization_config, Mapping) or _is_nvfp4_quantization(quantization_config):
         return
-    backend = "auto" if os.environ.get("VERL_ROLLOUT_USE_DEEP_GEMM", "1") == "0" else "deep_gemm"
     for option in ("linear_backend", "moe_backend"):
-        requested = engine_kwargs.get(option)
-        if requested not in (None, "auto", "deep_gemm"):
-            raise ValueError(f"vLLM non-NVFP4 quantization requires {option}='deep_gemm'; got {requested!r}")
-        engine_kwargs[option] = backend
-    if _is_hopper() and _uses_fp32_block_scales(quantization_config):
+        engine_kwargs.setdefault(option, "deep_gemm")
+    if (
+        "deep_gemm" in (engine_kwargs["linear_backend"], engine_kwargs["moe_backend"])
+        and _is_hopper()
+        and _uses_fp32_block_scales(quantization_config)
+    ):
         os.environ["VLLM_USE_DEEP_GEMM_E8M0"] = "0"
 
 

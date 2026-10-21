@@ -93,10 +93,7 @@ def install_mxfp4_mxfp8_compressed_tensors_patch():
             FusedMoEMethodBase.__init__(self, moe)
             self.weight_dtype = "mxfp4"
             self.group_size = _MXFP4_SF_BLOCK
-            selection_moe = replace(moe, moe_backend="deep_gemm") if moe.moe_backend == "auto" else moe
-            self.mxfp4_backend, self.experts_cls = select_mxfp4_moe_backend(
-                selection_moe, activation_key=kFp8Dynamic128Sym
-            )
+            self.mxfp4_backend, self.experts_cls = select_mxfp4_moe_backend(moe, activation_key=kFp8Dynamic128Sym)
             self.max_capture_size = moe.max_capture_size
             self._cache_permute_indices = {}
             self.moe_kernel = None
