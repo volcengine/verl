@@ -32,7 +32,7 @@ compressors, so every refit ships tensors in the layout the engine loads.
 
 import json
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Optional
 
 import torch
@@ -49,7 +49,7 @@ __all__ = [
     "Fp8ConfigWeightQuantizer",
     "NVFP4PerTokenWeightQuantizer",
     "is_nvfp4_per_token_scheme",
-    "moe_layer_partition",
+    "nvfp4_per_token_module_matcher",
     "dispatch_rollout_weight_quantizer",
     "build_compressed_tensors_config",
     "is_all_mxfp8_config",
@@ -209,30 +209,19 @@ def is_nvfp4_per_token_scheme(weights: Any, input_activations: Any) -> bool:
     return dynamic is True
 
 
-def _hf_get(hf_config: Any, name: str) -> Any:
-    return hf_config.get(name) if isinstance(hf_config, Mapping) else getattr(hf_config, name, None)
+def nvfp4_per_token_module_matcher(ct_config: Mapping[str, Any]) -> Callable[[str], bool]:
+    """Predicate on an unfused expert projection name (``...experts.0.gate_proj``):
+    whether ``ct_config`` gives it the ``NVFP4_PER_TOKEN`` scheme.
 
-
-def moe_layer_partition(hf_config: Any, quantization_config: Mapping[str, Any]) -> tuple[list[int], list[int]]:
-    """Routed-expert layer indices as ``(quantized, high_precision)`` under a rollout ``quantization_config``.
-
-    Sparse layers follow the HF placement rule of the Qwen MoE family: layer ``i``
-    is sparse unless listed in ``mlp_only_layers`` and when ``(i + 1)`` is a
-    multiple of ``decoder_sparse_step``.
+    Uses the exporter's own name matching, so it covers any model the export does.
     """
-    num_layers = int(_hf_get(hf_config, "num_hidden_layers") or 0)
-    sparse_step = int(_hf_get(hf_config, "decoder_sparse_step") or 1)
-    if sparse_step <= 0:
-        raise ValueError(f"decoder_sparse_step must be positive, got {sparse_step}")
-    dense_layers = set(_hf_get(hf_config, "mlp_only_layers") or [])
-    ignore = list(quantization_config.get("ignore") or [])
-    quantized, high_precision = [], []
-    for layer in range(num_layers):
-        if layer in dense_layers or (layer + 1) % sparse_step:
-            continue
-        ignored = _matches(f"model.layers.{layer}.mlp.experts.0.gate_proj", ignore)
-        (high_precision if ignored else quantized).append(layer)
-    return quantized, high_precision
+    module_scheme = CompressedTensorsWeightQuantizer(ct_config)._module_scheme
+
+    def matches(module: str) -> bool:
+        scheme = module_scheme(module)
+        return scheme is not None and is_nvfp4_per_token_scheme(scheme.weights, scheme.input_activations)
+
+    return matches
 
 
 def _config_group(targets: list[str], preset: str) -> dict[str, Any]:
@@ -667,18 +656,25 @@ def _as_quantization_config(config: Any) -> Optional[dict[str, Any]]:
 
 
 def _check_real_nvfp4_carveout(hf_config: Any, quantization_config: Mapping[str, Any], real_nvfp4_config: Any) -> None:
-    """Training and rollout must keep the same routed-expert layers in BF16."""
-    num_layers = int(_hf_get(hf_config, "num_hidden_layers") or 0)
-    start = real_nvfp4_config.num_layers_at_start_in_bf16
-    end = real_nvfp4_config.num_layers_at_end_in_bf16
-    carved = set(range(start)) | set(range(num_layers - end, num_layers))
-    quantized, high_precision = moe_layer_partition(hf_config, quantization_config)
-    expected = sorted(carved & set(quantized + high_precision))
+    """Training and rollout must keep the same layers' routed experts in BF16.
+
+    Matches expert names like the export does, so dense layers need no special casing.
+    """
+    from verl.utils.real_nvfp4 import real_nvfp4_bf16_layer_indices, real_nvfp4_num_layers
+
+    num_layers = real_nvfp4_num_layers(hf_config)
+    expected = real_nvfp4_bf16_layer_indices(
+        num_layers, real_nvfp4_config.num_layers_at_start_in_bf16, real_nvfp4_config.num_layers_at_end_in_bf16
+    )
+    per_token = nvfp4_per_token_module_matcher(quantization_config)
+    high_precision = [
+        layer for layer in range(num_layers) if not per_token(f"model.layers.{layer}.mlp.experts.0.gate_proj")
+    ]
     if high_precision != expected:
         layers = "|".join(str(layer) for layer in expected)
         hint = f'["re:.*layers\\.({layers})\\.mlp\\.experts\\..*"]' if expected else "[]"
         raise ValueError(
-            f"rollout.quantization keeps routed-expert layers {high_precision} in BF16, but real_nvfp4 "
+            f"rollout.quantization keeps the routed experts of layers {high_precision} in BF16, but real_nvfp4 "
             f"trains layers {expected} in BF16; set rollout.quantization.ignore={hint}"
         )
 

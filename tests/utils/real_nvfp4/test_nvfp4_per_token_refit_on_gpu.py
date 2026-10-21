@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NVFP4_PER_TOKEN rollout refit on a small Qwen3-MoE.
+"""NVFP4_PER_TOKEN rollout refit on small Qwen3-MoE and DeepSeek-V3 models.
 
 The preset engine refits from the trainer-side export through vLLM's layerwise reload.
 Its greedy logprobs must equal vLLM's online nvfp4_per_token method loading the same BF16
@@ -33,7 +33,6 @@ pytest.importorskip("vllm")
 from verl.utils.qat.compressed_tensors import (  # noqa: E402
     NVFP4PerTokenWeightQuantizer,
     build_compressed_tensors_config,
-    moe_layer_partition,
 )
 
 pytestmark = pytest.mark.skipif(
@@ -45,8 +44,7 @@ NUM_LAYERS = 3
 PROMPTS = [[11, 523, 97, 1024, 7], [3, 3, 3, 900, 41, 2049], [1500, 8, 77]]
 
 
-@pytest.fixture(scope="module")
-def model_dir(tmp_path_factory):
+def _qwen3_moe():
     from transformers import Qwen3MoeConfig, Qwen3MoeForCausalLM
 
     config = Qwen3MoeConfig(
@@ -65,9 +63,47 @@ def model_dir(tmp_path_factory):
         max_position_embeddings=1024,
         torch_dtype="bfloat16",
     )
+    return Qwen3MoeForCausalLM(config)
+
+
+def _deepseek_v3():
+    # A dense first layer, MLA attention and a shared expert next to the routed ones.
+    from transformers import DeepseekV3Config, DeepseekV3ForCausalLM
+
+    config = DeepseekV3Config(
+        vocab_size=4096,
+        hidden_size=2048,
+        intermediate_size=6144,
+        moe_intermediate_size=768,
+        num_hidden_layers=NUM_LAYERS,
+        first_k_dense_replace=1,
+        num_attention_heads=16,
+        num_key_value_heads=16,
+        q_lora_rank=768,
+        kv_lora_rank=512,
+        qk_nope_head_dim=128,
+        qk_rope_head_dim=64,
+        v_head_dim=128,
+        n_routed_experts=32,
+        n_shared_experts=1,
+        num_experts_per_tok=8,
+        n_group=1,
+        # As in DeepSeek-V3's config.json; vLLM keys the router bias on them.
+        topk_method="noaux_tc",
+        scoring_func="sigmoid",
+        topk_group=1,
+        norm_topk_prob=True,
+        max_position_embeddings=1024,
+        torch_dtype="bfloat16",
+    )
+    return DeepseekV3ForCausalLM(config)
+
+
+@pytest.fixture(scope="module", params=[_qwen3_moe, _deepseek_v3], ids=["qwen3_moe", "deepseek_v3"])
+def model_dir(request, tmp_path_factory):
     torch.manual_seed(0)
-    model = Qwen3MoeForCausalLM(config).to(torch.bfloat16)
-    path = tmp_path_factory.mktemp("qwen3_moe_small")
+    model = request.param().to(torch.bfloat16)
+    path = tmp_path_factory.mktemp(request.param.__name__)
     model.save_pretrained(path)
     return str(path)
 
@@ -94,7 +130,8 @@ def _engine(model_dir, eager, **kwargs):
         dtype="bfloat16",
         max_model_len=256,
         max_num_seqs=4,
-        gpu_memory_utilization=0.2,
+        # Small models: several engines run one after another in this process.
+        gpu_memory_utilization=0.08,
         enforce_eager=eager,
         compilation_config=None if eager else {"cudagraph_mode": "FULL_DECODE_ONLY"},
         enable_flashinfer_autotune=False,
@@ -129,12 +166,12 @@ def _logprobs(llm):
 
 
 def _kv_caches(llm):
-    from vllm.model_executor.layers.attention import Attention
+    from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 
     caches = []
     for module in _runner(llm).get_model().modules():
-        if isinstance(module, Attention):
-            kv = module.kv_cache
+        if isinstance(module, AttentionLayerBase):
+            kv = getattr(module, "kv_cache", None)
             caches.extend(t for t in (kv if isinstance(kv, list | tuple) else [kv]) if isinstance(t, torch.Tensor))
     return caches
 
@@ -145,8 +182,12 @@ def _close(llm):
     torch.cuda.empty_cache()
 
 
-def test_preset_refit_matches_online_quantization(model_dir):
-    from verl.utils.vllm.vllm_nvfp4_per_token_utils import attest_nvfp4_per_token_runtime, clear_kv_cache
+def test_preset_refit_matches_online_quantization(model_dir, request):
+    from verl.utils.vllm.vllm_nvfp4_per_token_utils import (
+        attest_nvfp4_per_token_runtime,
+        clear_kv_cache,
+        routed_expert_layers,
+    )
     from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
 
     carved = [0, NUM_LAYERS - 1]
@@ -167,11 +208,11 @@ def test_preset_refit_matches_online_quantization(model_dir):
     config = build_compressed_tensors_config(linear=None, moe="NVFP4_PER_TOKEN", ignore=ignore, config_file=None)
 
     def refit(llm, scale):
-        runner = _runner(llm)
-        quantized, bf16 = moe_layer_partition(runner.vllm_config.model_config.hf_config, config)
-        assert (quantized, bf16) == ([1], carved)
+        model = _runner(llm).get_model()
+        layers = routed_expert_layers(model, config)
+        assert sorted(layer for layer, (_, quantized) in layers.items() if quantized) == [1]
         _refit(llm, list(NVFP4PerTokenWeightQuantizer(config)(_weights(model_dir, scale))))
-        attest_nvfp4_per_token_runtime(runner.get_model(), quantized_layers=quantized, bf16_layers=bf16)
+        attest_nvfp4_per_token_runtime(model, config)
         return _logprobs(llm)
 
     preset = _engine(model_dir, eager=True, load_format="dummy", hf_overrides={"quantization_config": config})
@@ -182,18 +223,21 @@ def test_preset_refit_matches_online_quantization(model_dir):
     assert refit(preset, 1.0) == expected
     _close(preset)
 
+    # vLLM allows one sleep-mode (CuMem) engine per process, so one model covers the sleep.
+    sleep = request.node.callspec.id == "qwen3_moe"
     preset = _engine(
         model_dir,
         eager=False,
         load_format="dummy",
-        enable_sleep_mode=True,
+        enable_sleep_mode=sleep,
         hf_overrides={"quantization_config": config},
     )
     first = refit(preset, 1.0)
     assert refit(preset, 1.5) != first
     assert refit(preset, 1.0) == first
-    # A level-2 sleep discards the weights; the next refit must restore every captured tensor.
-    preset.sleep(level=2)
-    preset.wake_up()
-    assert refit(preset, 1.0) == first
+    if sleep:
+        # A level-2 sleep discards the weights; the next refit must restore every captured tensor.
+        preset.sleep(level=2)
+        preset.wake_up()
+        assert refit(preset, 1.0) == first
     _close(preset)

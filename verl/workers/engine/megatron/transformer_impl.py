@@ -15,6 +15,7 @@
 import inspect
 import logging
 import os
+import re
 from functools import partial
 from typing import Any, Callable, ContextManager, Iterator
 
@@ -415,6 +416,7 @@ class MegatronEngine(BaseEngine):
         from megatron.core.quantization.quant_config import RecipeConfig
 
         from verl.utils.real_nvfp4 import (
+            real_nvfp4_num_layers,
             real_nvfp4_quant_recipe_config,
             validate_real_nvfp4_model_contract,
             validate_real_nvfp4_parallelism,
@@ -454,7 +456,7 @@ class MegatronEngine(BaseEngine):
                 )
             override_transformer_config[key] = expected
         override_transformer_config["quant_recipe"] = RecipeConfig.from_config_dict(
-            real_nvfp4_quant_recipe_config(int(hf_config.num_hidden_layers), start, end)
+            real_nvfp4_quant_recipe_config(real_nvfp4_num_layers(hf_config), start, end)
         )
 
     def _attest_real_nvfp4_runtime(self) -> None:
@@ -469,61 +471,56 @@ class MegatronEngine(BaseEngine):
 
         from megatron.core.fp4_utils import get_fp4_recipe
 
-        from verl.utils.real_nvfp4 import real_nvfp4_moe_layer_partition, validate_real_nvfp4_te_recipe
+        from verl.utils.real_nvfp4 import (
+            is_routed_expert_module,
+            real_nvfp4_bf16_layer_indices,
+            real_nvfp4_num_layers,
+            validate_real_nvfp4_te_recipe,
+        )
 
         recipe = get_fp4_recipe(self.tf_config)
         if type(recipe).__name__ != "NVFP4BlockScaling":
             raise RuntimeError(f"Expected Transformer Engine NVFP4BlockScaling, got {type(recipe).__name__}")
         validate_real_nvfp4_te_recipe(recipe, backward_override=self._real_nvfp4_config.backward_override)
 
-        # Count the effective per-module precision of every attention and
-        # routed-expert linear layer, then compare with the requested layout.
-        hf_config = self.model_config.hf_config
-        quantized_layers, bf16_layers = real_nvfp4_moe_layer_partition(
-            hf_config,
-            num_layers_at_start_in_bf16=self._real_nvfp4_config.num_layers_at_start_in_bf16,
-            num_layers_at_end_in_bf16=self._real_nvfp4_config.num_layers_at_end_in_bf16,
+        # Check the effective precision of every TE linear module: routed-expert
+        # GEMMs outside the carve-out in NVFP4, everything else in BF16.
+        carved = set(
+            real_nvfp4_bf16_layer_indices(
+                real_nvfp4_num_layers(self.model_config.hf_config),
+                self._real_nvfp4_config.num_layers_at_start_in_bf16,
+                self._real_nvfp4_config.num_layers_at_end_in_bf16,
+            )
         )
-        num_layers = int(hf_config.num_hidden_layers)
-        expected_counts = {
-            ("linear_qkv", None): num_layers,
-            ("linear_proj", None): num_layers,
-            ("linear_fc1", "nvfp4"): len(quantized_layers),
-            ("linear_fc2", "nvfp4"): len(quantized_layers),
-            ("linear_fc1", None): len(bf16_layers),
-            ("linear_fc2", None): len(bf16_layers),
-        }
-        counts = dict.fromkeys(expected_counts, 0)
-        suffixes = (
-            ".self_attention.linear_qkv",
-            ".self_attention.linear_proj",
-            ".mlp.experts.linear_fc1",
-            ".mlp.experts.linear_fc2",
-        )
+        layer_index = re.compile(r"(?:^|\.)layers\.(\d+)\.")
 
         def recipe_name(training_recipe, field):
             value = getattr(training_recipe, field, None)
             return getattr(value, "value", value)
 
+        nvfp4_layers, mismatches = set(), []
         for model_chunk in self.module:
             for name, submodule in unwrap_model(model_chunk).named_modules():
-                if not name.endswith(suffixes):
+                if not hasattr(submodule, "te_quant_params"):
                     continue
-                quant_params = getattr(submodule, "te_quant_params", None)
+                quant_params = submodule.te_quant_params
                 if quant_params is None:
                     raise RuntimeError(f"real_nvfp4 per-module recipe did not match {name}")
-                if recipe_name(quant_params.training_recipe, "fp8_quantization_recipe") is not None:
-                    raise RuntimeError(f"real_nvfp4 module {name} carries an FP8 recipe")
-                key = (name.rsplit(".", 1)[1], recipe_name(quant_params.training_recipe, "fp4_quantization_recipe"))
-                if key not in counts:
-                    raise RuntimeError(f"real_nvfp4 module {name} has unexpected precision {key[1]!r}")
-                counts[key] += 1
+                layer = layer_index.search(name)
+                nvfp4 = is_routed_expert_module(name) and layer is not None and int(layer.group(1)) not in carved
+                actual = recipe_name(quant_params.training_recipe, "fp4_quantization_recipe")
+                fp8 = recipe_name(quant_params.training_recipe, "fp8_quantization_recipe")
+                if fp8 is not None or actual != ("nvfp4" if nvfp4 else None):
+                    mismatches.append((name, actual, fp8))
+                elif nvfp4:
+                    nvfp4_layers.add(int(layer.group(1)))
 
-        if counts != expected_counts:
+        if mismatches:
             raise RuntimeError(
-                "real_nvfp4 did not apply the per-module recipe to the expected layers: "
-                f"actual={counts}, expected={expected_counts}"
+                f"real_nvfp4 applied an unexpected precision to {len(mismatches)} modules: {mismatches[:8]}"
             )
+        if not nvfp4_layers:
+            raise RuntimeError("real_nvfp4 found no routed-expert GEMM to train in NVFP4")
 
     def _resolve_override_ddp_config(self):
         """Keep the DDP grad-bucket dtype consistent with the optimizer's grad buffer.

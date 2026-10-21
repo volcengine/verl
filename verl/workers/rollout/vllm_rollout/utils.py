@@ -260,14 +260,10 @@ class vLLMColocateWorkerExtension:
 
     def _attest_nvfp4_per_token_runtime(self):
         """Check the routed-expert precision layout and the refit scale state."""
-        from verl.utils.qat.compressed_tensors import moe_layer_partition
         from verl.utils.vllm.vllm_nvfp4_per_token_utils import attest_nvfp4_per_token_runtime
 
-        quantized, bf16 = moe_layer_partition(
-            self.model_runner.vllm_config.model_config.hf_config, self._nvfp4_per_token_config
-        )
         # get_model() unwraps vLLM's CUDA-graph wrapper.
-        attest_nvfp4_per_token_runtime(self.model_runner.get_model(), quantized_layers=quantized, bf16_layers=bf16)
+        attest_nvfp4_per_token_runtime(self.model_runner.get_model(), self._nvfp4_per_token_config)
 
     def _update_nvfp4_per_token_weights(self, use_shm: bool):
         """Refit through vLLM's layerwise reload, one bucket at a time.
@@ -282,7 +278,7 @@ class vLLMColocateWorkerExtension:
 
         model = self.model_runner.get_model()
         model_config = self.model_runner.vllm_config.model_config
-        check = NVFP4PerTokenRefitCheck(model_config.hf_config, self._nvfp4_per_token_config)
+        check = NVFP4PerTokenRefitCheck(model, self._nvfp4_per_token_config)
         error = None
 
         def load_bucket(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:

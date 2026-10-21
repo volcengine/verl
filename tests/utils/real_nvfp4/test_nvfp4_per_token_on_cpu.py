@@ -27,12 +27,12 @@ from verl.utils.qat.compressed_tensors import (  # noqa: E402
     NVFP4PerTokenWeightQuantizer,
     build_compressed_tensors_config,
     dispatch_rollout_weight_quantizer,
-    moe_layer_partition,
+    nvfp4_per_token_module_matcher,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CARVE_IGNORE = [r"re:.*layers\.(0|1|6|7)\.mlp\.experts\..*"]
-_HF = SimpleNamespace(num_hidden_layers=8, num_experts=2, decoder_sparse_step=1, mlp_only_layers=[])
+_HF = SimpleNamespace(num_hidden_layers=8, num_experts=2)
 
 
 def _load_rollout_utils():
@@ -51,9 +51,9 @@ def _config(ignore=_CARVE_IGNORE):
     return build_compressed_tensors_config(linear=None, moe="NVFP4_PER_TOKEN", ignore=ignore, config_file=None)
 
 
-def _dispatch(ignore=_CARVE_IGNORE, moe="NVFP4_PER_TOKEN", start=2, end=2, engine="vllm"):
+def _dispatch(ignore=_CARVE_IGNORE, moe="NVFP4_PER_TOKEN", start=2, end=2, engine="vllm", hf_config=_HF):
     return dispatch_rollout_weight_quantizer(
-        model_config=SimpleNamespace(hf_config=_HF, local_path=None),
+        model_config=SimpleNamespace(hf_config=hf_config, local_path=None),
         rollout_config=SimpleNamespace(
             name=engine, quantization=SimpleNamespace(linear=None, moe=moe, ignore=ignore, config_file=None)
         ),
@@ -75,8 +75,28 @@ def test_preset_is_nvfp4_weights_with_dynamic_inputs_and_moe_only():
         build_compressed_tensors_config(linear="NVFP4_PER_TOKEN", moe=None, ignore=[], config_file=None)
 
 
-def test_rollout_partition_follows_the_ignore_list():
-    assert moe_layer_partition(_HF, _config()) == ([2, 3, 4, 5], [0, 1, 6, 7])
+def test_per_token_matcher_follows_the_ignore_list_for_any_expert_naming():
+    per_token = nvfp4_per_token_module_matcher(_config())
+    assert per_token("model.layers.2.mlp.experts.0.gate_proj")
+    assert per_token("language_model.model.layers.5.mlp.experts.3.down_proj")
+    assert not per_token("model.layers.1.mlp.experts.0.gate_proj")
+    assert not per_token("model.layers.2.mlp.shared_experts.gate_proj")
+    assert not per_token("model.layers.2.self_attn.q_proj")
+
+
+@pytest.mark.parametrize(
+    "hf_config",
+    [
+        # DeepSeek-V3 / GLM / Kimi style: leading dense layers and shared experts.
+        SimpleNamespace(num_hidden_layers=8, n_routed_experts=4, first_k_dense_replace=1, n_shared_experts=1),
+        # Qwen3.5 style: the decoder config is nested under text_config.
+        SimpleNamespace(text_config=SimpleNamespace(num_hidden_layers=8, num_experts=4)),
+    ],
+)
+def test_dispatch_checks_the_carveout_by_name_on_other_layouts(hf_config):
+    assert isinstance(_dispatch(hf_config=hf_config), NVFP4PerTokenWeightQuantizer)
+    with pytest.raises(ValueError, match="trains layers"):
+        _dispatch(hf_config=hf_config, end=1)
 
 
 def test_dispatch_pairs_real_nvfp4_with_the_preset_and_its_carveout():
@@ -139,20 +159,21 @@ def test_exporter_rejects_an_unpaired_gate_proj(monkeypatch):
         )
 
 
+_LAYER0_BF16 = [r"re:.*layers\.0\.mlp\.experts\..*"]
+
+
 def _stream():
-    hf, config = SimpleNamespace(num_hidden_layers=2, num_experts=2), _config([r"re:.*layers\.0\.mlp\.experts\..*"])
     weights = []
     for expert in range(2):
         for projection in ("gate_proj", "up_proj", "down_proj"):
             weights.append((f"model.layers.0.mlp.experts.{expert}.{projection}.weight", torch.ones(2, 16)))
             for suffix in ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale"):
                 weights.append((f"model.layers.1.mlp.experts.{expert}.{projection}.{suffix}", torch.ones(1)))
-    return hf, config, weights
+    return weights
 
 
 def _check(weights):
-    hf, config, _ = _stream()
-    check = _ROLLOUT.NVFP4PerTokenRefitCheck(hf, config)
+    check = _ROLLOUT.NVFP4PerTokenRefitCheck(_model([1], num_layers=2), _config(_LAYER0_BF16))
     # Split the round into two buckets, as the receiver delivers it.
     check.check_bucket(weights[: len(weights) // 2])
     check.check_bucket(weights[len(weights) // 2 :])
@@ -160,7 +181,7 @@ def _check(weights):
 
 
 def test_refit_check_accepts_a_complete_reordered_round():
-    weights = list(reversed(_stream()[2]))
+    weights = list(reversed(_stream()))
     weights.insert(0, ("model.embed_tokens.weight", torch.ones(2, 16)))
     _check(weights)
 
@@ -179,7 +200,17 @@ def test_refit_check_accepts_a_complete_reordered_round():
 )
 def test_refit_check_rejects_a_bad_round(corrupt, message):
     with pytest.raises(RuntimeError, match=message):
-        _check(corrupt(_stream()[2]))
+        _check(corrupt(_stream()))
+
+
+def test_refit_check_accepts_packed_bf16_experts():
+    # Packed-expert checkpoints (e.g. Qwen3.5) send their BF16 layers as one tensor per projection.
+    weights = [(n, t) for n, t in _stream() if not n.startswith("model.layers.0.")]
+    weights += [
+        ("model.layers.0.mlp.experts.gate_up_proj", torch.ones(2, 32, 16)),
+        ("model.layers.0.mlp.experts.down_proj", torch.ones(2, 16, 16)),
+    ]
+    _check(weights)
 
 
 class CompressedTensorsW4A4Nvfp4PerTokenMoEMethod:
@@ -195,6 +226,7 @@ class _FakeNVFP4MoE(torch.nn.Module):
     def __init__(self, per_token_activation: bool = True) -> None:
         super().__init__()
         self.quant_method = CompressedTensorsW4A4Nvfp4PerTokenMoEMethod(per_token_activation)
+        self.global_num_experts = 2
         self._already_called_process_weights_after_loading = True
         self.w13_weight_scale = torch.ones((2, 2), dtype=torch.float8_e4m3fn)
         self.w2_weight_scale = torch.ones((2, 2), dtype=torch.float8_e4m3fn)
@@ -220,6 +252,7 @@ class _FakeUnquantizedMoE(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.quant_method = UnquantizedFusedMoEMethod()
+        self.global_num_experts = 2
 
 
 def _model(quantized_layers, num_layers=4, **kwargs):
@@ -236,21 +269,24 @@ def _model(quantized_layers, num_layers=4, **kwargs):
     return root
 
 
+_LAYERS_0_3_BF16 = _config([r"re:.*layers\.(0|3)\.mlp\.experts\..*"])
+
+
 def test_runtime_attestation_checks_layer_precision_and_per_token_kernel():
-    _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2]), quantized_layers=[1, 2], bf16_layers=[0, 3])
+    _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2]), _LAYERS_0_3_BF16)
     with pytest.raises(RuntimeError, match="wrong routed-expert precision"):
-        _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2]), quantized_layers=[0, 1], bf16_layers=[2, 3])
+        _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1]), _LAYERS_0_3_BF16)
+    with pytest.raises(RuntimeError, match="wrong routed-expert precision"):
+        _ROLLOUT.attest_nvfp4_per_token_runtime(_model([0, 1, 2]), _LAYERS_0_3_BF16)
     with pytest.raises(RuntimeError, match="per token"):
-        _ROLLOUT.attest_nvfp4_per_token_runtime(
-            _model([1], per_token_activation=False), quantized_layers=[1], bf16_layers=[0, 2, 3]
-        )
+        _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2], per_token_activation=False), _LAYERS_0_3_BF16)
 
 
 def test_runtime_attestation_rejects_a_stale_derived_scale():
-    model = _model([1])
+    model = _model([1, 2])
     model.model.layers[1].mlp.experts.routed_experts.w13_weight_scale_2.mul_(2)
     with pytest.raises(RuntimeError, match="g1_scale_c does not match"):
-        _ROLLOUT.attest_nvfp4_per_token_runtime(model, quantized_layers=[1], bf16_layers=[0, 2, 3])
+        _ROLLOUT.attest_nvfp4_per_token_runtime(model, _LAYERS_0_3_BF16)
 
 
 def test_rollout_server_checks_a_per_token_config_file(tmp_path):

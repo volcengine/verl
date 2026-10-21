@@ -16,10 +16,12 @@ jobs.
 """
 
 import ast
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from verl.utils.real_nvfp4.config import (
     real_nvfp4_quant_recipe_config,
@@ -29,17 +31,16 @@ from verl.utils.real_nvfp4.config import (
 ENGINE_PATH = Path(__file__).resolve().parents[3] / "verl/workers/engine/megatron/transformer_impl.py"
 
 
-def _engine_method(name):
+def _engine_method(name, **namespace):
     tree = ast.parse(ENGINE_PATH.read_text())
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MegatronEngine")
     method = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name)
-    namespace = {}
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(ENGINE_PATH), "exec"), namespace)
     return namespace[name]
 
 
 def _model_config(**kwargs):
-    values = {"num_hidden_layers": 48, "num_experts": 128, "decoder_sparse_step": 1, "mlp_only_layers": []}
+    values = {"num_hidden_layers": 48, "num_experts": 128}
     values.update(kwargs)
     return SimpleNamespace(**values)
 
@@ -61,13 +62,12 @@ def test_recipe_lists_carved_out_layers_before_general_patterns():
         "layer_45_bf16",
         "layer_46_bf16",
         "layer_47_bf16",
-        "attn_qkv_bf16",
-        "attn_proj_bf16",
-        "mlp_fc1_nvfp4",
-        "mlp_fc2_nvfp4",
+        "experts_fc1_nvfp4",
+        "experts_fc2_nvfp4",
+        "other_bf16",
     ]
     assert matchers["layer_44_bf16"]["pattern"] == "*.layers.44.*"
-    assert matchers["mlp_fc1_nvfp4"] == {"config": "nvfp4", "type": "glob", "pattern": "*.linear_fc1", "enabled": True}
+    assert matchers["other_bf16"] == {"config": "bf16", "type": "glob", "pattern": "*", "enabled": True}
 
 
 @pytest.mark.parametrize(
@@ -79,6 +79,12 @@ def test_recipe_lists_carved_out_layers_before_general_patterns():
         ("decoder.layers.44.mlp.experts.linear_fc2", "bf16"),
         ("decoder.layers.10.self_attention.linear_qkv", "bf16"),
         ("decoder.layers.10.self_attention.linear_proj", "bf16"),
+        ("decoder.layers.10.mlp.experts.local_experts.3.linear_fc1", "nvfp4"),
+        # Dense MLPs, shared experts and other attention projections stay BF16, as in the rollout.
+        ("decoder.layers.10.mlp.linear_fc1", "bf16"),
+        ("decoder.layers.10.mlp.shared_experts.linear_fc2", "bf16"),
+        ("decoder.layers.10.self_attention.linear_kv_down_proj", "bf16"),
+        ("language_model.decoder.layers.10.self_attention.in_proj", "bf16"),
     ],
 )
 def test_engine_sets_megatron_recipe_and_fp4_overrides(module_path, expected):
@@ -139,3 +145,60 @@ def test_te_recipe_contract_accepts_expected_semantics():
 def test_te_recipe_contract_rejects_drift(overrides):
     with pytest.raises(RuntimeError, match="recipe drifted"):
         validate_real_nvfp4_te_recipe(_te_recipe(**overrides), backward_override="dequantized")
+
+
+class NVFP4BlockScaling(SimpleNamespace):
+    pass
+
+
+def _deepseek_like_modules(recipe):
+    """TE modules of a 6-layer model with a dense first layer, MLA and shared experts."""
+    from megatron.core.quantization.utils import get_quant_config_or_none
+
+    names = ["decoder.layers.0.mlp.linear_fc1", "decoder.layers.0.mlp.linear_fc2"]
+    for layer in range(6):
+        names += [f"decoder.layers.{layer}.self_attention.{p}" for p in ("linear_q_proj", "linear_kv_down_proj")]
+    for layer in range(1, 6):
+        names += [
+            f"decoder.layers.{layer}.mlp.{part}.linear_fc{i}" for part in ("experts", "shared_experts") for i in (1, 2)
+        ]
+    root = torch.nn.Module()
+    for name in names:
+        module = root
+        for part in name.split("."):
+            if not hasattr(module, part):
+                module.add_module(part, torch.nn.Module())
+            module = getattr(module, part)
+        key = get_quant_config_or_none(name, recipe).config_key
+        fp4 = "nvfp4" if key == "nvfp4" else None
+        training_recipe = SimpleNamespace(fp8_quantization_recipe=None, fp4_quantization_recipe=fp4)
+        module.te_quant_params = SimpleNamespace(training_recipe=training_recipe)
+    return root
+
+
+def test_runtime_attestation_on_a_dense_mla_shared_expert_layout(monkeypatch):
+    pytest.importorskip("megatron.core.quantization.quant_config")
+    import megatron.core.fp4_utils
+    from megatron.core.quantization.quant_config import RecipeConfig
+
+    te_recipe = NVFP4BlockScaling(**vars(_te_recipe()))
+    monkeypatch.setattr(megatron.core.fp4_utils, "get_fp4_recipe", lambda config: te_recipe)
+    attest = _engine_method("_attest_real_nvfp4_runtime", re=re, unwrap_model=lambda module: module)
+    recipe = RecipeConfig.from_config_dict(real_nvfp4_quant_recipe_config(6, 1, 1))
+    root = _deepseek_like_modules(recipe)
+    engine = SimpleNamespace(
+        _real_nvfp4_enabled=True,
+        _real_nvfp4_config=SimpleNamespace(
+            backward_override="dequantized", num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1
+        ),
+        tf_config=SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
+        model_config=SimpleNamespace(hf_config=SimpleNamespace(num_hidden_layers=6, n_routed_experts=8)),
+        module=[root],
+    )
+    attest(engine)
+
+    # A shared expert running in NVFP4 would not match the BF16 rollout.
+    shared = root.get_submodule("decoder.layers.2.mlp.shared_experts.linear_fc1")
+    shared.te_quant_params.training_recipe.fp4_quantization_recipe = "nvfp4"
+    with pytest.raises(RuntimeError, match="unexpected precision"):
+        attest(engine)

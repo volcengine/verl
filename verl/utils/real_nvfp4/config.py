@@ -14,7 +14,12 @@
 
 """Validation for routed-expert, per-token NVFP4 training and rollout."""
 
+import fnmatch
 from typing import Any
+
+# Megatron module paths of routed-expert GEMMs (grouped or sequential experts). Dense MLPs
+# (``mlp.linear_fc1``) and shared experts (``mlp.shared_experts.linear_fc1``) do not match.
+ROUTED_EXPERT_PATTERNS = ("*.mlp.experts.*linear_fc1", "*.mlp.experts.*linear_fc2")
 
 
 def _hf_get(hf_config: Any, name: str, default: Any = None) -> Any:
@@ -23,13 +28,18 @@ def _hf_get(hf_config: Any, name: str, default: Any = None) -> Any:
     return getattr(hf_config, name, default)
 
 
-def real_nvfp4_moe_layer_indices(hf_config: Any) -> list[int]:
-    """Indices of the decoder layers that carry routed experts."""
+def _text_config(hf_config: Any) -> Any:
+    """The decoder config; multimodal HF configs nest it under ``text_config``."""
+    text_config = _hf_get(hf_config, "text_config")
+    return hf_config if text_config is None else text_config
 
-    from verl.utils.qat.compressed_tensors import moe_layer_partition
 
-    quantized, high_precision = moe_layer_partition(hf_config, {})
-    return sorted(quantized + high_precision)
+def real_nvfp4_num_layers(hf_config: Any) -> int:
+    return int(_hf_get(_text_config(hf_config), "num_hidden_layers") or 0)
+
+
+def is_routed_expert_module(module_path: str) -> bool:
+    return any(fnmatch.fnmatch(module_path, pattern) for pattern in ROUTED_EXPERT_PATTERNS)
 
 
 def real_nvfp4_bf16_layer_indices(num_layers: int, num_layers_at_start: int, num_layers_at_end: int) -> list[int]:
@@ -47,27 +57,15 @@ def real_nvfp4_bf16_layer_indices(num_layers: int, num_layers_at_start: int, num
     return list(range(num_layers_at_start)) + list(range(num_layers - num_layers_at_end, num_layers))
 
 
-def real_nvfp4_moe_layer_partition(
-    hf_config: Any,
-    *,
-    num_layers_at_start_in_bf16: int = 0,
-    num_layers_at_end_in_bf16: int = 0,
-) -> tuple[list[int], list[int]]:
-    """Return routed-expert layer indices as ``(quantized, bf16)``."""
-
-    num_layers = int(_hf_get(hf_config, "num_hidden_layers") or 0)
-    carved = set(real_nvfp4_bf16_layer_indices(num_layers, num_layers_at_start_in_bf16, num_layers_at_end_in_bf16))
-    moe_layers = real_nvfp4_moe_layer_indices(hf_config)
-    return [i for i in moe_layers if i not in carved], [i for i in moe_layers if i in carved]
-
-
 def real_nvfp4_quant_recipe_config(num_layers: int, num_layers_at_start: int, num_layers_at_end: int) -> dict:
-    """Megatron-Core per-module recipe: attention BF16, routed-expert MLP NVFP4.
+    """Megatron-Core per-module recipe: routed-expert GEMMs NVFP4, everything else BF16.
 
     The result is passed to ``RecipeConfig.from_config_dict``. MCore takes the
-    first matching matcher, so the carved-out layers precede the general MLP
-    patterns. Layer indices in module paths are global only with PP=1, which
-    :func:`validate_real_nvfp4_parallelism` enforces.
+    first matching matcher, so the carved-out layers precede the expert
+    patterns, and a final catch-all keeps attention, dense MLPs and shared
+    experts in BF16: a TE module no matcher selects would inherit the layer's
+    FP4 autocast. Layer indices in module paths are global only with PP=1,
+    which :func:`validate_real_nvfp4_parallelism` enforces.
     """
 
     def glob(config: str, pattern: str) -> dict:
@@ -77,10 +75,9 @@ def real_nvfp4_quant_recipe_config(num_layers: int, num_layers_at_start: int, nu
         f"layer_{index}_bf16": glob("bf16", f"*.layers.{index}.*")
         for index in real_nvfp4_bf16_layer_indices(num_layers, num_layers_at_start, num_layers_at_end)
     }
-    matchers["attn_qkv_bf16"] = glob("bf16", "*.linear_qkv")
-    matchers["attn_proj_bf16"] = glob("bf16", "*.linear_proj")
-    matchers["mlp_fc1_nvfp4"] = glob("nvfp4", "*.linear_fc1")
-    matchers["mlp_fc2_nvfp4"] = glob("nvfp4", "*.linear_fc2")
+    matchers["experts_fc1_nvfp4"] = glob("nvfp4", ROUTED_EXPERT_PATTERNS[0])
+    matchers["experts_fc2_nvfp4"] = glob("nvfp4", ROUTED_EXPERT_PATTERNS[1])
+    matchers["other_bf16"] = glob("bf16", "*")
     return {
         "configs": {
             "bf16": {"transformer_engine_config_type": "TEQuantizationParams", "training_recipe": {}},
@@ -94,33 +91,15 @@ def real_nvfp4_quant_recipe_config(num_layers: int, num_layers_at_start: int, nu
 
 
 def validate_real_nvfp4_model_contract(hf_config: Any) -> None:
-    """Restrict the current recipe to all-MoE decoders without shared experts.
+    """real_nvfp4 trains routed experts in NVFP4, so the model must have them."""
 
-    The training recipe's fc1/fc2 patterns would also quantize dense MLPs,
-    whereas the rollout preset quantizes routed experts only, so mixed
-    dense/MoE layouts stay unsupported.
-    """
-
-    num_experts = int(_hf_get(hf_config, "num_experts") or _hf_get(hf_config, "n_routed_experts") or 0)
+    text_config = _text_config(hf_config)
+    num_experts = int(_hf_get(text_config, "num_experts") or _hf_get(text_config, "n_routed_experts") or 0)
     if num_experts <= 0:
         raise ValueError(
             "real_nvfp4 requires a routed-expert MoE model; this config declares no experts "
             "(looked for num_experts / n_routed_experts)"
         )
-    num_layers = int(_hf_get(hf_config, "num_hidden_layers") or 0)
-    if num_layers == 0 or len(real_nvfp4_moe_layer_indices(hf_config)) != num_layers:
-        raise ValueError(
-            "real_nvfp4 currently requires every decoder layer to be MoE; mixed dense/MoE layouts "
-            "would quantize dense training MLPs that remain BF16 in rollout"
-        )
-    # Shared experts would be trained in NVFP4 by the fc1/fc2 patterns but stay
-    # BF16 in the rollout preset, which targets routed experts only.
-    for key in ("n_shared_experts", "shared_expert_intermediate_size", "num_shared_experts"):
-        if int(_hf_get(hf_config, key) or 0) > 0:
-            raise ValueError(
-                f"real_nvfp4 does not model shared experts yet ({key}="
-                f"{_hf_get(hf_config, key)}); they would train in NVFP4 but roll out in BF16"
-            )
 
 
 def validate_real_nvfp4_parallelism(*, pipeline_size: int, virtual_pipeline_size: int | None) -> None:

@@ -27,15 +27,15 @@ at that captured storage.
 """
 
 import re
-from collections.abc import Collection
 from dataclasses import replace
 
 import torch
 
-from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme, moe_layer_partition
+from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme, nvfp4_per_token_module_matcher
 
 _EXPERT_TENSOR_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)\.(\w+)$")
 _QUANTIZED_SUFFIXES = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
+_PACKED_EXPERT_TENSOR_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.(gate_up_proj|down_proj)(?:\.weight)?$")
 _MOE_MODULE_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts(?:\.routed_experts)?$")
 
 
@@ -159,43 +159,71 @@ def is_nvfp4_per_token_method(quant_method) -> bool:
     return type(quant_method).__name__ == "CompressedTensorsW4A4Nvfp4PerTokenMoEMethod"
 
 
+def routed_expert_layers(model: torch.nn.Module, quantization_config: dict) -> dict[int, tuple[torch.nn.Module, bool]]:
+    """vLLM's routed-expert modules by layer index, each with whether the config quantizes it per token.
+
+    The layers come from the built model and the precision from the export's name matching,
+    so no per-architecture layer rule is needed.
+    """
+    per_token = nvfp4_per_token_module_matcher(quantization_config)
+    layers = {}
+    for module_name, module in model.named_modules():
+        match = _MOE_MODULE_RE.search(module_name)
+        if match is None or getattr(module, "quant_method", None) is None:
+            continue
+        layer = int(match.group(1))
+        if layer in layers:
+            raise RuntimeError(f"Routed experts of layer {layer} were found twice")
+        # vLLM resolves the scheme of a fused MoE from its first expert's projections.
+        layers[layer] = (module, per_token(f"{module_name.removesuffix('.routed_experts')}.0.gate_proj"))
+    if not any(quantized for _, quantized in layers.values()):
+        raise RuntimeError("NVFP4_PER_TOKEN rollout found no routed-expert layer to quantize")
+    return layers
+
+
 class NVFP4PerTokenRefitCheck:
     """Check one refit round: each expert projection arrives once, in the expected precision."""
 
-    def __init__(self, hf_config, quantization_config: dict):
-        quantized, bf16 = moe_layer_partition(hf_config, quantization_config)
-        num_experts = int(getattr(hf_config, "num_experts", 0) or getattr(hf_config, "n_routed_experts", 0))
+    def __init__(self, model: torch.nn.Module, quantization_config: dict):
         projections = ("gate_proj", "up_proj", "down_proj")
         self.expected = {
             (layer, expert, projection, suffix)
-            for layers, suffixes in ((quantized, _QUANTIZED_SUFFIXES), (bf16, ("weight",)))
-            for layer in layers
-            for expert in range(num_experts)
+            for layer, (module, quantized) in routed_expert_layers(model, quantization_config).items()
+            for expert in range(module.global_num_experts)
             for projection in projections
-            for suffix in suffixes
+            for suffix in (_QUANTIZED_SUFFIXES if quantized else ("weight",))
         }
         self.seen = set()
         self.gate_up_global_scales = {}
 
+    def _keys(self, name: str, tensor: torch.Tensor) -> list[tuple[int, int, str, str]]:
+        match = _EXPERT_TENSOR_RE.search(name)
+        if match is not None:
+            return [(int(match.group(1)), int(match.group(2)), match.group(3), match.group(4))]
+        # BF16 experts of packed-expert checkpoints (e.g. Qwen3.5) stay packed: one tensor per layer.
+        match = _PACKED_EXPERT_TENSOR_RE.search(name)
+        if match is not None:
+            projections = ("gate_proj", "up_proj") if match.group(2) == "gate_up_proj" else ("down_proj",)
+            layer = int(match.group(1))
+            return [(layer, expert, p, "weight") for expert in range(tensor.shape[0]) for p in projections]
+        return []
+
     def check_bucket(self, weights: list[tuple[str, torch.Tensor]]) -> None:
         for name, tensor in weights:
-            match = _EXPERT_TENSOR_RE.search(name)
-            if match is None:
-                continue
-            layer, expert, projection, suffix = int(match.group(1)), int(match.group(2)), match.group(3), match.group(4)
-            key = (layer, expert, projection, suffix)
-            if key not in self.expected:
-                raise RuntimeError(f"NVFP4_PER_TOKEN refit contains unexpected expert tensor {name}")
-            if key in self.seen:
-                raise RuntimeError(f"NVFP4_PER_TOKEN refit contains duplicate expert tensor {name}")
-            self.seen.add(key)
-            if suffix == "input_global_scale" and not torch.all(tensor == 1):
-                raise RuntimeError(f"NVFP4_PER_TOKEN activations are scaled per token, but {name} is not 1")
-            if suffix == "weight_global_scale" and projection != "down_proj":
-                # The kernel applies one global scale to the fused gate/up weight.
-                other = self.gate_up_global_scales.setdefault((layer, expert), tensor.detach().float().cpu())
-                if not torch.equal(other, tensor.detach().float().cpu()):
-                    raise RuntimeError(f"NVFP4_PER_TOKEN gate_proj and up_proj global scales differ at {name}")
+            for key in self._keys(name, tensor):
+                layer, expert, projection, suffix = key
+                if key not in self.expected:
+                    raise RuntimeError(f"NVFP4_PER_TOKEN refit contains unexpected expert tensor {name}")
+                if key in self.seen:
+                    raise RuntimeError(f"NVFP4_PER_TOKEN refit contains duplicate expert tensor {name}")
+                self.seen.add(key)
+                if suffix == "input_global_scale" and not torch.all(tensor == 1):
+                    raise RuntimeError(f"NVFP4_PER_TOKEN activations are scaled per token, but {name} is not 1")
+                if suffix == "weight_global_scale" and projection != "down_proj":
+                    # The kernel applies one global scale to the fused gate/up weight.
+                    other = self.gate_up_global_scales.setdefault((layer, expert), tensor.detach().float().cpu())
+                    if not torch.equal(other, tensor.detach().float().cpu()):
+                        raise RuntimeError(f"NVFP4_PER_TOKEN gate_proj and up_proj global scales differ at {name}")
 
     def finish(self) -> None:
         missing = sorted(self.expected - self.seen)
@@ -246,12 +274,13 @@ def clear_kv_cache(model: torch.nn.Module) -> None:
     reads unwritten slots of a partly filled block, so a stale NaN there poisons later
     requests unless a sleep discards the cache first.
     """
-    from vllm.model_executor.layers.attention import Attention
+    from vllm.model_executor.layers.attention_layer_base import AttentionLayerBase
 
     caches = {}
     for module in model.modules():
-        if isinstance(module, Attention):
-            kv = module.kv_cache
+        # The common base of every cache-holding layer (Attention, MLAAttention, ...).
+        if isinstance(module, AttentionLayerBase):
+            kv = getattr(module, "kv_cache", None)
             for tensor in kv if isinstance(kv, list | tuple) else [kv]:
                 if isinstance(tensor, torch.Tensor):
                     caches[tensor.data_ptr()] = tensor
@@ -260,32 +289,18 @@ def clear_kv_cache(model: torch.nn.Module) -> None:
             tensor.zero_()
 
 
-def attest_nvfp4_per_token_runtime(
-    model: torch.nn.Module,
-    *,
-    quantized_layers: Collection[int],
-    bf16_layers: Collection[int],
-) -> None:
+def attest_nvfp4_per_token_runtime(model: torch.nn.Module, quantization_config: dict) -> None:
     """Check the routed-expert precision of every layer and the scale state of the NVFP4 ones."""
-    quantized, unquantized = set(), set()
-    for module_name, module in model.named_modules():
-        match = _MOE_MODULE_RE.search(module_name)
-        method = getattr(module, "quant_method", None)
-        if match is None or method is None:
-            continue
-        layer = int(match.group(1))
-        if is_nvfp4_per_token_method(method):
-            if layer in quantized:
-                raise RuntimeError(f"NVFP4_PER_TOKEN MoE layer {layer} was found twice")
+    wrong = []
+    for layer, (module, quantized) in sorted(routed_expert_layers(model, quantization_config).items()):
+        method = module.quant_method
+        if quantized and is_nvfp4_per_token_method(method):
             if not getattr(module, "_already_called_process_weights_after_loading", False):
                 raise RuntimeError(f"NVFP4_PER_TOKEN MoE layer {layer} was not post-processed")
             _attest_scale_references(module)
-            quantized.add(layer)
-        elif type(method).__name__ == "UnquantizedFusedMoEMethod":
-            unquantized.add(layer)
-    if quantized != set(quantized_layers) or not set(bf16_layers) <= unquantized:
+        elif quantized or type(method).__name__ != "UnquantizedFusedMoEMethod":
+            wrong.append((layer, type(method).__name__, "nvfp4_per_token" if quantized else "bf16"))
+    if wrong:
         raise RuntimeError(
-            "NVFP4_PER_TOKEN rollout has the wrong routed-expert precision: "
-            f"nvfp4={sorted(quantized)} (expected {sorted(quantized_layers)}), "
-            f"bf16={sorted(unquantized)} (expected {sorted(bf16_layers)})"
+            f"NVFP4_PER_TOKEN rollout has the wrong routed-expert precision (layer, method, expected): {wrong}"
         )
