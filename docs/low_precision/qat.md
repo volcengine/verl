@@ -29,11 +29,11 @@ HuggingFace checkpoints come in two flavors:
 - Kimi-K3 uses compressed-tensors: a `Linear`-targeted config group plus an `ignore` list that excludes non-expert layers yields "linear BF16 + MoE MXFP4".
 - DeepSeek-V4.1-Flash's `fp8` config has private fields (`scale_fmt`, `expert_dtype`) and needs dedicated engine support.
 
-The trainer always trains in high precision; low-precision checkpoints are dequantized before training. The rollout uses the model's own `quantization_config` if it has one; a BF16 model can run rollout in BF16 or, for higher throughput, in low precision through `rollout.quantization`.
+The trainer keeps parameters in high precision; low-precision checkpoints are dequantized before training. The rollout uses the model's own `quantization_config` if it has one; a BF16 model can run rollout in BF16 or, for higher throughput, in low precision through `rollout.quantization`.
 
 ## How it works
 
-- **Trainer**: always trains in high precision (BF16). With QAT enabled, the forward pass uses fake-quantized weights (quantize then dequantize) and gradients flow through a straight-through estimator.
+- **Trainer**: keeps parameters in high precision (BF16). Native NVFP4 training runs the routed-expert GEMMs in NVFP4 (see below). With QAT enabled, the forward pass uses fake-quantized weights (quantize then dequantize) and gradients flow through a straight-through estimator.
 - **Rollout**: the inference engine starts with dummy weights and either the model's native
   `quantization_config` or a `rollout.quantization` override. It allocates parameters as if
   it were loading that low-precision checkpoint (for example FP8 `weight` +

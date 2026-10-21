@@ -251,3 +251,25 @@ def test_runtime_attestation_rejects_a_stale_derived_scale():
     model.model.layers[1].mlp.experts.routed_experts.w13_weight_scale_2.mul_(2)
     with pytest.raises(RuntimeError, match="g1_scale_c does not match"):
         _ROLLOUT.attest_nvfp4_per_token_runtime(model, quantized_layers=[1], bf16_layers=[0, 2, 3])
+
+
+def test_rollout_server_checks_a_per_token_config_file(tmp_path):
+    pytest.importorskip("vllm")
+    import json
+
+    from verl.workers.config.rollout import RolloutQuantizationConfig
+    from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
+
+    config_file = tmp_path / "quantization_config.json"
+    config_file.write_text(json.dumps(_config()))
+    server = object.__new__(vLLMHttpServer)
+    server.model_config = SimpleNamespace(local_path=None)
+    server.config = SimpleNamespace(
+        quantization=RolloutQuantizationConfig(config_file=str(config_file)),
+        tensor_model_parallel_size=2,
+        expert_parallel_size=1,
+        pipeline_model_parallel_size=1,
+    )
+    with pytest.raises(ValueError, match="TP/EP/PP of 1"):
+        server._apply_quantization()
+    assert server._nvfp4_per_token

@@ -322,8 +322,7 @@ class vLLMHttpServer:
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
             compilation_config = json.loads(compilation_config)
-        quantization = self.config.quantization
-        if quantization.moe and quantization.moe.upper() == "NVFP4_PER_TOKEN":
+        if self._nvfp4_per_token:
             # The per-token NVFP4 rollout is validated with full CUDA graphs for decode only.
             compilation_config.setdefault("cudagraph_mode", "FULL_DECODE_ONLY")
             if compilation_config["cudagraph_mode"] != "FULL_DECODE_ONLY":
@@ -1402,13 +1401,21 @@ class vLLMHttpServer:
         Models shipping their own ``quantization_config`` need nothing here; either way the
         workers install the refit patches from the resulting vLLM ``quant_config``.
         """
+        from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme
+
+        self._nvfp4_per_token = False
         quantization = self.config.quantization
         if not quantization.enabled:
             return {}
 
         # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
         quantization_config = quantization.build_quantization_config(self.model_config.local_path)
-        if quantization.moe and quantization.moe.upper() == "NVFP4_PER_TOKEN":
+        # Detect the scheme from the built config, so a config_file with a per-token group is checked too.
+        self._nvfp4_per_token = any(
+            is_nvfp4_per_token_scheme(group.get("weights"), group.get("input_activations"))
+            for group in quantization_config.get("config_groups", {}).values()
+        )
+        if self._nvfp4_per_token:
             self._check_nvfp4_per_token_rollout()
         # FP8_BLOCK carries FP32 block scales. DeepGEMM's E8M0 mode (vLLM's default) would round them
         # to powers of two and drift from the trainer. MX formats carry E8M0 scales natively and must
