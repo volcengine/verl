@@ -94,22 +94,19 @@ def enforce_vllm_deep_gemm(
     quantization_config: Mapping[str, Any] | None,
     engine_kwargs: dict[str, Any],
 ) -> None:
-    """Use DeepGEMM for quantization except NVFP4, which has no such backend."""
+    """Use DeepGEMM for quantization except NVFP4 unless explicitly disabled."""
     if hasattr(quantization_config, "to_dict"):
         quantization_config = quantization_config.to_dict()
     if not isinstance(quantization_config, Mapping) or _is_nvfp4_quantization(quantization_config):
         return
+    backend = "auto" if os.environ.get("VERL_ROLLOUT_USE_DEEP_GEMM", "1") == "0" else "deep_gemm"
     for option in ("linear_backend", "moe_backend"):
         requested = engine_kwargs.get(option)
         if requested not in (None, "auto", "deep_gemm"):
             raise ValueError(f"vLLM non-NVFP4 quantization requires {option}='deep_gemm'; got {requested!r}")
-        engine_kwargs[option] = "deep_gemm"
+        engine_kwargs[option] = backend
     if _is_hopper() and _uses_fp32_block_scales(quantization_config):
         os.environ["VLLM_USE_DEEP_GEMM_E8M0"] = "0"
-    # Keep the legacy gate enabled as well. Assignment (rather than setdefault)
-    # makes the training/rollout backend contract explicit even if the parent
-    # exported 0.
-    os.environ["VLLM_USE_DEEP_GEMM"] = "1"
 
 
 def _get_vllm_version():
