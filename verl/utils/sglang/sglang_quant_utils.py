@@ -13,6 +13,7 @@
 # limitations under the License.
 """SGLang MX low-precision config translation, weight export, and refit registration."""
 
+import logging
 import os
 from collections.abc import Iterable, Iterator, Mapping
 from copy import deepcopy
@@ -33,6 +34,10 @@ _SYNC_FP8_ATTR = "_verl_sglang_fp8_refit_staged"
 _SYNC_FP4_ATTR = "_verl_sglang_fp4_refit_staged"
 _SYNC_NVFP4_ATTR = "_verl_sglang_nvfp4_refit_staged"
 _SGLangRefitKind = Literal["mxfp8", "mxfp4", "nvfp4"]
+
+logger = logging.getLogger(__name__)
+# SGLang's scheduler processes fall back to the root WARNING level and would drop the INFO evidence lines.
+logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 _REGEX_IGNORE_TO_SGLANG = {
     r"re:.*lm_head$": "lm_head",
@@ -235,6 +240,108 @@ def finalize_tensors() -> list[tuple[str, torch.Tensor]]:
     return [(FINALIZE_MARKER, torch.zeros(1, dtype=torch.uint8))]
 
 
+# ---------------------------------------------------------------------------
+# Sync-vs-engine dtype check
+# ---------------------------------------------------------------------------
+
+# HF leaf names that can be linear weights: ``.weight`` and the fused expert tensors transformers >= 5 writes.
+_CHECKED_LEAVES = ("weight", "gate_up_proj", "down_proj")
+# HF projections SGLang fuses into one module (the model's stacked_params_mapping, restated).
+_STACKED = {
+    "q_proj": "qkv_proj",
+    "k_proj": "qkv_proj",
+    "v_proj": "qkv_proj",
+    "gate_proj": "gate_up_proj",
+    "up_proj": "gate_up_proj",
+}
+_W2_LEAVES = ("down_proj", "w2")
+_HIGH_PRECISION = (torch.bfloat16, torch.float16, torch.float32)
+_SYNC_CACHE_ATTR = "_verl_sync_engine_quantized"
+
+
+def resolve_engine_param(model: torch.nn.Module, hf_name: str) -> torch.Tensor | None:
+    """Map an HF parameter name onto the engine tensor that will receive it, or None if unknown.
+
+    Walks the module tree by name, trying the fused module name for projections SGLang stacks
+    (``q_proj`` -> ``qkv_proj``, ``gate_proj`` -> ``gate_up_proj``) and stopping at a fused-MoE block
+    (a module holding ``w13_weight``), where the remaining per-expert parts select ``w13`` or ``w2``.
+    """
+    parts = hf_name.split(".")
+    module_path = parts[:-1] if parts[-1] == "weight" else parts
+    cur: object = model
+    for i, part in enumerate(module_path):
+        if hasattr(cur, "w13_weight"):
+            rest = module_path[i:] + ([parts[-1]] if parts[-1] != "weight" else [])
+            return cur.w2_weight if any(r in _W2_LEAVES for r in rest) else cur.w13_weight
+        nxt = getattr(cur, part, None)
+        if nxt is None and part in _STACKED:
+            nxt = getattr(cur, _STACKED[part], None)
+        if nxt is None:
+            return None
+        cur = nxt
+    if hasattr(cur, "w13_weight"):
+        return cur.w2_weight if parts[-1] in _W2_LEAVES else cur.w13_weight
+    if isinstance(cur, torch.nn.Module):
+        w = getattr(cur, "weight", None)
+        return w if isinstance(w, torch.Tensor) else None
+    return cur if isinstance(cur, torch.Tensor) else None
+
+
+def _format(dtype: torch.dtype) -> str:
+    return str(dtype).removeprefix("torch.")
+
+
+def check_sync_matches_engine(model: torch.nn.Module, named_tensors: list[tuple[str, torch.Tensor]]) -> int:
+    """Report a weight the sync ships in a format other than that of the engine parameter receiving it.
+
+    Quantized (FP8) and high-precision are compared, not exact dtypes. Returns the number of weights
+    checked; names that do not map onto an engine parameter are not judged. Disabled with
+    ``VERL_MXFP8_REFIT_CHECK=0``.
+    """
+    from verl.utils.mxfp8_refit_check import refit_check_enabled, report_refit_check_failure
+
+    if not refit_check_enabled():
+        return 0
+    cache: dict[str, torch.dtype | None] = model.__dict__.setdefault(_SYNC_CACHE_ATTR, {})
+    problems = []
+    checked = 0
+    unresolved = 0
+    for name, tensor in named_tensors:
+        if name.rsplit(".", 1)[-1] not in _CHECKED_LEAVES:
+            continue
+        if name not in cache:
+            target = resolve_engine_param(model, name)
+            cache[name] = None if target is None else target.dtype
+        engine_dtype = cache[name]
+        if engine_dtype is None:
+            unresolved += 1
+            continue
+        checked += 1
+        if (tensor.dtype in _HIGH_PRECISION) != (engine_dtype in _HIGH_PRECISION):
+            problems.append(
+                f"{name}: the sync ships {_format(tensor.dtype)}, the engine parameter is {_format(engine_dtype)}"
+            )
+    if problems:
+        report_refit_check_failure(
+            f"The weight sync and the SGLang engine disagree on the format of {len(problems)} weight(s):\n  - "
+            + "\n  - ".join(problems[:40])
+            + ("\n  - ..." if len(problems) > 40 else "")
+            + "\nThe engine built these layers from its quantization_config.ignored_layers and model code; the "
+            "trainer-side exporter quantized from rollout.quantization. load_weights would cast each tensor into a "
+            "buffer of the other format (an FP8 layer would never receive its scale). Check "
+            "rollout.quantization.ignore against docs/low_precision/fp8.md (MXFP8 Rollout on SGLang)."
+        )
+    if not model.__dict__.get(_SYNC_CACHE_ATTR + "_announced"):
+        model.__dict__[_SYNC_CACHE_ATTR + "_announced"] = True
+        logger.info(
+            "sync-vs-engine dtype check: %d weights consistent with the engine's parameters (%d names not mapped "
+            "onto engine parameters, not judged)",
+            checked,
+            unresolved,
+        )
+    return checked
+
+
 def load_and_reprocess(model: torch.nn.Module, named_tensors: Iterable[tuple[str, torch.Tensor]]) -> None:
     """Load one SGLang quantized-refit bucket and finalize kernel layouts once per sync."""
     from verl.utils.sglang.sglang_fp4_utils import stage_mxfp4_moe_params, stage_nvfp4_moe_params
@@ -245,6 +352,7 @@ def load_and_reprocess(model: torch.nn.Module, named_tensors: Iterable[tuple[str
     named_tensors = [(name, tensor) for name, tensor in named_tensors if name != FINALIZE_MARKER]
     try:
         if named_tensors:
+            check_sync_matches_engine(model, named_tensors)  # before anything is written into the engine
             if _SYNC_FP8_ATTR not in model.__dict__:  # first request of this sync
                 refuse_relaid_bf16_moe_layers(model)
                 model.__dict__[_SYNC_FP8_ATTR] = stage_mxfp8_moe_scales(model)

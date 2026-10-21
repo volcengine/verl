@@ -212,6 +212,7 @@ class MegatronEngine(BaseEngine):
                 )
             logger.info(f"QAT enabled in MegatronEngine: mode={self._qat_config.mode}")
         self._rollout_weight_quantizer = None
+        self._quant_layer_auditor = None
 
         # Router replay configuration for MoE models
         self.enable_routing_replay = self.engine_config.router_replay.mode != "disabled"
@@ -1015,11 +1016,19 @@ class MegatronEngine(BaseEngine):
             if refresh_scales is not None:
                 refresh_scales(self.module)
             per_tensor_param = self._rollout_weight_quantizer(per_tensor_param)
+            if self._quant_layer_auditor is not None:
+                # Every sync route passes through this export, so the audit reads what the rollout is sent
+                # here; it compares with the training side when the stream ends.
+                per_tensor_param = self._quant_layer_auditor.record(per_tensor_param, modules=self.module)
 
         return per_tensor_param, peft_config
 
     def set_rollout_weight_quantizer(self, quantizer) -> None:
         self._rollout_weight_quantizer = quantizer
+
+    def set_quant_layer_auditor(self, auditor) -> None:
+        """Audit the quantized export against the layers that ran FP8 (``verl.utils.quant_layer_audit``)."""
+        self._quant_layer_auditor = auditor
 
     def _mcore_export_index(self):
         """Build (once) the per-parameter delta export index: geometry specs and
