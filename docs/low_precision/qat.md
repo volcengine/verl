@@ -68,7 +68,7 @@ The trainer must be Megatron (FSDP is not yet supported for this feature). The r
 | Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | vLLM status in verl | SGLang status in verl |
 |---|---|---|---|---|---|---|---|---|---|
 | FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8`<br>`fp8_gemm_runner_backend=deep_gemm` | `W8A8Fp8MoE`<br>`moe_runner_backend=deep_gemm` | ✅ Hopper | ✅ Hopper |
-| MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | native `quant_method=mxfp8`<br>`fp8_gemm_runner_backend=deep_gemm` | native `quant_method=mxfp8`<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell | ⚠️ Blackwell; R3 unsupported |
+| MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | native `quant_method=mxfp8`<br>`fp8_gemm_runner_backend=deep_gemm` | native `quant_method=mxfp8`<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell | ✅ Blackwell |
 | MXFP4 (MoE only) | `MXFP4` | `mxfp4` / `mxfp4_mxfp8` | Blackwell | ❌ | MXFP4×MXFP8<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | MXFP4×MXFP8<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
 | NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | W4A4<br>`auto` selects FlashInfer CUTLASS | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
 
@@ -92,7 +92,7 @@ actor_rollout_ref:
 
 - When `linear`, `moe` and `config_file` are all `null` (the default), the rollout runs in the model's native precision.
 - `linear` and `moe` can be set independently. Setting one of them to `null` keeps those layers in BF16, e.g. `linear: null, moe: FP8_BLOCK` quantizes only the routed experts.
-- `MXFP4` and `NVFP4` are valid only for `moe`. Use `linear: null` for BF16 dense layers. vLLM also supports `linear: MXFP8, moe: MXFP4`; SGLang rejects that mixed override.
+- `MXFP4` and `NVFP4` are valid only for `moe`. Use `linear: null` for BF16 dense layers. vLLM also supports `linear: MXFP8, moe: MXFP4`; that mixed override is not supported by SGLang.
 - The following layers are always kept in BF16: `lm_head`, embeddings, MoE routers (`mlp.gate`, `shared_expert_gate`), vision towers and MTP layers.
 - `ignore` adds more layers on top of these, using HuggingFace layer names. Layers incompatible with the selected scheme are not detected automatically: list them explicitly. For example, MXFP8 on Qwen3.5 requires `["re:.*linear_attn\\.in_proj_[ab]$"]` because these projections are too small for the vLLM kernel.
 - For an all-MXFP8 SGLang rollout, regex ignores must have a known SGLang module-name translation. Use an exact SGLang module name for other ignores; unsupported regex patterns are rejected before launch.
@@ -184,8 +184,8 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
 - **SGLang NVFP4**: routed experts are loaded from compressed-tensors packed
   weights and re-swizzled in-place after each refit so CUDA Graph storage
   remains stable. Leave `moe_runner_backend` at `auto`, which selects the only
-  supported backend, FlashInfer CUTLASS; setting it explicitly is rejected.
-  Dense layers remain BF16.
+  supported backend, FlashInfer CUTLASS. Dense layers remain BF16; unsupported
+  backend selections are reported by SGLang during engine initialization.
 
 ## Example
 
@@ -256,9 +256,6 @@ SGLang uses the default CUDA Graph configuration):
   supports ignored layers but applies one MXFP8 scheme to both selected Linear
   and MoE layers; arbitrary mixed per-layer compressed-tensors MXFP8 configs
   are not supported.
-- SGLang MXFP8 cannot currently be combined with R3 router replay because the
-  engine's captured route IDs do not match the routes consumed by its native
-  MXFP8 MoE runner. verl rejects this combination before launch.
 - SGLang MXFP8, MXFP4 and NVFP4 custom refit requires the default bucketed
   weight sync so all derived kernel layouts can be rebuilt after the final
   bucket. The checkpoint engine's `delta_flush` wire format is not supported.

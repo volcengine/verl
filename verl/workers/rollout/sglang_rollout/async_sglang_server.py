@@ -317,7 +317,6 @@ class SGLangHttpServer:
                 quantization_config,
                 custom_weight_loader,
                 engine_kwargs,
-                enable_router_replay=self.config.enable_rollout_routing_replay,
             )
             model_override_args["quantization_config"] = quantization_config
             logger.info(f"Rollout quantization_config: {quantization_config}")

@@ -16,9 +16,15 @@
 import os
 from collections.abc import Iterable, Iterator, Mapping
 from copy import deepcopy
-from typing import Any
+from typing import Any, Literal
 
 import torch
+
+from verl.utils.qat.compressed_tensors import (
+    CompressedTensorsWeightQuantizer,
+    is_all_mxfp8_config,
+    qat_modes_for_config,
+)
 
 REFIT_LOADER_FQN = "verl.utils.sglang.sglang_quant_utils.load_and_reprocess"
 LOADER_FQN = REFIT_LOADER_FQN
@@ -26,6 +32,7 @@ FINALIZE_MARKER = "__verl_sglang_quant_refit_finalize__"
 _SYNC_FP8_ATTR = "_verl_sglang_fp8_refit_staged"
 _SYNC_FP4_ATTR = "_verl_sglang_fp4_refit_staged"
 _SYNC_NVFP4_ATTR = "_verl_sglang_nvfp4_refit_staged"
+_SGLangRefitKind = Literal["mxfp8", "mxfp4", "nvfp4"]
 
 _REGEX_IGNORE_TO_SGLANG = {
     r"re:.*lm_head$": "lm_head",
@@ -80,8 +87,6 @@ def _translate_ignored_layers(ignored_layers: Iterable[str]) -> list[str]:
 
 def translate_mxfp8_to_sglang_fp8_config(ct_config: Mapping[str, Any]) -> dict[str, Any]:
     """Translate an all-MXFP8 compressed-tensors override to native SGLang."""
-    from verl.utils.qat.compressed_tensors import is_all_mxfp8_config
-
     if not is_all_mxfp8_config(ct_config):
         raise ValueError("SGLang native MXFP8 translation requires every config group to use MXFP8")
     return {
@@ -96,8 +101,6 @@ class SGLangMxfp8WeightQuantizer:
     """Preserve CT MXFP8 numerics while emitting SGLang's native scale name."""
 
     def __init__(self, ct_config: Mapping[str, Any]):
-        from verl.utils.qat.compressed_tensors import CompressedTensorsWeightQuantizer
-
         translate_mxfp8_to_sglang_fp8_config(ct_config)
         self.compressed_tensors = CompressedTensorsWeightQuantizer(ct_config)
 
@@ -111,47 +114,28 @@ class SGLangMxfp8WeightQuantizer:
             yield name, tensor
 
 
-def check_sglang_mxfp8_support() -> None:
-    """Fail before launch when this SGLang build lacks native MXFP8."""
-    import sglang
-    from sglang.srt.layers.quantization import QUANTIZATION_METHODS
-
-    if "mxfp8" not in QUANTIZATION_METHODS:
-        raise RuntimeError(
-            f"SGLang {sglang.__version__} does not register native quant_method='mxfp8'; "
-            "install a build with MXFP8 Fp8Config support"
-        )
-
-
-def _uses_mxfp4_moe(quantization_config: Mapping[str, Any]) -> bool:
-    from verl.utils.qat.compressed_tensors import qat_modes_for_config
-
+def _sglang_refit_kind(quantization_config: Mapping[str, Any]) -> _SGLangRefitKind | None:
+    """Return the format that needs SGLang's bucket-aware refit loader."""
+    if is_all_mxfp8_config(quantization_config):
+        return "mxfp8"
     if quantization_config.get("quant_method") != "compressed-tensors":
-        return False
-    return any(mode is not None and "mxfp4" in mode for mode in qat_modes_for_config(quantization_config))
+        return None
 
-
-def _uses_nvfp4_moe(quantization_config: Mapping[str, Any]) -> bool:
-    from verl.utils.qat.compressed_tensors import qat_modes_for_config
-
-    if quantization_config.get("quant_method") != "compressed-tensors":
-        return False
-    return "nvfp4" in qat_modes_for_config(quantization_config)
+    modes = qat_modes_for_config(quantization_config)
+    if "nvfp4" in modes:
+        return "nvfp4"
+    if any("mxfp4" in mode for mode in modes):
+        return "mxfp4"
+    return None
 
 
 def uses_sglang_refit_loader(quantization_config: Mapping[str, Any]) -> bool:
     """Whether this config needs verl's bucket-aware SGLang refit loader."""
-    from verl.utils.qat.compressed_tensors import is_all_mxfp8_config
-
-    return (
-        is_all_mxfp8_config(quantization_config)
-        or _uses_mxfp4_moe(quantization_config)
-        or _uses_nvfp4_moe(quantization_config)
-    )
+    return _sglang_refit_kind(quantization_config) is not None
 
 
-def _quantization_uses_deep_gemm(quantization_config: Mapping[str, Any]) -> bool:
-    """Whether verl supports this SGLang quantization config only through DeepGEMM."""
+def _is_nvfp4_quantization(quantization_config: Mapping[str, Any]) -> bool:
+    """Whether a quantization config contains the NVFP4 format."""
     values = []
 
     def collect(value: Any) -> None:
@@ -165,22 +149,7 @@ def _quantization_uses_deep_gemm(quantization_config: Mapping[str, Any]) -> bool
             values.append(value.lower())
 
     collect(quantization_config)
-    tokens = set(values)
-    if any("nvfp4" in value for value in tokens):
-        return False
-    quant_method = str(quantization_config.get("quant_method", "")).lower()
-    if quant_method in {"fp8", "mxfp8"}:
-        return True
-    if any("mxfp4" in value or "mxfp8" in value for value in tokens):
-        return True
-    if quant_method == "compressed-tensors":
-        try:
-            from verl.utils.qat.compressed_tensors import qat_modes_for_config
-
-            return bool(qat_modes_for_config(quantization_config) & {"fp8", "mxfp8", "mxfp4", "mxfp4_mxfp8"})
-        except (KeyError, TypeError, ValueError):
-            return False
-    return any(value in {"fp8", "fp8_block_scales"} for value in tokens)
+    return any("nvfp4" in value for value in values)
 
 
 def enforce_sglang_deep_gemm(
@@ -188,7 +157,7 @@ def enforce_sglang_deep_gemm(
     engine_kwargs: dict[str, Any],
 ) -> None:
     """Pin supported FP8/MXFP8/MXFP4 Linear and MoE kernels to DeepGEMM."""
-    if quantization_config is None or not _quantization_uses_deep_gemm(quantization_config):
+    if quantization_config is None or _is_nvfp4_quantization(quantization_config):
         return
     for option in ("fp8_gemm_runner_backend", "moe_runner_backend"):
         requested = engine_kwargs.get(option)
@@ -197,53 +166,15 @@ def enforce_sglang_deep_gemm(
         engine_kwargs[option] = "deep_gemm"
 
 
-def _validate_sglang_nvfp4_cutlass(
+def _prepare_refit_config(
     quantization_config: Mapping[str, Any],
-    engine_kwargs: dict[str, Any],
-) -> None:
-    if not _uses_nvfp4_moe(quantization_config):
-        return
-    requested = engine_kwargs.get("moe_runner_backend")
-    if requested not in (None, "auto"):
-        raise ValueError(
-            "SGLang NVFP4 refit supports only FlashInfer CUTLASS. Leave moe_runner_backend='auto' "
-            "so the compressed-tensors NVFP4 scheme selects that runner; "
-            f"got {requested!r}"
-        )
-
-
-def prepare_sglang_quantization(
-    quantization_config: dict[str, Any],
-    custom_weight_loader: list[str],
-    engine_kwargs: dict[str, Any],
-    *,
-    enable_router_replay: bool = False,
+    refit_kind: _SGLangRefitKind,
 ) -> dict[str, Any]:
-    """Translate supported MX overrides and register their bucket-aware refit loader."""
-    from verl.utils.qat.compressed_tensors import is_all_mxfp8_config, qat_modes_for_config
-
-    all_mxfp8 = is_all_mxfp8_config(quantization_config)
-    uses_mxfp4 = _uses_mxfp4_moe(quantization_config)
-    uses_nvfp4 = _uses_nvfp4_moe(quantization_config)
-    enforce_sglang_deep_gemm(quantization_config, engine_kwargs)
-    _validate_sglang_nvfp4_cutlass(quantization_config, engine_kwargs)
-    if not all_mxfp8 and not uses_mxfp4 and not uses_nvfp4:
-        return quantization_config
-    if all_mxfp8 and enable_router_replay:
-        raise ValueError(
-            "SGLang MXFP8 does not currently support rollout routing replay: Qwen3.5-35B-A3B validation "
-            "showed that SGLang's captured routes do not match the routes consumed by the native MXFP8 MoE "
-            "runner. Disable enable_rollout_routing_replay until that engine path is fixed."
-        )
-    if REFIT_LOADER_FQN not in custom_weight_loader:
-        custom_weight_loader.append(REFIT_LOADER_FQN)
-
-    if all_mxfp8:
-        check_sglang_mxfp8_support()
+    if refit_kind == "mxfp8":
         native_config = translate_mxfp8_to_sglang_fp8_config(quantization_config)
-        # ServerArgs spawns fresh scheduler processes. Keep the native config field,
-        # and mirror it through SGLang's supported env channel so ignores survive
-        # model-config reconstruction in those children.
+
+        # Scheduler subprocesses reconstruct ModelConfig. Mirror ignored layers
+        # through SGLang's supported environment channel so they survive.
         existing = [item.strip() for item in os.environ.get("SGLANG_FP8_IGNORED_LAYERS", "").split(",") if item.strip()]
         for ignored in native_config["ignored_layers"]:
             if ignored not in existing:
@@ -251,44 +182,32 @@ def prepare_sglang_quantization(
         os.environ["SGLANG_FP8_IGNORED_LAYERS"] = ",".join(existing)
         return native_config
 
-    if uses_nvfp4:
-        try:
-            from sglang.srt.layers.quantization.compressed_tensors.schemes import (  # noqa: F401
-                CompressedTensorsW4A4Nvfp4MoE,
-            )
-        except ImportError as err:
-            raise RuntimeError("This SGLang build does not provide compressed-tensors NVFP4 MoE support") from err
-        # SGLang's compressed-tensors resolver raises when an ordinary Linear
-        # matches no config group. Ignore every module except the routed-expert
-        # prefix, which keeps dense layers in BF16 while allowing the generic
-        # NVFP4 MoE scheme (unlike MXFP4, it is selected after ignore checks).
-        native_config = deepcopy(quantization_config)
-        native_config["ignore"] = list(native_config.get("ignore") or [])
-        non_expert = r"re:^(?!.*mlp\.experts(?:\.|$)).*$"
-        if non_expert not in native_config["ignore"]:
-            native_config["ignore"].append(non_expert)
-        return native_config
-
-    modes = qat_modes_for_config(quantization_config)
-    if modes == {"mxfp4_mxfp8"}:
-        raise NotImplementedError(
-            "SGLang MXFP4 refit currently supports BF16 dense layers with MXFP4 routed experts; "
-            "the mixed MXFP8-linear + MXFP4-MoE compressed-tensors config is not supported by SGLang 0.5.20"
-        )
-    try:
-        from sglang.srt.layers.quantization.mxfp4 import Mxfp4MoEMethod  # noqa: F401
-    except ImportError as err:
-        raise RuntimeError("This SGLang build does not provide MXFP4 MoE support") from err
-
-    # SGLang's compressed-tensors resolver raises for a Linear that matches no
-    # config group. This override intentionally targets routed experts only;
-    # mark every ordinary module name as unquantized. MXFP4 FusedMoE selection
-    # runs before the ignore check and is selected from the top-level MXFP4
-    # format, so the catch-all does not disable the experts.
+    # Compressed-tensors raises when ordinary Linear modules match no group.
+    # MXFP4 selects FusedMoE before ignore checks; NVFP4 retains experts through
+    # its negative-lookahead pattern. Both rules keep dense layers in BF16.
+    ignored = r"re:.*" if refit_kind == "mxfp4" else r"re:^(?!.*mlp\.experts(?:\.|$)).*$"
     native_config = deepcopy(quantization_config)
     native_config["ignore"] = list(native_config.get("ignore") or [])
-    if r"re:.*" not in native_config["ignore"]:
-        native_config["ignore"].append(r"re:.*")
+    if ignored not in native_config["ignore"]:
+        native_config["ignore"].append(ignored)
+    return native_config
+
+
+def prepare_sglang_quantization(
+    quantization_config: dict[str, Any],
+    custom_weight_loader: list[str],
+    engine_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Prepare one effective rollout config for SGLang launch and online refit."""
+    refit_kind = _sglang_refit_kind(quantization_config)
+    enforce_sglang_deep_gemm(quantization_config, engine_kwargs)
+
+    if refit_kind is None:
+        return quantization_config
+
+    native_config = _prepare_refit_config(quantization_config, refit_kind)
+    if REFIT_LOADER_FQN not in custom_weight_loader:
+        custom_weight_loader.append(REFIT_LOADER_FQN)
     return native_config
 
 

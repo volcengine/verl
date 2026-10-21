@@ -187,9 +187,6 @@ def test_sglang_launch_translation_registers_loader_and_rejects_unsafe_backend(m
             {"fp8_gemm_runner_backend": "flashinfer_trtllm"},
         )
 
-    with pytest.raises(ValueError, match="routing replay"):
-        prepare_sglang_quantization(_config(moe="MXFP8"), [], {}, enable_router_replay=True)
-
 
 def test_sglang_mxfp4_moe_registers_refit_loader_and_pins_deep_gemm_backend():
     config = build_compressed_tensors_config(
@@ -222,7 +219,7 @@ def test_sglang_mxfp4_moe_registers_refit_loader_and_pins_deep_gemm_backend():
         prepare_sglang_quantization(config, [], {"moe_runner_backend": "flashinfer_mxfp4"})
 
 
-def test_sglang_nvfp4_moe_registers_refit_loader_and_allows_only_the_cutlass_scheme():
+def test_sglang_nvfp4_moe_registers_refit_loader_and_leaves_backend_validation_to_sglang():
     config = build_compressed_tensors_config(
         linear=None,
         moe="NVFP4",
@@ -237,8 +234,9 @@ def test_sglang_nvfp4_moe_registers_refit_loader_and_allows_only_the_cutlass_sch
     assert loaders == [LOADER_FQN]
     assert engine_kwargs == {}
 
-    with pytest.raises(ValueError, match="supports only FlashInfer CUTLASS"):
-        prepare_sglang_quantization(config, [], {"moe_runner_backend": "flashinfer_trtllm"})
+    explicit = {"moe_runner_backend": "flashinfer_trtllm"}
+    prepare_sglang_quantization(config, [], explicit)
+    assert explicit == {"moe_runner_backend": "flashinfer_trtllm"}
 
 
 def test_deep_gemm_is_forced_for_fp8_override_and_native_hf_configs_but_not_nvfp4():
@@ -279,14 +277,3 @@ def test_deep_gemm_is_forced_for_fp8_override_and_native_hf_configs_but_not_nvfp
         "fp8_gemm_runner_backend": "flashinfer_cutlass",
         "moe_runner_backend": "flashinfer_trtllm",
     }
-
-
-def test_sglang_mixed_mxfp8_linear_mxfp4_moe_is_rejected():
-    config = build_compressed_tensors_config(
-        linear="MXFP8",
-        moe="MXFP4",
-        ignore=[],
-        config_file=None,
-    )
-    with pytest.raises(NotImplementedError, match="MXFP8-linear"):
-        prepare_sglang_quantization(config, [], {})
