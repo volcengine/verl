@@ -161,7 +161,7 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
 
 Instead of fake quantization, Megatron can run the routed-expert GEMMs in real
 NVFP4 through Transformer Engine, with activations scaled per token. Parameters
-stay BF16. Pair it with the `NVFP4_PER_TOKEN` rollout preset, whose vLLM kernel
+stay BF16, and attention, dense MLPs and shared experts run in BF16. Pair it with the `NVFP4_PER_TOKEN` rollout preset, whose vLLM kernel
 quantizes activations the same way:
 
 ```yaml
