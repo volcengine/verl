@@ -37,6 +37,12 @@ from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 from verl.utils.device import get_device_id
 from verl.utils.net_utils import is_valid_ipv6_address
+from verl.utils.sglang.sglang_quant_utils import (
+    LOADER_FQN,
+    finalize_tensors,
+    resolve_sglang_quantization_config,
+    uses_sglang_refit_loader,
+)
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
 from verl.workers.rollout.sglang_rollout.http_server_engine import AsyncHttpServerAdapter
@@ -53,12 +59,8 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 
 def _uses_quantized_refit(config: RolloutConfig, model_config: HFModelConfig) -> bool:
-    quantization = getattr(config, "quantization", None)
-    if quantization is None or not quantization.enabled:
-        return False
-    from verl.utils.sglang.sglang_quant_utils import uses_sglang_refit_loader
-
-    return uses_sglang_refit_loader(quantization.build_quantization_config(model_config.local_path))
+    quantization_config = resolve_sglang_quantization_config(config, model_config)
+    return quantization_config is not None and uses_sglang_refit_loader(quantization_config)
 
 
 def _strip_lora_base_layer(name: str) -> str:
@@ -329,7 +331,7 @@ class ServerAdapter(BaseRollout):
         if wire_format == "delta_flush":
             if use_quantized_refit:
                 raise ValueError(
-                    "SGLang MXFP8/MXFP4 custom refit is not supported with wire_format='delta_flush'; "
+                    "SGLang MXFP8/MXFP4/NVFP4 custom refit is not supported with wire_format='delta_flush'; "
                     "use the regular bucketed weight sync"
                 )
             await self._update_weights_delta(weights, global_steps=global_steps)
@@ -371,8 +373,6 @@ class ServerAdapter(BaseRollout):
             ):
                 load_format = None
                 if use_quantized_refit:
-                    from verl.utils.sglang.sglang_quant_utils import LOADER_FQN
-
                     load_format = LOADER_FQN
                 await sgl_update_weights(
                     engine=self._engine,
@@ -382,8 +382,6 @@ class ServerAdapter(BaseRollout):
                     load_format=load_format,
                 )
             if use_quantized_refit:
-                from verl.utils.sglang.sglang_quant_utils import LOADER_FQN, finalize_tensors
-
                 await sgl_update_weights(
                     engine=self._engine,
                     params_batch=[(name, _to_ipc_device(t)) for name, t in finalize_tensors()],

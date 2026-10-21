@@ -31,7 +31,9 @@ from verl.utils.sglang.sglang_quant_utils import (
     SGLangMxfp8WeightQuantizer,
     enforce_sglang_deep_gemm,
     prepare_sglang_quantization,
+    resolve_sglang_quantization_config,
     translate_mxfp8_to_sglang_fp8_config,
+    uses_sglang_refit_loader,
 )
 
 
@@ -107,7 +109,7 @@ def test_sglang_export_renames_only_the_ct_mxfp8_scale():
     assert torch.equal(native[name + "_scale_inv"], ct[name + "_scale"])
 
 
-def test_dispatch_selects_native_names_only_for_sglang_override():
+def test_dispatch_selects_native_names_for_sglang_override_and_model_config():
     model = SimpleNamespace(
         local_path="/model",
         hf_config=SimpleNamespace(model_type="qwen", text_config=None, quantization_config=None),
@@ -127,6 +129,42 @@ def test_dispatch_selects_native_names_only_for_sglang_override():
         dispatch_rollout_weight_quantizer(model_config=model, rollout_config=rollout("vllm")),
         CompressedTensorsWeightQuantizer,
     )
+
+    model.hf_config.quantization_config = _config()
+    native_rollout = SimpleNamespace(
+        name="sglang",
+        quantization=SimpleNamespace(linear=None, moe=None, ignore=[], config_file=None),
+    )
+    assert isinstance(
+        dispatch_rollout_weight_quantizer(model_config=model, rollout_config=native_rollout),
+        SGLangMxfp8WeightQuantizer,
+    )
+
+
+def test_resolve_sglang_quantization_config_prefers_override_and_falls_back_to_native():
+    native = _config(moe="MXFP4")
+    model = SimpleNamespace(
+        local_path="/model",
+        hf_config=SimpleNamespace(
+            quantization_config=None,
+            text_config=SimpleNamespace(quantization_config=SimpleNamespace(to_dict=lambda: native)),
+        ),
+    )
+    disabled = SimpleNamespace(quantization=SimpleNamespace(enabled=False))
+
+    resolved = resolve_sglang_quantization_config(disabled, model)
+    assert resolved == native
+    assert resolved is not None
+    assert uses_sglang_refit_loader(resolved)
+
+    override = _config(moe="MXFP8")
+    enabled = SimpleNamespace(
+        quantization=SimpleNamespace(
+            enabled=True,
+            build_quantization_config=lambda model_path: override,
+        )
+    )
+    assert resolve_sglang_quantization_config(enabled, model) is override
 
 
 def test_sglang_launch_translation_registers_loader_and_rejects_unsafe_backend(monkeypatch):

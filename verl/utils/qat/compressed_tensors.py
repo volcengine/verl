@@ -573,11 +573,7 @@ def dispatch_rollout_weight_quantizer(
     quant_method = str(quantization_config.get("quant_method", "")).lower()
     if quant_method == "compressed-tensors":
         qat_modes = qat_modes_for_config(quantization_config) if qat_mode is not None else set()
-        if (
-            has_override
-            and getattr(rollout_config, "name", None) == "sglang"
-            and is_all_mxfp8_config(quantization_config)
-        ):
+        if getattr(rollout_config, "name", None) == "sglang" and is_all_mxfp8_config(quantization_config):
             from verl.utils.sglang.sglang_quant_utils import SGLangMxfp8WeightQuantizer
 
             quantizer = SGLangMxfp8WeightQuantizer(quantization_config)

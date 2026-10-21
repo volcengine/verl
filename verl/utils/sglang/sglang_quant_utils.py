@@ -40,6 +40,25 @@ _REGEX_IGNORE_TO_SGLANG = {
 }
 
 
+def resolve_sglang_quantization_config(config: Any, model_config: Any) -> dict[str, Any] | None:
+    """Return the rollout override or the model's native quantization config."""
+    quantization = getattr(config, "quantization", None)
+    if quantization is not None and quantization.enabled:
+        return quantization.build_quantization_config(model_config.local_path)
+
+    hf_config = model_config.hf_config
+    native = getattr(hf_config, "quantization_config", None)
+    if native is None:
+        native = getattr(getattr(hf_config, "text_config", None), "quantization_config", None)
+    if native is None:
+        return None
+    if hasattr(native, "to_dict"):
+        native = native.to_dict()
+    if not isinstance(native, Mapping):
+        raise TypeError(f"quantization_config must be a mapping, got {type(native).__name__}")
+    return dict(native)
+
+
 def _translate_ignored_layers(ignored_layers: Iterable[str]) -> list[str]:
     translated = []
     for ignored in ignored_layers:
@@ -121,7 +140,7 @@ def _uses_nvfp4_moe(quantization_config: Mapping[str, Any]) -> bool:
 
 
 def uses_sglang_refit_loader(quantization_config: Mapping[str, Any]) -> bool:
-    """Whether this override needs verl's bucket-aware SGLang refit loader."""
+    """Whether this config needs verl's bucket-aware SGLang refit loader."""
     from verl.utils.qat.compressed_tensors import is_all_mxfp8_config
 
     return (

@@ -1,6 +1,6 @@
 # Low-Precision Rollout and Quantization-Aware Training
 
-Last updated: 10/16/2026
+Last updated: 10/21/2026
 
 In RL training, rollout usually dominates the step time, and for large MoE models it is bound by memory capacity and bandwidth. Running rollout in low precision:
 
@@ -68,13 +68,13 @@ The trainer must be Megatron (FSDP is not yet supported for this feature). The r
 | Precision | Preset | QAT mode | GPU | vLLM Linear | vLLM MoE | SGLang Linear | SGLang MoE | vLLM status in verl | SGLang status in verl |
 |---|---|---|---|---|---|---|---|---|---|
 | FP8 block (E4M3, 128x128 weight blocks, dynamic 1x128 activations) | `FP8_BLOCK` | `fp8` | Hopper / Blackwell | `W8A8Fp8` | `W8A8Fp8MoE` | `W8A8Fp8`<br>`fp8_gemm_runner_backend=deep_gemm` | `W8A8Fp8MoE`<br>`moe_runner_backend=deep_gemm` | ✅ Hopper | ✅ Hopper |
-| MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | native `Fp8Config`<br>`fp8_gemm_runner_backend=deep_gemm` | native `Fp8MoEMethod`<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell | ⚠️ Blackwell; R3 unsupported |
+| MXFP8 | `MXFP8` | `mxfp8` | Blackwell | `W8A8Mxfp8` | `W8A8Mxfp8MoE` | native `quant_method=mxfp8`<br>`fp8_gemm_runner_backend=deep_gemm` | native `quant_method=mxfp8`<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell | ⚠️ Blackwell; R3 unsupported |
 | MXFP4 (MoE only) | `MXFP4` | `mxfp4` / `mxfp4_mxfp8` | Blackwell | ❌ | MXFP4×MXFP8<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | MXFP4×MXFP8<br>`moe_runner_backend=deep_gemm` | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
-| NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | W4A4<br>`moe_runner_backend=flashinfer_cutlass` | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
+| NVFP4 (MoE only) | `NVFP4` | `nvfp4` | Blackwell | ❌ | W4A4<br>`(moe_backend=flashinfer_cutlass)` | ❌ (BF16 dense) | W4A4<br>`auto` selects FlashInfer CUTLASS | ✅ Blackwell (MoE only) | ✅ Blackwell (MoE only) |
 
-MXFP8, MXFP4 and NVFP4 need Blackwell (SM100). On Hopper, vLLM falls back to Marlin weight-only kernels for these formats, whose numerics differ from Blackwell W8A8 / W4A4; verl does not support that path.
+MXFP8, MXFP4 and NVFP4 need Blackwell (SM100) for the validated paths above. On Hopper, vLLM may fall back to Marlin weight-only kernels, whose numerics differ from Blackwell W8A8 / W4A4; those paths are outside this support and validation matrix.
 
-MXFP4 and NVFP4 support is scoped to routed experts. The supported combinations are BF16 linear + FP4 MoE or MXFP8 linear + FP4 MoE; FP4 linear QAT, export and refit are out of scope. verl defines its `MXFP4` preset as MXFP4 expert weights with dynamic MXFP8 expert activations (group size 32 and E8M0 scales for both). This is intentionally different from compressed-tensors' `MXFP4` preset, which is W4A4, and from vLLM's native `Mxfp4Config`, whose checkpoint format is nominally W4A16.
+MXFP4 and NVFP4 support is scoped to routed experts. Both engines support BF16 linear + FP4 MoE; vLLM additionally supports MXFP8 linear + MXFP4 MoE with QAT mode `mxfp4_mxfp8`. SGLang does not support that mixed override. FP4 linear QAT, export and refit are out of scope. verl defines its `MXFP4` preset as MXFP4 expert weights with dynamic MXFP8 expert activations (group size 32 and E8M0 scales for both). This is intentionally different from compressed-tensors' `MXFP4` preset, which is W4A4, and from vLLM's native `Mxfp4Config`, whose checkpoint format is nominally W4A16.
 
 ## Configuration
 
@@ -92,9 +92,10 @@ actor_rollout_ref:
 
 - When `linear`, `moe` and `config_file` are all `null` (the default), the rollout runs in the model's native precision.
 - `linear` and `moe` can be set independently. Setting one of them to `null` keeps those layers in BF16, e.g. `linear: null, moe: FP8_BLOCK` quantizes only the routed experts.
-- `MXFP4` and `NVFP4` are valid only for `moe`. Use `linear: null` for BF16 dense layers or `linear: MXFP8` for MXFP8 dense layers.
+- `MXFP4` and `NVFP4` are valid only for `moe`. Use `linear: null` for BF16 dense layers. vLLM also supports `linear: MXFP8, moe: MXFP4`; SGLang rejects that mixed override.
 - The following layers are always kept in BF16: `lm_head`, embeddings, MoE routers (`mlp.gate`, `shared_expert_gate`), vision towers and MTP layers.
 - `ignore` adds more layers on top of these, using HuggingFace layer names. Layers incompatible with the selected scheme are not detected automatically: list them explicitly. For example, MXFP8 on Qwen3.5 requires `["re:.*linear_attn\\.in_proj_[ab]$"]` because these projections are too small for the vLLM kernel.
+- For an all-MXFP8 SGLang rollout, regex ignores must have a known SGLang module-name translation. Use an exact SGLang module name for other ignores; unsupported regex patterns are rejected before launch.
 
 From the command line:
 
@@ -152,7 +153,7 @@ actor_rollout_ref:
         mode: fp8   # FP8_BLOCK -> fp8, MXFP8 -> mxfp8, MXFP4 -> mxfp4, NVFP4 -> nvfp4
 ```
 
-QAT requires `rollout.quantization` to be set, and verl checks at startup that the QAT mode matches the rollout preset. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only. MXFP4 and NVFP4 use compressed-tensors-compatible QDQ backends so fake quantization is bit-exact with the exported checkpoint format. Both FP4 modes apply only to routed experts. Use `mxfp4_mxfp8` when dense linear layers also use MXFP8.
+QAT requires a quantized rollout: set `rollout.quantization` or use a checkpoint with a native `quantization_config` that verl supports for export and refit. verl checks at startup that the QAT mode matches the effective rollout configuration. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only. MXFP4 and NVFP4 use compressed-tensors-compatible QDQ backends so fake quantization is bit-exact with the exported checkpoint format. Both FP4 modes apply only to routed experts. Use `mxfp4_mxfp8` for the vLLM combination where dense linear layers also use MXFP8.
 Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them aligned with the rollout ignore list; for Qwen3.5 MXFP8, add `*linear_attn.in_proj_a` and `*linear_attn.in_proj_b`.
 
 ### Engine notes
@@ -160,7 +161,9 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
 - **vLLM**: `VLLM_USE_DEEP_GEMM_E8M0` defaults to `0` for `FP8_BLOCK`, so its block scales stay in FP32. MX formats retain the E8M0 path.
 - **vLLM MXFP4**: vLLM 0.29's compressed-tensors path otherwise ignores the MXFP8 input scheme and selects W4A4 CUTLASS. verl routes this explicit W4A8(MX) scheme through vLLM's MXFP4 backend oracle with `kMxfp8Dynamic` and defaults to FlashInfer CUTLASS. The TRTLLM MXFP4×MXFP8 backend is not used because it produced a large numerical mismatch on Qwen3.5-35B-A3B.
 - **vLLM NVFP4**: verl supports only W4A4 routed experts and forces FlashInfer CUTLASS. W4A16, dense NVFP4 and other MoE backends are rejected.
-- **SGLang**: the first launch of a quantized MoE model can take several minutes while Triton compiles FP8 MoE kernels during CUDA graph capture. Later launches use the cache.
+- **SGLang**: the first launch of a quantized MoE model can take several
+  minutes while DeepGEMM warms up its kernels during CUDA Graph capture. Later
+  launches use the cache.
 - **SGLang refit utilities**: `sglang_quant_utils.py` is the public
   configuration and custom-loader entry point. Format-specific staging and
   post-load transforms live in `sglang_fp8_utils.py` and
@@ -180,8 +183,9 @@ Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them 
   compressed-tensors override.
 - **SGLang NVFP4**: routed experts are loaded from compressed-tensors packed
   weights and re-swizzled in-place after each refit so CUDA Graph storage
-  remains stable. FlashInfer CUTLASS is the only supported backend; dense
-  layers remain BF16.
+  remains stable. Leave `moe_runner_backend` at `auto`, which selects the only
+  supported backend, FlashInfer CUTLASS; setting it explicitly is rejected.
+  Dense layers remain BF16.
 
 ## Example
 
@@ -216,9 +220,10 @@ python scripts/rollout_logprob_diff.py --model-path ~/models/Qwen3.5-35B-A3B --e
 ```
 
 Pass `--engine sglang` for SGLang, and any extra Hydra overrides as trailing arguments. Reference `k3_kl` on
-Qwen3.5-35B-A3B (EP=8; vLLM rollout TP=2, SGLang MXFP8 rollout TP=4):
+Qwen3.5-35B-A3B (EP=8; vLLM and Blackwell SGLang rollout TP=2; Blackwell
+SGLang uses the default CUDA Graph configuration):
 
-| GPU | Engine | R3 | Rollout | MoE backend | k3_kl |
+| GPU | Engine | R3 | Rollout | Backend | k3_kl |
 |---|---|---|---|---|---|
 | Hopper | vLLM | ✅ | BF16 | - | 0.00031 |
 | Hopper | SGLang | ✅ | BF16 | - | 0.00031 |
@@ -228,29 +233,35 @@ Qwen3.5-35B-A3B (EP=8; vLLM rollout TP=2, SGLang MXFP8 rollout TP=4):
 | Hopper | SGLang | ✅ | FP8_BLOCK + FP8 QAT | - | 0.00188 |
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE | auto | 0.00148 |
 | Blackwell | vLLM | ❌ | MXFP8 linear + MoE + MXFP8 QAT | auto | 0.00315 |
-| Blackwell | SGLang | ❌ | MXFP8 linear + MoE | DeepGEMM | 0.00361 / 0.00333 (two refits) |
-| Blackwell | SGLang | ❌ | MXFP8 linear + MoE + MXFP8 QAT | DeepGEMM | 0.00285 |
+| Blackwell | SGLang | ❌ | MXFP8 linear + MoE | DeepGEMM (Linear + MoE) | 0.00324 |
+| Blackwell | SGLang | ❌ | MXFP8 linear + MoE + MXFP8 QAT | DeepGEMM (Linear + MoE) | 0.00327 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE | FlashInfer CUTLASS | 0.00858 |
 | Blackwell | vLLM | ❌ | MXFP4 MoE + MXFP4 QAT | FlashInfer CUTLASS | 0.00210 |
-| Blackwell | SGLang | ❌ | MXFP4 MoE | DeepGEMM | 0.00754 / 0.00736 (two refits) |
-| Blackwell | SGLang | ❌ | MXFP4 MoE + MXFP4 QAT | DeepGEMM | 0.00181 |
+| Blackwell | SGLang | ❌ | MXFP4 MoE | DeepGEMM (MoE; BF16 Linear) | 0.00571 |
+| Blackwell | SGLang | ❌ | MXFP4 MoE + MXFP4 QAT | DeepGEMM (MoE; BF16 Linear) | 0.00200 |
 | Blackwell | vLLM | ✅ | NVFP4 MoE | FlashInfer CUTLASS | 0.00813 |
 | Blackwell | vLLM | ✅ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.00574 |
-| Blackwell | SGLang | ❌ | NVFP4 MoE | FlashInfer CUTLASS | 0.01112 / 0.00727 (two refits) |
-| Blackwell | SGLang | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS | 0.00631 |
+| Blackwell | SGLang | ❌ | NVFP4 MoE | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.00946 |
+| Blackwell | SGLang | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.00653 |
 
 ## Limitations
 
-- `FP8_BLOCK` is supported on Hopper. `MXFP8` with vLLM is supported on
-  Blackwell. SGLang MXFP8 refit and QAT are validated on Blackwell with CUDA
-  Graph (the SGLang rows above used rollout TP=4). Its native config supports ignored layers but applies
-  one MXFP8 scheme to both selected Linear and MoE layers; arbitrary mixed
-  per-layer compressed-tensors MXFP8 configs are not supported.
-- SGLang MXFP8 cannot currently be combined with R3 router replay. On
-  Qwen3.5-35B-A3B the same refit passed without R3 (`k3_kl=0.00328`) but
-  replaying SGLang's captured native-MXFP8 routes produced `k3_kl=1.91930`.
-  verl rejects this combination until the engine's captured route IDs match
-  the routes consumed by its MXFP8 MoE runner.
+- `FP8_BLOCK` is supported on Hopper. On Blackwell with rollout TP=2, SGLang
+  0.5.20 fails during prefill CUDA Graph capture before rollout because
+  `CompressedTensorsW8A8Fp8MoE.runner` has not been initialized. This occurs
+  with both the default and `tc_piecewise` prefill graph backends; disabling
+  prefill CUDA Graph was not used for validation.
+- `MXFP8` with vLLM is supported on Blackwell. SGLang MXFP8 refit and QAT are
+  validated on Blackwell with CUDA Graph and rollout TP=2. Its native config
+  supports ignored layers but applies one MXFP8 scheme to both selected Linear
+  and MoE layers; arbitrary mixed per-layer compressed-tensors MXFP8 configs
+  are not supported.
+- SGLang MXFP8 cannot currently be combined with R3 router replay because the
+  engine's captured route IDs do not match the routes consumed by its native
+  MXFP8 MoE runner. verl rejects this combination before launch.
+- SGLang MXFP8, MXFP4 and NVFP4 custom refit requires the default bucketed
+  weight sync so all derived kernel layouts can be rebuilt after the final
+  bucket. The checkpoint engine's `delta_flush` wire format is not supported.
 - Native vLLM `Fp8Config` rollout is supported without a rollout override. Standard
   128x128 block-FP8 models are quantized by the trainer-side exporter; DeepSeek-V4
   keeps the private mixed FP8/FP4 layout already exported by Megatron-Bridge.
