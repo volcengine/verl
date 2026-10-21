@@ -91,3 +91,78 @@ Results and observations:
   to resolve the 1.6-point gap at step 10 (21 of 1,319 problems).
 - The mismatch between the rollout and the trainer (`rollout_corr/kl`) is 0.0063–0.0071 with MXFP8, against
   0.0006–0.0008 with BF16, and stays flat over the run.
+
+## Example: Qwen3-30B-A3B on DAPO-Math-17k
+
+[`examples/mxfp8/run_qwen3_30b_a3b_megatron.sh`](https://github.com/verl-project/verl/blob/main/examples/mxfp8/run_qwen3_30b_a3b_megatron.sh)
+runs GRPO on Qwen3-30B-A3B (MoE) with DAPO-Math-17k on one 4×B200 node, MXFP8 end to end, experts included;
+`PRECISION=bf16` runs the same job in BF16. Training runs TP2 × EP2 with full recompute and the whole optimizer on the
+CPU, the rollout vLLM with TP2. The script reads DAPO-Math-17k in verl's format from `TRAIN_FILE`, as
+[verl-recipe's `dapo/prepare_dapo_data.sh`](https://github.com/verl-project/verl-recipe/blob/main/dapo/prepare_dapo_data.sh)
+downloads it, and runs without a validation set.
+
+```bash
+PRECISION=mxfp8 TOTAL_TRAINING_STEPS=10 bash examples/mxfp8/run_qwen3_30b_a3b_megatron.sh
+PRECISION=bf16 TOTAL_TRAINING_STEPS=10 bash examples/mxfp8/run_qwen3_30b_a3b_megatron.sh
+```
+
+### Results
+
+**Configuration**
+
+- One 4×B200 machine for every arm, the same seed and data order, so steps pair across arms; 10 steps
+- The script's hyper-parameters: 64 prompts × 8 responses per step, prompts and responses up to 1024 and 8192
+  tokens, dynamic batching at 20,480 tokens per GPU, learning rate 1e-6; DAPO-Math-17k deduplicated to its 17,398
+  unique prompts; FlashInfer autotuning off
+- An earlier version of this integration: vLLM 0.24 served MXFP8 through ModelOpt and FP8 blockwise through its own
+  FP8 method, before the rollout weights were quantized on the trainer side with compressed-tensors
+
+"X/Y" is training precision X, rollout precision Y: FP8-TW is Transformer Engine's per-tensor FP8 with a BF16
+rollout, FP8-BW verl's FP8 blockwise recipe end to end.
+
+| mean of steps 1–10 | BF16/BF16 | FP8-TW/BF16 | FP8-BW/FP8-BW | MXFP8/MXFP8 |
+|---|---|---|---|---|
+| step time (s) | 506 | 487 | 489 | 452 |
+| generation (s) | 134 | 133 | 115 | 102 |
+| `update_actor` (s) | 244 | 225 | 241 | 221 |
+| `rollout_corr/kl` | 0.0018 | 0.0058 | 0.0090 | 0.0045 |
+| score | −0.130 | −0.150 | −0.169 | −0.160 |
+
+wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group
+"D: Qwen3-30B-A3B, DAPO-Math-17k".
+
+Results and observations:
+
+- MXFP8 cuts the step time by 11% against BF16 (generation −24%, `update_actor` −9%), more than either FP8 recipe,
+  with the lowest rollout–trainer mismatch of the three low-precision arms.
+- Ten steps are enough for speed and mismatch, not for the score.
+- The MXFP8 arm, rerun for 5 steps on the compressed-tensors path (vLLM 0.29, verl's locked environment, another
+  4×B200 machine), read `rollout_corr/kl` 0.0037–0.0040.
+
+## Qwen3-8B on DAPO-Math-17k
+
+The dense model on the same data and per-step hyper-parameters: 2×B200 (TP2), dynamic batching at 12,288 tokens per
+GPU, 32 steps, the earlier version of the integration as above. Two more differences:
+
+- Every arm, BF16 included, ran vLLM with an FP8 KV cache (`kv_cache_dtype=fp8`; vLLM 0.24 then also quantizes Q).
+  It raises the mismatch of every arm, so these KL values do not compare with the other runs on this page.
+- The MXFP8 rollout kept `gate_up_proj` in BF16, through a layer-exclusion bug fixed since.
+
+| mean of steps 23–32 | BF16/BF16 | FP8-TW/BF16 | MXFP8/MXFP8 |
+|---|---|---|---|
+| `rollout_corr/kl` | 0.0088 | 0.0297 | 0.0088 |
+| entropy | 0.220 | 0.083 | 0.338 |
+| score | 0.150 | 0.240 | 0.135 |
+| response length | 6198 | 5748 | 6202 |
+| step time (s) | 407 | 345 | 386 |
+
+wandb: [verl_mxfp8_b200](https://forge.coreweave.com/wandb/wengeezhang-bytedance/verl_mxfp8_b200), group
+"B: Qwen3-8B, DAPO-Math-17k".
+
+Results and observations:
+
+- The MXFP8 arm's mismatch stays at the BF16 arm's level, while FP8-TW with a BF16 rollout drifts from 0.009 at
+  step 1 to 0.037 at step 32.
+- Entropy falls by a third with BF16 (0.304 at step 1, 0.206 at step 32), nearly collapses with FP8-TW (0.307,
+  0.062), and rises slightly with MXFP8 (0.309, 0.344). FP8-TW's higher score and shorter responses come with that
+  collapse; without a validation set, these runs do not show which arm generalizes better.
