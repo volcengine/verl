@@ -263,8 +263,12 @@ def _load_quant_utils(monkeypatch):
     fp8.build_fp8_method_patchers = lambda vllm_version: []
     fp8.stage_fp8_params_for_loading = _stage
     fp8.process_fp8_weights_after_loading = _reprocess
+    unquant = types.ModuleType("verl.utils.vllm.vllm_unquant_utils")
+    unquant.stage_unquantized_moe_params = lambda model: []
+    unquant.process_unquantized_moe_weights_after_loading = lambda model, staged: 0
     monkeypatch.setitem(sys.modules, "verl.utils.vllm.vllm_fp4_utils", fp4)
     monkeypatch.setitem(sys.modules, "verl.utils.vllm.vllm_fp8_utils", fp8)
+    monkeypatch.setitem(sys.modules, "verl.utils.vllm.vllm_unquant_utils", unquant)
     monkeypatch.setitem(sys.modules, "verl.utils.vllm.vllm_mxfp8_refit_check", check)
     return _load_by_path("vllm_quant_utils_under_test", "verl/utils/vllm/vllm_quant_utils.py")
 
