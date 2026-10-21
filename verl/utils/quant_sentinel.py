@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Fail loudly when a quantized rollout is producing garbage.
+"""Flag a quantized rollout that is producing garbage.
 
 Two silent failures were hit while validating MXFP8 on 2xB200, both with exit
 code 0 and every metric still being logged:
@@ -23,13 +23,14 @@ code 0 and every metric still being logged:
   response hit the length cap.
 
 Both are visible in step-level metrics from step 1. This sentinel reads the
-metrics the trainers already compute and raises instead of logging when the
-rollout is quantized and any of these hold:
+metrics the trainers already compute and, when the rollout is quantized, reports
+each step on which any of these hold:
 
 1. ``training/rollout_probs_diff_mean`` is non-finite while the batch had valid tokens;
 2. ``rollout_corr/kl`` is non-finite or above ``kl_max`` (default 1.0);
 3. ``response_length/clip_ratio`` is ~1.0 (every response truncated at the cap) on
-   ``clip_steps`` consecutive steps (default 2).
+   ``clip_steps`` consecutive steps (default 2; ``0`` turns this rule off, and it is off
+   under ``rollout.ignore_eos``, where every response runs to the cap by design).
 
 The rollout counts as quantized under the rule the trainer-side weight exporter uses
 (``verl.utils.qat.dispatch_rollout_weight_quantizer``): ``rollout.quantization`` sets
@@ -38,8 +39,10 @@ The rollout counts as quantized under the rule the trainer-side weight exporter 
 when ``actor_rollout_ref.model.path`` is a local directory. ``rollout.quantization`` is an
 object even when it is off, so its presence alone says nothing.
 
-Disable with ``VERL_QUANT_SENTINEL=0``; tune with ``VERL_QUANT_SENTINEL_KL_MAX`` and
-``VERL_QUANT_SENTINEL_CLIP_STEPS``. Runs without rollout quantization are never checked.
+``VERL_QUANT_SENTINEL``: ``warn`` (default) logs the findings and lets the run go on,
+``raise`` stops the run with ``RuntimeError``, ``0`` disables the check. Tune with
+``VERL_QUANT_SENTINEL_KL_MAX`` and ``VERL_QUANT_SENTINEL_CLIP_STEPS``. Runs without
+rollout quantization are never checked.
 """
 
 from __future__ import annotations
@@ -59,6 +62,12 @@ _KEY_DIFF_MEAN = "training/rollout_probs_diff_mean"
 _KEY_DIFF_VALID = "training/rollout_probs_diff_valid"
 _KEY_KL = "rollout_corr/kl"
 _KEY_CLIP = "response_length/clip_ratio"
+_OFF = ("0", "off", "false")
+
+
+def sentinel_mode() -> str:
+    """``VERL_QUANT_SENTINEL``: ``warn`` (default), ``raise`` or ``0`` (off)."""
+    return os.environ.get("VERL_QUANT_SENTINEL", "warn").strip().lower()
 
 
 def _as_float(v: Any) -> float | None:
@@ -111,23 +120,26 @@ class QuantizedRolloutSentinel:
         self,
         quantization: str | None,
         *,
-        enabled: bool = True,
+        mode: str = "warn",
         kl_max: float = 1.0,
         clip_steps: int = 2,
+        ignore_eos: bool = False,
     ):
         self.quantization = quantization
-        self.enabled = enabled and quantization is not None
+        self.mode = mode
+        self.enabled = mode not in _OFF and quantization is not None
         self.kl_max = kl_max
-        self.clip_steps = clip_steps
+        # Under ignore_eos every response runs to the cap by design, so the clip rule says nothing.
+        self.clip_steps = 0 if ignore_eos else clip_steps
         self._clip_streak = 0
 
     @classmethod
     def from_config(cls, config) -> QuantizedRolloutSentinel:
         quantization = rollout_quantization_label(config)
-        enabled = os.environ.get("VERL_QUANT_SENTINEL", "1") != "0"
         kl_max = float(os.environ.get("VERL_QUANT_SENTINEL_KL_MAX", "1.0"))
         clip_steps = int(os.environ.get("VERL_QUANT_SENTINEL_CLIP_STEPS", "2"))
-        return cls(quantization, enabled=enabled, kl_max=kl_max, clip_steps=clip_steps)
+        ignore_eos = bool(_field(config.actor_rollout_ref.rollout, "ignore_eos"))
+        return cls(quantization, mode=sentinel_mode(), kl_max=kl_max, clip_steps=clip_steps, ignore_eos=ignore_eos)
 
     def check(self, metrics: dict[str, Any], step: int) -> None:
         if not self.enabled:
@@ -146,7 +158,7 @@ class QuantizedRolloutSentinel:
             )
 
         clip = _as_float(metrics.get(_KEY_CLIP))
-        if clip is not None:
+        if clip is not None and self.clip_steps > 0:
             self._clip_streak = self._clip_streak + 1 if clip >= 0.999 else 0
             if self._clip_streak >= self.clip_steps:
                 problems.append(
@@ -156,15 +168,19 @@ class QuantizedRolloutSentinel:
 
         if not problems:
             return
-        raise RuntimeError(
+        msg = (
             f"Quantized rollout ({self.quantization}) looks broken at step {step}: "
             + "; ".join(problems)
             + ". Likely causes: a layer that must stay in high precision was quantized (lm_head, embeddings, MoE "
             "router - check ignored_layers), the engine's kernel scale layouts were not rebuilt after the weight "
-            "sync (see the MXFP8 refit loader / self-check), or an unsupported GEMM backend was selected via "
-            "engine_kwargs. The run is stopped here instead of spending the remaining steps on garbage samples. "
-            "Set VERL_QUANT_SENTINEL=0 to disable this check."
+            "sync (see the post-sync self-check), or an unsupported GEMM backend was selected via engine_kwargs."
         )
+        if self.mode == "raise":
+            raise RuntimeError(
+                msg + " The run is stopped here instead of spending the remaining steps on garbage samples. "
+                "VERL_QUANT_SENTINEL=warn only logs this, =0 disables the check."
+            )
+        logger.warning("%s The run goes on; VERL_QUANT_SENTINEL=raise stops it here, =0 disables the check.", msg)
 
 
 def check_quantized_rollout_metrics(trainer, metrics: dict[str, Any], step: int) -> None:
@@ -175,6 +191,6 @@ def check_quantized_rollout_metrics(trainer, metrics: dict[str, Any], step: int)
             sentinel = QuantizedRolloutSentinel.from_config(trainer.config)
         except Exception as err:  # noqa: BLE001 - never let the guard itself break training
             logger.warning("quantized-rollout sentinel disabled: could not read config (%s)", err)
-            sentinel = QuantizedRolloutSentinel(None, enabled=False)
+            sentinel = QuantizedRolloutSentinel(None, mode="0")
         trainer._quant_sentinel = sentinel
     sentinel.check(metrics, step)
