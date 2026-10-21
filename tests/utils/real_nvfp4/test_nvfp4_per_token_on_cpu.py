@@ -51,11 +51,11 @@ def _config(ignore=_CARVE_IGNORE):
     return build_compressed_tensors_config(linear=None, moe="NVFP4_PER_TOKEN", ignore=ignore, config_file=None)
 
 
-def _dispatch(ignore=_CARVE_IGNORE, moe="NVFP4_PER_TOKEN", start=2, end=2):
+def _dispatch(ignore=_CARVE_IGNORE, moe="NVFP4_PER_TOKEN", start=2, end=2, engine="vllm"):
     return dispatch_rollout_weight_quantizer(
         model_config=SimpleNamespace(hf_config=_HF, local_path=None),
         rollout_config=SimpleNamespace(
-            quantization=SimpleNamespace(linear=None, moe=moe, ignore=ignore, config_file=None)
+            name=engine, quantization=SimpleNamespace(linear=None, moe=moe, ignore=ignore, config_file=None)
         ),
         real_nvfp4_config=SimpleNamespace(
             enable=True, num_layers_at_start_in_bf16=start, num_layers_at_end_in_bf16=end
@@ -85,6 +85,8 @@ def test_dispatch_pairs_real_nvfp4_with_the_preset_and_its_carveout():
         _dispatch(start=1)
     with pytest.raises(ValueError, match="NVFP4_PER_TOKEN"):
         _dispatch(moe="NVFP4")
+    with pytest.raises(ValueError, match="only with the vLLM rollout"):
+        _dispatch(engine="sglang")
 
 
 def _fake_quantize(weight, global_scale):

@@ -79,7 +79,7 @@ Megatron 训练后端还需安装以下 Bridge 组件：
 安装前准备（ CANN）
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-CANN是NPU上的异构计算架构，以下为arm平台A3安装指令，请参照如下指令下载HDK和CANN并安装，
+CANN是NPU上的异构计算架构，以下为arm平台950PR&DT系列产品安装指令，请参照如下指令下载HDK和CANN并安装，
 或者根据系统硬件型号从 `CANN社区 <https://www.hiascend.com/cann/download?versionId=723&ids=d803%2Ch0501%2Ch0601%2Ch0702>`_ 下载安装
 
 .. code:: bash
