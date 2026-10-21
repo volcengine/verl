@@ -209,3 +209,61 @@ def reprocess_mxfp8_moe_layers(model: torch.nn.Module, staged: list[tuple[torch.
                 "storage by reprocess_mxfp8_moe_layers; the CUDA graph would keep reading stale scales."
             )
     return count
+
+
+# ---------------------------------------------------------------------------
+# MoE layers kept in BF16
+# ---------------------------------------------------------------------------
+
+_BF16_MOE_CHECKED_ATTR = "_verl_sglang_bf16_moe_layouts_checked"
+_MOE_DIMS = ("num_local_experts", "intermediate_size_per_partition", "hidden_size")
+
+
+def _is_unquantized_moe(module: torch.nn.Module) -> bool:
+    return isinstance(getattr(module, "w13_weight", None), torch.Tensor) and (
+        type(getattr(module, "quant_method", None)).__name__ == "UnquantizedFusedMoEMethod"
+    )
+
+
+def relaid_bf16_moe_layers(model: torch.nn.Module) -> list[str]:
+    """MoE layers kept in BF16 whose runner re-laid out the experts after loading, in a form a sync cannot write.
+
+    ``ignored_layers`` can keep MoE layers in BF16 (``UnquantizedFusedMoEMethod``). On the DeepGEMM MoE runner
+    that ``enforce_sglang_deep_gemm`` pins they keep the checkpoint layout. On sglang's FlashInfer TRT-LLM
+    runner (reachable with ``VERL_ROLLOUT_USE_DEEP_GEMM=0``), ``process_weights_after_loading`` reorders their
+    w3 / w1 rows and converts w13 / w2 into the runner's block layout (sglang 0.5.20), while
+    ``FusedMoE.weight_loader`` copies each refit in checkpoint layout: the copy fails on the changed shape or,
+    where the shape survives, writes rows the kernel reads in another order.
+    Flags the TRT-LLM runner, and on other runners a w13 that no longer has its checkpoint shape
+    ``[experts, 2 * intermediate, hidden]``.
+    """
+    found = []
+    for name, module in model.named_modules():
+        if not _is_unquantized_moe(module):
+            continue
+        w13 = module.w13_weight
+        trtllm = any(getattr(obj, "use_flashinfer_trtllm_moe", False) for obj in (module.quant_method, module))
+        dims = [getattr(module, attr, None) for attr in _MOE_DIMS]
+        gated = getattr(getattr(module, "moe_runner_config", None), "is_gated", True)
+        canonical = None if None in dims else (dims[0], (2 if gated else 1) * dims[1], dims[2])
+        if trtllm or (canonical is not None and tuple(w13.shape) != canonical):
+            runner = "FlashInfer TRT-LLM runner" if trtllm else f"checkpoint layout {canonical}"
+            found.append(f"{name} (w13 {tuple(w13.shape)} {str(w13.dtype).removeprefix('torch.')}, {runner})")
+    return found
+
+
+def refuse_relaid_bf16_moe_layers(model: torch.nn.Module) -> None:
+    """Raise before the first sync writes anything if a BF16 MoE layer's experts were re-laid out at load."""
+    if model.__dict__.get(_BF16_MOE_CHECKED_ATTR):
+        return
+    found = relaid_bf16_moe_layers(model)
+    if found:
+        raise NotImplementedError(
+            f"SGLang serves {len(found)} MoE layer(s) in BF16 whose experts the MoE runner re-laid out after "
+            f"loading: {'; '.join(found[:4])}{'; ...' if len(found) > 4 else ''}. A weight sync writes "
+            "checkpoint-layout tensors, which would not fit or would land in the wrong rows (the sglang limitation "
+            "behind verl issue #8229). Keep verl's default DeepGEMM MoE runner (do not set "
+            "VERL_ROLLOUT_USE_DEEP_GEMM=0), which leaves BF16 experts in checkpoint layout, or keep these MoE "
+            "layers quantized."
+        )
+    model.__dict__[_BF16_MOE_CHECKED_ATTR] = True
