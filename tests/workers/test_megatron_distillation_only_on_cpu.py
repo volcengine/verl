@@ -39,24 +39,27 @@ _VOCAB_SIZE = 8
 _DISTILLATION_KEYS = ("distillation_losses", "student_mass", "teacher_mass")
 
 
-def _make_engine_stub():
+def _make_engine_stub(tf_config=None):
     eng = object.__new__(MegatronEngineWithLMHead)
     eng.engine_config = SimpleNamespace(
         entropy_from_logits_with_chunking=False,
         entropy_from_logits_chunk_size=1024,
     )
+    eng.tf_config = tf_config if tf_config is not None else SimpleNamespace(fp8=None)
     return eng
 
 
-def _make_logits_processor(keys):
-    def _proc(student_logits, data, data_format):
+def _make_logits_processor(keys, quant_align_sizes=None):
+    def _proc(student_logits, data, data_format, quant_align_size=None):
+        if quant_align_sizes is not None:
+            quant_align_sizes.append(quant_align_size)
         n = student_logits.shape[1]
         return {k: torch.full((1, n), float(i + 1)) for i, k in enumerate(keys)}
 
     return _proc
 
 
-def _run_logits_processor(eng, *, distillation_use_topk, distillation_only):
+def _run_logits_processor(eng, *, distillation_use_topk, distillation_only, logits_processor_func=None):
     total_nnz = 5 if distillation_use_topk else 4
     logits = torch.randn(1, total_nnz, _VOCAB_SIZE)
     label = torch.randint(0, _VOCAB_SIZE, (1, total_nnz))
@@ -75,7 +78,7 @@ def _run_logits_processor(eng, *, distillation_use_topk, distillation_only):
             calculate_entropy=False,
             distillation_use_topk=distillation_use_topk,
             distillation_only=distillation_only,
-            logits_processor_func=_make_logits_processor(_DISTILLATION_KEYS),
+            logits_processor_func=logits_processor_func or _make_logits_processor(_DISTILLATION_KEYS),
             batch=batch,
             data_format="thd",
         )
@@ -115,3 +118,24 @@ def test_megatron_logits_processor_without_topk_always_computes_log_probs():
     assert "log_probs" in ret
     for k in _DISTILLATION_KEYS:
         assert k not in ret
+
+
+@pytest.mark.parametrize(
+    "tf_config, expected",
+    [
+        (SimpleNamespace(fp8="e4m3", fp8_recipe="mxfp8"), 32),
+        (SimpleNamespace(fp8="hybrid", fp8_recipe="blockwise"), 16),
+        (SimpleNamespace(fp8=None, fp8_recipe="mxfp8"), None),
+    ],
+)
+def test_megatron_logits_processor_passes_quant_align_size_to_topk_loss(tf_config, expected):
+    """The top-k loss packs the teacher tensors itself, so it needs the padding of the student inputs."""
+    eng = _make_engine_stub(tf_config)
+    quant_align_sizes = []
+    _run_logits_processor(
+        eng,
+        distillation_use_topk=True,
+        distillation_only=True,
+        logits_processor_func=_make_logits_processor(_DISTILLATION_KEYS, quant_align_sizes),
+    )
+    assert quant_align_sizes == [expected]
