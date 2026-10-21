@@ -2,31 +2,21 @@
 
 **Author**: `https://github.com/meituan-search`
 
-Last updated: 09/03/2026
+Last updated: 10/21/2026
 
 ## 1. Scope of Support
 
 Currently, RL training can be performed on mimo-7B-RL, Qwen-next, and Deepseek series models based on the MTP architecture. SFT also supports NVIDIA Nemotron 3 Super and Nemotron 3.5 Lightning through Megatron-Core's native `HybridModel` MTP implementation. Nemotron 3.5 Lightning additionally has a GRPO recipe combining vLLM rollout, R3 router replay, and one-token MTP speculation. The support rules for training and inference engines are as follows:
 
-- **Training Engine**: Only supports the `mbridge/Megatron-Bridge + megatron` combination; other training engines are not compatible at this time;
+- **Training Engine**: Only supports the `Megatron-Bridge + megatron` combination; other training engines are not compatible at this time;
 
 - **Inference Engine**: Generic MTP is available when the model is supported by the selected engine. The Nemotron 3.5 Lightning GRPO recipe currently supports vLLM only;
 
 - **Dependency Versions**:
 
-    - NVIDIA Nemotron 3 Super native `HybridModel` MTP requires this exact dependency snapshot:
+    - The CUDA environment in this checkout's `uv.lock` pins Megatron-Bridge **0.6.2**, Megatron-Core **0.19.2**, vLLM **0.29.0**, and Transformers **5.12.1**. This version set provides the native `HybridModel` and R3+MTP capabilities required by the Nemotron recipes.
 
-        - Megatron Bridge commit [`1f12931e2f34ec26f578a4cffe15adc06f71a5a2`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/1f12931e2f34ec26f578a4cffe15adc06f71a5a2);
-
-        - Megatron Core **0.19.0** at commit [`cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54`](https://github.com/NVIDIA/Megatron-LM/commit/cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54). A Git checkout reports this as `0.19.0+cd4afff`. Pin the commit, rather than relying on the `0.19.0` version number alone;
-
-    - NVIDIA Nemotron 3.5 Lightning uses the reproducible image in `docker/Dockerfile.nemotron_3_5_lightning`, which pins:
-
-        - Megatron Bridge commit [`c93251151adeeadbae3ff2a2bf5ee7a1c34cff01`](https://github.com/NVIDIA-NeMo/Megatron-Bridge/commit/c93251151adeeadbae3ff2a2bf5ee7a1c34cff01) and its Megatron Core submodule at [`cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54`](https://github.com/NVIDIA/Megatron-LM/commit/cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54);
-
-        - Transformers **5.10.4** and vLLM **0.27.1** at [`6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`](https://github.com/vllm-project/vllm/commit/6e448d0ea9bf3d88d898b65449ca6dc2aec170ac).
-
-      The default `main` uv environment currently uses older Megatron Core, Megatron Bridge, and vLLM versions that do not provide this complete native-HybridModel/R3+MTP path. Use the pinned image for this recipe. From the repository root, build it with:
+    - NVIDIA Nemotron 3.5 Lightning also provides an NGC-based reproducible image in `docker/Dockerfile.nemotron_3_5_lightning`. From the repository root, build it with:
 
       ```bash
       docker build --build-arg VERL_COMMIT="$(git rev-parse HEAD)" \
@@ -52,13 +42,11 @@ Currently, RL training can be performed on mimo-7B-RL, Qwen-next, and Deepseek s
 
       Set `MODEL_PATH` to the downloaded model directory. The GRPO launcher defaults match the two dataset paths above. The current `main` `HFModelConfig` does not expose a Hub revision field, so a local snapshot is required for exact model reproduction.
 
-    - MiMo/mbridge: Apply the patches and review suggestions from PR: [#62](https://github.com/ISEEKYAN/mbridge/pull/62) (Already merged into the main branch);
+    - Megatron-Bridge v0.6.2 includes the `MiMoForCausalLM` provider and MTP weight mappings, including the input-projection layout conversion. The MiMo changes from [#2387](https://github.com/NVIDIA-NeMo/Megatron-Bridge/pull/2387) are merged; no separate MiMo bridge patch is required.
 
-    - MiMo/Megatron-Bridge: Apply the patches and review suggestions from PR if you want to try out mimo-7B-RL: [#2387](https://github.com/NVIDIA-NeMo/Megatron-Bridge/pull/2387) (will be merged into the main branch in the future);
+    - Megatron-Core 0.19.2 includes `padding_mask` in `MultiTokenPredictionLayer._checkpointed_forward`, required when using MTP with `recompute_granularity=full`. Older 0.18.0/0.18.2 environments need the compatibility fix tracked in [#4933](https://github.com/NVIDIA/Megatron-LM/issues/4933); the CUDA version pair above does not apply to the separate Ascend/MindSpeed environment.
 
-    - Existing MiMo MTP+CP examples: Use Megatron commit [23e092f41ec8bc659020e401ddac9576c1cfed7e](https://github.com/NVIDIA/Megatron-LM/tree/23e092f41ec8bc659020e401ddac9576c1cfed7e). If you additionally enable `recompute_granularity=full`, use a dev commit that includes [#3457](https://github.com/NVIDIA/Megatron-LM/pull/3457) (`ffd66a3e6`, 2026-06-03) — the commit pinned above predates it by about six months. #3457 threads `padding_mask` through `MultiTokenPredictionLayer._checkpointed_forward`; without it, `MultiTokenPredictionLayer.forward` passes a keyword the method does not declare and training raises a `TypeError` on the first step. Released `megatron-core` 0.18.0 and 0.18.2 do not carry the fix either (tracked as [#4933](https://github.com/NVIDIA/Megatron-LM/issues/4933)).
-    
-    - MiMo/SGLang rollout: Use the specified branch: [https://github.com/ArronHZG/sglang/tree/fix_mtp_update_weights_from_tensor](https://github.com/ArronHZG/sglang/tree/fix_mtp_update_weights_from_tensor), [PR](https://github.com/sgl-project/sglang/pull/17870), which fixes the MTP update-weights-from-tensor OOM issue.
+    - SGLang rollout still requires the fix from [sglang#17870](https://github.com/sgl-project/sglang/pull/17870) for MTP update-weights-from-tensor OOM behavior.
 
 ## 2. MTP Training Configuration (Core Parameters)
 
@@ -75,7 +63,7 @@ For native Megatron-Core `HybridModel` models, `enable=True` requires `enable_tr
 
 `detach_encoder=True` applies only to the auxiliary MTP branch. It prevents MTP-loss gradients from flowing back through the base-model hidden states, but it does not freeze the base model: the ordinary SFT language-model loss continues to train it.
 
-When vLLM rollout uses R3 router replay together with MTP speculation, vLLM **0.26.0 or newer** is required so replay excludes draft-model router decisions. The pinned Lightning image uses vLLM 0.27.1. R3 also requires `actor_rollout_ref.rollout.enable_rollout_routing_replay=True` and context parallelism 1 for the validated Lightning topology.
+When vLLM rollout uses R3 router replay together with MTP speculation, vLLM **0.26.0 or newer** is required so replay excludes draft-model router decisions. The current CUDA environment and Lightning image use vLLM 0.29.0. R3 also requires `actor_rollout_ref.rollout.enable_rollout_routing_replay=True` and context parallelism 1 for the validated Lightning topology.
 
 ## 3. Experimental Results
 
@@ -146,7 +134,7 @@ Example launchers:
 
 - `examples/sft/gsm8k/run_mimo_7b_mtp_megatron.sh` for MiMo-7B;
 
-- `examples/sft/gsm8k/run_nemotron_3_super_megatron.sh` for NVIDIA Nemotron 3 Super with native Megatron-Core `HybridModel` MTP. This launcher uses Megatron Bridge (`engine.use_mbridge=True`, `engine.vanilla_mbridge=False`) and enables MTP training.
+- `examples/sft/gsm8k/run_nemotron_3_super_megatron.sh` for NVIDIA Nemotron 3 Super with native Megatron-Core `HybridModel` MTP. This launcher uses Megatron Bridge (`engine.use_mbridge=True`) and enables MTP training.
 
 - `examples/sft/gsm8k/run_nemotron_3_5_lightning_megatron.sh` for full-parameter NVIDIA Nemotron 3.5 Lightning SFT with native MTP.
 
@@ -162,4 +150,6 @@ The presence of mtp layer has limited effect on main loss. However, when MTP lay
 
 ## 6. Nemotron 3.5 Lightning GRPO
 
-Use `examples/grpo_trainer/run_nemotron_3_5_lightning_30b_a3b_megatron.sh` for the 2-node x 8-H100 topology. Its defaults enable R3 router replay and one-token MTP speculation, use raw rollout log probabilities, and disable dynamic batching and router/permutation fusion to keep Megatron and vLLM routing reproducible. These settings completed a four-hour validation on the v0.7 backport; run a GPU smoke test before treating a newly rebased `main` revision as hardware-validated. The recipe supports vLLM only and requires the pinned container described above.
+Use `examples/grpo_trainer/run_nemotron_3_5_lightning_30b_a3b_megatron.sh` for the 2-node x 8-H100 topology. Its defaults enable R3 router replay and one-token MTP speculation, use raw rollout log probabilities, and disable dynamic batching and router/permutation fusion to keep Megatron and vLLM routing reproducible. These settings completed a four-hour validation on the v0.7 backport; run a GPU smoke test before treating a newly merged `main` revision as hardware-validated. The recipe supports vLLM only.
+
+verl also supports generic low-precision rollout and Megatron QAT as documented in `docs/low_precision/qat.md`. Nemotron 3.5 Lightning with native HybridModel MTP, R3, and quantized weight refits has not been validated as a combined configuration; MTP layers remain in BF16. Treat rollout quantization as experimental for this recipe and do not enable QAT without a dedicated end-to-end validation.

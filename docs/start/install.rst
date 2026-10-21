@@ -36,7 +36,10 @@ committed ``uv.lock`` covers every backend, and you pick the backends for a
 given run as **extras**:
 
 - Inference: ``vllm`` or ``sglang``.
-- Training: ``fsdp`` or ``megatron``.
+- Training: ``fsdp``, ``megatron``, or ``veomni`` (``veomni`` runs VeOmni's
+  FSDP/SP/EP parallelism on the same cu130 / torch-2.13 stack as ``fsdp``;
+  select it at runtime with ``model_engine=veomni`` for PPO/GRPO or
+  ``engine=veomni`` for SFT).
 - ``cpu``: GPU-free, for CI / quick checks.
 
 There is **no install step**. ``uv run --extra ...`` materializes the project
@@ -65,15 +68,14 @@ shell, a Docker cache bake); see `Managing environments explicitly`_.
    (`verl-project.github.io/verl-wheelhouse
    <https://verl-project.github.io/verl-wheelhouse/simple/>`_, wired in
    ``pyproject.toml`` under ``[tool.uv.index]`` / ``[tool.uv.sources]``); those
-   wheels are built for cu130 / torch 2.11 / CPython 3.12, for ``linux_x86_64``
+   wheels are built for cu130 / torch 2.13 / CPython 3.12, for ``linux_x86_64``
    and ``linux_aarch64`` alike (the aarch64 builds target
    ``TORCH_CUDA_ARCH_LIST`` ``9.0;10.0``, the only CUDA parts an arm64 host
    has). The inference engines
    (``vllm``, ``sglang``, ``sglang-kernel``) come straight from PyPI, whose
-   wheels for the pinned versions are already cu130 / torch-2.11 builds. Only the
-   git-sourced ``megatron-core`` (``core_v0.18.0``, paired with
-   ``megatron-bridge`` 0.5.2) and ``mbridge`` are built when the environment is
-   first materialized.
+   wheels for the pinned versions are already cu130 / torch-2.13 builds. Only the
+   git-sourced ``megatron-core`` (``core_v0.19.2``, paired with
+   ``megatron-bridge`` 0.6.2) is built when the environment is first materialized.
 
 Run a job or a test
 :::::::::::::::::::::
@@ -165,7 +167,7 @@ A typical run combines **one inference engine** with **one training backend**,
 for example ``--extra vllm --extra fsdp``. The rules:
 
 - Choose at most one inference engine: ``vllm`` **or** ``sglang`` (not both).
-- Add a training backend: ``fsdp`` (default) or ``megatron``.
+- Add a training backend: ``fsdp`` (default), ``megatron``, or ``veomni``.
 - ``cpu`` is GPU-free and is used on its own.
 
 The mutually exclusive sets are declared in ``[tool.uv].conflicts``, so uv
@@ -262,10 +264,10 @@ Pick a base image
 
    * - Extra(s)
      - Recommended base image
-   * - ``vllm`` / ``fsdp`` / ``megatron``
+   * - ``vllm`` / ``fsdp`` / ``megatron`` / ``veomni``
      - ``nvidia/cuda:13.0.2-devel-ubuntu24.04`` (matches ``docker/Dockerfile.uv.cu130``)
    * - ``sglang``
-     - ``lmsysorg/sglang:v0.5.12`` or ``nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04``
+     - ``lmsysorg/sglang:v0.5.20`` or ``nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04``
    * - ``cpu`` (CI / sanity)
      - any x86_64 or aarch64 Linux host with Python 3.12; no GPU needed
 
@@ -352,7 +354,7 @@ uv troubleshooting
   ``flash-attn``** — these are pulled prebuilt from the verl wheelhouse (see the
   note under *Install with uv*). It means the resolver found no matching wheel
   for your platform or the wheelhouse was unreachable; the uv flow supports only
-  cu130 / torch 2.11 / CPython 3.12 on Linux x86_64 or aarch64.
+  cu130 / torch 2.13 / CPython 3.12 on Linux x86_64 or aarch64.
 - **``No solution found`` for ``vllm`` / ``sglang`` / ``sglang-kernel``** — these
   come from PyPI, which publishes them for Linux x86_64 and aarch64 only (and
   ``sglang`` only for glibc >= 2.34), so the same platform limits apply.

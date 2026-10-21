@@ -54,6 +54,7 @@ def _load_model_forward_with_stubs(monkeypatch, *, native_hybrid=True):
         "preprocess_bshd_engine",
         "preprocess_packed_seqs",
         "preprocess_thd_engine",
+        "preprocess_vlm_thd_engine",
     ]
     for name in util_names:
         setattr(util, name, lambda *args, **kwargs: None)

@@ -11,11 +11,11 @@ Last updated: 05/14/2026
 
 ### 1.1 软硬件环境与依赖配置
 
-参照官方文档[昇腾安装指南](https://github.com/verl-project/verl/blob/main/docs/ascend_tutorial/zh/get_start/install_guidance.rst)；若模型依赖的推理引擎 vllm、vllm_ascend 和训练引擎Megatron、MindSpeed、transformers 版本与教程存在差异，**以模型实际适配版本为准**。
+参照官方文档[昇腾安装指南](../../get_start/install_guidance.rst)；若模型依赖的推理引擎 vllm、vllm_ascend 和训练引擎Megatron、MindSpeed、transformers 版本与教程存在差异，**以模型实际适配版本为准**。
 
 ### 1.2 模型权重
 
-BF16 为 VeRL 框架中 FSDP 与 Megatron 等训练后端**默认混合精度训练数据类型**。昇腾 NPU 环境统一采用 **BF16** 作为基准精度格式，权重需对齐反量化为 BF16。目前 A2、A3 机型**暂不支持 FP8 精度训练**，仅支持 BF16 精度；Ascend 950 系列产品 后续版本将开放 FP8 低精度训练能力。
+BF16 为 VeRL 框架中 FSDP 与 Megatron 等训练后端**默认混合精度训练数据类型**。昇腾 NPU 环境统一采用 **BF16** 作为基准精度格式，权重需对齐反量化为 BF16。目前 A2、A3 机型**暂不支持 FP8 精度训练**，仅支持 BF16 精度；Ascend 950PR&950DT系列产品 后续版本将开放 FP8 低精度训练能力。
 
 ### 1.3 数据准备
 
@@ -23,7 +23,7 @@ BF16 为 VeRL 框架中 FSDP 与 Megatron 等训练后端**默认混合精度训
 
 ## 二、各组件联调打通
 
-VeRL 框架采用推理引擎、训练引擎与权重同步桥接（Checkpoint Engine）相解耦的架构设计，可实现计算与数据的深度分离，为模型向昇腾 NPU 迁移适配提供了灵活的扩展基础。在开展模型在NPU上的迁移与适配工作时，建议优先完成推理引擎、训练引擎、Megatron-Bridge 各组件的单独适配与验证，待各组件运行稳定后，再推进 VeRL 整网链路的打通与调试。关于 VeRL 不同推理、训练后端在昇腾 NPU 上的具体特性支持，可参考[昇腾后端特性指南](https://github.com/verl-project/verl/blob/main/docs/ascend_tutorial/zh/feature_support/ascend_backend_features.md)。
+VeRL 框架采用推理引擎、训练引擎与权重同步桥接（Checkpoint Engine）相解耦的架构设计，可实现计算与数据的深度分离，为模型向昇腾 NPU 迁移适配提供了灵活的扩展基础。在开展模型在NPU上的迁移与适配工作时，建议优先完成推理引擎、训练引擎、Megatron-Bridge 各组件的单独适配与验证，待各组件运行稳定后，再推进 VeRL 整网链路的打通与调试。关于 VeRL 不同推理、训练后端在昇腾 NPU 上的具体特性支持，可参考[昇腾后端特性指南](../../feature_support/ascend_backend_features.md)。
 
 ### 2.1 推理引擎适配
 
@@ -43,7 +43,6 @@ Megatron-Bridge 主要用于在 VeRL 框架下，完成推理引擎依赖的 Hug
 
 ```
 actor_rollout_ref.actor.megatron.use_mbridge=True
-actor_rollout_ref.actor.megatron.vanilla_mbridge=False
 ```
 
 Megatron-Bridge已在社区原生适配大量主流模型结构，支持列表可参考：[supported model](https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/main/docs/models/README.md)，在昇腾 NPU 环境开展模型迁移适配时，可基于社区现有能力完成基础配置，但仍有部分模型特殊结构与场景需要补充定制化适配。
@@ -54,7 +53,7 @@ Megatron-Bridge已在社区原生适配大量主流模型结构，支持列表�
 
 ### 2.4 整网功能打通
 
-完成推理引擎适配验证、训练引擎适配开发，参照[训练配置参数与指标说明](https://github.com/verl-project/verl/blob/main/docs/ascend_tutorial/zh/dev_guide/model_dev/parameter_and_metrics.md)根据实际业务需求，配置推理引擎、训练引擎的相关参数，完成 VeRL 整网功能打通，确保全流程稳定运行。
+完成推理引擎适配验证、训练引擎适配开发，参照[训练配置参数与指标说明](parameter_and_metrics.md)根据实际业务需求，配置推理引擎、训练引擎的相关参数，完成 VeRL 整网功能打通，确保全流程稳定运行。
 
 ## 三、精度对齐
 

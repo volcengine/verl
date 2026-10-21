@@ -6,31 +6,12 @@
 # NODE_RANK in [0, 3], for example:
 #   MASTER_ADDR=<node-0-hostname> NODE_RANK=0 bash examples/sft/gsm8k/run_nemotron_3_super_megatron.sh
 #
-# Pinned dependency snapshot:
-#   Base container: nvcr.io/nvidia/pytorch:26.06-py3 (CUDA 13.3, Python 3.12)
-#   Megatron-Bridge: 1f12931e2f34ec26f578a4cffe15adc06f71a5a2
-#   Megatron Core: 0.19.0 at cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54
-#   Transformer Engine: e7c550c5f80636cf841a8204b1d6f85a5f3f28b7 (2.18.0)
-#   Transformers: 5.10.4 (within both verl and Megatron-Bridge constraints)
-#
-# Keep Megatron Core at the commit vendored by Megatron-Bridge rather than
-# installing an unrelated MCore main commit. Build Transformer Engine,
-# mamba-ssm, and causal-conv1d against the container's installed Torch/CUDA
-# (without build isolation). verl images with Transformers 5.3 are too old for
-# this Megatron-Bridge snapshot and must be upgraded.
-#
-# Reproducible image setup:
-#   git clone --recurse-submodules https://github.com/NVIDIA-NeMo/Megatron-Bridge.git
-#   cd Megatron-Bridge
-#   git checkout 1f12931e2f34ec26f578a4cffe15adc06f71a5a2
-#   git submodule update --init --recursive
-#   test "$(git -C 3rdparty/Megatron-LM rev-parse HEAD)" = \
-#     cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54
-#   docker build -f docker/Dockerfile.ci -t verl-nemotron-3-super .
-#
-# Mount this verl checkout into that image, then install the verl overlay with
-# the dependency version shared by both projects:
-#   pip install -e /workspace/verl "transformers==5.10.4"
+# Current upstream uv.lock dependency set:
+#   Megatron-Bridge 0.6.2
+#   Megatron-Core 0.19.2
+#   Transformers 5.12.1
+# Use the repository's uv environment or CUDA 13 uv image so Bridge and MCore
+# stay on the tested pair instead of mixing unrelated snapshots.
 
 set -xeuo pipefail
 
@@ -111,7 +92,6 @@ MEGATRON_ENGINE_CONFIG=(
     "engine.expert_tensor_parallel_size=${ETP_SIZE}"
     "engine.sequence_parallel=True"
     "engine.use_mbridge=True"
-    "engine.vanilla_mbridge=False"
     "engine.dtype=${DTYPE}"
     "engine.use_remove_padding=True"
     "+engine.override_ddp_config.data_parallel_sharding_strategy=optim_grads_params"

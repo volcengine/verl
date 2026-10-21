@@ -11,11 +11,13 @@
 # GRPO recipe. The 2x8 H100 actor topology starts from NVIDIA's verified SFT
 # topology. Run this script once on the head of an already-started Ray cluster.
 #
-# Pinned pre-release dependency snapshot:
-#   Megatron-Bridge r0.6.0: c93251151adeeadbae3ff2a2bf5ee7a1c34cff01
-#   Megatron-Core 0.19.0 (Bridge submodule): cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54
-#   Transformers: >=5.8.1,<5.11 (5.10.4 is compatible with verl and Bridge)
-#   vLLM: 6e448d0ea9bf3d88d898b65449ca6dc2aec170ac (hardware-tested)
+# Current upstream uv.lock dependency set:
+#   Megatron-Bridge 0.6.2
+#   Megatron-Core 0.19.2
+#   Transformers 5.12.1
+#   vLLM 0.29.0
+# The four-hour hardware soak predated these final upstream pins, so run a GPU
+# smoke test before treating this rebased recipe as hardware-qualified.
 #
 # Use the BF16 customization checkpoint. Quantized Lightning checkpoints and
 # quantized actor-to-rollout weight updates are intentionally not enabled here.
@@ -239,7 +241,6 @@ ACTOR=(
     actor_rollout_ref.actor.megatron.param_offload=${ALL_OFFLOAD}
     actor_rollout_ref.actor.megatron.optimizer_offload=${ALL_OFFLOAD}
     actor_rollout_ref.actor.megatron.use_mbridge=True
-    actor_rollout_ref.actor.megatron.vanilla_mbridge=False
     actor_rollout_ref.actor.megatron.dtype=bfloat16
     actor_rollout_ref.actor.megatron.use_remove_padding=True
     actor_rollout_ref.actor.megatron.override_transformer_config.attention_backend=fused

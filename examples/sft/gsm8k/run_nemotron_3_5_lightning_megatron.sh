@@ -9,14 +9,13 @@
 #   MASTER_ADDR=<node-0-hostname> NODE_RANK=0 \
 #     bash examples/sft/gsm8k/run_nemotron_3_5_lightning_megatron.sh
 #
-# Pinned pre-release software snapshot:
-#   Public rebuild base: nvcr.io/nvidia/pytorch:26.06-py3
-#   Transformer Engine 2.18.0: e7c550c5f80636cf841a8204b1d6f85a5f3f28b7
-#   Megatron-Bridge r0.6.0: c93251151adeeadbae3ff2a2bf5ee7a1c34cff01
-#   Megatron-Core 0.19.0 (Bridge submodule): cd4afffa648426a959dc7cb1e24b5ce7d0c3ff54
-#   Transformers: >=5.8.1,<5.11 (5.10.4 is compatible with verl and Bridge)
+# Current upstream uv.lock dependency set:
+#   Megatron-Bridge 0.6.2
+#   Megatron-Core 0.19.2
+#   Transformers 5.12.1
+#   vLLM 0.29.0
 #
-# Keep Megatron-Core at the commit vendored by Megatron-Bridge. The public
+# Use the Bridge 0.6.2 / MCore 0.19.2 pair pinned by uv.lock. The public
 # Lightning checkpoint revision used for hardware validation is:
 #   d468880b6ad3c6e0d21377ce7242adaea4cc884d
 
@@ -110,7 +109,6 @@ MEGATRON_ENGINE_CONFIG=(
     "engine.expert_tensor_parallel_size=${ETP_SIZE}"
     "engine.sequence_parallel=True"
     "engine.use_mbridge=True"
-    "engine.vanilla_mbridge=False"
     "engine.dtype=${DTYPE}"
     "engine.use_remove_padding=True"
     "+engine.override_ddp_config.average_in_collective=False"

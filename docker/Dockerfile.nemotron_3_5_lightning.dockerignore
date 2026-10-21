@@ -3,6 +3,7 @@
 !Notice.txt
 !README.md
 !pyproject.toml
+!uv.lock
 !setup.py
 !examples
 !examples/data_preprocess
