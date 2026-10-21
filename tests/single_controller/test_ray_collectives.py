@@ -87,14 +87,16 @@ def test_ray_collective_group():
     # box), so is_device_available() is needed too or that case would slip past the skips below.
     if not is_device_available():
         pytest.skip("no accelerator available")
-    backend = get_nccl_backend()
-    if not _ray_backend_available(backend):
-        pytest.skip(f"ray.util.collective has no {backend!r} backend registered")
     ngpus = get_torch_device().device_count()
     # 2 actors + 1 rollout must be placed at once; with fewer devices the rollout pool is never satisfied.
     if ngpus < 3:
         pytest.skip(f"needs at least 3 devices, found {ngpus}")
+    # Init Ray before probing backends: nccl_available() calls ray.get_gpu_ids(), which auto-starts Ray.
     ray.init()
+    backend = get_nccl_backend()
+    if not _ray_backend_available(backend):
+        ray.shutdown()
+        pytest.skip(f"ray.util.collective has no {backend!r} backend registered")
     n_rollout = max(1, ngpus // 3)  # keep 2:1 actor:rollout ratio
     n_actor = n_rollout * 2
 
