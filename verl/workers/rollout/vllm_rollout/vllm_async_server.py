@@ -319,7 +319,8 @@ class vLLMHttpServer:
 
         hf_overrides = self._apply_quantization()
         hf_quantization_config = getattr(self.model_config.hf_config, "quantization_config", None)
-        effective_quantization_config = hf_overrides.get("quantization_config") or hf_quantization_config
+        # An explicit ``quantization_config: null`` override is a BF16 rollout of a quantized checkpoint.
+        effective_quantization_config = hf_overrides.get("quantization_config", hf_quantization_config)
         from verl.utils.vllm.vllm_quant_utils import set_default_vllm_quantization_backends
 
         set_default_vllm_quantization_backends(effective_quantization_config, engine_kwargs)
