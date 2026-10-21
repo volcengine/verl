@@ -199,7 +199,7 @@ def assert_mxfp8_linear_matches(
             f"with the dequantized reference by {rel:.3f} relative error (tolerance {tol}). This is the "
             "signature of kernel scale layouts that were not re-derived after a weight sync (fresh weights "
             "paired with stale swizzled/packed scales), or of a scale/weight layout the engine version "
-            "changed. Check the engine version against docs/low_precision/fp8.md, the selected MXFP8 GEMM "
+            "changed. Check the engine version against docs/low_precision/mxfp8.md, the selected MXFP8 GEMM "
             "backend, and that this layer is meant to be quantized at all. VERL_MXFP8_REFIT_CHECK_TOL "
             "loosens the threshold."
         )
@@ -318,7 +318,7 @@ def assert_mxfp8_moe_expert_matches(
             f"to this expert disagrees with the dequantized reference by {rel:.3f} relative error (tolerance "
             f"{tol}). This is the signature of expert scales (w13_/w2_weight_scale) whose kernel layout was "
             "not re-derived after a weight sync, or of a MoE runner whose scale layout the loader does not "
-            "know. Check the engine version and MoE backend against docs/low_precision/fp8.md. "
+            "know. Check the engine version and MoE backend against docs/low_precision/mxfp8.md. "
             "VERL_MXFP8_REFIT_CHECK_MOE_TOL loosens the threshold."
         )
         return rel

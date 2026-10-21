@@ -606,6 +606,6 @@ class QuantLayerAuditor:
             + _listing(problems)
             + "\nThe exporter and the engine both read rollout.quantization, so the engine matched these modules "
             "differently from the exporter; each such weight is loaded into a parameter of the other format. Check "
-            "rollout.quantization.ignore and the engine version against docs/low_precision/fp8.md."
+            "rollout.quantization.ignore and the engine version against docs/low_precision/mxfp8.md."
         )
         return problems
