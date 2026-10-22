@@ -154,19 +154,15 @@ def _is_nvfp4_quantization(quantization_config: Mapping[str, Any]) -> bool:
     return any("nvfp4" in value for value in values)
 
 
-def enforce_sglang_deep_gemm(
+def set_default_sglang_quantization_backends(
     quantization_config: Mapping[str, Any] | None,
     engine_kwargs: dict[str, Any],
 ) -> None:
-    """Pin supported FP8/MXFP8/MXFP4 kernels to DeepGEMM unless explicitly disabled."""
+    """Default supported FP8/MXFP8/MXFP4 backends to DeepGEMM."""
     if quantization_config is None or _is_nvfp4_quantization(quantization_config):
         return
-    backend = "auto" if os.environ.get("VERL_ROLLOUT_USE_DEEP_GEMM", "1") == "0" else "deep_gemm"
     for option in ("fp8_gemm_runner_backend", "moe_runner_backend"):
-        requested = engine_kwargs.get(option)
-        if requested not in (None, "auto", "deep_gemm"):
-            raise ValueError(f"SGLang FP8/MXFP8/MXFP4 quantization requires {option}=deep_gemm; got {requested!r}")
-        engine_kwargs[option] = backend
+        engine_kwargs.setdefault(option, "deep_gemm")
 
 
 def _prepare_refit_config(
@@ -203,7 +199,7 @@ def prepare_sglang_quantization(
 ) -> dict[str, Any]:
     """Prepare one effective rollout config for SGLang launch and online refit."""
     refit_kind = _sglang_refit_kind(quantization_config)
-    enforce_sglang_deep_gemm(quantization_config, engine_kwargs)
+    set_default_sglang_quantization_backends(quantization_config, engine_kwargs)
 
     if refit_kind is None:
         return quantization_config

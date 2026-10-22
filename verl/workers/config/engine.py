@@ -409,6 +409,9 @@ class VeOmniEngineConfig(EngineConfig):
             in distributed training. Important: this will negatively impact performance, so only use it for
             debugging.
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
+        low_precision_reduce_scatter_comm (bool): Use VeOmni's node-local BF16 ReduceScatter
+            transport while retaining FP32 accumulation and output. Requires mixed precision
+            and only affects backward gradient communication. Default False.
         pad_to_length (bool): Round every packed micro-batch up to a multiple of
             ``pad_to_length_bucket`` tokens, so the packed shape only takes a handful of distinct
             values instead of a new one per micro-batch, which avoids repeated kernel
@@ -457,6 +460,7 @@ class VeOmniEngineConfig(EngineConfig):
     seed: int = 42
     full_determinism: bool = False
     mixed_precision: bool = False
+    low_precision_reduce_scatter_comm: bool = False
     init_device: str = "meta"
     enable_full_shard: bool = False
     ckpt_manager: Literal["dcp"] = "dcp"

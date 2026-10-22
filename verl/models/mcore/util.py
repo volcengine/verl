@@ -46,34 +46,41 @@ def _packed_seq_params_supports(field_name: str) -> bool:
     return field_name in getattr(PackedSeqParams, "__dataclass_fields__", {})
 
 
-def use_transformer_engine_padding(config) -> bool:
-    """Whether packed THD rows need Transformer Engine low-precision alignment.
+def get_thd_quant_align_size(config) -> int | None:
+    """Return the token alignment each packed THD sequence needs for the model's low-precision GEMMs.
 
-    Transformer Engine applies the same leading-dimension alignment contract
-    to FP4 and FP8 GEMMs.  VERL historically enabled packed-sequence padding
-    only for FP8, which leaves arbitrary remove-padding token counts invalid
-    for Megatron-Core's NVFP4 recipe.
+    ``None`` when the TransformerConfig trains without a low-precision recipe. The packing
+    helpers only take this number, so a new recipe needs a branch here, not a new parameter.
     """
+    if getattr(config, "fp8", None) in ("e4m3", "hybrid"):
+        # Same recipe->alignment mapping megatron applies to its MoE fp8 padding
+        # (experts.py / token_dispatcher.py): 32 for mxfp8's 32-element scale blocks, 16 otherwise.
+        from megatron.core.fp8_utils import get_fp8_align_size
 
-    fp8 = getattr(config, "fp8", None)
-    fp4 = getattr(config, "fp4", None)
-    return fp8 in {"e4m3", "hybrid"} or (fp4 is not None and fp4 is not False)
+        return get_fp8_align_size(getattr(config, "fp8_recipe", None))
+    if getattr(config, "fp4", None):
+        # NVFP4 uses 16-element scale blocks
+        return 16
+    return None
 
 
-def _compute_fp8_thd_align_size(align_size: int) -> tuple[int, int]:
-    """Compute TE FP8/FP4 alignment sizes for thd-format sequences.
+def _compute_quant_thd_align_size(align_size: int, quant_align_size: int) -> tuple[int, int]:
+    """Compute low-precision alignment sizes for thd-format sequences.
 
-    For low-precision block quantization, each sequence must be padded to a multiple of
-    lcm(16, align_size), and the total padded length must be divisible by
-    (align_size * 128) for TransformerEngine compatibility.
+    Each sequence must be padded to a multiple of lcm(quant_align_size, align_size), and the
+    total padded length must be divisible by (align_size * 128) for TransformerEngine
+    compatibility.
 
     Returns (per_seq_align_size, total_align_size).
     """
-    return math.lcm(16, align_size), align_size * 128
+    return math.lcm(quant_align_size, align_size), align_size * 128
 
 
 def preprocess_packed_seqs(
-    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True, use_fp8_padding: bool = False
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    pre_process: bool = True,
+    quant_align_size: int | None = None,
 ) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
@@ -88,8 +95,8 @@ def preprocess_packed_seqs(
     cp_size = mpu.get_context_parallel_world_size()
     cp_rank = mpu.get_context_parallel_rank()
     align_size = tp_size * cp_size * 2 if cp_size > 1 else tp_size
-    if use_fp8_padding:
-        per_seq_align, total_align = _compute_fp8_thd_align_size(align_size)
+    if quant_align_size is not None:
+        per_seq_align, total_align = _compute_quant_thd_align_size(align_size, quant_align_size)
         align_size = per_seq_align
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size
@@ -100,7 +107,7 @@ def preprocess_packed_seqs(
     cu_seqlens_padded = torch.zeros(batch_size + 1, dtype=torch.int32, device=input_ids.device)
     cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
 
-    if use_fp8_padding:
+    if quant_align_size is not None:
         pad_size_last = (total_align - cu_seqlens_padded[-1] % total_align) % total_align
         cu_seqlens_padded[-1] += pad_size_last
         seqlens_in_batch_padded[-1] += pad_size_last
@@ -251,7 +258,7 @@ def preprocess_thd_engine(
     input_ids: torch.Tensor,
     pre_process: bool = True,
     need_roll: bool = False,
-    use_fp8_padding: bool = False,
+    quant_align_size: int | None = None,
     local_cp_size: int | None = None,
     min_local_rows: int | None = None,
     pad_to_length_bucket: int | None = None,
@@ -288,8 +295,8 @@ def preprocess_thd_engine(
     align_size = tp_size * cp_size * cp_layout_factor
     seqlens_in_batch = input_ids.offsets().diff()
 
-    if use_fp8_padding:
-        per_seq_align, total_align = _compute_fp8_thd_align_size(align_size)
+    if quant_align_size is not None:
+        per_seq_align, total_align = _compute_quant_thd_align_size(align_size, quant_align_size)
         align_size = per_seq_align
 
     pad_size = (align_size - seqlens_in_batch % align_size) % align_size
@@ -302,7 +309,7 @@ def preprocess_thd_engine(
 
     preprocess_for_mindspeed(input_ids, cu_seqlens_padded, seqlens_in_batch_padded, batch_size)
 
-    if use_fp8_padding:
+    if quant_align_size is not None:
         # Pad the last sequence so total length is divisible by total_align for TE
         pad_size_last = (total_align - cu_seqlens_padded[-1] % total_align) % total_align
         cu_seqlens_padded[-1] += pad_size_last
@@ -319,7 +326,7 @@ def preprocess_thd_engine(
         if pad_to_length_bucket <= 0:
             raise ValueError("pad_to_length_bucket must be a positive integer")
         total_alignment = math.lcm(pad_to_length_bucket, cp_size)
-        if use_fp8_padding:
+        if quant_align_size is not None:
             total_alignment = math.lcm(total_alignment, total_align)
         pad_size_last = (-cu_seqlens_padded[-1]) % total_alignment
         cu_seqlens_padded[-1] += pad_size_last

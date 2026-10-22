@@ -97,14 +97,14 @@ def test_record_replay_roundtrip_uses_model_padding(monkeypatch, nested, precisi
     input_ids = torch.arange(10).reshape(2, 5)
     mask = torch.tensor([[True, True, True, False, False], [True] * 5])
     routes = (torch.arange(20) + 300).reshape(2, 5, 1, 2).to(torch.int16)
-    use_padding = rr_utils.use_transformer_engine_padding(config)
+    quant_align_size = rr_utils.get_thd_quant_align_size(config)
     if nested:
         input_ids = torch.nested.as_nested_tensor([input_ids[0, :3], input_ids[1]], layout=torch.jagged)
         routes = torch.nested.as_nested_tensor([routes[0, :3], routes[1]], layout=torch.jagged)
         mask = None
-        packed, _, _ = rr_utils.preprocess_thd_engine(routes, use_fp8_padding=use_padding)
+        packed, _, _ = rr_utils.preprocess_thd_engine(routes, quant_align_size=quant_align_size)
     else:
-        packed, _ = rr_utils.preprocess_packed_seqs(routes, mask, use_fp8_padding=use_padding)
+        packed, _ = rr_utils.preprocess_packed_seqs(routes, mask, quant_align_size=quant_align_size)
     assert packed.shape[1] == (8 if precision == "bf16" else 128)
     router = _FakeRouter(packed[0, :, 0, :].clone(), RouterReplayAction.RECORD)
     model = object()

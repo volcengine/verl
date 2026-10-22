@@ -107,14 +107,14 @@ jobs:
           ln -s /root/.cache/modelscope/hub/models ~/models
       - name: Prepare GSM8K dataset
         run: |
-          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/datasets/openai/gsm8k
+          python examples/data_preprocess/gsm8k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/openai/gsm8k
       - name: Running the E2E test with veomni backend
         run: |
           ray stop --force
           NUM_GPUS=16 MINI_BATCH_SIZE=16 bash tests/special_e2e/run_ppo_trainer_veomni.sh actor_rollout_ref.rollout.enable_chunked_prefill=True
       - name: Preprocess geo3k dataset
         run: |
-          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+          python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/modelscope/dataset/hiyouga/geometry3k
       - name: Running GEO3K E2E training tests on 8 L20 GPUs with veomni engine (FSDP_SIZE=8, USP=1)
         run: |
           ray stop --force
