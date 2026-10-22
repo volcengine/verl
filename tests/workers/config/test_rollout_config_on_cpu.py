@@ -25,9 +25,6 @@ def test_max_num_batched_tokens_raised_when_chunked_prefill_disabled():
 
 
 def test_prompt_length_must_be_positive():
-    # prompt_length caps text prompts in AgentLoop._cap_text_prompt_length via tail
-    # slices; a non-positive value would make [-0:] select the whole prompt,
-    # silently disabling the cap (see PR #8313 follow-up).
     import pytest
 
     with pytest.raises(ValueError, match="prompt_length must be positive"):
