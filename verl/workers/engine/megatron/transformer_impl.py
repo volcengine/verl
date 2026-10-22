@@ -204,6 +204,12 @@ class MegatronEngine(BaseEngine):
         self._qat_config = getattr(self.engine_config, "qat", None)
         self._qat_enabled = self._qat_config is not None and getattr(self._qat_config, "enable", False)
         if self._qat_enabled:
+            if self.engine_config.override_transformer_config.get("fp8"):
+                raise ValueError(
+                    "QAT and Transformer Engine FP8 training are mutually exclusive: QAT fake-quantizes weights "
+                    "inside bf16 GEMMs, while override_transformer_config.fp8 switches the GEMMs themselves to "
+                    "FP8. Disable one of them."
+                )
             logger.info(f"QAT enabled in MegatronEngine: mode={self._qat_config.mode}")
         self._rollout_weight_quantizer = None
 
@@ -1150,6 +1156,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
         logits_processor_func: Callable,
         batch: TensorDict,
         data_format: str,
+        cp_layout: str = "zigzag",
+        local_cp_size: int | None = None,
     ):
         assert logits.shape[:2] == label.shape[:2]
         # avoid non-positive temperature such as padding
@@ -1183,7 +1191,19 @@ class MegatronEngineWithLMHead(MegatronEngine):
 
         # logits_processor_func return tensors with shape (1, total_nnz/cp_size)
         if distillation_use_topk:
-            ret.update(logits_processor_func(student_logits=logits_bak, data=batch, data_format=data_format))
+            from verl.models.mcore.util import get_thd_quant_align_size
+
+            # the teacher's top-k tensors are packed like the student inputs: the same padding, CP layout and CP group
+            ret.update(
+                logits_processor_func(
+                    student_logits=logits_bak,
+                    data=batch,
+                    data_format=data_format,
+                    quant_align_size=get_thd_quant_align_size(self.tf_config),
+                    cp_layout=cp_layout,
+                    local_cp_size=local_cp_size,
+                )
+            )
         if not distillation_only:
             ret["log_probs"] = vocab_parallel_log_probs_from_logits(logits_bak, label)
 
@@ -1322,6 +1342,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 logits_processor_func=logits_processor_func,
                 batch=batch,
                 data_format=data_format,
+                cp_layout=cp_layout,
+                local_cp_size=local_cp_size,
             )
 
             response_attention_mask = None

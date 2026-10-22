@@ -52,6 +52,12 @@ from verl.utils.profiler import (
     relocate_rollout_traces,
     rollout_profiler_global_ranks,
 )
+from verl.utils.sglang.sglang_quant_utils import (
+    prepare_sglang_quantization,
+    resolve_sglang_quantization_config,
+    set_default_sglang_quantization_backends,
+    uses_sglang_refit_loader,
+)
 from verl.utils.tracking import RLInsightLogger
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
@@ -301,13 +307,21 @@ class SGLangHttpServer:
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
         model_override_args = {}
-        quantization_config = None
-        if self.config.quantization.enabled:
+        quantization_config = resolve_sglang_quantization_config(self.config, self.model_config)
+        if quantization_config is not None and (
+            self.config.quantization.enabled or uses_sglang_refit_loader(quantization_config)
+        ):
             # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
             # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
-            quantization_config = self.config.quantization.build_quantization_config(self.model_config.local_path)
+            quantization_config = prepare_sglang_quantization(
+                quantization_config,
+                custom_weight_loader,
+                engine_kwargs,
+            )
             model_override_args["quantization_config"] = quantization_config
-            logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
+            logger.info(f"Rollout quantization_config: {quantization_config}")
+
+        set_default_sglang_quantization_backends(quantization_config, engine_kwargs)
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,
