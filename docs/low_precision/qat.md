@@ -277,6 +277,21 @@ SGLang uses the default CUDA Graph configuration):
 | Blackwell | SGLang | ❌ | NVFP4 MoE | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.00946 |
 | Blackwell | SGLang | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.00653 |
 
+Native NVFP4 rollout and training, measured separately with the same script on
+Qwen3.5-35B-A3B (EP=4 on 4 Blackwell GPUs; vLLM rollout TP=1, which
+`NVFP4_PER_TOKEN` requires):
+
+| Rollout | Training | Backend | k3_kl |
+|---|---|---|---|
+| NVFP4 MoE | NVFP4 QAT | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.0083 |
+| NVFP4_PER_TOKEN MoE | BF16 | FlashInfer TRT-LLM (MoE; BF16 Linear) | 0.0103 |
+| NVFP4_PER_TOKEN MoE | native NVFP4 (`real_nvfp4`) | FlashInfer TRT-LLM (MoE; BF16 Linear) | 0.0074 |
+
+For native NVFP4 training, pass
+`actor_rollout_ref.actor.megatron.real_nvfp4.enable=True` as a trailing override,
+with `--quant-moe NVFP4_PER_TOKEN --gen-tp 1` and the `NVTE_*` variables of
+`examples/real_nvfp4/runtime_env.yaml` exported.
+
 ## Limitations
 
 - SGLang MXFP8, MXFP4 and NVFP4 custom refit requires the default bucketed
