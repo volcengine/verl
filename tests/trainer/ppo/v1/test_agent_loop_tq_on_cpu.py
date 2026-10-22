@@ -216,3 +216,110 @@ async def test_agent_loop_tq_postprocess_skips_rollout_topk_on_validate(monkeypa
 
     assert "rollout_topk_ids" not in fields.keys()
     assert "rollout_topk_log_probs" not in fields.keys()
+
+
+def test_successful_prompt_writes_terminal_status_after_all_sessions_and_applies_greedy_params(monkeypatch):
+    async def run():
+        worker_cls = AgentLoopWorkerTQ.__ray_metadata__.modified_class
+        worker = object.__new__(worker_cls)
+        worker.config = SimpleNamespace(
+            actor_rollout_ref=SimpleNamespace(
+                rollout=SimpleNamespace(n=8, val_kwargs=SimpleNamespace(n=1)),
+            )
+        )
+        puts = []
+        sessions = []
+
+        async def put(**kwargs):
+            puts.append(kwargs)
+
+        async def run_session(**kwargs):
+            sessions.append(kwargs)
+
+        worker._run_session = run_session
+        monkeypatch.setattr(agent_loop_tq.tq, "async_kv_put", put)
+
+        await worker._run_prompt(
+            prompt={"uid": "prompt", "__rollout_n__": 2, "__do_sample__": False},
+            sampling_params={"temperature": 0.8, "top_p": 0.9, "top_k": 20},
+            trajectory={"validate": False},
+        )
+
+        assert [session["session_id"] for session in sessions] == [0, 1]
+        assert all(
+            session["sampling_params"] == {"temperature": 0, "top_p": 1.0, "top_k": -1}
+            for session in sessions
+        )
+        assert puts == [
+            {"key": "prompt", "partition_id": "train", "tag": {"status": "running"}},
+            {"key": "prompt", "partition_id": "train", "tag": {"status": "finished"}},
+        ]
+
+    asyncio.run(run())
+
+
+def test_prompt_waits_for_all_sessions_before_writing_failure(monkeypatch):
+    async def run():
+        worker_cls = AgentLoopWorkerTQ.__ray_metadata__.modified_class
+        worker = object.__new__(worker_cls)
+        worker.config = SimpleNamespace(
+            actor_rollout_ref=SimpleNamespace(
+                rollout=SimpleNamespace(n=2, val_kwargs=SimpleNamespace(n=1)),
+            )
+        )
+        events = []
+
+        async def put(**kwargs):
+            events.append(("put", kwargs))
+
+        async def run_session(**kwargs):
+            if kwargs["session_id"] == 0:
+                raise RuntimeError("session failed")
+            await asyncio.sleep(0.01)
+            events.append(("session_finished", kwargs["session_id"]))
+
+        worker._run_session = run_session
+        monkeypatch.setattr(agent_loop_tq.tq, "async_kv_put", put)
+
+        await worker._run_prompt(
+            prompt={"uid": "prompt"},
+            sampling_params={},
+            trajectory={"validate": False},
+        )
+
+        assert events[-2:] == [
+            ("session_finished", 1),
+            ("put", {"key": "prompt", "partition_id": "train", "tag": {"status": "failure"}}),
+        ]
+
+    asyncio.run(run())
+
+
+def test_prompt_outer_exception_writes_failure_status(monkeypatch):
+    async def run():
+        worker_cls = AgentLoopWorkerTQ.__ray_metadata__.modified_class
+        worker = object.__new__(worker_cls)
+        worker.config = SimpleNamespace(
+            actor_rollout_ref=SimpleNamespace(
+                rollout=SimpleNamespace(n=1, val_kwargs=SimpleNamespace(n=1)),
+            )
+        )
+        puts = []
+
+        async def put(**kwargs):
+            puts.append(kwargs)
+
+        monkeypatch.setattr(agent_loop_tq.tq, "async_kv_put", put)
+
+        await worker._run_prompt(
+            prompt={"uid": "prompt", "__rollout_n__": "not-an-int"},
+            sampling_params={},
+            trajectory={"validate": False},
+        )
+
+        assert puts == [
+            {"key": "prompt", "partition_id": "train", "tag": {"status": "running"}},
+            {"key": "prompt", "partition_id": "train", "tag": {"status": "failure"}},
+        ]
+
+    asyncio.run(run())
