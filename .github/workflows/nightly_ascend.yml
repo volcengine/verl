@@ -46,6 +46,9 @@ permissions:
   contents: read
 
 env:
+  # Disposable caches and locks must stay off the read-only dataset/model mounts.
+  HF_DATASETS_CACHE: /root/.cache/temp/hf-datasets
+  MEGATRON_CONFIG_LOCK_DIR: /root/.cache/temp/megatron-config-locks
   ASCEND_RECIPE_BASELINE_URL: "https://raw.githubusercontent.com/verl-project/verl-ascend-recipe/main/baseline"
 
 jobs:
