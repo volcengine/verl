@@ -64,18 +64,19 @@ def test_mxfp8_qat_uses_modelopt_native_preset():
 def test_mxfp8_qat_appends_user_ignores_without_mutating_modelopt_preset():
     original = mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"])
 
-    config = build_quantize_config("mxfp8", ["*linear_attn.in_proj_a"])
+    config = build_quantize_config("mxfp8", ["*block.projection_a"])
 
+    # Avoid ModelOpt preset exclusions such as *linear_attn.in_proj_a*.
     model = torch.nn.Module()
-    model.linear_attn = torch.nn.Module()
-    model.linear_attn.in_proj_a = torch.nn.Linear(128, 32, bias=False)
-    model.linear_attn.in_proj_ab = torch.nn.Linear(128, 128, bias=False)
+    model.block = torch.nn.Module()
+    model.block.projection_a = torch.nn.Linear(128, 32, bias=False)
+    model.block.projection_ab = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, config)
 
-    assert not model.linear_attn.in_proj_a.input_quantizer.is_enabled
-    assert not model.linear_attn.in_proj_a.weight_quantizer.is_enabled
-    assert model.linear_attn.in_proj_ab.input_quantizer.is_enabled
-    assert model.linear_attn.in_proj_ab.weight_quantizer.is_enabled
+    assert not model.block.projection_a.input_quantizer.is_enabled
+    assert not model.block.projection_a.weight_quantizer.is_enabled
+    assert model.block.projection_ab.input_quantizer.is_enabled
+    assert model.block.projection_ab.weight_quantizer.is_enabled
     assert mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"]) == original
 
 
@@ -93,10 +94,13 @@ def test_mxfp8_qat_appends_user_ignores_without_mutating_modelopt_preset():
 def test_qat_ignore_module_and_quantizer_patterns(mode, pattern, input_enabled, weight_enabled):
     model = torch.nn.Module()
     model.projection = torch.nn.Linear(128, 128, bias=False)
+    # Keep a weight quantizer enabled even when the target layer is fully ignored.
+    model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config(mode, [pattern]))
 
     assert model.projection.input_quantizer.is_enabled == input_enabled
     assert model.projection.weight_quantizer.is_enabled == weight_enabled
+    assert model.control.weight_quantizer.is_enabled
 
 
 @pytest.mark.parametrize(
@@ -105,11 +109,13 @@ def test_qat_ignore_module_and_quantizer_patterns(mode, pattern, input_enabled, 
 def test_qat_ignore_keeps_megatron_aliases(pattern, module_name):
     model = torch.nn.Module()
     model.add_module(module_name, torch.nn.Linear(128, 128, bias=False))
+    model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config("fp8", [pattern]))
 
     layer = model.get_submodule(module_name)
     assert not layer.input_quantizer.is_enabled
     assert not layer.weight_quantizer.is_enabled
+    assert model.control.weight_quantizer.is_enabled
 
 
 def test_fp8_ignored_module_preserves_forward_and_backward():
@@ -117,7 +123,11 @@ def test_fp8_ignored_module_preserves_forward_and_backward():
     model = torch.nn.Module()
     model.projection = torch.nn.Linear(128, 32, bias=False).to(torch.bfloat16)
     reference = copy.deepcopy(model.projection)
+    model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config("fp8", ["projection"]))
+    assert not model.projection.input_quantizer.is_enabled
+    assert not model.projection.weight_quantizer.is_enabled
+    assert model.control.weight_quantizer.is_enabled
     inputs = torch.randn(16, 128, dtype=torch.bfloat16, requires_grad=True)
     reference_inputs = inputs.detach().clone().requires_grad_(True)
 
