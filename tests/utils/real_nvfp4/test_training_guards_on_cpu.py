@@ -10,14 +10,10 @@
 # limitations under the License.
 """Training-side configuration tests, not TE numerical-equivalence tests.
 
-The engine method is extracted without importing Megatron providers, so its
-guard wiring runs without building a model; real execution is covered by GPU
-jobs.
+The guards run on stand-in modules without building a model; real execution is
+covered by GPU jobs.
 """
 
-import ast
-import re
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -28,16 +24,6 @@ from verl.utils.real_nvfp4.config import (
     validate_real_nvfp4_te_recipe,
 )
 
-ENGINE_PATH = Path(__file__).resolve().parents[3] / "verl/workers/engine/megatron/transformer_impl.py"
-
-
-def _engine_method(name, **namespace):
-    tree = ast.parse(ENGINE_PATH.read_text())
-    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MegatronEngine")
-    method = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == name)
-    exec(compile(ast.Module(body=[method], type_ignores=[]), str(ENGINE_PATH), "exec"), namespace)
-    return namespace[name]
-
 
 def _model_config(**kwargs):
     values = {"num_hidden_layers": 48, "num_experts": 128}
@@ -45,11 +31,28 @@ def _model_config(**kwargs):
     return SimpleNamespace(**values)
 
 
-def _engine(start=2, end=4, pp=1, vpp=None):
-    return SimpleNamespace(
-        engine_config=SimpleNamespace(pipeline_model_parallel_size=pp, virtual_pipeline_model_parallel_size=vpp),
-        _real_nvfp4_config=SimpleNamespace(num_layers_at_start_in_bf16=start, num_layers_at_end_in_bf16=end),
-        model_config=SimpleNamespace(hf_config=_model_config()),
+def _apply_overrides(overrides, start=2, end=4):
+    from verl.utils.real_nvfp4.megatron import apply_real_nvfp4_overrides
+
+    apply_real_nvfp4_overrides(
+        overrides,
+        _model_config(),
+        num_layers_at_start_in_bf16=start,
+        num_layers_at_end_in_bf16=end,
+        pipeline_size=1,
+        virtual_pipeline_size=None,
+    )
+
+
+def _attest(root, tf_config=None):
+    from verl.utils.real_nvfp4.megatron import attest_real_nvfp4_runtime
+
+    attest_real_nvfp4_runtime(
+        [root],
+        tf_config or SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
+        SimpleNamespace(num_hidden_layers=6, n_routed_experts=8),
+        num_layers_at_start_in_bf16=1,
+        num_layers_at_end_in_bf16=1,
     )
 
 
@@ -87,12 +90,12 @@ def test_recipe_lists_carved_out_layers_before_general_patterns():
         ("language_model.decoder.layers.10.self_attention.in_proj", "bf16"),
     ],
 )
-def test_engine_sets_megatron_recipe_and_fp4_overrides(module_path, expected):
+def test_overrides_set_megatron_recipe_and_fp4_options(module_path, expected):
     pytest.importorskip("megatron.core.quantization.quant_config")
     from megatron.core.quantization.utils import get_quant_config_or_none
 
     overrides = {"num_layers_at_start_in_bf16": 2}  # restating a value is allowed
-    _engine_method("_apply_real_nvfp4_overrides")(_engine(), overrides)
+    _apply_overrides(overrides)
 
     assert {key: value for key, value in overrides.items() if key != "quant_recipe"} == {
         "fp4": "e2m1",
@@ -105,10 +108,10 @@ def test_engine_sets_megatron_recipe_and_fp4_overrides(module_path, expected):
     assert get_quant_config_or_none(module_path, overrides["quant_recipe"]).config_key == expected
 
 
-def test_engine_without_carveout_disables_first_last_layers_bf16():
+def test_overrides_without_carveout_disable_first_last_layers_bf16():
     pytest.importorskip("megatron.core.quantization.quant_config")
     overrides = {}
-    _engine_method("_apply_real_nvfp4_overrides")(_engine(start=0, end=0), overrides)
+    _apply_overrides(overrides, start=0, end=0)
     assert overrides["first_last_layers_bf16"] is False
 
 
@@ -188,31 +191,23 @@ def test_runtime_attestation_on_a_dense_mla_shared_expert_layout(monkeypatch):
 
     te_recipe = NVFP4BlockScaling(**vars(_te_recipe()))
     monkeypatch.setattr(megatron.core.fp4_utils, "get_fp4_recipe", lambda config: te_recipe)
-    attest = _engine_method("_attest_real_nvfp4_runtime", re=re, unwrap_model=lambda module: module)
     recipe = RecipeConfig.from_config_dict(real_nvfp4_quant_recipe_config(6, 1, 1))
     root = _deepseek_like_modules(recipe)
-    engine = SimpleNamespace(
-        _real_nvfp4_enabled=True,
-        _real_nvfp4_config=SimpleNamespace(num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1),
-        tf_config=SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
-        model_config=SimpleNamespace(hf_config=SimpleNamespace(num_hidden_layers=6, n_routed_experts=8)),
-        module=[root],
-    )
-    attest(engine)
+    _attest(root)
 
     # An expert that keeps NVFP4 only inside an FP4 autocast would run BF16 in a decoder
     # block that opens none, as Megatron-Bridge's Qwen3-VL block does.
     expert = root.get_submodule("decoder.layers.2.mlp.experts.linear_fc1")
     expert.te_quant_params.training_recipe.override_nonquantized_autocast = False
     with pytest.raises(RuntimeError, match="without autocast override"):
-        attest(engine)
+        _attest(root)
     expert.te_quant_params.training_recipe.override_nonquantized_autocast = True
 
     # A shared expert running in NVFP4 would not match the BF16 rollout.
     shared = root.get_submodule("decoder.layers.2.mlp.shared_experts.linear_fc1")
     shared.te_quant_params.training_recipe.fp4_quantization_recipe = "nvfp4"
     with pytest.raises(RuntimeError, match="unexpected precision"):
-        attest(engine)
+        _attest(root)
 
 
 def test_runtime_attestation_accepts_a_vision_tower_built_without_fp4(monkeypatch):
@@ -222,7 +217,6 @@ def test_runtime_attestation_accepts_a_vision_tower_built_without_fp4(monkeypatc
 
     te_recipe = NVFP4BlockScaling(**vars(_te_recipe()))
     monkeypatch.setattr(megatron.core.fp4_utils, "get_fp4_recipe", lambda config: te_recipe)
-    attest = _engine_method("_attest_real_nvfp4_runtime", re=re, unwrap_model=lambda module: module)
     root = _deepseek_like_modules(RecipeConfig.from_config_dict(real_nvfp4_quant_recipe_config(6, 1, 1)))
     # A VLM vision tower gets no per-module params; its own config has no FP4, so it runs in BF16.
     vision = torch.nn.Module()
@@ -230,19 +224,12 @@ def test_runtime_attestation_accepts_a_vision_tower_built_without_fp4(monkeypatc
     vision.config = SimpleNamespace(fp4=None)
     root.add_module("vision_model", torch.nn.Module())
     root.vision_model.add_module("linear_proj", vision)
-    engine = SimpleNamespace(
-        _real_nvfp4_enabled=True,
-        _real_nvfp4_config=SimpleNamespace(num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1),
-        tf_config=SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
-        model_config=SimpleNamespace(hf_config=SimpleNamespace(num_hidden_layers=6, n_routed_experts=8)),
-        module=[root],
-    )
-    attest(engine)
+    _attest(root)
 
     # The same module under an FP4 config would inherit the FP4 autocast.
     vision.config = SimpleNamespace(fp4="e2m1")
     with pytest.raises(RuntimeError, match="did not match vision_model.linear_proj"):
-        attest(engine)
+        _attest(root)
 
 
 def test_module_init_reapplies_the_recipe_to_a_rebuilt_decoder(monkeypatch):
@@ -288,8 +275,9 @@ def test_module_init_reapplies_the_recipe_to_a_rebuilt_decoder(monkeypatch):
     vision = FakeTELinear()
     add(root, "vision_model.decoder.layers.0.linear_proj", vision)
 
-    finish = _engine_method("_finish_real_nvfp4_module_init", unwrap_model=lambda module: module)
-    finish(SimpleNamespace(_real_nvfp4_enabled=True, module=[root]))
+    from verl.utils.real_nvfp4.megatron import finish_real_nvfp4_module_init
+
+    finish_real_nvfp4_module_init([root])
 
     actual = {name: language_model.get_submodule(name).te_quant_params.config_key for name in expected}
     assert actual == expected
