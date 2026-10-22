@@ -32,7 +32,8 @@ def compute_score(
     Computes the code score using the remote sandbox API.
 
     Args:
-        sandbox_fusion_url: The URL of the sandbox_fusion service, eg: "https://<your service endpoint>/run_code"
+        sandbox_fusion_url: The URL of the sandbox_fusion service, eg: "https://<your service endpoint>/run_code",
+            or ``<scheme>://...`` for a sandbox runner a package registers (see ``register_sandbox_runner``).
 
         completion: The completion string containing the code.
         test_cases: JSON string or dictionary containing "inputs" and "outputs".

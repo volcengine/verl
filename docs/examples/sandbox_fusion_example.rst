@@ -1,7 +1,7 @@
 Sandbox Fusion Example
 ============================
 
-Last updated: 05/17/2026.
+Last updated: 10/23/2026.
 
 Introduction
 ------------
@@ -28,6 +28,29 @@ Sandbox Fusion is a remote code sandbox service designed to securely run and eva
 
 After deployment, you will receive an API endpoint in the format: ``https://<ip-address-or-domain-name>/run_code``.
 
+Sandboxes from other packages
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A URL whose scheme is not ``http`` or ``https`` goes to the sandbox runner a package registers for that scheme instead of to a Sandbox Fusion service: with ``reward.sandbox_fusion.url=<scheme>://...``, each test case runs through it. The package must be installed wherever the reward workers run; where the reward manager runs the cases itself, a scheme no package registers stops the run when it starts. A runner takes the same arguments as ``call_sandbox_api``, by name (and should accept ``**kwargs``, for any verl adds), and returns the same ``(response, error)`` pair, the response shaped as Sandbox Fusion's ``/run_code`` reply, so cases are scored as with the service. It is called from many threads at once, and enforces the run timeout itself.
+
+For example, `verl-hyperlight <https://pypi.org/project/verl-hyperlight/>`_ (``pip install verl-hyperlight``) registers ``hyperlight://``, which runs each test case in a local `Hyperlight <https://github.com/hyperlight-dev/hyperlight>`_ micro-VM (through `hyperlight-unikraft <https://github.com/hyperlight-dev/hyperlight-unikraft>`_) on the training node, with no service to deploy.
+
+A package registers its runner when verl imports it, as one of verl's plugins. verl imports its plugins in every process that imports verl, so the plugin module should be light, and keep the sandbox's own imports inside the runner:
+
+.. code-block:: python
+
+   # mybox/verl_plugin.py
+   from verl.utils.reward_score.sandbox_fusion.utils import register_sandbox_runner
+
+   @register_sandbox_runner("mybox")
+   def run_code(sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language, **kwargs):
+       ...
+
+.. code-block:: toml
+
+   [project.entry-points."verl.plugins"]
+   mybox = "mybox.verl_plugin"
+
 Step 3: Configure the Training Script
 -------------------------------------
 
@@ -35,9 +58,9 @@ To integrate Sandbox Fusion into your training script, configure the following p
 
 **Key Settings for Sandbox Fusion**
 
-- ``reward_model.sandbox_fusion.url='<API-endpoint>'``: Enable Sandbox Fusion by specifying the API endpoint (must end with ``/run_code``).
-- ``reward_model.sandbox_fusion.max_concurrent=256``: Set the maximum number of concurrent API requests to the Sandbox Fusion service.
-- ``reward_model.sandbox_fusion.memory_limit_mb=1024``: Set the memory limit (in MB) for each sandbox instance. Defaults to 1024MB if not specified.
+- ``reward.sandbox_fusion.url='<API-endpoint>'``: Enable Sandbox Fusion by specifying the API endpoint (must end with ``/run_code``), or ``<scheme>://...`` for a sandbox runner (see above).
+- ``reward.sandbox_fusion.max_concurrent=256``: Set the maximum number of concurrent API requests to the Sandbox Fusion service, or calls to a sandbox runner, per reward worker.
+- ``reward.sandbox_fusion.memory_limit_mb=1024``: Set the memory limit (in MB) for each sandbox instance. Defaults to 1024MB if not specified.
 
 **Additional Optimization**
 

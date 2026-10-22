@@ -91,7 +91,8 @@ reward_model:
 # Cloud/local sandbox fusion configuration for custom reward logic
 sandbox_fusion:
   _target_: verl.workers.config.SandboxFusionConfig
-  # Cloud /local function URL for sandbox execution
+  # Cloud /local function URL for sandbox execution, or <scheme>://... for the sandbox
+  # runner a package registers for that scheme
   url: null
   # Max concurrent requests allowed to sandbox
   max_concurrent: 64

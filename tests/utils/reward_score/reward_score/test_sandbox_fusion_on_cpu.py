@@ -11,9 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import functools
 import multiprocessing
 import os
 import time
+import types
 from concurrent.futures import ProcessPoolExecutor
 from unittest.mock import patch
 
@@ -745,3 +747,239 @@ def merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     assert metadata_list[2].get("status") != "success"
     assert metadata_list[2].get("expected_output") is None
     assert metadata_list[2].get("status") == "runtime_error"
+
+
+# --- Sandbox runners other packages register for URL schemes other than http(s) ---
+
+
+@pytest.fixture
+def sandbox_runners(monkeypatch):
+    """The registry, empty for the test."""
+    from verl.utils.reward_score.sandbox_fusion import utils
+
+    runners = {}
+    monkeypatch.setattr(utils, "_SANDBOX_RUNNERS", runners)
+    monkeypatch.setattr(utils, "_runner_failures_logged", set())
+    monkeypatch.setattr(utils, "_runner_lookups_logged", set())
+    monkeypatch.setattr(utils, "_sandbox_runner_conflicts", {})
+    return runners
+
+
+def _from_module(fn, module):
+    """``fn`` as though another module defined it."""
+    return types.FunctionType(fn.__code__, {**fn.__globals__, "__name__": module}, fn.__name__)
+
+
+def _echo(sandbox_fusion_url, code, stdin, compile_timeout, run_timeout, memory_limit_mb, language):
+    return {"status": "Success", "run_result": {"status": "Finished", "stdout": stdin, "return_code": 0}}, None
+
+
+@patch("verl.utils.reward_score.sandbox_fusion.utils.requests.post")
+def test_registered_runner_runs_the_case(mock_post, sandbox_runners):
+    from verl.utils.reward_score.sandbox_fusion.utils import call_sandbox_api, register_sandbox_runner
+
+    calls = []
+
+    # As a decorator; schemes match whatever their case, and need not be RFC 3986's
+    @register_sandbox_runner("My_Box")
+    def runner(**kwargs):
+        calls.append(kwargs)
+        return {"status": "Success", "run_result": {"status": "Finished", "stdout": "3\n"}}, None
+
+    # The runner gets its arguments by name, and the URL as verl read it
+    response, error = call_sandbox_api(" my_box://local ", "print(3)", "", 5, 7, 256, "python")
+    assert error is None and response["run_result"]["stdout"] == "3\n"
+    assert calls == [
+        {
+            "sandbox_fusion_url": "my_box://local",
+            "code": "print(3)",
+            "stdin": "",
+            "compile_timeout": 5,
+            "run_timeout": 7,
+            "memory_limit_mb": 256,
+            "language": "python",
+        }
+    ]
+    mock_post.assert_not_called()
+
+
+def test_registered_runner_scores_through_check_correctness(sandbox_runners):
+    from verl.utils.reward_score.sandbox_fusion.utils import register_sandbox_runner
+
+    register_sandbox_runner("echo", _echo)
+    results, metadata = check_correctness("echo://", {"inputs": ["a\n", "b\n"], "outputs": ["a\n", "c\n"]}, "pass")
+    assert results == [True, False]
+    assert [m["status"] for m in metadata] == ["success", "wrong_answer"]
+
+
+@patch("verl.utils.reward_score.sandbox_fusion.utils.requests.post")
+def test_unregistered_scheme_is_an_error(mock_post, sandbox_runners):
+    from verl.utils.reward_score.sandbox_fusion.utils import call_sandbox_api, get_sandbox_runner
+
+    response, error = call_sandbox_api("nobox://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "No sandbox runner is registered for nobox://" in error
+    # Its whole message once: it is the same for every case
+    response, error = call_sandbox_api("nobox://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "nobox://" in error and "logged above" in error
+    mock_post.assert_not_called()
+    with pytest.raises(ValueError, match="nobox://"):
+        get_sandbox_runner("nobox")
+    sandbox_runners["hyperbox"] = _echo
+    with pytest.raises(ValueError, match=r"registered: hyperbox"):
+        get_sandbox_runner("hyperbx")
+
+
+def test_runner_failures_are_errors(sandbox_runners, caplog):
+    from verl.utils.reward_score.sandbox_fusion.utils import call_sandbox_api, register_sandbox_runner
+
+    def crashing(**kwargs):
+        # A ValueError of the runner's own is its failure, not a missing runner
+        raise ValueError("the sandbox died")
+
+    def misshapen(**kwargs):
+        return {"status": "Success", "run_result": {}}
+
+    def mistyped(**kwargs):
+        return '{"status": "Success"}', None
+
+    def empty(**kwargs):
+        return None, None
+
+    def falsy(**kwargs):
+        return {}, ""
+
+    register_sandbox_runner("crashing", crashing)
+    register_sandbox_runner("misshapen", misshapen)
+    register_sandbox_runner("mistyped", mistyped)
+    register_sandbox_runner("empty", empty)
+    register_sandbox_runner("falsy", falsy)
+    for _ in range(3):
+        response, error = call_sandbox_api("crashing://", "pass", None, 5, 5, 256, "python")
+        assert response is None and "The sandbox runner for crashing:// failed" in error and "the sandbox died" in error
+    # The traceback once: a runner that fails does so for every case
+    failures = [r for r in caplog.records if "crashing:// failed" in r.getMessage()]
+    assert len(failures) == 3 and [bool(r.exc_info) for r in failures] == [True, False, False]
+    response, error = call_sandbox_api("misshapen://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "returned dict, not a response or an error" in error
+    response, error = call_sandbox_api("mistyped://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "returned (str, NoneType)" in error
+    response, error = call_sandbox_api("empty://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "returned (NoneType, NoneType)" in error
+    response, error = call_sandbox_api("falsy://", "pass", None, 5, 5, 256, "python")
+    assert response is None and "returned (dict, str)" in error
+
+
+def test_an_empty_error_is_none(sandbox_runners, caplog):
+    from verl.utils.reward_score.sandbox_fusion.utils import call_sandbox_api, register_sandbox_runner
+
+    register_sandbox_runner("box", lambda **kwargs: (_echo(**kwargs)[0], ""))
+    response, error = call_sandbox_api("box://", "pass", "x", 5, 5, 256, "python")
+    assert error is None and response["run_result"]["stdout"] == "x"
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
+def test_runner_takes_its_own_languages(sandbox_runners):
+    from verl.utils.reward_score.sandbox_fusion.utils import call_sandbox_api, register_sandbox_runner
+
+    register_sandbox_runner("echo", _echo)
+    # Not one of Sandbox Fusion's: the runner decides
+    response, error = call_sandbox_api("echo://", "pass", "x", 5, 5, 256, "cobol")
+    assert error is None and response["run_result"]["stdout"] == "x"
+
+
+def test_registration_is_checked(sandbox_runners, caplog):
+    from verl.utils.reward_score.sandbox_fusion.utils import get_sandbox_runner, register_sandbox_runner
+
+    with pytest.raises(TypeError, match="callable"):
+        register_sandbox_runner("box", "box.verl:run_code")
+    with pytest.raises(TypeError, match="callable"):
+        register_sandbox_runner("box", None)  # say getattr(module, "run_code", None) for a missing one
+    # Only what call_sandbox_api can look up
+    for scheme in ("HTTPS", "http+unix", "box://", " box", "a/b", "localhost:8080"):
+        with pytest.raises(ValueError, match="not a sandbox runner's scheme"):
+            register_sandbox_runner(scheme, _echo)
+    with pytest.raises(TypeError, match="scheme first"):
+
+        @register_sandbox_runner
+        def no_scheme(**kwargs):
+            pass
+
+    with pytest.raises(TypeError, match="coroutine function"):
+
+        @register_sandbox_runner("box")
+        async def run_later(**kwargs):
+            pass
+
+    class AsyncRunner:
+        async def __call__(self, **kwargs):
+            pass
+
+    with pytest.raises(TypeError, match="coroutine function"):
+        register_sandbox_runner("box", AsyncRunner())
+
+    register_sandbox_runner("box", _echo)
+    register_sandbox_runner("box", _echo)  # the same again, as an import in another place does
+    assert get_sandbox_runner("box") is _echo
+    # One from the same module replaces it, as a reload of the module does, a callable instance or a
+    # partial included
+    reloaded = _from_module(_echo, __name__)
+    register_sandbox_runner("box", reloaded)
+    assert get_sandbox_runner("box") is reloaded
+    partial = functools.partial(_echo, language="python")
+    register_sandbox_runner("box", partial)
+    assert get_sandbox_runner("box") is partial
+    # One from another module: registration only warns (a plugin that raised would go unseen), and
+    # the scheme can no longer be looked up, at the start check included
+    other = _from_module(_echo, "other_box.plugin")
+    register_sandbox_runner("box", other)
+    register_sandbox_runner("box", other)
+    # And one whose module is unknown matches no other
+    nameless = _from_module(_echo, None)
+    del nameless.__module__
+    register_sandbox_runner("box2", nameless)
+    register_sandbox_runner("box2", nameless)  # though it is itself again
+    assert get_sandbox_runner("box2") is nameless
+    register_sandbox_runner("box2", _echo)
+    with pytest.raises(ValueError, match="Two sandbox runners"):
+        get_sandbox_runner("box2")
+    assert "Two sandbox runners for box://" in caplog.text
+    with pytest.raises(
+        ValueError, match=rf"for box:// URLs: {__name__}\._echo and other_box\.plugin\._echo; uninstall"
+    ):
+        get_sandbox_runner("box")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://h/run_code",
+        " https://h/run_code",
+        "HTTPS://h/run_code",
+        "http+unix://%2Fsock/run_code",
+        "h:8080",
+        "h:8080/run_code?next=http://x",
+        None,
+    ],
+)
+def test_http_urls_go_to_the_service(url):
+    from verl.utils.reward_score.sandbox_fusion.utils import sandbox_runner_scheme
+
+    assert sandbox_runner_scheme(url) is None
+
+
+def test_a_missing_runner_stops_the_run_at_start(sandbox_runners):
+    from omegaconf import OmegaConf
+
+    from verl.trainer.ppo.reward import load_reward_manager
+
+    config = OmegaConf.create(
+        {
+            "reward": {
+                "custom_reward_function": {"path": None, "name": None},
+                "reward_manager": {"source": "register", "name": "naive"},
+                "sandbox_fusion": {"url": "nobox://", "max_concurrent": 4, "memory_limit_mb": 256},
+            }
+        }
+    )
+    with pytest.raises(ValueError, match="No sandbox runner is registered for nobox://"):
+        load_reward_manager(config, tokenizer=None)

@@ -12,14 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import concurrent.futures  # <-- Import concurrent.futures
+import functools
+import inspect
 import json
 import logging
 import os
+import re
 import threading
 import time
 import traceback
 import uuid
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import requests
 
@@ -29,6 +32,19 @@ INITIAL_RETRY_DELAY = 1
 API_TIMEOUT = 10
 
 logger = logging.getLogger(__name__)
+
+# Sandbox runners by URL scheme, which register_sandbox_runner fills (see its docstring)
+_SANDBOX_RUNNERS: dict[str, Callable[..., tuple[Optional[dict[str, Any]], Optional[str]]]] = {}
+_runner_failures_logged: set[tuple[str, type]] = set()
+# Schemes whose missing or conflicting runner was logged: once, rather than for every case
+_runner_lookups_logged: set[str] = set()
+_NO_RUNNER = object()
+# A URL scheme: a letter or digit, then letters, digits and _ + . -
+_SCHEME = re.compile(r"[a-z0-9][a-z0-9_+.-]*")
+_runner_logged_lock = threading.Lock()
+# Schemes two packages registered runners for, with both; looking one up fails, naming them, since a
+# failure at registration would go unseen (verl logs a plugin that fails to load at DEBUG level).
+_sandbox_runner_conflicts: dict[str, list[str]] = {}
 
 # Define supported languages list (optional, for documentation or validation)
 SUPPORTED_LANGUAGES = [
@@ -64,6 +80,140 @@ SUPPORTED_LANGUAGES = [
 ]
 
 
+def register_sandbox_runner(scheme: str, runner: Any = _NO_RUNNER) -> Callable[..., Any]:
+    """Registers the sandbox runner for ``scheme://`` URLs, for a sandbox another package provides.
+
+    With ``reward.sandbox_fusion.url=<scheme>://...``, each test case goes to the runner instead of
+    to a Sandbox Fusion service. A runner takes ``call_sandbox_api``'s arguments by name (and should
+    accept ``**kwargs``, for any verl adds), runs the code itself, and returns ``call_sandbox_api``'s
+    ``(response, error)``, the response shaped as Sandbox Fusion's ``/run_code`` reply. It is called
+    from many threads at once, and enforces ``run_timeout`` itself. A package registers its runner
+    when verl imports it as a ``verl.plugins`` entry point.
+
+    Args:
+        scheme: The URL scheme (e.g. "mybox"), any case.
+        runner: The runner; without it, returns a decorator that registers the function it decorates.
+
+    Returns:
+        The runner, or the decorator.
+    """
+
+    if not isinstance(scheme, str):
+        # @register_sandbox_runner without its scheme
+        raise TypeError(f"register_sandbox_runner takes the URL scheme first, not {scheme!r}")
+    name = scheme.lower()
+    # The rule call_sandbox_api looks a scheme up by, so that what is registered can be reached
+    if sandbox_runner_scheme(f"{scheme}://") != name:
+        raise ValueError(f"{scheme!r} is not a sandbox runner's scheme: http(s) URLs go to Sandbox Fusion's service")
+
+    def register(fn: Callable[..., Any]) -> Callable[..., Any]:
+        if not callable(fn):
+            raise TypeError(f"The sandbox runner for {name}:// URLs must be callable, not {fn!r}")
+        if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(type(fn).__call__):
+            # Called from worker threads, which have no event loop to await it in
+            raise TypeError(f"The sandbox runner for {name}:// URLs must be a plain function, not a coroutine function")
+        current = _SANDBOX_RUNNERS.get(name)
+        # One from the same module replaces it: a re-import or reload of that module
+        if (
+            current is not None
+            and _unwrap(current) is not _unwrap(fn)
+            and (_runner_module(fn) is None or _runner_module(current) != _runner_module(fn))
+        ):
+            runners = _sandbox_runner_conflicts.setdefault(name, [_qualified_name(current)])
+            new = _qualified_name(fn)
+            if new not in runners:
+                runners.append(new)
+            logger.warning("Two sandbox runners for %s:// URLs: %s", name, " and ".join(runners))
+            return fn
+        _SANDBOX_RUNNERS[name] = fn
+        return fn
+
+    return register if runner is _NO_RUNNER else register(runner)
+
+
+def _unwrap(fn: Callable[..., Any]) -> Callable[..., Any]:
+    while isinstance(fn, functools.partial):
+        fn = fn.func
+    return fn
+
+
+def _runner_module(fn: Callable[..., Any]) -> Optional[str]:
+    # A callable instance's is its class's; None when unknown, which matches no other
+    return getattr(_unwrap(fn), "__module__", None)
+
+
+def _qualified_name(fn: Callable[..., Any]) -> str:
+    fn = _unwrap(fn)
+    return f"{_runner_module(fn) or '?'}.{getattr(fn, '__qualname__', type(fn).__qualname__)}"
+
+
+def _check_runner_result(scheme: str, result: Any) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    """The runner's (response, error), or an error saying what it returned instead."""
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and (result[0] is None or isinstance(result[0], dict))
+        and (result[1] is None or isinstance(result[1], str))
+        # verl reads both by truth: an empty error is none, and an empty response no answer
+        and (result[0] or result[1])
+    ):
+        return result[0] or None, result[1] or None
+    shape = type(result).__name__
+    if isinstance(result, tuple):
+        shape = f"({', '.join(type(r).__name__ for r in result)})"
+    return None, f"The sandbox runner for {scheme}:// returned {shape}, not a response or an error"
+
+
+def sandbox_runner_scheme(url: str) -> Optional[str]:
+    """Returns the scheme of a URL that names a sandbox runner, or None for Sandbox Fusion's service.
+
+    Args:
+        url: The sandbox URL, e.g. reward.sandbox_fusion.url.
+
+    Returns:
+        The scheme in lower case, or None for an http or https URL (http+unix:// and the like
+        included), or one without a scheme.
+    """
+    if not isinstance(url, str):
+        return None
+    # Not urlsplit, which drops a scheme that is not RFC 3986's (my_box)
+    scheme, separator, _ = url.strip().partition("://")
+    scheme = scheme.lower()
+    if not separator or not _SCHEME.fullmatch(scheme) or scheme.split("+", 1)[0] in ("http", "https"):
+        return None
+    return scheme
+
+
+def get_sandbox_runner(scheme: str) -> Callable[..., tuple[Optional[dict[str, Any]], Optional[str]]]:
+    """Returns the sandbox runner registered for ``scheme``.
+
+    Args:
+        scheme: The URL scheme (e.g. "mybox"), any case.
+
+    Returns:
+        The runner, called as ``call_sandbox_api`` is.
+
+    Raises:
+        ValueError: When no package has registered one in this process, or two have.
+    """
+    name = scheme.lower()
+    if name in _sandbox_runner_conflicts:
+        raise ValueError(
+            f"Two sandbox runners are registered for {name}:// URLs: {' and '.join(_sandbox_runner_conflicts[name])}; "
+            "uninstall one of the packages"
+        )
+    runner = _SANDBOX_RUNNERS.get(name)
+    if runner is None:
+        raise ValueError(
+            f"No sandbox runner is registered for {name}:// URLs (registered: "
+            f"{', '.join(sorted(_SANDBOX_RUNNERS)) or 'none'}): the package that provides it registers it when verl "
+            "loads its plugins, so it must be installed wherever the reward workers run, and allowed by "
+            "VERL_USE_EXTERNAL_PLUGINS, or named in VERL_USE_EXTERNAL_MODULES (a plugin that fails to load is logged "
+            "at DEBUG level)"
+        )
+    return runner
+
+
 def call_sandbox_api(
     sandbox_fusion_url: str,
     code: str,
@@ -77,8 +227,11 @@ def call_sandbox_api(
     Calls the remote sandbox API to execute code with retry logic for Gateway Timeout,
     using increasing delay between retries. Logs internal calls with a unique ID.
 
+    A URL whose scheme is not http or https goes to the sandbox runner a package registers for
+    that scheme (see ``register_sandbox_runner``).
+
     Args:
-        sandbox_fusion_url: The URL of the sandbox fusion API.
+        sandbox_fusion_url: The URL of the sandbox fusion API, or of another sandbox by its scheme.
         code: The code string to execute.
         stdin: The standard input string.
         compile_timeout: Compile timeout in seconds.
@@ -93,6 +246,44 @@ def call_sandbox_api(
     request_id = str(uuid.uuid4())  # <-- Generate request_id internally
     log_prefix = f"[Request ID: {request_id}] "  # <-- Create log prefix
 
+    scheme = sandbox_runner_scheme(sandbox_fusion_url)
+    if scheme is not None:
+        try:
+            runner = get_sandbox_runner(scheme)
+        except ValueError as e:
+            # The whole message once a scheme: it is the same for every case
+            with _runner_logged_lock:
+                first = scheme not in _runner_lookups_logged
+                _runner_lookups_logged.add(scheme)
+            if first:
+                logger.error(f"{log_prefix}{e}")
+            return None, str(e) if first else f"No usable sandbox runner for {scheme}:// URLs (logged above)"
+        try:
+            # By name, so that the runner's contract does not hang on this function's parameter order
+            result = runner(
+                sandbox_fusion_url=sandbox_fusion_url.strip(),
+                code=code,
+                stdin=stdin,
+                compile_timeout=compile_timeout,
+                run_timeout=run_timeout,
+                memory_limit_mb=memory_limit_mb,
+                language=language,
+            )
+        except Exception as e:
+            error_msg = f"The sandbox runner for {scheme}:// failed: {e!r}"
+            # The traceback once a scheme and kind of failure: a runner that fails does so for every
+            # case, from many threads
+            with _runner_logged_lock:
+                first = (scheme, type(e)) not in _runner_failures_logged
+                _runner_failures_logged.add((scheme, type(e)))
+            logger.error(f"{log_prefix}{error_msg}", exc_info=first)
+            return None, error_msg
+        result = _check_runner_result(scheme, result)
+        if result[1]:
+            logger.error(f"{log_prefix}{result[1]}")
+        return result
+
+    # A sandbox runner takes the languages it supports; these are the service's
     if language not in SUPPORTED_LANGUAGES:
         error_msg = f"{log_prefix}Unsupported language: {language}"
         logger.error(error_msg)
@@ -460,7 +651,8 @@ def check_correctness(
     processing test cases concurrently.
 
     Args:
-        sandbox_fusion_url: The URL of the sandbox fusion API.
+        sandbox_fusion_url: The URL of the sandbox fusion API, or ``<scheme>://...`` for a sandbox runner
+            (see ``register_sandbox_runner``).
         in_outs: Dictionary containing "inputs" and "outputs" lists.
         generation: The generated code string.
         timeout: Timeout for each test case (compile and run share this timeout).

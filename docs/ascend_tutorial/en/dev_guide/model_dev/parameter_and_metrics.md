@@ -303,7 +303,7 @@ The following parameters exist and have the same meaning in both the FSDP and Me
 | `reward.reward_model.n_gpus_per_node` | `8` | Number of GPUs per node for the reward model |
 | `reward.reward_model.nnodes` | `0` | Number of nodes for the reward model |
 | `reward.reward_model.model_path` | `null` | Reward model path |
-| `reward.sandbox_fusion.url` | `null` | Sandbox Fusion URL |
+| `reward.sandbox_fusion.url` | `null` | Sandbox Fusion URL, or `<scheme>://...` for a sandbox runner a package registers |
 | `reward.sandbox_fusion.max_concurrent` | `64` | Sandbox Fusion max concurrency |
 | `reward.sandbox_fusion.memory_limit_mb` | `1024` | Sandbox Fusion memory limit (MB) |
 
