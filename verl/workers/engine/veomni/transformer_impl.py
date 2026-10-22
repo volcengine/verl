@@ -16,7 +16,6 @@
 import logging
 from contextlib import nullcontext
 from dataclasses import dataclass, field, fields
-from inspect import signature
 from typing import Any, Callable, Optional, Sequence
 
 import torch
@@ -354,29 +353,6 @@ class VeOmniEngine(FSDPEngine):
         ops_implementation = _build_ops_implementation_config(self.engine_config)
 
         veomni_mixed_precision_config = MixedPrecisionConfig(enable=self.engine_config.mixed_precision)
-        # Forward-only engines never need gradient communication, even with a copied actor config.
-        use_low_precision_comm = (
-            self.engine_config.low_precision_reduce_scatter_comm and not self.engine_config.forward_only
-        )
-
-        # Older builders may silently swallow unknown options through **kwargs.
-        if (
-            use_low_precision_comm
-            and "low_precision_reduce_scatter_comm" not in signature(build_parallelize_model).parameters
-        ):
-            raise RuntimeError(
-                "low_precision_reduce_scatter_comm requires a VeOmni version with explicit support "
-                "in build_parallelize_model. Install the VeOmni revision pinned by verl."
-            )
-
-        if use_low_precision_comm:
-            # Import only when requested: older VeOmni versions lack this validator.
-            from veomni.arguments.arguments_types import validate_low_precision_reduce_scatter_comm
-
-            # Reuse VeOmni's validation before allocating/loading model weights.
-            validate_low_precision_reduce_scatter_comm(
-                True, veomni_mixed_precision_config, fsdp_mode=self.data_parallel_mode
-            )
 
         # Load base model with specified configuration and dtype
         module = build_foundation_model(
@@ -399,7 +375,7 @@ class VeOmniEngine(FSDPEngine):
             weights_path=self.model_config.local_path,
             enable_reshard_after_forward=self.engine_config.enable_full_shard,
             mixed_precision=veomni_mixed_precision_config,
-            low_precision_reduce_scatter_comm=use_low_precision_comm,
+            low_precision_reduce_scatter_comm=self.engine_config.low_precision_reduce_scatter_comm,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
             basic_modules=list(

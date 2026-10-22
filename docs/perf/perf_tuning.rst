@@ -348,8 +348,8 @@ VeOmni version pinned by verl. To enable it for the actor:
    actor_rollout_ref.actor.veomni.low_precision_reduce_scatter_comm=true
 
 Only eligible multi-rank shard groups confirmed to be on the same node use this
-path; other groups retain native communication. Forward-only engines do not
-enable it.
+path; other groups retain native communication. The option only affects backward
+gradient communication; forward-only inference does not execute it.
 
 The option uses additional temporary buffers and may slow small communication
 buckets. Compare actor-update time and peak memory with it on and off, and keep
