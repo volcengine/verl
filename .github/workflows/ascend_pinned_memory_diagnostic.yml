@@ -1,0 +1,47 @@
+name: Ascend pinned host memory diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned_memory:
+    runs-on: linux-aarch64-a3-800i-16
+    timeout-minutes: 40
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ascend-ci/verl/verl:latest-vllm-a3-ubuntu
+      options: --shm-size 16g
+    env:
+      ASCEND_RT_VISIBLE_DEVICES: "0,1,2,3,4,5,6,7"
+      OMP_NUM_THREADS: "1"
+      PYTHONUNBUFFERED: "1"
+      ASCEND_PROCESS_LOG_PATH: ${{ github.workspace }}/pinned-memory-artifacts/ascend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record environment and run allocation scenarios
+        shell: bash
+        run: |
+          mkdir -p pinned-memory-artifacts/ascend
+          date -u --iso-8601=seconds > pinned-memory-artifacts/start.txt
+          hostname > pinned-memory-artifacts/hostname.txt
+          cat /usr/local/Ascend/driver/version.info > pinned-memory-artifacts/driver-version.txt 2>&1 || true
+          find /usr/local/Ascend/ascend-toolkit/latest -name ascend_toolkit_install.info -exec cat {} \; > pinned-memory-artifacts/cann-version.txt 2>&1 || true
+          python3 scripts/ascend_pinned_memory_probe.py --output pinned-memory-artifacts/probe --workers 8 --repeats 2
+      - name: Collect final kernel diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p pinned-memory-artifacts
+          timeout 20s dmesg -T > pinned-memory-artifacts/kernel-final.txt 2>&1 || true
+          timeout 20s journalctl -k --utc --since '-45 minutes' --no-pager > pinned-memory-artifacts/kernel-journal.txt 2>&1 || true
+          date -u --iso-8601=seconds > pinned-memory-artifacts/end.txt
+      - name: Upload diagnostics even if allocations fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ascend-pinned-memory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: pinned-memory-artifacts/
+          retention-days: 14
+          if-no-files-found: warn
