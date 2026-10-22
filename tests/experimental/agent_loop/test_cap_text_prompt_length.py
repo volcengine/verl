@@ -72,6 +72,13 @@ def test_left_keeps_tail():
     assert loop._cap_text_prompt_length([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) == [6, 7, 8, 9]
 
 
+def test_left_cap0_returns_empty_tail():
+    """``left`` at cap=0 must not select the whole list via ``[-0:]``."""
+    loop = _make_loop(0, "left")
+    out = loop._cap_text_prompt_length(list(range(10)))
+    assert len(out) == 0
+
+
 def test_right_keeps_head():
     """``right`` truncation drops the tail and keeps the head."""
     loop = _make_loop(4, "right")

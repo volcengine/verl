@@ -481,7 +481,7 @@ class AgentLoopBase(ABC):
                 len(prompt_ids),
                 prompt_length,
             )
-            return prompt_ids[-prompt_length:]
+            return prompt_ids[len(prompt_ids) - prompt_length:]
         if truncation_policy == "right":
             logger.warning(
                 "Prompt of %d tokens exceeds rollout.prompt_length=%d; right-truncating.",

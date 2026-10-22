@@ -22,3 +22,18 @@ def test_max_num_batched_tokens_raised_when_chunked_prefill_disabled():
     config.max_model_len = 32768
     config.max_num_batched_tokens = config.max_model_len
     assert config.max_num_batched_tokens == 32768
+
+
+def test_prompt_length_must_be_positive():
+    # prompt_length caps text prompts in AgentLoop._cap_text_prompt_length via tail
+    # slices; a non-positive value would make [-0:] select the whole prompt,
+    # silently disabling the cap (see PR #8313 follow-up).
+    import pytest
+
+    with pytest.raises(ValueError, match="prompt_length must be positive"):
+        RolloutConfig(prompt_length=0)
+    with pytest.raises(ValueError, match="prompt_length must be positive"):
+        RolloutConfig(prompt_length=-1)
+    # default and a sane value remain valid
+    assert RolloutConfig().prompt_length == 512
+    assert RolloutConfig(prompt_length=1).prompt_length == 1

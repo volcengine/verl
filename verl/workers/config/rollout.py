@@ -329,6 +329,14 @@ class RolloutConfig(BaseConfig):
                 stacklevel=2,
             )
 
+        # prompt_length caps text prompts in AgentLoop._cap_text_prompt_length
+        # via tail slices; a non-positive value would make [-0:] select the
+        # whole prompt instead of an empty tail, silently disabling the cap.
+        if self.prompt_length <= 0:
+            raise ValueError(
+                f"rollout.prompt_length must be positive; got {self.prompt_length}."
+            )
+
         if self.name != "trtllm" and self.expert_parallel_size > 1:
             assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
                 "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
