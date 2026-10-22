@@ -1180,6 +1180,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
         multi_modal_inputs = extract_multi_modal_inputs(micro_batch.get("multi_modal_inputs", []))
         input_ids = micro_batch["input_ids"]
+        multi_modal_inputs = {
+            key: value.to(input_ids.device) if isinstance(value, torch.Tensor) else value
+            for key, value in multi_modal_inputs.items()
+        }
         position_ids = micro_batch["position_ids"]
         pass_packed_cu_seqlens = getattr(self, "pass_packed_cu_seqlens", False)
 
