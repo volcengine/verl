@@ -32,16 +32,6 @@
 name: nightly_ci_ascend
 
 on:
-  workflow_dispatch:
-    inputs:
-      weight_diagnostics:
-        description: "Weight diagnostics (values adds synchronization; use metadata first)"
-        type: choice
-        default: metadata
-        options: [metadata, values]
-  pull_request:
-    types: [labeled, synchronize]
-    branches: [main]
   # Trigger the workflow on push or pull request,
   # but only for the main branch
   # For push, for now only anti-patterns are specified so it is more conservative
@@ -110,10 +100,7 @@ jobs:
 
   # Test grpo qwen3_vl_8b_Instruct fsdp2 vllm
   nightlyCI_grpo_qwen3_vl_8b_Instruct_fsdp2_vllm_ascend:
-    if: >-
-      github.repository_owner == 'verl-project' &&
-      (github.event.schedule == '0 17 * * *' || github.event_name == 'workflow_dispatch' ||
-       (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ascend-diagnostics')))
+    if: ${{ github.repository_owner == 'verl-project' && github.event.schedule == '0 17 * * *' }}
     runs-on: linux-aarch64-a3-800i-16
     timeout-minutes: 180 # Increase this timeout value as needed
     container:
@@ -122,7 +109,7 @@ jobs:
         --shm-size 160g
     env:
       VERL_WEIGHT_DIAGNOSTICS_DIR: ${{ github.workspace }}/ascend-diagnostics/weights
-      VERL_WEIGHT_DIAGNOSTICS_MODE: ${{ inputs.weight_diagnostics || 'metadata' }}
+      VERL_WEIGHT_DIAGNOSTICS_MODE: metadata
       VERL_WEIGHT_DIAGNOSTICS_LIMIT: '2'
       HF_ENDPOINT: "https://hf-mirror.com"
       HF_HUB_ENABLE_HF_TRANSFER: "0" # This is more stable

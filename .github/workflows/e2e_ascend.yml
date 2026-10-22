@@ -42,6 +42,7 @@ on:
       - "verl/trainer/config/**"
       # Entrypoints and fixtures used by the jobs below.
       - ".github/workflows/e2e_ascend.yml"
+      - "tests/special_npu/env_diagnostics/**"
       - "examples/data_preprocess/gsm8k.py"
       - "examples/data_preprocess/geo3k.py"
       - "scripts/converter_hf_to_mcore.py"
@@ -178,11 +179,51 @@ jobs:
       - name: Preprocess geo3k dataset
         run: |
           python examples/data_preprocess/geo3k.py --local_dataset_path ${HOME}/.cache/datasets/hiyouga/geometry3k
+      - name: Collect Ascend environment and asset fingerprints
+        continue-on-error: true
+        timeout-minutes: 20
+        run: |
+          export HCCL_CONNECT_TIMEOUT=1500
+          export HCCL_HOST_SOCKET_PORT_RANGE=60000-60050
+          export HCCL_NPU_SOCKET_PORT_RANGE=61000-61050
+          export RAY_EXPERIMENTAL_NOSET_ASCEND_RT_VISIBLE_DEVICES=1
+          python3 tests/special_npu/env_diagnostics/collect.py \
+            --label "ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --repo "$GITHUB_WORKSPACE" \
+            --asset "${MODEL_PATH:-$HOME/.cache/modelscope/hub/models/Qwen/Qwen3-VL-8B-Instruct}" \
+            --asset "$HOME/data/geo3k/train.parquet" \
+            --asset "$HOME/data/geo3k/test.parquet" \
+            --output "$GITHUB_WORKSPACE/ascend-diagnostics/environment"
       - name: Running geo3k e2e training tests with GRPO on ASCEND NPU
+        env:
+          VERL_WEIGHT_DIAGNOSTICS_DIR: ${{ github.workspace }}/ascend-diagnostics/weights
+          VERL_WEIGHT_DIAGNOSTICS_MODE: metadata
+          VERL_WEIGHT_DIAGNOSTICS_LIMIT: '2'
         run: |
           ray stop --force
-          SAVE_FREQ=-1 TOTAL_TRAINING_STEPS=1 bash tests/special_npu/run_qwen3_vl_8b_Instruct_fsdp2_npu.sh
+          mkdir -p "$GITHUB_WORKSPACE/ascend-diagnostics"
+          SAVE_FREQ=-1 TOTAL_TRAINING_STEPS=1 bash tests/special_npu/run_qwen3_vl_8b_Instruct_fsdp2_npu.sh \
+            > "$GITHUB_WORKSPACE/ascend-diagnostics/training-console.log" 2>&1
           rm -rf $HOME/ckpts
+      - name: Summarize recorded weight transfers
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          python3 tests/special_npu/env_diagnostics/summarize_weights.py \
+            "$GITHUB_WORKSPACE/ascend-diagnostics/weights" \
+            --output "$GITHUB_WORKSPACE/ascend-diagnostics/weight-summary.json"
+      - name: Upload Ascend diagnostics and original training log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ascend-e2e-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ github.workspace }}/ascend-diagnostics/
+            /root/.cache/nightly_log/run_qwen3_vl_8b_Instruct_fsdp2_npu/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
+
       - name: Running geo3k e2e training tests with GRPO on ASCEND NPU (FSDP-Turbo backend)
         run: |
           rm -rf /FSDPTurbo
