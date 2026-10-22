@@ -52,12 +52,19 @@ from verl.utils.profiler import (
     relocate_rollout_traces,
     rollout_profiler_global_ranks,
 )
+from verl.utils.sglang.sglang_quant_utils import (
+    prepare_sglang_quantization,
+    resolve_sglang_quantization_config,
+    set_default_sglang_quantization_backends,
+    uses_sglang_refit_loader,
+)
 from verl.utils.tracking import RLInsightLogger
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.replica import RolloutMode, RolloutReplica, TokenOutput
 from verl.workers.rollout.sglang_rollout.sglang_rollout import _set_envs_and_config
 from verl.workers.rollout.sglang_rollout.utils import (
     SGLANG_LORA_NAME,
+    default_moe_runner_backend,
     lora_rank_of,
     lora_served_as_adapter,
     sglang_lora_target_modules,
@@ -299,14 +306,22 @@ class SGLangHttpServer:
         # (e.g. text "flashinfer" vs vision "flashinfer_cudnn"), so don't mirror it.
         # Leave None to let sglang's VisionAttention auto-pick per device
         # (triton_attn on Ada, fa3 on Hopper, fa4 on Blackwell).
-        quantization = self.config.get("quantization", None)
-        if quantization is not None:
-            if quantization == "fp8":
-                from verl.utils.sglang.sglang_fp8_utils import build_sglang_fp8_quant_config
+        model_override_args = {}
+        quantization_config = resolve_sglang_quantization_config(self.config, self.model_config)
+        if quantization_config is not None and (
+            self.config.quantization.enabled or uses_sglang_refit_loader(quantization_config)
+        ):
+            # The trainer quantizes every refit to this config. On Hopper the block-FP8 linear/MoE methods keep
+            # weights in checkpoint layout after loading, so update_weights_from_tensor can write refits in place.
+            quantization_config = prepare_sglang_quantization(
+                quantization_config,
+                custom_weight_loader,
+                engine_kwargs,
+            )
+            model_override_args["quantization_config"] = quantization_config
+            logger.info(f"Rollout quantization_config: {quantization_config}")
 
-                fp8_block_quant_kwargs = build_sglang_fp8_quant_config(self.model_config.hf_config)
-            else:
-                raise ValueError(f"Currently only support fp8 quantization, got: {quantization}")
+        set_default_sglang_quantization_backends(quantization_config, engine_kwargs)
         infer_tp = self.config.tensor_model_parallel_size * self.config.data_parallel_size
         args = {
             "model_path": self.model_config.local_path,
@@ -329,13 +344,19 @@ class SGLangHttpServer:
             "attention_backend": attention_backend,
             "skip_tokenizer_init": self.config.skip_tokenizer_init,
             "skip_server_warmup": True,
-            "quantization": quantization,
-            "json_model_override_args": json.dumps({"quantization_config": fp8_block_quant_kwargs})
-            if quantization == "fp8"
-            else json.dumps({}),
+            "json_model_override_args": json.dumps(model_override_args),
             "custom_weight_loader": custom_weight_loader or None,
             **engine_kwargs,
         }
+        # bf16 weight updates crash SGLang's default MoE runner on Blackwell (see default_moe_runner_backend)
+        moe_runner_backend = default_moe_runner_backend(quantization_config, engine_kwargs, self.model_config.hf_config)
+        if moe_runner_backend is not None:
+            args["moe_runner_backend"] = moe_runner_backend
+            logger.info(
+                "sglang moe_runner_backend=%s: SGLang's default on Blackwell cannot take bf16 weight updates "
+                "(sgl-project/sglang#27787); set engine_kwargs.sglang.moe_runner_backend to override",
+                moe_runner_backend,
+            )
 
         # update lora-related args
         if self.lora_as_adapter:
@@ -521,6 +542,7 @@ class SGLangHttpServer:
         bootstrap_host: Optional[str] = None,
         bootstrap_port: Optional[int] = None,
         bootstrap_room: Optional[int] = None,
+        session_id: Optional[str] = None,
     ) -> TokenOutput:
         # PD top-level dispatch: prefill mints a bootstrap_room and fans out
         # paired local-prefill + remote-decode calls; decode returns the tokens
@@ -651,22 +673,21 @@ class SGLangHttpServer:
 
         routed_experts = None
         if self.config.enable_rollout_routing_replay:
-            if self.config.skip_tokenizer_init:
-                # convert to numpy
-                captured = output.get("meta_info", {}).get("routed_experts", None)
-                routed_experts = captured.numpy() if captured is not None else None
-            else:
-                from sglang.srt.layers.moe.routed_experts_capturer import extract_routed_experts_from_meta_info
+            captured = output.get("meta_info", {}).get("routed_experts", None)
+            if captured is not None:
+                from sglang.srt.state_capturer.routed_experts import extract_routed_experts_from_meta_info
+
+                routed_experts = extract_routed_experts_from_meta_info(output)
 
                 hf_config = self.model_config.hf_config
-                if not hasattr(hf_config, "num_hidden_layers") or not hasattr(hf_config, "num_experts_per_tok"):
+                text_config = getattr(hf_config, "text_config", hf_config)
+                if not hasattr(text_config, "num_hidden_layers") or not hasattr(text_config, "num_experts_per_tok"):
                     raise AttributeError(
-                        "enable_rollout_routing_replay is set, but hf_config is missing "
-                        "'num_hidden_layers' or 'num_experts_per_tok'. This feature requires an MoE model "
-                        "configuration that defines these attributes."
+                        "enable_rollout_routing_replay requires an MoE model config with "
+                        "`num_hidden_layers` and `num_experts_per_tok`"
                     )
-                routed_experts = extract_routed_experts_from_meta_info(output).reshape(
-                    -1, hf_config.num_hidden_layers, hf_config.num_experts_per_tok
+                routed_experts = routed_experts.reshape(
+                    -1, text_config.num_hidden_layers, text_config.num_experts_per_tok
                 )
 
         extra_fields = {"global_steps": self.global_steps}
@@ -824,7 +845,7 @@ class SGLangReplica(RolloutReplica):
                     }
                 },
                 name=name,
-                max_concurrency=self.max_concurrency,
+                max_concurrency=self.config.ray_actor_max_concurrency,
             ).remote(
                 config=self.config,
                 model_config=self.model_config,

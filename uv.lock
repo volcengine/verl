@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -19,6 +19,9 @@ conflicts = [[
 ], [
     { package = "verl", extra = "cpu" },
     { package = "verl", extra = "megatron" },
+], [
+    { package = "verl", extra = "cpu" },
+    { package = "verl", extra = "veomni" },
 ]]
 
 [manifest]
@@ -32,24 +35,24 @@ overrides = [
 ]
 
 [[manifest.dependency-metadata]]
-name = "mbridge"
-version = "0.15.1"
-
-[[manifest.dependency-metadata]]
 name = "megatron-bridge"
-version = "0.5.2"
+version = "0.6.2"
 
 [[manifest.dependency-metadata]]
 name = "megatron-core"
-version = "0.18.0"
+version = "0.19.2"
 requires-dist = ["torch>=2.6.0", "numpy", "packaging>=24.2"]
+
+[[manifest.dependency-metadata]]
+name = "torchtitan"
+version = "0.3.0"
 
 [[manifest.dependency-metadata]]
 name = "transferqueue"
 
 [[manifest.dependency-metadata]]
 name = "veomni"
-version = "0.1.11"
+version = "0.1.12"
 
 [[package]]
 name = "absl-py"
@@ -72,11 +75,29 @@ dependencies = [
     { name = "pyyaml" },
     { name = "safetensors" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8d/75/94cd5d389649578aca399e5aa822637eec18319a1dadc400ffe2f9a7493f/accelerate-1.14.0.tar.gz", hash = "sha256:41b9c4377a54e0b460a959b0defa1b736e4ca0a2373252d9a539964c2afe3c8d", size = 412167, upload-time = "2026-06-11T13:45:52.326Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/db/253133d7e7cb40d3af384bb2f5c0b4a2b7fdcffbc95c688cc67a20a3c103/accelerate-1.14.0-py3-none-any.whl", hash = "sha256:e94390c2863b873be18f623f9df48a0d8fe5eff13ea7f1a00092b0a7904888c6", size = 389246, upload-time = "2026-06-11T13:45:50.477Z" },
+]
+
+[[package]]
+name = "aiobotocore"
+version = "3.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aioitertools" },
+    { name = "botocore" },
+    { name = "jmespath" },
+    { name = "multidict" },
+    { name = "python-dateutil" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/0d/98230a1320e78f2c35277ca194c494690dce3161ad05200556417ab9e816/aiobotocore-3.9.1.tar.gz", hash = "sha256:617d4a78da5adb6ae7d532835727ad388f73555f2ef129b9de1b1add73a43ee6", size = 516440, upload-time = "2026-09-07T17:14:07.099Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/f5/20b5c946fdcfafa8e0538d4d278abf10dda4b4012f29aa98a32fe09a46c5/aiobotocore-3.9.1-py3-none-any.whl", hash = "sha256:23aa448b4daff3fdce0714c962a2050b63c0222b5f2b5c17d0c874eb76a50ac0", size = 102044, upload-time = "2026-09-07T17:14:05.224Z" },
 ]
 
 [[package]]
@@ -128,6 +149,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6f/6d/d89e846a5444b3d5eb8985a6ddb0daef3774928e1bfbce8e84ec97b0ffa7/aiohttp_cors-0.8.1.tar.gz", hash = "sha256:ccacf9cb84b64939ea15f859a146af1f662a6b1d68175754a07315e305fb1403", size = 38626, upload-time = "2025-03-31T14:16:20.048Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/3b/40a68de458904bcc143622015fff2352b6461cd92fd66d3527bf1c6f5716/aiohttp_cors-0.8.1-py3-none-any.whl", hash = "sha256:3180cf304c5c712d626b9162b195b1db7ddf976a2a25172b35bb2448b890a80d", size = 25231, upload-time = "2025-03-31T14:16:18.478Z" },
+]
+
+[[package]]
+name = "aioitertools"
+version = "0.13.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fd/3c/53c4a17a05fb9ea2313ee1777ff53f5e001aefd5cc85aa2f4c2d982e1e38/aioitertools-0.13.0.tar.gz", hash = "sha256:620bd241acc0bbb9ec819f1ab215866871b4bbd1f73836a55f799200ee86950c", size = 19322, upload-time = "2025-11-06T22:17:07.609Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/a1/510b0a7fadc6f43a6ce50152e69dbd86415240835868bb0bd9b5b88b1e06/aioitertools-0.13.0-py3-none-any.whl", hash = "sha256:0be0292b856f08dfac90e31f4739432f4cb6d7520ab9eb73e143f4f2fa5259be", size = 24182, upload-time = "2025-11-06T22:17:06.502Z" },
 ]
 
 [[package]]
@@ -351,6 +381,38 @@ wheels = [
 ]
 
 [[package]]
+name = "botocore"
+version = "1.43.75"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jmespath" },
+    { name = "python-dateutil" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a3/80/5e39eda5dfb66df691d71212799a9f9d35aa9e447511604030447a00e9d6/botocore-1.43.75.tar.gz", hash = "sha256:e8ed6b0f3cd398dfb9e08d7ca3a0b964152166a317a04e89c45ec91003327ffe", size = 15973868, upload-time = "2026-08-19T19:54:12.318Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/46/19d3178e70f37fda251f3d9560f29654f09c6eedbe1c8b790adeee84da49/botocore-1.43.75-py3-none-any.whl", hash = "sha256:121abc8b0b529bc4e29a28d1e8b096b20f26708cabe3d5ae4b3446747712aece", size = 15667237, upload-time = "2026-08-19T19:54:08.802Z" },
+]
+
+[[package]]
+name = "braceexpand"
+version = "0.1.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/93/badd4f5ccf25209f3fef2573073da9fe4a45a3da99fca2f800f942130c0f/braceexpand-0.1.7.tar.gz", hash = "sha256:e6e539bd20eaea53547472ff94f4fb5c3d3bf9d0a89388c4b56663aba765f705", size = 7777, upload-time = "2021-05-07T13:49:07.323Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/93/e8c04e80e82391a6e51f218ca49720f64236bc824e92152a2633b74cf7ab/braceexpand-0.1.7-py2.py3-none-any.whl", hash = "sha256:91332d53de7828103dcae5773fb43bc34950b0c8160e35e0f44c4427a3b85014", size = 5923, upload-time = "2021-05-07T13:49:05.146Z" },
+]
+
+[[package]]
+name = "bracex"
+version = "3.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/01/5f394b8bcd6e5b92f73130990960423bbb19711f906bd9fe9ea5557c667c/bracex-3.0.1.tar.gz", hash = "sha256:4e38e32392e4a4780fe15d644bfc7c8514057cfc3861e060b11814ce829c25e4", size = 44019, upload-time = "2026-07-20T13:43:00.335Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/8f/6f7273a7adb8d73fc8d21ede4376a3e475e52f98435c6007f69100dec8ca/bracex-3.0.1-py3-none-any.whl", hash = "sha256:6523ad83aeb5098a4ee597cff0f964442ff74e460bd3fafaffab6a013ff2288c", size = 11940, upload-time = "2026-07-20T13:42:59.268Z" },
+]
+
+[[package]]
 name = "build"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -406,7 +468,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -555,7 +617,7 @@ name = "cryptography"
 version = "49.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1f/99/d1c90d6041656cc6ee229dc99cd67fd0cd5aec3c5f7d72fffc27cc750054/cryptography-49.0.0.tar.gz", hash = "sha256:f89660a348f4f78a92366240a61404e337586ef7f5909a2fef59ca88ef505493", size = 854345, upload-time = "2026-06-12T20:02:30.512Z" }
 wheels = [
@@ -586,7 +648,7 @@ name = "cuda-bindings"
 version = "13.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "cuda-pathfinder", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/21/8464d133752951c154feafb3b65c297e7d80f301183d220bec4c830f1441/cuda_bindings-13.3.1-cp310-cp310-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:120fcc53d57903df529c3486962c56528cba5b7d6c57c99537320ed9922c8b86", size = 6073403, upload-time = "2026-05-29T23:11:36.22Z" },
@@ -637,34 +699,10 @@ wheels = [
 
 [[package]]
 name = "cuda-tile"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-]
-dependencies = [
-    { name = "typing-extensions", marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/df/0bb510403487484bed0a844793a1e8a043e3c4fe35f92f6e1cb5de3bd35e/cuda_tile-1.4.0-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:8758454ae3971cd8dc195a61210e42ad3696528a9da6a4a429da4cdbbf305d80", size = 281176, upload-time = "2026-05-27T17:45:03.394Z" },
-    { url = "https://files.pythonhosted.org/packages/f0/6f/a20b815a20b578c42bd056e40749477efc33dc098cb04dc3c7a3417b17b3/cuda_tile-1.4.0-cp310-cp310-manylinux2014_x86_64.whl", hash = "sha256:63fc9edd9376a196870ff9dcd9cdb9a7e4d2f2271a4e531c390b232bc60ee0f0", size = 282606, upload-time = "2026-05-27T17:44:58.828Z" },
-    { url = "https://files.pythonhosted.org/packages/ae/d4/a5849ee8ee58d0275c9e7738aa5b16d1ad669ed5aa4d1b26af683eda065e/cuda_tile-1.4.0-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:da2649de97cbaf886d564a9f75b3bd2fb112999c99c58a27c817a46bb8725f29", size = 280897, upload-time = "2026-05-27T17:44:57.197Z" },
-    { url = "https://files.pythonhosted.org/packages/c6/1b/575207f424c75e7b1608e056a89c15bfc3750f6178e5c659f693a7e822b1/cuda_tile-1.4.0-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:5741a789aaff85e3b2417b8611f0d11f967b9bac567432f0057b2b8bf72259ac", size = 282060, upload-time = "2026-05-27T17:44:58.877Z" },
-    { url = "https://files.pythonhosted.org/packages/42/93/64ef40d3982dcda7a97ebfa3e3bb9045b573d4eb3877fa5d1fa3cd2541d3/cuda_tile-1.4.0-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:9e358a85a153820aa0a51d0e09346d884a3c14b88c0313d20d0fb9f53952abae", size = 280953, upload-time = "2026-05-27T17:46:53.03Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/9a/7fbdbdb30c375f80818941165adfc4f1dc6cebaf937c6a9081a02d5871f0/cuda_tile-1.4.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:1d9d99b6fa57366af3f8707ac4fd91411275af2ee736996a60620240fcf92070", size = 282503, upload-time = "2026-05-27T17:45:05.543Z" },
-]
-
-[[package]]
-name = "cuda-tile"
 version = "1.6.0rc5"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-]
 dependencies = [
-    { name = "typing-extensions", marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7e/d2/177db716b66a1895874aa3ef119645d0bc54fff8cfc6d299b309f366e6b8/cuda_tile-1.6.0rc5.tar.gz", hash = "sha256:611bbd7d3efb81763a3790374d23c8a6f0ecc16735e69e4d3f9ef7762d9335e8", size = 6930, upload-time = "2026-08-06T22:06:44.265Z" }
 
@@ -678,43 +716,43 @@ wheels = [
 
 [package.optional-dependencies]
 cublas = [
-    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cuda-runtime", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cufft", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cufile", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cuda-cupti", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 curand = [
-    { name = "nvidia-curand", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-curand", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cusolver = [
-    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cusolver", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cusolver", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvtx", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 
 [[package]]
@@ -808,6 +846,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/6e/1e58e17c87abbbbd749db3b892b268ad35f0103f62931f45abf170283748/decord2-3.4.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:241a6027fafa03295db8f3b5b7cd405367d44ae008efe631854c2161ae986feb", size = 26627618, upload-time = "2026-05-30T13:23:30.168Z" },
     { url = "https://files.pythonhosted.org/packages/ec/ad/1e9f5081c9120653b483d6a91a707df65255b45b7c2a9d382aaafe0dcf55/decord2-3.4.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:f4ca81aa56aea80ecaaf1a285d8db9ea8aeda14cc929218255ad3419ea8a4a0e", size = 24476754, upload-time = "2026-05-30T13:23:41.243Z" },
     { url = "https://files.pythonhosted.org/packages/df/56/c32c85e48a691aafd037902d9333bbbf870650c1fa32d6057e23eb2f24a9/decord2-3.4.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:8444c97945a823844fc138d54a1db8377e258db1f887e40ea68c58dc6debb377", size = 26627613, upload-time = "2026-05-30T13:23:45.847Z" },
+]
+
+[[package]]
+name = "deprecation"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/d3/8ae2869247df154b64c1884d7346d412fed0c49df84db635aab2d1c40e62/deprecation-2.1.0.tar.gz", hash = "sha256:72b3bde64e5d778694b0cf68178aed03d15e15477116add3fb773e581f9518ff", size = 173788, upload-time = "2020-04-20T14:23:38.738Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/c3/253a89ee03fc9b9682f1541728eb66db7db22148cd94f89ab22528cd1e1b/deprecation-2.1.0-py2.py3-none-any.whl", hash = "sha256:a10811591210e1fb0e768a8c25517cabeabcba6f0bf96564f8ff45189f90b14a", size = 11178, upload-time = "2020-04-20T14:23:36.581Z" },
 ]
 
 [[package]]
@@ -935,11 +985,11 @@ resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
 dependencies = [
-    { name = "annotated-doc", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "pydantic", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "starlette", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "typing-extensions", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "typing-inspection", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
+    { name = "annotated-doc", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "pydantic", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "starlette", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "typing-extensions", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "typing-inspection", marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/81/2d/ff8d91d7b564d464629a0fd50a4489c97fcb836ac230bf3a7269232a9b1f/fastapi-0.136.3.tar.gz", hash = "sha256:e487fae93ad408e6f47641ee4dfe389864fd7bec92e547ea8498fc13f43e83ab", size = 396410, upload-time = "2026-05-23T18:53:15.192Z" }
 wheels = [
@@ -949,14 +999,14 @@ wheels = [
 [package.optional-dependencies]
 standard = [
     { name = "email-validator" },
-    { name = "fastapi-cli", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi-cli", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "fastar" },
     { name = "httpx" },
     { name = "jinja2" },
     { name = "pydantic-extra-types" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
 ]
 
 [[package]]
@@ -967,11 +1017,11 @@ resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
 dependencies = [
-    { name = "annotated-doc", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "pydantic", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "starlette", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "typing-extensions", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "typing-inspection", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "annotated-doc", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "pydantic", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "starlette", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "typing-extensions", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "typing-inspection", marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/da/fe/fb25c287ff7e0f79fc6acf2e8b812725dad28d2a1446c0410bab1422ac90/fastapi-0.137.0.tar.gz", hash = "sha256:d0565d551f65a803ecff245390840867186f456ef98971f750724eed16e1541c", size = 408023, upload-time = "2026-06-14T12:51:30.672Z" }
 wheels = [
@@ -985,7 +1035,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "rich-toolkit" },
     { name = "typer" },
-    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6e/58/74797ae9e4610cfa0c6b34c8309096d3b20bb29be3b8b5fbf1004d10fa5f/fastapi_cli-0.0.24.tar.gz", hash = "sha256:1afc9c9e21d7ebc8a3ca5e31790cd8d837742be7e4f8b9236e99cb3451f0de00", size = 19043, upload-time = "2026-02-24T10:45:10.476Z" }
 wheels = [
@@ -995,7 +1045,7 @@ wheels = [
 [package.optional-dependencies]
 standard = [
     { name = "fastapi-cloud-cli" },
-    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
 ]
 
 [[package]]
@@ -1006,12 +1056,12 @@ dependencies = [
     { name = "detect-installer" },
     { name = "fastar" },
     { name = "httpx" },
-    { name = "pydantic", extra = ["email"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "pydantic", extra = ["email"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "rich-toolkit" },
     { name = "rignore" },
     { name = "sentry-sdk" },
     { name = "typer" },
-    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "uvicorn", extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ad/bf/97d19633c6ec6fb0ef59df474b9705ea992f7b4f879208d0007ac6d25ab6/fastapi_cloud_cli-0.20.0.tar.gz", hash = "sha256:9681c46adcd299024d0775658bd5d88992fd35c4ad42b1f045c6df913390ba37", size = 85904, upload-time = "2026-06-11T17:41:02.814Z" }
 wheels = [
@@ -1069,6 +1119,15 @@ wheels = [
 ]
 
 [[package]]
+name = "filetype"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/29/745f7d30d47fe0f251d3ad3dc2978a23141917661998763bebb6da007eb1/filetype-1.2.0.tar.gz", hash = "sha256:66b56cd6474bf41d8c54660347d37afcc3f7d1970648de365c102ef77548aadb", size = 998020, upload-time = "2022-11-02T17:34:04.141Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/79/1b8fa1bb3568781e84c9200f951c735f3f157429f44be0495da55894d620/filetype-1.2.0-py2.py3-none-any.whl", hash = "sha256:7ce71b6880181241cf7ac8697a2f1eb6a8bd9b429f7ad6d27b8db9ba5f1c2d25", size = 19970, upload-time = "2022-11-02T17:34:01.425Z" },
+]
+
+[[package]]
 name = "fla-core"
 version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1087,7 +1146,7 @@ source = { registry = "https://verl-project.github.io/verl-wheelhouse/cu130/torc
 dependencies = [
     { name = "einops" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/flash-attention-v2.8.3-py3.11-torch2.13.0/flash_attn-2.8.3-cp311-cp311-linux_aarch64.whl" },
@@ -1117,8 +1176,7 @@ dependencies = [
     { name = "apache-tvm-ffi" },
     { name = "click" },
     { name = "cuda-python" },
-    { name = "cuda-tile", version = "1.4.0", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "cuda-tile", version = "1.6.0rc5", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "cuda-tile" },
     { name = "einops" },
     { name = "nccl4py" },
     { name = "ninja" },
@@ -1139,7 +1197,7 @@ wheels = [
 
 [package.optional-dependencies]
 cu13 = [
-    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
 ]
 
 [[package]]
@@ -1761,15 +1819,15 @@ wheels = [
 
 [[package]]
 name = "liger-kernel"
-version = "0.8.2"
+version = "0.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "triton" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/a5/27575f85fd91cb92a0d72b4c37daa79021334926b5c4624f7ce9fa15e6ae/liger_kernel-0.8.2.tar.gz", hash = "sha256:387673ed6bf64fc8150cc8315fed578d2fc717ec3450f53489f480880223c1b8", size = 6136426, upload-time = "2026-08-18T20:54:30.62Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/a9/6689c0790bc680fac910d6203246f9f7fb382a7614424eef9080cc5025f4/liger_kernel-0.8.4.tar.gz", hash = "sha256:e4ef9b7a30c69f207ffbe37fdf95e391ba72ac5b4ee0a333f55732c47e661750", size = 6800691, upload-time = "2026-09-30T20:46:10.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/b3/a66f1d9143697784ad2c2abf665b02c47aa17857232ed72224588186103c/liger_kernel-0.8.2-py3-none-any.whl", hash = "sha256:84c0a7bc9bf4d4cf8ea5ba89ff84d28686afc94215b220851d9f57dc87852741", size = 644266, upload-time = "2026-08-18T20:54:28.728Z" },
+    { url = "https://files.pythonhosted.org/packages/58/9f/c54c1285491e530c898de7be389368265660a2292afc18777f5d6c37f0ad/liger_kernel-0.8.4-py3-none-any.whl", hash = "sha256:9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111", size = 900182, upload-time = "2026-09-30T20:46:08.42Z" },
 ]
 
 [[package]]
@@ -1951,11 +2009,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mbridge"
-version = "0.15.1"
-source = { git = "https://github.com/ISEEKYAN/mbridge.git?rev=641a5a0#641a5a01de71080b2200d10e369090e40c9a351c" }
-
-[[package]]
 name = "mcp"
 version = "1.27.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1966,7 +2019,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pyjwt", extra = ["crypto"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "pyjwt", extra = ["crypto"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "python-multipart" },
     { name = "sse-starlette" },
     { name = "starlette" },
@@ -1990,21 +2043,54 @@ wheels = [
 
 [[package]]
 name = "megatron-bridge"
-version = "0.5.2"
+version = "0.6.2"
 source = { registry = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" }
 wheels = [
-    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/megatron-bridge-r0.5.0-py3.12-torch2.13.0/megatron_bridge-0.5.2-py3-none-any.whl" },
+    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/megatron-bridge-v0.6.2-py3.12-torch2.13.0/megatron_bridge-0.6.2-py3-none-any.whl" },
 ]
 
 [[package]]
 name = "megatron-core"
-version = "0.18.0"
-source = { git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.18.0#ba7b5ebce12af60627a80985792a1449ce45f46c" }
+version = "0.19.2"
+source = { git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.19.2#4b4acac9a1d28ea6829c8d4f566d75698a21249d" }
 dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+]
+
+[[package]]
+name = "megatron-energon"
+version = "7.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braceexpand" },
+    { name = "click" },
+    { name = "filetype" },
+    { name = "mfusepy" },
+    { name = "multi-storage-client" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "pyyaml" },
+    { name = "rapidyaml" },
+    { name = "s3fs" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "tqdm" },
+    { name = "webdataset" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/15/1aa34071dbb64c30f56c68b78989e2a3f11ce72583466b98b37a04206ad4/megatron_energon-7.4.1.tar.gz", hash = "sha256:31e5511bf894e235dff35dacbe130fb1283010a132b612c07e3fa841cc37d82c", size = 211270, upload-time = "2026-08-03T12:11:07.224Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/21/fcfffd2dbc8523412ac623da5e24096a252ff6342f97e1bddf3cce99e36e/megatron_energon-7.4.1-py3-none-any.whl", hash = "sha256:b2d96756f2825750bf51a2b2c16bd1ddfed8f50414b72bb9da174dd8ddafb7d8", size = 286847, upload-time = "2026-08-03T12:11:05.704Z" },
+]
+
+[[package]]
+name = "mfusepy"
+version = "3.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/47/746287c8962274f73ee25edb3840d80899464bfffbe2c435424c2d60a071/mfusepy-3.1.1.tar.gz", hash = "sha256:338ece54513d7d1a5e9492837679a0c7432ecf96a03490a2683a1ce1d19570e1", size = 34549, upload-time = "2026-03-13T00:36:52.636Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/d5/56bc9326bf75f7ea0f4fe1178f5c9f20d1a1e15e288ecf66088513538ccd/mfusepy-3.1.1-py3-none-any.whl", hash = "sha256:69fb70cfc7f7cce595e6ff586f8451d8298f01f18286a157f24f564b24ec5a37", size = 28264, upload-time = "2026-03-13T00:36:51.843Z" },
 ]
 
 [[package]]
@@ -2016,7 +2102,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pillow" },
     { name = "pydantic" },
-    { name = "pydantic-extra-types", extra = ["pycountry"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-vllm')" },
+    { name = "pydantic-extra-types", extra = ["pycountry"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "requests" },
     { name = "tiktoken" },
     { name = "typing-extensions" },
@@ -2036,7 +2122,7 @@ name = "ml-dtypes"
 version = "0.5.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0e/4a/c27b42ed9b1c7d13d9ba8b6905dece787d6259152f2309338aed29b2447b/ml_dtypes-0.5.4.tar.gz", hash = "sha256:8ab06a50fb9bf9666dd0fe5dfb4676fa2b0ac0f31ecff72a6c3af8e22c063453", size = 692314, upload-time = "2025-11-17T22:32:31.031Z" }
 wheels = [
@@ -2130,6 +2216,34 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/d1/d4cd9fe89c7d400d7a18f86ccc94daa3f0927f53558846fcb60791dce5d6/msgspec-0.21.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:21995e74b5c598c2e004110ad66ec7f1b8c20bf2bcf3b2de8fd9a3094422d3ff", size = 225025, upload-time = "2026-04-12T21:44:11.191Z" },
     { url = "https://files.pythonhosted.org/packages/24/bf/e20549e602b9edccadeeff98760345a416f9cce846a657e8b18e3396b212/msgspec-0.21.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:6129f0cca52992e898fd5344187f7c8127b63d810b2fd73e36fca73b4c6475ee", size = 222672, upload-time = "2026-04-12T21:44:12.481Z" },
     { url = "https://files.pythonhosted.org/packages/b4/68/04d7a8f0f786545cf9b8c280c57aa6befb5977af6e884b8b54191cbe44b3/msgspec-0.21.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:ef3ec2296248d1f8b9231acb051b6d471dfde8f21819e86c9adaaa9f42918521", size = 227303, upload-time = "2026-04-12T21:44:13.709Z" },
+]
+
+[[package]]
+name = "multi-storage-client"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "filelock" },
+    { name = "jmespath" },
+    { name = "jsonschema" },
+    { name = "lark" },
+    { name = "opentelemetry-api" },
+    { name = "prettytable" },
+    { name = "psutil" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "tqdm" },
+    { name = "tzdata" },
+    { name = "wcmatch" },
+    { name = "xattr" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/d7/3c397bb73ab0eefcf7d356e1bdca5b1ed3191e12c6d9601cda51b6c5318f/multi_storage_client-1.1.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3078ec4eb874234910f04e3d88d84c0b9780a0bfc7e824e42f8ee2f681ba3b0e", size = 6254904, upload-time = "2026-09-04T16:39:30.691Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/23/19ea27ea7c78ac4af6cb0ce3719de736bad5e22e63fe35b43204921bf1e1/multi_storage_client-1.1.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0d17da2456d60ac42fc74066060600635d5760b210271c6eb3afe8429bc5b12b", size = 6448358, upload-time = "2026-09-04T16:39:56.64Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/89/8266825a2d82e6ce9ae3a431cc559fc5341c2b9b02a375fd73f8adb6f889/multi_storage_client-1.1.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:54fa52b9aa2c20a929f330378828e2acf9c06d42df8f24e10c8c5c957689473d", size = 6446771, upload-time = "2026-09-04T16:40:38.059Z" },
+    { url = "https://files.pythonhosted.org/packages/56/9f/24f85da4793edd769aeb1ce91ef18c396c1f72b9f3eb8100cb69e1801c89/multi_storage_client-1.1.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ce7eb5368f9ccebe3cae549ffd1d5698e6fb4a7f335b06e309e2c0927f051696", size = 6639926, upload-time = "2026-09-04T16:41:01.528Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/eb/11a69d131550d57f3387da379f7859de464017edbb7ced23f780a4f4cd18/multi_storage_client-1.1.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8c47dcf14d43e0e09c0ce7a58fa65c362ea41e0474c0713f5bea3c95a243debb", size = 6414782, upload-time = "2026-09-04T16:41:43.774Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/bc/d352adcbe7265c3736ad0751fd275d515b405b5f6ec588d46613714daab4/multi_storage_client-1.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:80c90a3336305cd65831613f7b0854a7086eed5b75a762804a33234c29421b1b", size = 6614620, upload-time = "2026-09-04T16:42:06.613Z" },
 ]
 
 [[package]]
@@ -2307,7 +2421,7 @@ name = "nvidia-cublas"
 version = "13.1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cuda-nvrtc", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/a1/0bd24ee8c8d03adac032fd2909426a00c88f8c57961b1277ded97f91119f/nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5", size = 542848918, upload-time = "2026-04-08T18:46:22.985Z" },
@@ -2387,7 +2501,7 @@ name = "nvidia-cudnn-cu13"
 version = "9.20.0.48"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/56/c5/83384d846b2fd17c44bd499b36c75a45ed4f095fbbb2252294e89cea5c5c/nvidia_cudnn_cu13-9.20.0.48-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:e31454ae00094b0c55319d9d15b6fa2fc50a9e1c0f5c8c80fb75258234e731e1", size = 444574296, upload-time = "2026-03-09T19:28:27.751Z" },
@@ -2412,7 +2526,7 @@ name = "nvidia-cufft"
 version = "12.0.0.61"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/ae/f417a75c0259e85c1d2f83ca4e960289a5f814ed0cea74d18c353d3e989d/nvidia_cufft-12.0.0.61-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2708c852ef8cd89d1d2068bdbece0aa188813a0c934db3779b9b1faa8442e5f5", size = 214053554, upload-time = "2025-09-04T08:31:38.196Z" },
@@ -2442,9 +2556,9 @@ name = "nvidia-cusolver"
 version = "12.0.4.66"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cublas", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cusparse", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/c3/b30c9e935fc01e3da443ec0116ed1b2a009bb867f5324d3f2d7e533e776b/nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:02c2457eaa9e39de20f880f4bd8820e6a1cfb9f9a34f820eb12a155aa5bc92d2", size = 223467760, upload-time = "2025-09-04T08:33:04.222Z" },
@@ -2456,7 +2570,7 @@ name = "nvidia-cusparse"
 version = "12.6.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvjitlink", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/94/5c26f33738ae35276672f12615a64bd008ed5be6d1ebcb23579285d960a9/nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:80bcc4662f23f1054ee334a15c72b8940402975e0eab63178fc7e670aa59472c", size = 162155568, upload-time = "2025-09-04T08:33:42.864Z" },
@@ -3178,7 +3292,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "safetensors" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
     { name = "tqdm" },
     { name = "transformers" },
 ]
@@ -3261,6 +3375,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8e/22/2de9408ac81acbb8a7d05d4cc064a152ccf33b3d480ebe0cd292153db239/pre_commit-4.6.0.tar.gz", hash = "sha256:718d2208cef53fdc38206e40524a6d4d9576d103eb16f0fec11c875e7716e9d9", size = 198525, upload-time = "2026-04-21T20:31:41.613Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/80/6e/4b28b62ecb6aae56769c34a8ff1d661473ec1e9519e2d5f8b2c150086b26/pre_commit-4.6.0-py2.py3-none-any.whl", hash = "sha256:e2cf246f7299edcabcf15f9b0571fdce06058527f0a06535068a86d38089f29b", size = 226472, upload-time = "2026-04-21T20:31:40.092Z" },
+]
+
+[[package]]
+name = "prettytable"
+version = "3.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/74/ba08d81e668ccfe8658d7520a307e63c19862c08eb4ccb26f356c5239a7a/prettytable-3.18.0.tar.gz", hash = "sha256:439217116152244369caf3d9f1caf2f9fe29b03bd79e88d2928c8e718c95d680", size = 76373, upload-time = "2026-06-22T16:07:50.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/be/2e6798ace5cc036f5d05d36b7b2fd85346f1a708c87060890b070d0ec607/prettytable-3.18.0-py3-none-any.whl", hash = "sha256:b3346e0e6f79180833aebaac088ae926340586cf6d7d991b9eb125b65f72313a", size = 37357, upload-time = "2026-06-22T16:07:48.595Z" },
 ]
 
 [[package]]
@@ -3783,7 +3909,7 @@ name = "pyzmq"
 version = "27.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "implementation_name == 'pypy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "cffi", marker = "implementation_name == 'pypy' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/04/0b/3c9baedbdf613ecaa7aa07027780b8867f57b6293b6ee50de316c9f3222b/pyzmq-27.1.0.tar.gz", hash = "sha256:ac0765e3d44455adb6ddbf4417dcce460fc40a05978c08efdf2948072f6db540", size = 281750, upload-time = "2025-09-08T23:10:18.157Z" }
 wheels = [
@@ -3826,7 +3952,7 @@ name = "qwen-vl-utils"
 version = "0.0.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "av", version = "16.1.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "av", version = "16.1.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "av", version = "17.1.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' or extra == 'extra-4-verl-cpu' or extra != 'extra-4-verl-sglang' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "packaging" },
     { name = "pillow" },
@@ -3835,6 +3961,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b6/b1/ad4fc2260a3badd278b38d642f3b987412f1f6682f0ef2b31b0572d5caa8/qwen_vl_utils-0.0.14.tar.gz", hash = "sha256:9c7cad5ae803b3a10f8bb7194deb12aeacdd032f92f4224e880c73587a7346ad", size = 8453, upload-time = "2025-09-23T09:38:57.532Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/43/80f67e0336cb2fc725f8e06f7fe35c1d0fe946f4d2b8b2175e797e07349e/qwen_vl_utils-0.0.14-py3-none-any.whl", hash = "sha256:5e28657bfd031e56bd447c5901b58ddfc3835285ed100f4c56580e0ade054e96", size = 8120, upload-time = "2025-09-23T09:38:56.297Z" },
+]
+
+[[package]]
+name = "rapidyaml"
+version = "0.15.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "deprecation" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/5e/80ea1e8ca5785ad52f835f663e8384961bdb258de71a5bd332e99a2d7b20/rapidyaml-0.15.2.tar.gz", hash = "sha256:a3b075636e6b5673ddf7a50122b029cd44623f18e84bcd4f18425df328425a09", size = 500792, upload-time = "2026-06-25T18:56:18.685Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/77/b77894eea3c2b6f91d437763a9e907e950d274c5c3942a5e337b6c952e26/rapidyaml-0.15.2-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:16d1decf328f9f35935b2a7de1523c01e1e140f8433da170fed35c360e656c92", size = 600590, upload-time = "2026-06-25T18:55:08.55Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/ba/f11e2dbe03c3e1f4791d4a2ed30605961ed1038cfb553e2601184d82a588/rapidyaml-0.15.2-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ef962a8a9def148817ae6350afdbb53b461c7b3d67107104bc2e381d0b9e522e", size = 613319, upload-time = "2026-06-25T18:55:09.812Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/d4/b83a999788b1d1982fa20da02db165b73a196aa6dc3b3488245de57a1c01/rapidyaml-0.15.2-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a1fc68f397b20a00d5a1c5b587bbbde02248500ff7cf610ee0ae0c51c9e6b92f", size = 600618, upload-time = "2026-06-25T18:55:19.539Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/1b/9054feaf23cfb28c7f5fb1e72d551baa194938218756e74a9720816956cc/rapidyaml-0.15.2-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d9f182735db604c1c2e586048cd6728beeed8f6a61b80fbfa89b516738d31ad8", size = 613369, upload-time = "2026-06-25T18:55:20.567Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/ed/2120bc4be7f6104c01dce8f00c8eb7cddf8ae5905d78087235d1e7c361fd/rapidyaml-0.15.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:aff076a6c657c73ba449d4fe5865ceac19d8c9f8f435df31776acfe06ddb3628", size = 600991, upload-time = "2026-06-25T18:55:30.91Z" },
+    { url = "https://files.pythonhosted.org/packages/19/a1/6f1af855e5189d942e8845e67d014500477fd423d0dd1ec9729a3a2d86c7/rapidyaml-0.15.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:bb2381f52f33cec42017361cd2fb0f7eb411527afe9273e9ce0f984584b87db1", size = 612930, upload-time = "2026-06-25T18:55:32.191Z" },
 ]
 
 [[package]]
@@ -4004,6 +4147,20 @@ wheels = [
 ]
 
 [[package]]
+name = "s3fs"
+version = "2026.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiobotocore" },
+    { name = "aiohttp" },
+    { name = "fsspec" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cb/d8/76f3dc1558bdf4494b117a9f7a9cc0a5d9d34edadc9e5d7ceabc5a6a7c37/s3fs-2026.4.0.tar.gz", hash = "sha256:5bdce0abb00b0435ee150807a45fea727451dbc22de4cbc116464f8504ab9d37", size = 85986, upload-time = "2026-04-29T20:52:51.748Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5d/a4/9d1ea10ebc9e028a289a72fec84da170689549a8102c8aacfcad26bc5035/s3fs-2026.4.0-py3-none-any.whl", hash = "sha256:de0d2a1f33cdf03831fd2382d278c6e4e31fe57c3bf2f703c61f8aec6b703e2a", size = 32392, upload-time = "2026-04-29T20:52:50.295Z" },
+]
+
+[[package]]
 name = "safetensors"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4020,7 +4177,7 @@ name = "scipy"
 version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/97/5a3609c4f8d58b039179648e62dd220f89864f56f7357f5d4f45c29eb2cc/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0", size = 30573822, upload-time = "2026-02-23T00:26:24.851Z" }
 wheels = [
@@ -4134,17 +4291,17 @@ dependencies = [
     { name = "build" },
     { name = "compressed-tensors", version = "0.18.0", source = { registry = "https://pypi.org/simple" } },
     { name = "cuda-python" },
-    { name = "cuda-tile", version = "1.6.0rc5", source = { registry = "https://pypi.org/simple" } },
+    { name = "cuda-tile" },
     { name = "datasets" },
     { name = "decord2", marker = "platform_machine != 'x86_64'" },
     { name = "distro" },
     { name = "easydict" },
     { name = "einops" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
-    { name = "flashinfer-python", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "flashinfer-python", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "gguf" },
-    { name = "humming-kernels", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "humming-kernels", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "interegular" },
     { name = "ipython" },
     { name = "kernels" },
@@ -4155,7 +4312,7 @@ dependencies = [
     { name = "ninja" },
     { name = "numba", version = "0.65.1", source = { registry = "https://pypi.org/simple" } },
     { name = "numpy" },
-    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "nvidia-mathdx" },
     { name = "nvidia-ml-py" },
     { name = "nvshmem4py-cu13" },
@@ -4229,8 +4386,8 @@ version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "orjson" },
     { name = "setproctitle" },
     { name = "uvicorn" },
@@ -4332,6 +4489,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/64/28/e2a36573ccbcf3d57c00626a21fe51989380636e821b341d36ccca0c1c3a/soundfile-0.13.1-py2.py3-none-any.whl", hash = "sha256:a23c717560da2cf4c7b5ae1142514e0fd82d6bbd9dfc93a50423447142f2c445", size = 25751, upload-time = "2025-01-25T09:16:44.235Z" },
     { url = "https://files.pythonhosted.org/packages/58/ae/c0e4a53d77cf6e9a04179535766b3321b0b9ced5f70522e4caf9329f0046/soundfile-0.13.1-py2.py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:9c9e855f5a4d06ce4213f31918653ab7de0c5a8d8107cd2427e44b42df547deb", size = 1235729, upload-time = "2025-01-25T09:16:53.018Z" },
     { url = "https://files.pythonhosted.org/packages/57/5e/70bdd9579b35003a489fc850b5047beeda26328053ebadc1fb60f320f7db/soundfile-0.13.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:03267c4e493315294834a0870f31dbb3b28a95561b80b134f0bd3cf2d5f0e618", size = 1313646, upload-time = "2025-01-25T09:16:54.872Z" },
+]
+
+[[package]]
+name = "spmd-types"
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/71/8854aaad93b29395ed7152bde16d679e25cf55d5cb8a743a986db3c9e134/spmd_types-0.2.3.tar.gz", hash = "sha256:40dec13051545d66fd3e42c4d67be387877ea472a9ca0906cfa608d4cb61ef24", size = 109656, upload-time = "2026-08-06T01:00:36.037Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/a1/c6cad5b3f20d0b8ff016358e0edb60506749b6fd7ce64d9cea24df5446e8/spmd_types-0.2.3-py3-none-any.whl", hash = "sha256:0bbeb783a7e9678a125cded42e07ef17c73982e4b4de2294d435f9df8c17331c", size = 122723, upload-time = "2026-08-06T01:00:34.432Z" },
 ]
 
 [[package]]
@@ -4445,7 +4611,7 @@ dependencies = [
     { name = "packaging" },
     { name = "pyvers" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/bf/f6df12346301deb7d2c21e8932125e683be3ae2f8b1b837aa9d00eb3d2af/tensordict-0.10.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:feaee76553ab39a443b35460714cde4e934dbe57e66c5174a20e44cf235d1b12", size = 442875, upload-time = "2025-09-08T10:07:08.668Z" },
@@ -4606,21 +4772,21 @@ resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
 dependencies = [
-    { name = "cuda-bindings", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "filelock", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "fsspec", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "jinja2", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "networkx", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cudnn-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-cusparselt-cu13", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
-    { name = "nvidia-cusparselt-cu13", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "nvidia-nccl-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "nvidia-nvshmem-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "setuptools", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "sympy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "triton", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "typing-extensions", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "cuda-bindings", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "cuda-toolkit", extra = ["cublas", "cudart", "cufft", "cufile", "cupti", "curand", "cusolver", "cusparse", "nvjitlink", "nvrtc", "nvtx"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "filelock", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "fsspec", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "jinja2", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "networkx", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cudnn-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-cusparselt-cu13", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "nvidia-cusparselt-cu13", version = "0.9.1", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "nvidia-nccl-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "nvidia-nvshmem-cu13", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "setuptools", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "sympy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "triton", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "typing-extensions", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu130/torch-2.13.0%2Bcu130-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:cd11e8876fce3cbc941c576c9f87730f0ff2ca96a9d3e1aa6913bf48304c8bcb", upload-time = "2026-07-08T20:16:50Z" },
@@ -4646,6 +4812,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/64/5c/3e1382a620824f92920ab3fae132d8fb4e85898284c99e0c6a7764e452ce/torch_c_dlpack_ext-0.1.5-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3448c4f0d64104d0b2e58080a7efa72304a04960c18f338024b80b13cd3eca26", size = 897768, upload-time = "2026-01-12T11:24:41.209Z" },
     { url = "https://files.pythonhosted.org/packages/87/06/8d760997307a5c3be4384424667bf31aae0a42060838c532c7d846516175/torch_c_dlpack_ext-0.1.5-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3562ee411258676f9c38b8ad39306d1c8d027b6a86f6a87c920d2d009a9d1510", size = 443069, upload-time = "2026-01-12T11:24:45.451Z" },
     { url = "https://files.pythonhosted.org/packages/e2/79/a914539b4785f3e44f891aa012a886edb8bc10fe081c440981c57543ce21/torch_c_dlpack_ext-0.1.5-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e6f9da4bb9af70e27facc777458be62e10dbbbddda7672d16138db0553c5a524", size = 897846, upload-time = "2026-01-12T11:24:48.168Z" },
+]
+
+[[package]]
+name = "torch-checkpointing"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "safetensors" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/f7/c16752b0fe0c4f79dc5d23f8eecb0d0ab4a7c2a348d2dd27edc17ee89bd6/torch_checkpointing-0.1.0.tar.gz", hash = "sha256:304725d78f7c110c521cfdb92357df371a423a0168d38f367cede63c122aea73", size = 181770, upload-time = "2026-08-13T01:36:48.14Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/e1/184f1abad2fa8f3090376772a99af4ee552bf939cde979332d203cb7c77e/torch_checkpointing-0.1.0-py3-none-any.whl", hash = "sha256:1a0944c88adcdbe88f4a68870d0d88b5a1c9e421cc5b604c84eda7c17d719164", size = 121315, upload-time = "2026-08-13T01:36:46.585Z" },
 ]
 
 [[package]]
@@ -4732,11 +4914,20 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "requests" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "extra == 'extra-4-verl-cpu' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
     { name = "urllib3" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/d4/af694ef718aedbe95a72760ab9ff7a6a7a44ace2d7f70c27bfeb67c5c503/torchdata-0.11.0-py3-none-any.whl", hash = "sha256:52b940fbbe0e00fb21cabddf528449d1bec5bfb0d0823b7487b15f951658ee33", size = 61968, upload-time = "2025-02-20T22:26:30.666Z" },
+]
+
+[[package]]
+name = "torchtitan"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/b7/c12d162b0f0f1c96052c70e456aad19038b46c4ddcb585bbd64e0bdf310d/torchtitan-0.3.0.tar.gz", hash = "sha256:6351b2dc6cdd8bdad15cd2ce5d9520e391a75b584770d2ebd925cc3321cd1b47", size = 1051942, upload-time = "2026-09-03T03:54:49.997Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/0f/42a9599a63200352f21cbd3ef21ae8696028e431e6ab82e0b737dc834097/torchtitan-0.3.0-py3-none-any.whl", hash = "sha256:5563ccf9a295b24e00a36087149e9c2d0686cecbd3972c31e67227029293af42", size = 1273061, upload-time = "2026-09-03T03:54:48.132Z" },
 ]
 
 [[package]]
@@ -4770,9 +4961,9 @@ resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
 dependencies = [
-    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "pillow", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
-    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "numpy", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "pillow", marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu130/torchvision-0.28.0%2Bcu130-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:a01d1ae4d6498cb0cdecc7f3ddba16471a5a43fa57039f7f6862ca0531bcfa7c", upload-time = "2026-07-08T12:26:51Z" },
@@ -4803,10 +4994,10 @@ wheels = [
 
 [[package]]
 name = "transferqueue"
-version = "0.1.10"
+version = "0.1.11"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/6b/374c1ce1078baa628314d068fe0994a58380a020d57b9b0427cc2560c98f/transferqueue-0.1.10-py3-none-any.whl", hash = "sha256:a8efceb971fe57d52ac7ddd86d9a6ef63f1824819dddc2ea980a96b73ff2f8ea", size = 360774, upload-time = "2026-08-21T21:23:24.561Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/67/52d95539c77597772ba4c3800faf13f5894568e60791fc45a7275f69039b/transferqueue-0.1.11-py3-none-any.whl", hash = "sha256:dfc5adb71e55732bb239f964d8e7fecea6eeaa66d9bdbdcc0b12ffe9a3b0c120", size = 410322, upload-time = "2026-09-24T02:12:06.947Z" },
 ]
 
 [[package]]
@@ -4879,6 +5070,18 @@ wheels = [
 ]
 
 [[package]]
+name = "typeguard"
+version = "4.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b4/de/4420db493fa8fc0856d5e5c1b159c63a323d2de2317babe36b01568928e8/typeguard-4.6.0.tar.gz", hash = "sha256:e7414f09111317de3e335de92cd397c5c0ca00b1cc1676de12e1d444a79b3f21", size = 82330, upload-time = "2026-07-26T08:40:23.207Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/eb/461d5f167b6f5c7d97696f397c82f82e3480e003fce3f0a1cd1dd26e2eb2/typeguard-4.6.0-py3-none-any.whl", hash = "sha256:79878165bb86f2cf5d41d159a0ff1792a796cf496882d2fe1b1c6c7049b9cdd7", size = 36884, upload-time = "2026-07-26T08:40:21.868Z" },
+]
+
+[[package]]
 name = "typer"
 version = "0.25.1"
 source = { registry = "https://pypi.org/simple" }
@@ -4912,6 +5115,29 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
+]
+
+[[package]]
+name = "tyro"
+version = "1.0.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docstring-parser" },
+    { name = "typeguard" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3c/83/4008dff806dc894fc0422017316982d3f14709046bcb0dfa720cb64501aa/tyro-1.0.16.tar.gz", hash = "sha256:edf23c9c3eecba5a2b5af152df8f34a723b689a001ff5b7311f93eff1893a636", size = 603382, upload-time = "2026-08-23T01:19:26.643Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/23/d9/ea12ca0392c9eaeff7421efcc665f350dbc2ef30a113ee13c7afea21cf37/tyro-1.0.16-py3-none-any.whl", hash = "sha256:2f9087196113699647190459a12b6b4f2784dd0703c50ab1f7bf0f85a3a794ea", size = 216925, upload-time = "2026-08-23T01:19:25.168Z" },
+]
+
+[[package]]
+name = "tzdata"
+version = "2025.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/a7/c202b344c5ca7daf398f3b8a477eeb205cf3b6f32e7ec3a6bac0629ca975/tzdata-2025.3.tar.gz", hash = "sha256:de39c2ca5dc7b0344f2eba86f49d614019d29f060fc4ebc8a417896a620b56a7", size = 196772, upload-time = "2025-12-13T17:45:35.667Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl", hash = "sha256:06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1", size = 348521, upload-time = "2025-12-13T17:45:33.889Z" },
 ]
 
 [[package]]
@@ -4968,12 +5194,8 @@ wheels = [
 
 [[package]]
 name = "veomni"
-version = "0.1.11"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/90/87/ef3e7edc90ed5266b5fcd6210b439e6bd86eddd6add6d46807465f0bc0cb/veomni-0.1.11.tar.gz", hash = "sha256:d4f2400384a2bf9cc91f786f426e684bf289d8b337a966c3419f80df7287b797", size = 1023124, upload-time = "2026-05-26T08:04:38.663Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/16/b70afce7300c6680d8460923c31c315f0aa64e55aea4f6aeee780da6ad91/veomni-0.1.11-py3-none-any.whl", hash = "sha256:fe399ead11350fa3d53cc53293cd60d0c1042f2fa15d599aeb89db9aa417b129", size = 1288446, upload-time = "2026-05-26T08:04:36.131Z" },
-]
+version = "0.1.12"
+source = { git = "https://github.com/ByteDance-Seed/VeOmni.git?rev=10a26aca258f91a7af3e698cc0db8c6c51705989#10a26aca258f91a7af3e698cc0db8c6c51705989" }
 
 [[package]]
 name = "verl"
@@ -5010,8 +5232,9 @@ cpu = [
     { name = "codetiming" },
     { name = "datasets" },
     { name = "dill" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "hydra-core" },
     { name = "mathruler" },
     { name = "megatron-core" },
@@ -5058,8 +5281,9 @@ fsdp = [
     { name = "cupy-cuda13x" },
     { name = "datasets" },
     { name = "dill" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
     { name = "flash-attn" },
     { name = "flash-linear-attention" },
     { name = "hydra-core" },
@@ -5079,13 +5303,13 @@ fsdp = [
     { name = "pytest-rerunfailures" },
     { name = "pyzmq" },
     { name = "qwen-vl-utils" },
-    { name = "ray", extra = ["default"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "ray", extra = ["default"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
     { name = "tensorboard" },
     { name = "tensordict" },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchaudio", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
-    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
-    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang')" },
+    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang')" },
     { name = "torchdata" },
     { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "transferqueue" },
@@ -5097,9 +5321,6 @@ fsdp = [
 math = [
     { name = "math-verify" },
 ]
-mcore = [
-    { name = "mbridge" },
-]
 megatron = [
     { name = "accelerate" },
     { name = "apex" },
@@ -5108,16 +5329,18 @@ megatron = [
     { name = "cupy-cuda13x" },
     { name = "datasets" },
     { name = "dill" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
     { name = "flash-attn" },
+    { name = "flash-linear-attention" },
     { name = "hydra-core" },
     { name = "liger-kernel" },
     { name = "mathruler" },
     { name = "matplotlib" },
-    { name = "mbridge" },
     { name = "megatron-bridge" },
     { name = "megatron-core" },
+    { name = "megatron-energon" },
     { name = "msgspec" },
     { name = "numpy" },
     { name = "nvidia-mathdx" },
@@ -5135,13 +5358,13 @@ megatron = [
     { name = "pytest-rerunfailures" },
     { name = "pyzmq" },
     { name = "qwen-vl-utils" },
-    { name = "ray", extra = ["default"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "ray", extra = ["default"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
     { name = "tensorboard" },
     { name = "tensordict" },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchaudio", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
-    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
-    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang')" },
+    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang')" },
     { name = "torchdata" },
     { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "transferqueue" },
@@ -5157,11 +5380,11 @@ sglang = [
     { name = "codetiming" },
     { name = "datasets" },
     { name = "dill" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
     { name = "hydra-core" },
     { name = "mathruler" },
-    { name = "mbridge" },
     { name = "msgspec" },
     { name = "numpy" },
     { name = "nvtx" },
@@ -5176,15 +5399,15 @@ sglang = [
     { name = "pytest-rerunfailures" },
     { name = "pyzmq" },
     { name = "qwen-vl-utils" },
-    { name = "ray", extra = ["default"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "ray", extra = ["default"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "sglang" },
     { name = "sglang-kernel" },
     { name = "tensorboard" },
     { name = "tensordict" },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchaudio", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
-    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
-    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "torchdata" },
     { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "transferqueue" },
@@ -5199,6 +5422,58 @@ test = [
     { name = "pytest-asyncio" },
     { name = "pytest-rerunfailures" },
 ]
+torchtitan = [
+    { name = "einops" },
+    { name = "spmd-types" },
+    { name = "torch-checkpointing" },
+    { name = "torchtitan" },
+    { name = "tyro" },
+]
+veomni = [
+    { name = "accelerate" },
+    { name = "cachetools" },
+    { name = "codetiming" },
+    { name = "cupy-cuda13x" },
+    { name = "datasets" },
+    { name = "dill" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "flash-attn" },
+    { name = "flash-linear-attention" },
+    { name = "hydra-core" },
+    { name = "liger-kernel" },
+    { name = "mathruler" },
+    { name = "msgspec" },
+    { name = "numpy" },
+    { name = "nvtx" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "peft" },
+    { name = "pyarrow" },
+    { name = "pybind11" },
+    { name = "pylatexenc" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-rerunfailures" },
+    { name = "pyzmq" },
+    { name = "qwen-vl-utils" },
+    { name = "ray", extra = ["default"], marker = "extra == 'extra-4-verl-fsdp' or extra == 'extra-4-verl-megatron' or extra == 'extra-4-verl-sglang' or extra == 'extra-4-verl-veomni' or extra == 'extra-4-verl-vllm' or extra != 'extra-4-verl-cpu'" },
+    { name = "tensorboard" },
+    { name = "tensordict" },
+    { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "torchaudio", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-cpu' and extra != 'extra-4-verl-sglang')" },
+    { name = "torchdata" },
+    { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+    { name = "transferqueue" },
+    { name = "transformers" },
+    { name = "trl" },
+    { name = "uvicorn" },
+    { name = "veomni" },
+    { name = "wandb" },
+]
 veomni-sft = [
     { name = "veomni" },
 ]
@@ -5208,8 +5483,9 @@ verl-core = [
     { name = "codetiming" },
     { name = "datasets" },
     { name = "dill" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang')" },
-    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "einops" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
+    { name = "fastapi", version = "0.137.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-cpu') or (platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (platform_machine == 'x86_64' and extra != 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "hydra-core" },
     { name = "mathruler" },
     { name = "msgspec" },
@@ -5229,7 +5505,7 @@ verl-core = [
     { name = "ray", extra = ["default"] },
     { name = "tensorboard" },
     { name = "tensordict" },
-    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
+    { name = "torchcodec", version = "0.15.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine == 'x86_64' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm')" },
     { name = "torchcodec", version = "0.16.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or extra == 'extra-4-verl-cpu' or extra != 'extra-4-verl-sglang' or (extra == 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
     { name = "torchdata" },
     { name = "transferqueue" },
@@ -5243,10 +5519,10 @@ vllm = [
     { name = "codetiming" },
     { name = "datasets" },
     { name = "dill" },
+    { name = "einops" },
     { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" } },
     { name = "hydra-core" },
     { name = "mathruler" },
-    { name = "mbridge" },
     { name = "msgspec" },
     { name = "numpy" },
     { name = "nvtx" },
@@ -5261,7 +5537,7 @@ vllm = [
     { name = "pytest-rerunfailures" },
     { name = "pyzmq" },
     { name = "qwen-vl-utils" },
-    { name = "ray", extra = ["default"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "ray", extra = ["default"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "tensorboard" },
     { name = "tensordict" },
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
@@ -5289,24 +5565,26 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'verl-core'" },
     { name = "dill" },
     { name = "dill", marker = "extra == 'verl-core'" },
+    { name = "einops", marker = "extra == 'torchtitan'" },
+    { name = "einops", marker = "extra == 'verl-core'" },
     { name = "fastapi", marker = "extra == 'verl-core'" },
     { name = "flash-attn", marker = "extra == 'flash-attn-cu130torch213'", specifier = "==2.8.3", index = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" },
     { name = "flash-linear-attention", marker = "extra == 'fsdp'", specifier = "==0.5.2" },
+    { name = "flash-linear-attention", marker = "extra == 'megatron'", specifier = "==0.5.2" },
+    { name = "flash-linear-attention", marker = "extra == 'veomni'", specifier = "==0.5.2" },
     { name = "hf-transfer", marker = "extra == 'ci'" },
     { name = "hydra-core" },
     { name = "hydra-core", marker = "extra == 'verl-core'" },
-    { name = "liger-kernel", marker = "extra == 'fsdp'", specifier = ">=0.8.2" },
-    { name = "liger-kernel", marker = "extra == 'megatron'", specifier = ">=0.8.2" },
+    { name = "liger-kernel", marker = "extra == 'fsdp'", specifier = "==0.8.4" },
+    { name = "liger-kernel", marker = "extra == 'megatron'", specifier = "==0.8.4" },
+    { name = "liger-kernel", marker = "extra == 'veomni'", specifier = "==0.8.4" },
     { name = "math-verify", marker = "extra == 'math'" },
     { name = "mathruler", marker = "extra == 'verl-core'" },
     { name = "matplotlib", marker = "extra == 'megatron'" },
-    { name = "mbridge", marker = "extra == 'mcore'", git = "https://github.com/ISEEKYAN/mbridge.git?rev=641a5a0" },
-    { name = "mbridge", marker = "extra == 'megatron'", git = "https://github.com/ISEEKYAN/mbridge.git?rev=641a5a0" },
-    { name = "mbridge", marker = "extra == 'sglang'", git = "https://github.com/ISEEKYAN/mbridge.git?rev=641a5a0" },
-    { name = "mbridge", marker = "extra == 'vllm'", git = "https://github.com/ISEEKYAN/mbridge.git?rev=641a5a0" },
-    { name = "megatron-bridge", marker = "extra == 'megatron'", specifier = "==0.5.2", index = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" },
-    { name = "megatron-core", marker = "extra == 'cpu'", git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.18.0" },
-    { name = "megatron-core", marker = "extra == 'megatron'", git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.18.0" },
+    { name = "megatron-bridge", marker = "extra == 'megatron'", specifier = "==0.6.2", index = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" },
+    { name = "megatron-core", marker = "extra == 'cpu'", git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.19.2" },
+    { name = "megatron-core", marker = "extra == 'megatron'", git = "https://github.com/NVIDIA/Megatron-LM.git?tag=core_v0.19.2" },
+    { name = "megatron-energon", marker = "extra == 'megatron'", specifier = "==7.4.1" },
     { name = "msgspec", marker = "extra == 'verl-core'" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "numpy", marker = "extra == 'verl-core'", specifier = ">=2.0.0" },
@@ -5346,6 +5624,7 @@ requires-dist = [
     { name = "sglang", marker = "extra == 'sglang'", specifier = "==0.5.20" },
     { name = "sglang-kernel", marker = "extra == 'sglang'" },
     { name = "sglang-router", marker = "extra == 'ci'", specifier = "==0.2.2" },
+    { name = "spmd-types", marker = "extra == 'torchtitan'", specifier = "==0.2.3" },
     { name = "tensorboard" },
     { name = "tensorboard", marker = "extra == 'verl-core'" },
     { name = "tensordict", specifier = ">=0.8.0,!=0.9.0,<=0.10.0" },
@@ -5354,21 +5633,26 @@ requires-dist = [
     { name = "torch", marker = "extra == 'fsdp'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "fsdp" } },
     { name = "torch", marker = "extra == 'megatron'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "megatron" } },
     { name = "torch", marker = "extra == 'sglang'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "sglang" } },
+    { name = "torch", marker = "extra == 'veomni'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "veomni" } },
     { name = "torch", marker = "extra == 'vllm'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "vllm" } },
+    { name = "torch-checkpointing", marker = "extra == 'torchtitan'", specifier = ">=0.1.0" },
     { name = "torchaudio", marker = "extra == 'cpu'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "verl", extra = "cpu" } },
     { name = "torchaudio", marker = "extra == 'fsdp'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "fsdp" } },
     { name = "torchaudio", marker = "extra == 'megatron'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "megatron" } },
     { name = "torchaudio", marker = "extra == 'sglang'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "sglang" } },
+    { name = "torchaudio", marker = "extra == 'veomni'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "veomni" } },
     { name = "torchaudio", marker = "extra == 'vllm'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "vllm" } },
     { name = "torchcodec", marker = "extra == 'verl-core'" },
     { name = "torchdata" },
     { name = "torchdata", marker = "extra == 'verl-core'" },
+    { name = "torchtitan", marker = "extra == 'torchtitan'", specifier = "==0.3.0" },
     { name = "torchvision", marker = "extra == 'cpu'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "verl", extra = "cpu" } },
     { name = "torchvision", marker = "extra == 'fsdp'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "fsdp" } },
     { name = "torchvision", marker = "extra == 'megatron'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "megatron" } },
     { name = "torchvision", marker = "extra == 'sglang'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "sglang" } },
+    { name = "torchvision", marker = "extra == 'veomni'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "veomni" } },
     { name = "torchvision", marker = "extra == 'vllm'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu130", conflict = { package = "verl", extra = "vllm" } },
-    { name = "transferqueue", marker = "extra == 'verl-core'", specifier = ">=0.1.10" },
+    { name = "transferqueue", marker = "extra == 'verl-core'", specifier = ">=0.1.11" },
     { name = "transformer-engine", marker = "extra == 'megatron'", index = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" },
     { name = "transformers", specifier = ">=5.5.3,!=5.6.0,<5.13" },
     { name = "transformers", marker = "extra == 'cpu'", specifier = "==5.12.1" },
@@ -5378,22 +5662,28 @@ requires-dist = [
     { name = "triton", marker = "extra == 'cpu'" },
     { name = "trl", marker = "extra == 'fsdp'", specifier = "==0.27.0" },
     { name = "trl", marker = "extra == 'megatron'", specifier = "==0.27.0" },
+    { name = "trl", marker = "extra == 'veomni'", specifier = "==0.27.0" },
+    { name = "tyro", marker = "extra == 'torchtitan'" },
     { name = "uvicorn", marker = "extra == 'verl-core'" },
-    { name = "veomni", marker = "extra == 'veomni-sft'", specifier = "==0.1.11" },
+    { name = "veomni", marker = "extra == 'veomni'", git = "https://github.com/ByteDance-Seed/VeOmni.git?rev=10a26aca258f91a7af3e698cc0db8c6c51705989" },
+    { name = "veomni", marker = "extra == 'veomni-sft'", git = "https://github.com/ByteDance-Seed/VeOmni.git?rev=10a26aca258f91a7af3e698cc0db8c6c51705989" },
     { name = "verl", extras = ["cupy-cu130"], marker = "extra == 'fsdp'" },
     { name = "verl", extras = ["cupy-cu130"], marker = "extra == 'megatron'" },
+    { name = "verl", extras = ["cupy-cu130"], marker = "extra == 'veomni'" },
     { name = "verl", extras = ["flash-attn-cu130torch213"], marker = "extra == 'fsdp'" },
     { name = "verl", extras = ["flash-attn-cu130torch213"], marker = "extra == 'megatron'" },
+    { name = "verl", extras = ["flash-attn-cu130torch213"], marker = "extra == 'veomni'" },
     { name = "verl", extras = ["verl-core"], marker = "extra == 'cpu'" },
     { name = "verl", extras = ["verl-core"], marker = "extra == 'fsdp'" },
     { name = "verl", extras = ["verl-core"], marker = "extra == 'megatron'" },
     { name = "verl", extras = ["verl-core"], marker = "extra == 'sglang'" },
+    { name = "verl", extras = ["verl-core"], marker = "extra == 'veomni'" },
     { name = "verl", extras = ["verl-core"], marker = "extra == 'vllm'" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = "==0.29.0" },
     { name = "wandb" },
     { name = "wandb", marker = "extra == 'verl-core'" },
 ]
-provides-extras = ["test", "math", "mcore", "verl-core", "flash-attn-cu130torch213", "cupy-cu130", "vllm", "sglang", "fsdp", "megatron", "ci", "veomni-sft", "cpu"]
+provides-extras = ["test", "math", "verl-core", "flash-attn-cu130torch213", "cupy-cu130", "vllm", "sglang", "fsdp", "megatron", "veomni", "ci", "veomni-sft", "torchtitan", "cpu"]
 
 [[package]]
 name = "virtualenv"
@@ -5425,12 +5715,12 @@ dependencies = [
     { name = "compressed-tensors", version = "0.17.0", source = { registry = "https://pypi.org/simple" } },
     { name = "depyf" },
     { name = "einops" },
-    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, extra = ["standard"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "fastsafetensors" },
     { name = "filelock" },
     { name = "flashinfer-python" },
     { name = "huggingface-hub" },
-    { name = "humming-kernels", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "humming-kernels", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "ijson" },
     { name = "instanttensor" },
     { name = "jsonschema" },
@@ -5438,14 +5728,14 @@ dependencies = [
     { name = "llguidance" },
     { name = "lm-format-enforcer" },
     { name = "mcp" },
-    { name = "mistral-common", extra = ["image"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "mistral-common", extra = ["image"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "model-hosting-container-standards" },
     { name = "msgspec" },
     { name = "ninja" },
     { name = "numba", version = "0.65.0", source = { registry = "https://pypi.org/simple" } },
     { name = "numpy" },
     { name = "nvidia-cudnn-frontend" },
-    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra == 'extra-4-verl-vllm')" },
+    { name = "nvidia-cutlass-dsl", extra = ["cu13"], marker = "(extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni') or (extra != 'extra-4-verl-cpu' and extra == 'extra-4-verl-vllm') or (extra != 'extra-4-verl-fsdp' and extra != 'extra-4-verl-megatron' and extra != 'extra-4-verl-sglang' and extra != 'extra-4-verl-veomni' and extra == 'extra-4-verl-vllm')" },
     { name = "nvtx" },
     { name = "openai", version = "2.41.1", source = { registry = "https://pypi.org/simple" } },
     { name = "openai-harmony", version = "0.0.8", source = { registry = "https://pypi.org/simple" } },
@@ -5547,12 +5837,38 @@ wheels = [
 ]
 
 [[package]]
+name = "wcmatch"
+version = "10.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bracex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/11/15/dc61746d8c0852f6d711ad09c774b63cf7c8211aa49e30871ac3d342b7e2/wcmatch-10.2.1.tar.gz", hash = "sha256:ecac70a5c70e62ba854b78318d3a1408e8651f8f1c96e5837743b71aa6a4fb92", size = 132497, upload-time = "2026-07-02T17:21:48.484Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/ba/20b48eedeab5316bf9a502bb9eb7e3b1588bd61d0f565822fefa8f06e10b/wcmatch-10.2.1-py3-none-any.whl", hash = "sha256:2d775395b93f233af66690f62cb9d52b084ec159a31cc4084f4069d72f437acd", size = 39763, upload-time = "2026-07-02T17:21:47.134Z" },
+]
+
+[[package]]
 name = "wcwidth"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/49/b4/51fe890511f0f242d07cb1ebe6a5b6db417262b9d2568b460347c57d95cc/wcwidth-0.8.1.tar.gz", hash = "sha256:faf5b4a5366a72dc49cad48cdf21f52bdf63bdda995178e483ba247ff79089b9", size = 1466072, upload-time = "2026-06-08T05:57:23.146Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/6e/95b0e537de1f4d4301f76f944642c6da50d1511cc7b3d64dc418a66c7509/wcwidth-0.8.1-py3-none-any.whl", hash = "sha256:f453740b1e4a4f3291faa37944c555d71056c4da08d59809b307ef4feba695c8", size = 323092, upload-time = "2026-06-08T05:57:21.413Z" },
+]
+
+[[package]]
+name = "webdataset"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "braceexpand" },
+    { name = "numpy" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/3a/68800d92e065cf4750ebecf973b13979c0c929b439e1293012938862038d/webdataset-1.0.2.tar.gz", hash = "sha256:7f0498be827cfa46cc5430a58768a24e2c6a410676a61be1838f53d61afdaab4", size = 80090, upload-time = "2025-06-19T23:26:21.945Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/00/aca6beb3658dab4ed3dbb41a78e6e7f31342e0b41d28088f205525751601/webdataset-1.0.2-py3-none-any.whl", hash = "sha256:3dbfced32b25c0d199c6b9787937b6f85742bc3c84f652c846893075c1c082d9", size = 74956, upload-time = "2025-06-19T23:26:20.354Z" },
 ]
 
 [[package]]
@@ -5609,6 +5925,29 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/d0/ae2fd64277a67f5d7bffcf2d05eea1e476263fb2a072baf0b0129ab85984/wrapt-2.2.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:0d9ff006f420b2ec8296aa56ade43ea7da3e997e85769f0aafc5e0661aacb710", size = 168922, upload-time = "2026-05-22T14:48:07.132Z" },
     { url = "https://files.pythonhosted.org/packages/1d/68/8d92c8800c57e93cb116ae9e9d6cbafc34fade5ee9f9107b6f203fb4dc35/wrapt-2.2.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:87bacdaf225117a342a20d9c03438d701c02112f6e3f351ce9b7f32354f14797", size = 167682, upload-time = "2026-05-22T14:48:10.042Z" },
     { url = "https://files.pythonhosted.org/packages/53/46/29ac9daf11a86c22a8c38cd9236c62928ccae83f7ceb06bd3b0467cf9d05/wrapt-2.2.1-py3-none-any.whl", hash = "sha256:3aafea2975caef8ca49400640dde02cc7426e798f24870ed01f490bc3cffd32f", size = 61000, upload-time = "2026-05-22T14:49:41.593Z" },
+]
+
+[[package]]
+name = "xattr"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/08/d5/25f7b19af3a2cb4000cac4f9e5525a40bec79f4f5d0ac9b517c0544586a0/xattr-1.3.0.tar.gz", hash = "sha256:30439fabd7de0787b27e9a6e1d569c5959854cb322f64ce7380fedbfa5035036", size = 17148, upload-time = "2025-10-13T22:16:47.353Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/2a/e29753ac17a92aadf27b9e16b1d600584d9f10acd0b399d2c06f47af2dff/xattr-1.3.0-cp310-cp310-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:69bca34be2d7a928389aff4e32f27857e1c62d04c91ec7c1519b1636870bd58f", size = 38547, upload-time = "2025-10-13T22:15:54.385Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/46/b2c9185d24b93542e4307ce30cd3d4eb6af8efdc843d98ff9f07fcb048d9/xattr-1.3.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:05f8e068409742d246babba60cff8310b2c577745491f498b08bf068e0c867a3", size = 38755, upload-time = "2025-10-13T22:15:55.738Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/0a/93cf1f03536bf38e8fd3fe57eb04124e4dfe2e16c0c5ced589d3360a1858/xattr-1.3.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:bbd06987102bc11f5cbd08b15d1029832b862cf5bc61780573fc0828812f01ca", size = 38052, upload-time = "2025-10-13T22:15:57.031Z" },
+    { url = "https://files.pythonhosted.org/packages/55/ad/60e43f7e1037cee671e14c2a283e3e7168b756c9938eba62f0616e6599aa/xattr-1.3.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:b8589744116d2c37928b771c50383cb281675cd6dcfd740abfab6883e3d4af85", size = 37560, upload-time = "2025-10-13T22:15:58.295Z" },
+    { url = "https://files.pythonhosted.org/packages/02/c2/a60aad150322b217dfe33695d8d9f32bc01e8f300641b6ba4b73f4b3c03f/xattr-1.3.0-cp311-cp311-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:4ae3a66ae1effd40994f64defeeaa97da369406485e60bfb421f2d781be3b75d", size = 38547, upload-time = "2025-10-13T22:16:01.973Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/58/2eca142bad4ea0a2be6b58d3122d0acce310c4e53fa7defd168202772178/xattr-1.3.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:69cd3bfe779f7ba87abe6473fdfa428460cf9e78aeb7e390cfd737b784edf1b5", size = 38753, upload-time = "2025-10-13T22:16:03.244Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/50/d032e5254c2c27d36bdb02abdf2735db6768a441f0e3d0f139e0f9f56638/xattr-1.3.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:c5742ca61761a99ae0c522f90a39d5fb8139280f27b254e3128482296d1df2db", size = 38054, upload-time = "2025-10-13T22:16:04.656Z" },
+    { url = "https://files.pythonhosted.org/packages/04/24/458a306439aabe0083ca0a7b14c3e6a800ab9782b5ec0bdcec4ec9f3dc6c/xattr-1.3.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:4a04ada131e9bdfd32db3ab1efa9f852646f4f7c9d6fde0596c3825c67161be3", size = 37562, upload-time = "2025-10-13T22:16:05.97Z" },
+    { url = "https://files.pythonhosted.org/packages/98/25/25cc7d64f07de644b7e9057842227adf61017e5bcfe59a79df79f768874c/xattr-1.3.0-cp312-cp312-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:b4345387087fffcd28f709eb45aae113d911e1a1f4f0f70d46b43ba81e69ccdd", size = 38797, upload-time = "2025-10-13T22:16:11.624Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/24/cc350bcdbed006dfcc6ade0ac817693b8b3d4b2787f20e427fd0697042e4/xattr-1.3.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:fe92bb05eb849ab468fe13e942be0f8d7123f15d074f3aba5223fad0c4b484de", size = 38956, upload-time = "2025-10-13T22:16:13.121Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/b2/9416317ac89e2ed759a861857cda0d5e284c3691e6f460d36cc2bd5ce4d1/xattr-1.3.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:6c42ef5bdac3febbe28d3db14d3a8a159d84ba5daca2b13deae6f9f1fc0d4092", size = 38214, upload-time = "2025-10-13T22:16:14.389Z" },
+    { url = "https://files.pythonhosted.org/packages/38/63/188f7cb41ab35d795558325d5cc8ab552171d5498cfb178fd14409651e18/xattr-1.3.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:2aaa5d66af6523332189108f34e966ca120ff816dfa077ca34b31e6263f8a236", size = 37754, upload-time = "2025-10-13T22:16:15.306Z" },
 ]
 
 [[package]]
