@@ -74,6 +74,8 @@ on:
       - "examples/data_preprocess/geo3k.py"
       - "tests/special_e2e/run_ppo_trainer_veomni.sh"
       - "tests/special_e2e/profiler_finish_hook_marker.sh"
+      - "tests/special_distributed/test_veomni_low_precision_comm.py"
+      - "verl/trainer/config/engine/veomni.yaml"
       - "verl/trainer/main_ppo.py"
       - "verl/trainer/config/ppo_trainer.yaml"
 
@@ -153,6 +155,10 @@ jobs:
       - name: Test export unfused experts
         run: |
           $UV_RUN python3 -m torch.distributed.run --nproc_per_node=8 tests/utils/veomni/test_special_export_unfused_experts.py
+      - name: Test node-local low-precision communication on two GPUs
+        run: |
+          $UV_RUN ray stop --force
+          CUDA_VISIBLE_DEVICES=0,1 $UV_RUN python3 -m torch.distributed.run --standalone --nproc-per-node=2 tests/special_distributed/test_veomni_low_precision_comm.py
 
   cleanup:
     runs-on: ubuntu-latest

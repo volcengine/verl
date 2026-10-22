@@ -18,7 +18,7 @@ engine tests, then exercise the config-based parallel-state API explicitly in th
 """
 
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -135,3 +135,128 @@ def test_full_shard_uses_veomni_reshard_option(monkeypatch, enable_full_shard):
     assert "enable_full_shard" not in parallelize.call_args.kwargs
     assert engine.module is module
     assert engine.optimizer is None
+
+
+def _prepare_model_build(monkeypatch, *, enabled=False, forward_only=False, mixed_precision=True):
+    module = SimpleNamespace(_no_split_modules=["DecoderLayer"])
+    engine = object.__new__(transformer_impl.VeOmniEngine)
+    engine.data_parallel_mode = "fsdp2"
+    engine.engine_config = VeOmniEngineConfig(
+        forward_only=forward_only,
+        mixed_precision=mixed_precision,
+        low_precision_reduce_scatter_comm=enabled,
+    )
+    engine.model_config = SimpleNamespace(
+        local_hf_config_path="/model", local_path="/model", enable_gradient_checkpointing=True
+    )
+    optimizer, scheduler = object(), object()
+    engine._build_optimizer = MagicMock(return_value=optimizer)
+    engine._build_lr_scheduler = MagicMock(return_value=scheduler)
+    precision = SimpleNamespace(enable=mixed_precision, param_dtype="bfloat16", reduce_dtype="float32")
+    make_precision = MagicMock(return_value=precision)
+    foundation = MagicMock(return_value=module)
+    parallelize = MagicMock()
+
+    def build_parallelize_model(model, *, low_precision_reduce_scatter_comm=False, **kwargs):
+        parallelize(model, low_precision_reduce_scatter_comm=low_precision_reduce_scatter_comm, **kwargs)
+        return model
+
+    validate_precision = MagicMock(return_value=True)
+    arguments_types = ModuleType("veomni.arguments.arguments_types")
+    arguments_types.validate_low_precision_reduce_scatter_comm = validate_precision
+    monkeypatch.setitem(sys.modules, arguments_types.__name__, arguments_types)
+    monkeypatch.setattr(transformer_impl, "_build_ops_implementation_config", MagicMock())
+    monkeypatch.setattr(transformer_impl, "MixedPrecisionConfig", make_precision)
+    monkeypatch.setattr(transformer_impl, "build_foundation_model", foundation)
+    monkeypatch.setattr(transformer_impl, "build_parallelize_model", build_parallelize_model)
+    monkeypatch.setattr(transformer_impl, "load_safetensors_index", MagicMock(return_value={}))
+    monkeypatch.setattr(transformer_impl, "log_gpu_memory_usage", MagicMock())
+    return SimpleNamespace(
+        engine=engine,
+        module=module,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        precision=precision,
+        make_precision=make_precision,
+        foundation=foundation,
+        parallelize=parallelize,
+        validate_precision=validate_precision,
+    )
+
+
+@pytest.mark.parametrize(
+    ("enabled", "forward_only", "mixed_precision"),
+    [(False, False, False), (False, False, True), (True, False, True), (False, True, True), (True, True, True)],
+)
+def test_low_precision_communication_reaches_only_training_builder(monkeypatch, enabled, forward_only, mixed_precision):
+    build = _prepare_model_build(
+        monkeypatch, enabled=enabled, forward_only=forward_only, mixed_precision=mixed_precision
+    )
+    engine = build.engine
+
+    engine._build_model_optimizer()
+
+    build.make_precision.assert_called_once_with(enable=mixed_precision)
+    assert build.foundation.call_args.kwargs["torch_dtype"] == ("float32" if mixed_precision else "bfloat16")
+    assert build.parallelize.call_args.kwargs["mixed_precision"] is build.precision
+    assert build.parallelize.call_args.kwargs["low_precision_reduce_scatter_comm"] is (enabled and not forward_only)
+    if enabled and not forward_only:
+        build.validate_precision.assert_called_once_with(True, build.precision, fsdp_mode="fsdp2")
+    else:
+        build.validate_precision.assert_not_called()
+    if forward_only:
+        engine._build_optimizer.assert_not_called()
+        engine._build_lr_scheduler.assert_not_called()
+        assert engine.optimizer is None
+        assert engine.lr_scheduler is None
+    else:
+        engine._build_optimizer.assert_called_once_with(build.module)
+        engine._build_lr_scheduler.assert_called_once_with(build.optimizer)
+        assert engine.optimizer is build.optimizer
+        assert engine.lr_scheduler is build.scheduler
+
+
+def test_low_precision_communication_rejects_builder_that_would_swallow_option(monkeypatch):
+    build = _prepare_model_build(monkeypatch, enabled=True)
+
+    def old_builder(model, **kwargs):
+        return model
+
+    monkeypatch.setattr(transformer_impl, "build_parallelize_model", old_builder)
+
+    with pytest.raises(RuntimeError, match="low_precision_reduce_scatter_comm"):
+        build.engine._build_model_optimizer()
+
+    build.foundation.assert_not_called()
+    build.validate_precision.assert_not_called()
+
+
+@pytest.mark.parametrize(("enabled", "forward_only"), [(False, False), (False, True), (True, True)])
+def test_inactive_communication_preserves_older_builder_support(monkeypatch, enabled, forward_only):
+    build = _prepare_model_build(monkeypatch, enabled=enabled, forward_only=forward_only)
+    monkeypatch.setitem(sys.modules, "veomni.arguments.arguments_types", None)
+    calls = MagicMock()
+
+    def old_builder(model, **kwargs):
+        calls(**kwargs)
+        return model
+
+    monkeypatch.setattr(transformer_impl, "build_parallelize_model", old_builder)
+
+    build.engine._build_model_optimizer()
+
+    assert calls.call_args.kwargs["low_precision_reduce_scatter_comm"] is False
+    assert build.engine.module is build.module
+    build.validate_precision.assert_not_called()
+
+
+def test_low_precision_validation_failure_precedes_model_loading(monkeypatch):
+    build = _prepare_model_build(monkeypatch, enabled=True, mixed_precision=False)
+    build.validate_precision.side_effect = ValueError("low-precision transport requires enabled mixed precision")
+
+    with pytest.raises(ValueError, match="requires enabled mixed precision"):
+        build.engine._build_model_optimizer()
+
+    build.validate_precision.assert_called_once_with(True, build.precision, fsdp_mode="fsdp2")
+    build.foundation.assert_not_called()
+    build.parallelize.assert_not_called()
