@@ -325,7 +325,7 @@ def check_sync_matches_engine(model: torch.nn.Module, named_tensors: list[tuple[
             + "\nThe engine built these layers from its quantization_config.ignored_layers and model code; the "
             "trainer-side exporter quantized from rollout.quantization. load_weights would cast each tensor into a "
             "buffer of the other format (an FP8 layer would never receive its scale). Check "
-            "rollout.quantization.ignore against docs/low_precision/fp8.md (MXFP8 Rollout on SGLang)."
+            "rollout.quantization.ignore against docs/low_precision/mxfp8.md (Checks)."
         )
     if not model.__dict__.get(_SYNC_CACHE_ATTR + "_announced"):
         model.__dict__[_SYNC_CACHE_ATTR + "_announced"] = True
