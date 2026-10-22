@@ -20,7 +20,7 @@ import ray
 from omegaconf import DictConfig, OmegaConf
 
 from verl.plugin.platform import get_platform
-from verl.trainer.constants_ppo import export_batch_invariant_env, get_ppo_ray_runtime_env
+from verl.trainer.constants_ppo import batch_invariant_requested, export_batch_invariant_env, get_ppo_ray_runtime_env
 from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import auto_set_device, is_cuda_available
@@ -49,8 +49,7 @@ def run_ppo(config, task_runner_class) -> None:
         os.environ["VERL_FULL_DETERMINISM"] = "1"
         os.environ["VLLM_BATCH_INVARIANT"] = "1"
         os.environ["PYTHONHASHSEED"] = str(rollout_cfg.seed)
-    actor_fsdp_cfg = config.actor_rollout_ref.actor.get("fsdp_config")
-    if actor_fsdp_cfg is not None and actor_fsdp_cfg.batch_invariant:
+    if batch_invariant_requested(config):
         export_batch_invariant_env()
 
     trainer_logger = config.trainer.get("logger", [])
