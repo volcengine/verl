@@ -113,15 +113,19 @@ def validate_real_nvfp4_parallelism(*, pipeline_size: int, virtual_pipeline_size
         )
 
 
-def validate_real_nvfp4_te_recipe(recipe: Any, *, backward_override: str) -> None:
+BACKWARD_OVERRIDES = ("dequantized", "high_precision")
+
+
+def validate_real_nvfp4_te_recipe(recipe: Any) -> None:
     """Validate the effective Transformer Engine NVFP4 recipe.
 
     TE reads these fields from ``NVTE_*`` environment variables when the recipe
-    is constructed, so this catches a worker started without them.
+    is constructed, so this catches a worker started without them. Backward
+    GEMMs may use the dequantized forward operands or the high-precision ones
+    (``NVTE_BACKWARD_OVERRIDE``); every other field is fixed.
     """
 
     expected = {
-        "backward_override": backward_override,
         "row_scaled_activation": True,
         "disable_rht": True,
         "disable_stochastic_rounding": True,
@@ -143,5 +147,8 @@ def validate_real_nvfp4_te_recipe(recipe: Any, *, backward_override: str) -> Non
             actual = getattr(group, field_name, None)
             if actual is not False:
                 mismatches[f"{group_name}.{field_name}"] = {"expected": False, "actual": actual}
+    backward_override = getattr(recipe, "backward_override", None)
+    if backward_override not in BACKWARD_OVERRIDES:
+        mismatches["backward_override"] = {"expected": BACKWARD_OVERRIDES, "actual": backward_override}
     if mismatches:
         raise RuntimeError(f"real_nvfp4 Transformer Engine recipe drifted: {mismatches}")

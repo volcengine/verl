@@ -221,8 +221,7 @@ class MegatronEngine(BaseEngine):
         )
         if self._real_nvfp4_enabled:
             logger.info(
-                "Real NVFP4 enabled in MegatronEngine: backward=%s, BF16 layers at start/end=%d/%d",
-                self._real_nvfp4_config.backward_override,
+                "Real NVFP4 enabled in MegatronEngine: BF16 layers at start/end=%d/%d",
                 self._real_nvfp4_config.num_layers_at_start_in_bf16,
                 self._real_nvfp4_config.num_layers_at_end_in_bf16,
             )
@@ -487,7 +486,7 @@ class MegatronEngine(BaseEngine):
         recipe = get_fp4_recipe(self.tf_config)
         if type(recipe).__name__ != "NVFP4BlockScaling":
             raise RuntimeError(f"Expected Transformer Engine NVFP4BlockScaling, got {type(recipe).__name__}")
-        validate_real_nvfp4_te_recipe(recipe, backward_override=self._real_nvfp4_config.backward_override)
+        validate_real_nvfp4_te_recipe(recipe)
 
         # Check the effective precision of every TE linear module: routed-expert
         # GEMMs outside the carve-out in NVFP4, everything else in BF16.

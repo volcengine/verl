@@ -87,6 +87,9 @@ Logging uses verl's standard console and W&B integration.
 Transformer Engine reads its NVFP4 settings from `NVTE_*` environment variables
 in each worker; `runtime_env.yaml` sets them and the trainer rejects a recipe
 that differs. Keep these variables when passing another file via `RUNTIME_ENV`.
+Only `NVTE_BACKWARD_OVERRIDE` may change: `dequantized` (the default here) runs
+the backward GEMMs on the dequantized forward operands, `high_precision` on the
+original BF16 ones.
 
 R3 uses vLLM's native routing capture inside the fused MoE path. Runtime checks
 validate the exported expert tensors, the NVFP4 layer selection and the scale

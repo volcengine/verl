@@ -153,21 +153,17 @@ class RealNVFP4EngineConfig(BaseConfig):
     with ModelOpt fake-quant modules. Routed-expert MLP GEMMs run Transformer
     Engine's NVFP4 recipe, with activations scaled per token, while parameters
     stay BF16. It pairs with ``rollout.quantization.moe=NVFP4_PER_TOKEN``, whose
-    ``ignore`` list must keep the same carved-out layers in BF16. Attention
-    remains BF16 on both sides.
+    ``ignore`` list must keep the same carved-out layers in BF16. Attention,
+    dense MLPs and shared experts stay BF16 on both sides. Transformer Engine
+    reads the NVFP4 recipe, including the backward mode, from ``NVTE_*``
+    environment variables, which the engine validates.
     """
 
     enable: bool = False
-    backward_override: str = "dequantized"
     num_layers_at_start_in_bf16: int = 0
     num_layers_at_end_in_bf16: int = 0
 
     def __post_init__(self) -> None:
-        if self.backward_override not in {"dequantized", "high_precision"}:
-            raise ValueError(
-                "real_nvfp4.backward_override must be 'dequantized' or 'high_precision', "
-                f"got {self.backward_override!r}"
-            )
         if self.num_layers_at_start_in_bf16 < 0 or self.num_layers_at_end_in_bf16 < 0:
             raise ValueError(
                 "real_nvfp4 BF16 layer carve-out must be non-negative, got "

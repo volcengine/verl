@@ -99,7 +99,6 @@ actor_rollout_ref:
       real_nvfp4:
         _target_: verl.workers.config.RealNVFP4EngineConfig
         enable: false
-        backward_override: dequantized
         num_layers_at_start_in_bf16: 0
         num_layers_at_end_in_bf16: 0
     _target_: verl.workers.config.McoreActorConfig
@@ -306,7 +305,6 @@ actor_rollout_ref:
       real_nvfp4:
         _target_: verl.workers.config.RealNVFP4EngineConfig
         enable: false
-        backward_override: dequantized
         num_layers_at_start_in_bf16: 0
         num_layers_at_end_in_bf16: 0
     _target_: verl.workers.config.McoreActorConfig
@@ -656,7 +654,6 @@ critic:
     real_nvfp4:
       _target_: verl.workers.config.RealNVFP4EngineConfig
       enable: false
-      backward_override: dequantized
       num_layers_at_start_in_bf16: 0
       num_layers_at_end_in_bf16: 0
   _target_: verl.workers.config.McoreCriticConfig

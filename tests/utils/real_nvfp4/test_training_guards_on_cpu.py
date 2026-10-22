@@ -132,7 +132,8 @@ def _te_recipe(**overrides):
 
 
 def test_te_recipe_contract_accepts_expected_semantics():
-    validate_real_nvfp4_te_recipe(_te_recipe(), backward_override="dequantized")
+    validate_real_nvfp4_te_recipe(_te_recipe())
+    validate_real_nvfp4_te_recipe(_te_recipe(backward_override="high_precision"))
 
 
 @pytest.mark.parametrize(
@@ -140,11 +141,13 @@ def test_te_recipe_contract_accepts_expected_semantics():
     [
         {"nvfp4_4over6": "all"},
         {"row_scaled_activation": False},
+        # A worker started without NVTE_BACKWARD_OVERRIDE
+        {"backward_override": None},
     ],
 )
 def test_te_recipe_contract_rejects_drift(overrides):
     with pytest.raises(RuntimeError, match="recipe drifted"):
-        validate_real_nvfp4_te_recipe(_te_recipe(**overrides), backward_override="dequantized")
+        validate_real_nvfp4_te_recipe(_te_recipe(**overrides))
 
 
 class NVFP4BlockScaling(SimpleNamespace):
@@ -188,9 +191,7 @@ def test_runtime_attestation_on_a_dense_mla_shared_expert_layout(monkeypatch):
     root = _deepseek_like_modules(recipe)
     engine = SimpleNamespace(
         _real_nvfp4_enabled=True,
-        _real_nvfp4_config=SimpleNamespace(
-            backward_override="dequantized", num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1
-        ),
+        _real_nvfp4_config=SimpleNamespace(num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1),
         tf_config=SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
         model_config=SimpleNamespace(hf_config=SimpleNamespace(num_hidden_layers=6, n_routed_experts=8)),
         module=[root],
