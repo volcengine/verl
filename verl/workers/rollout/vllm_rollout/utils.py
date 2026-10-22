@@ -293,6 +293,9 @@ class vLLMColocateWorkerExtension:
         lora_weights: dict[str, torch.Tensor] | None = {} if (peft_config and base_sync_done) else None
 
         def on_bucket_received(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
+            from verl.utils.weight_diagnostics import trace_weights
+
+            trace_weights("rollout.received_bucket", tensors=weights, is_last=is_last)
             if lora_weights is not None:
                 # Clone: add_lora keeps these past the callback (reused IPC buffer, #6454).
                 lora_weights.update((name, tensor.clone()) for name, tensor in weights)
@@ -326,6 +329,10 @@ class vLLMColocateWorkerExtension:
             with fold_unquantized_moe_params(staged_moe_layers):
                 for model, model_config in self._iter_all_models_with_config():
                     process_weights_after_loading(model, model_config, self.device)
+
+        from verl.utils.weight_diagnostics import trace_weights
+
+        trace_weights("rollout.after_load", model=self.model_runner.model)
 
     def _apply_buffer_updates_all_models(self, buffer_updates, main_named_buffers):
         """Apply buffer updates to the main model and any synced MTP drafter.
