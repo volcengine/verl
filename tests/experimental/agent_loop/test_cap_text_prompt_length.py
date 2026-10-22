@@ -90,6 +90,14 @@ def test_middle_keeps_head_and_tail(prompt_length: int):
     assert out == out[: (prompt_length + 1) // 2] + list(range(10))[-(prompt_length - (prompt_length + 1) // 2) :]
 
 
+def test_middle_cap1_does_not_extend_prompt():
+    """``middle`` at cap=1 must not select the whole list via ``[-0:]``."""
+    loop = _make_loop(1, "middle")
+    out = loop._cap_text_prompt_length(list(range(10)))
+    assert len(out) == 1
+    assert out == [0]
+
+
 def test_unknown_policy_raises():
     """An unrecognized ``truncation`` value must not silently fall back to slicing."""
     loop = _make_loop(4, "banana")

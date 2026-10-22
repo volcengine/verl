@@ -496,7 +496,8 @@ class AgentLoopBase(ABC):
                 prompt_length,
             )
             head = (prompt_length + 1) // 2
-            return prompt_ids[:head] + prompt_ids[-(prompt_length - head):]
+            tail_length = prompt_length - head
+            return prompt_ids[:head] + prompt_ids[len(prompt_ids) - tail_length:]
 
         raise ValueError(
             f"Prompt of {len(prompt_ids)} tokens exceeds rollout.prompt_length={prompt_length}; "
