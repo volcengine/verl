@@ -510,11 +510,16 @@ class MegatronEngine(BaseEngine):
                     continue
                 quant_params = submodule.te_quant_params
                 if quant_params is None:
-                    raise RuntimeError(f"real_nvfp4 per-module recipe did not match {name}")
+                    # Without per-module params a TE module inherits the outer autocast. That is
+                    # BF16 only for a submodel built without FP4, such as a VLM vision tower.
+                    if getattr(getattr(submodule, "config", None), "fp4", None):
+                        raise RuntimeError(f"real_nvfp4 per-module recipe did not match {name}")
+                    actual = fp8 = None
+                else:
+                    actual = recipe_name(quant_params.training_recipe, "fp4_quantization_recipe")
+                    fp8 = recipe_name(quant_params.training_recipe, "fp8_quantization_recipe")
                 layer = layer_index.search(name)
                 nvfp4 = is_routed_expert_module(name) and layer is not None and int(layer.group(1)) not in carved
-                actual = recipe_name(quant_params.training_recipe, "fp4_quantization_recipe")
-                fp8 = recipe_name(quant_params.training_recipe, "fp8_quantization_recipe")
                 if fp8 is not None or actual != ("nvfp4" if nvfp4 else None):
                     mismatches.append((name, actual, fp8))
                 elif nvfp4:

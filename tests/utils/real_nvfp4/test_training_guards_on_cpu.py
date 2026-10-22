@@ -203,3 +203,33 @@ def test_runtime_attestation_on_a_dense_mla_shared_expert_layout(monkeypatch):
     shared.te_quant_params.training_recipe.fp4_quantization_recipe = "nvfp4"
     with pytest.raises(RuntimeError, match="unexpected precision"):
         attest(engine)
+
+
+def test_runtime_attestation_accepts_a_vision_tower_built_without_fp4(monkeypatch):
+    pytest.importorskip("megatron.core.quantization.quant_config")
+    import megatron.core.fp4_utils
+    from megatron.core.quantization.quant_config import RecipeConfig
+
+    te_recipe = NVFP4BlockScaling(**vars(_te_recipe()))
+    monkeypatch.setattr(megatron.core.fp4_utils, "get_fp4_recipe", lambda config: te_recipe)
+    attest = _engine_method("_attest_real_nvfp4_runtime", re=re, unwrap_model=lambda module: module)
+    root = _deepseek_like_modules(RecipeConfig.from_config_dict(real_nvfp4_quant_recipe_config(6, 1, 1)))
+    # A VLM vision tower gets no per-module params; its own config has no FP4, so it runs in BF16.
+    vision = torch.nn.Module()
+    vision.te_quant_params = None
+    vision.config = SimpleNamespace(fp4=None)
+    root.add_module("vision_model", torch.nn.Module())
+    root.vision_model.add_module("linear_proj", vision)
+    engine = SimpleNamespace(
+        _real_nvfp4_enabled=True,
+        _real_nvfp4_config=SimpleNamespace(num_layers_at_start_in_bf16=1, num_layers_at_end_in_bf16=1),
+        tf_config=SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
+        model_config=SimpleNamespace(hf_config=SimpleNamespace(num_hidden_layers=6, n_routed_experts=8)),
+        module=[root],
+    )
+    attest(engine)
+
+    # The same module under an FP4 config would inherit the FP4 autocast.
+    vision.config = SimpleNamespace(fp4="e2m1")
+    with pytest.raises(RuntimeError, match="did not match vision_model.linear_proj"):
+        attest(engine)
