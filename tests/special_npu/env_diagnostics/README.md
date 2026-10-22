@@ -33,13 +33,12 @@ python3 tests/special_npu/env_diagnostics/collect.py \
 
 ## CI 接入与触发
 
-沿用仓库现有的 CI 入口，不增加标签或手动 dispatch 入口：
+`nightly_ci_ascend` 增加普通 `pull_request` 事件（目标 main，带源码／配置／诊断脚本路径过滤），不需要标签，不增加手动 dispatch 入口。
 
-- PR 创建、更新或重新打开时，命中路径过滤会触发现有 `e2e_ascend`。查看 `E2E Ascend testing for RL training scenarios of VLM models` job。它依赖 `llm_rl_job` 成功，保留原来的 `SAVE_FREQ=-1 TOTAL_TRAINING_STEPS=1`，可查看初始化和首步诊断；不是完整 15 步 nightly。诊断仅在 Qwen3-VL 训练步骤启用，不传入后续 FSDP-Turbo 步骤。
-- `nightly_ci_ascend` 保留原来的 schedule 和 job 条件。改动合并后，Qwen3-VL 定时 job 会自动采集完整 nightly 日志。重新运行历史 Action 仍使用历史代码，不会包含本 PR。
-- 如果 PR CI 等待批准，按仓库既有流程请维护者批准，并在 CONTRIBUTING/PR 模板指定的 ci-request 渠道申请 CI；本工具不会代发消息。已有运行可在 Actions 中使用 Re-run jobs，但需确认该运行对应最新 PR 提交。
-
-PR E2E artifact 名为 `ascend-e2e-diagnostics-<run id>-<attempt>`；不包含 nightly 的 baseline/checker，因为原 E2E 不运行该检查。
+- PR 创建、更新或重新打开时，命中路径过滤即可运行 `nightlyCI_grpo_qwen3_vl_8b_Instruct_fsdp2_vllm_ascend`。使用正常 PR merge ref，在合并前运行完整 Qwen3-VL nightly：16 卡、train batch 32、mini batch 16、launcher 默认 15 步、原有 baseline 下载和检查。
+- 该 job 无需等待 E2E 的 LLM job。原有 1-step `e2e_ascend` 文件保持不变，不额外接入这些诊断。
+- 定时事件保持不变；其他 nightly jobs 的条件和内容完全不变，因此 PR 事件下它们跳过。
+- 如果 PR CI 等待批准，按仓库既有流程请维护者批准，并在 PR 模板指定的 ci-request 渠道申请 CI。已有运行可使用 Re-run jobs，但须确认对应最新 PR 提交；重跑历史 Action 不会带上新增日志。
 
 Artifact 名为 `ascend-diagnostics-<run id>-<attempt>`，保留 14 天：
 
