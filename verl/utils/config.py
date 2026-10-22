@@ -119,6 +119,69 @@ def _validate_score_centering_config(config: DictConfig) -> None:
         raise ValueError("score centering cannot be combined with distillation.")
 
 
+def _validate_teacher_rollout_config(config: DictConfig) -> None:
+    """Fail before allocation when teacher generation would enter an unsupported training path."""
+    selector = OmegaConf.select(config, "distillation.rollout_source_selector")
+    if selector is None:
+        return
+    if not isinstance(selector, dict | DictConfig):
+        raise ValueError("distillation.rollout_source_selector must contain path, name, and optional kwargs.")
+    path, name = selector.get("path"), selector.get("name")
+    kwargs = selector.get("kwargs", {})
+    if (
+        bool(path) != bool(name)
+        or any(value is not None and (not isinstance(value, str) or not value) for value in (path, name))
+        or not isinstance(kwargs, dict | DictConfig)
+        or any(key in kwargs for key in ("batch", "global_step", "seed"))
+        or (not path and kwargs)
+    ):
+        raise ValueError("distillation.rollout_source_selector requires a nonempty path/name pair and policy kwargs.")
+    if not path:
+        return
+
+    def require(path: str, expected: Any, default: Any = None) -> None:
+        if OmegaConf.select(config, path, default=default) != expected:
+            raise ValueError(f"A rollout_source_selector requires {path}={expected!r}.")
+
+    for path, expected, default in (
+        ("distillation.enabled", True, False),
+        ("trainer.use_v1", True, True),
+        ("trainer.v1.trainer_mode", "sync", "sync"),
+        ("actor_rollout_ref.rollout.name", "vllm", None),
+        ("actor_rollout_ref.rollout.agent.default_agent_loop", "single_turn_agent", "single_turn_agent"),
+        ("actor_rollout_ref.rollout.multi_turn.enable", False, False),
+        ("distillation.distillation_loss.loss_mode", "forward_kl_topk", None),
+        ("distillation.distillation_loss.use_policy_gradient", False, True),
+        ("distillation.distillation_loss.use_task_rewards", False, True),
+        ("actor_rollout_ref.rollout.calculate_log_probs", False, True),
+        ("actor_rollout_ref.rollout.temperature", 1.0, None),
+        ("trainer.v1.sampler.sync_refill_failed_groups", False, False),
+    ):
+        require(path, expected, default)
+    for path in (
+        "actor_rollout_ref.rollout.agent.agent_loop_manager_class",
+        "actor_rollout_ref.rollout.agent.agent_loop_config_path",
+        "trainer.v1.sampler.custom_sampler.path",
+        "trainer.v1.sampler.custom_sampler.name",
+    ):
+        if OmegaConf.select(config, path):
+            raise ValueError(f"A rollout_source_selector does not support {path}.")
+
+    topk = config.distillation.distillation_loss.topk
+    if topk is None or topk <= 0:
+        raise ValueError("A rollout_source_selector requires distillation.distillation_loss.topk > 0.")
+    teachers = config.distillation.teacher_models
+    # Match DistillationConfig._resolve_teacher_models: custom entries replace the default entry.
+    names = [name for name in teachers if name != "teacher_model"] if len(teachers) > 1 else list(teachers)
+    if len(names) != 1:
+        raise ValueError("A rollout_source_selector requires exactly one resolved distillation.teacher_models entry.")
+    prefix = f"distillation.teacher_models.{names[0]}"
+    require(f"{prefix}.inference.name", "vllm")
+    require(f"{prefix}.inference.temperature", 1.0)
+    if not OmegaConf.select(config, f"{prefix}.model_path"):
+        raise ValueError(f"A rollout_source_selector requires {prefix}.model_path.")
+
+
 def validate_config(
     config: DictConfig,
     use_reference_policy: bool,
@@ -131,6 +194,8 @@ def validate_config(
         use_reference_policy (bool): is ref policy needed
         use_critic (bool): is critic needed
     """
+    _validate_teacher_rollout_config(config)
+
     # number of GPUs total
     n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
 
