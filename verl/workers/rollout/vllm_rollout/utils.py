@@ -163,6 +163,8 @@ class vLLMColocateWorkerExtension:
 
     # Set per instance in __new__ when the rollout uses the NVFP4_PER_TOKEN preset.
     _nvfp4_per_token_config = None
+    # Set when an NVFP4_PER_TOKEN refit stopped part-way and left a mix of old and new layers.
+    _nvfp4_per_token_update_failed = False
 
     def __new__(cls, **kwargs):
         set_death_signal()
@@ -276,6 +278,10 @@ class vLLMColocateWorkerExtension:
 
         from verl.utils.vllm.vllm_nvfp4_per_token_utils import NVFP4PerTokenRefitCheck
 
+        if self._nvfp4_per_token_update_failed:
+            raise RuntimeError(
+                "A previous NVFP4_PER_TOKEN refit did not complete and left part of the model updated; restart the job"
+            )
         model = self.model_runner.get_model()
         model_config = self.model_runner.vllm_config.model_config
         check = NVFP4PerTokenRefitCheck(model, self._nvfp4_per_token_config)
@@ -287,22 +293,31 @@ class vLLMColocateWorkerExtension:
                 return
             try:
                 check.check_bucket(weights)
+                param_updates, buffer_updates, named_buffers = split_buffer_updates(model, weights)
                 # The layerwise reload holds a layer's tensors until the layer is complete,
                 # while the receiver reuses its IPC buffer for the next bucket.
-                model.load_weights([(name, tensor.clone()) for name, tensor in weights])
+                param_updates = drop_tied_alias_updates(model, param_updates)
+                model.load_weights([(name, tensor.clone()) for name, tensor in param_updates])
+                apply_buffer_updates(model, buffer_updates, named_buffers=named_buffers)
             except BaseException as exc:
                 # Keep acknowledging the remaining buckets so the sender is not left
                 # blocked, then raise once the round has finished.
                 error = exc
 
         initialize_layerwise_reload(model)
-        receiver = BucketedWeightReceiver(zmq_handle=self._get_zmq_handle(), device=self.device, use_shm=use_shm)
-        receiver.receive_weights(on_bucket_received=load_bucket)
-        if error is not None:
-            raise error
-        check.finish()
-        finalize_layerwise_reload(model, model_config)
-        self._attest_nvfp4_per_token_runtime()
+        try:
+            receiver = BucketedWeightReceiver(zmq_handle=self._get_zmq_handle(), device=self.device, use_shm=use_shm)
+            receiver.receive_weights(on_bucket_received=load_bucket)
+            if error is not None:
+                raise error
+            check.finish()
+            finalize_layerwise_reload(model, model_config)
+            self._attest_nvfp4_per_token_runtime()
+        except BaseException:
+            # Earlier buckets may already have replaced weights, so neither this model nor a
+            # later refit starting from it can be trusted.
+            self._nvfp4_per_token_update_failed = True
+            raise
 
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):
         """Update the weights of the rollout model."""

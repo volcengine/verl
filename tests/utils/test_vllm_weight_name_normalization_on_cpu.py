@@ -1041,3 +1041,8 @@ def test_nvfp4_per_token_load_error_still_drains_the_round(monkeypatch):
         worker.update_weights_from_ipc(peft_config=None, base_sync_done=False)
     # Every bucket is still acknowledged; nothing is loaded or finalized after the error.
     assert events == ["initialize", "load", "ack0", "ack1", "ack2"]
+
+    # The model is now partly updated: a later refit must not start from it.
+    with pytest.raises(RuntimeError, match="restart the job"):
+        worker.update_weights_from_ipc(peft_config=None, base_sync_done=False)
+    assert events == ["initialize", "load", "ack0", "ack1", "ack2"]

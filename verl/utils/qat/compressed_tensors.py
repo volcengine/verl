@@ -48,6 +48,7 @@ __all__ = [
     "CompressedTensorsWeightQuantizer",
     "Fp8ConfigWeightQuantizer",
     "NVFP4PerTokenWeightQuantizer",
+    "is_nvfp4_per_token_config",
     "is_nvfp4_per_token_scheme",
     "nvfp4_per_token_module_matcher",
     "dispatch_rollout_weight_quantizer",
@@ -207,6 +208,16 @@ def is_nvfp4_per_token_scheme(weights: Any, input_activations: Any) -> bool:
         else getattr(input_activations, "dynamic", None)
     )
     return dynamic is True
+
+
+def is_nvfp4_per_token_config(quantization_config: Any) -> bool:
+    """Whether a ``quantization_config`` (dict or HF config object) has an ``NVFP4_PER_TOKEN`` group."""
+    if hasattr(quantization_config, "to_dict"):
+        quantization_config = quantization_config.to_dict()
+    if not isinstance(quantization_config, Mapping) or quantization_config.get("quant_method") != "compressed-tensors":
+        return False
+    groups = (quantization_config.get("config_groups") or {}).values()
+    return any(is_nvfp4_per_token_scheme(group.get("weights"), group.get("input_activations")) for group in groups)
 
 
 def nvfp4_per_token_module_matcher(ct_config: Mapping[str, Any]) -> Callable[[str], bool]:
@@ -499,10 +510,6 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
     static input scale is exported as 1 and the kernel scales each token.
     """
 
-    def __init__(self, ct_config: Mapping[str, Any]):
-        super().__init__(ct_config)
-        self._pending: dict[str, dict[str, torch.Tensor]] = {}
-
     def refresh_input_global_scales(self, model: torch.nn.Module) -> None:
         """Per-token activations carry no observed scale."""
 
@@ -541,6 +548,8 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
         return scheme is not None and is_nvfp4_per_token_scheme(scheme.weights, scheme.input_activations)
 
     def __call__(self, weights: Iterable[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
+        # gate_proj waits here for its up_proj, which shares its global scale.
+        pending: dict[str, dict[str, torch.Tensor]] = {}
         for name, tensor in weights:
             if not self._is_per_token_expert(name, tensor):
                 yield from super().__call__([(name, tensor)])
@@ -552,14 +561,13 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
                 if proj == "down_proj":
                     yield from self._emit(prefix, {proj: weight})
                     continue
-                pending = self._pending.setdefault(prefix, {})
-                pending[proj] = weight
-                if len(pending) == 2:
-                    del self._pending[prefix]
-                    yield from self._emit(prefix, {"gate_proj": pending["gate_proj"], "up_proj": pending["up_proj"]})
-        if self._pending:
-            unpaired = sorted(self._pending)
-            self._pending.clear()
+                halves = pending.setdefault(prefix, {})
+                halves[proj] = weight
+                if len(halves) == 2:
+                    del pending[prefix]
+                    yield from self._emit(prefix, {"gate_proj": halves["gate_proj"], "up_proj": halves["up_proj"]})
+        if pending:
+            unpaired = sorted(pending)
             raise RuntimeError(f"NVFP4_PER_TOKEN export is missing gate_proj/up_proj halves for {unpaired[:4]}")
 
 
@@ -738,6 +746,8 @@ def dispatch_rollout_weight_quantizer(
     )
     if per_token and getattr(rollout_config, "name", None) != "vllm":
         raise ValueError("rollout.quantization.moe=NVFP4_PER_TOKEN is supported only with the vLLM rollout")
+    if per_token and qat_mode is not None:
+        raise ValueError("rollout.quantization.moe=NVFP4_PER_TOKEN pairs with actor.megatron.real_nvfp4, not QAT")
     if real_nvfp4 and not per_token:
         raise ValueError(
             "actor.megatron.real_nvfp4 trains routed experts in the precision of the "

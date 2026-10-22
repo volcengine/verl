@@ -327,11 +327,11 @@ class vLLMHttpServer:
         compilation_config = engine_kwargs.pop("compilation_config", None) or {}
         if isinstance(compilation_config, str):
             compilation_config = json.loads(compilation_config)
-        if self._nvfp4_per_token:
-            # The per-token NVFP4 rollout is validated with full CUDA graphs for decode only.
-            compilation_config.setdefault("cudagraph_mode", "FULL_DECODE_ONLY")
-            if compilation_config["cudagraph_mode"] != "FULL_DECODE_ONLY":
-                raise ValueError("NVFP4_PER_TOKEN rollout requires compilation_config.cudagraph_mode=FULL_DECODE_ONLY")
+        from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_config
+
+        # Whether it comes from rollout.quantization or ships with the checkpoint.
+        if is_nvfp4_per_token_config(effective_quantization_config):
+            self._check_nvfp4_per_token_rollout(compilation_config)
         compilation_config.setdefault("cudagraph_mode", "FULL_AND_PIECEWISE")
 
         # FULL cuda graph is not yet supported with DCP, downgrade to PIECEWISE
@@ -1406,27 +1406,18 @@ class vLLMHttpServer:
         Models shipping their own ``quantization_config`` need nothing here; either way the
         workers install the refit patches from the resulting vLLM ``quant_config``.
         """
-        from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme
-
-        self._nvfp4_per_token = False
         quantization = self.config.quantization
         if not quantization.enabled:
             return {}
 
         # The trainer quantizes every refit to this config; vLLM picks the method up from hf_overrides.
         quantization_config = quantization.build_quantization_config(self.model_config.local_path)
-        # Detect the scheme from the built config, so a config_file with a per-token group is checked too.
-        self._nvfp4_per_token = any(
-            is_nvfp4_per_token_scheme(group.get("weights"), group.get("input_activations"))
-            for group in quantization_config.get("config_groups", {}).values()
-        )
-        if self._nvfp4_per_token:
-            self._check_nvfp4_per_token_rollout()
         logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
         return {"quantization_config": quantization_config}
 
-    def _check_nvfp4_per_token_rollout(self) -> None:
-        """Keep NVFP4_PER_TOKEN to the validated layout: whole experts per rank, colocated IPC refit."""
+    def _check_nvfp4_per_token_rollout(self, compilation_config: dict) -> None:
+        """Keep NVFP4_PER_TOKEN to the validated layout: whole experts per rank, colocated IPC
+        refit and full CUDA graphs for decode only."""
         sizes = {
             "tensor_model_parallel_size": self.config.tensor_model_parallel_size,
             "expert_parallel_size": self.config.expert_parallel_size,
@@ -1441,6 +1432,9 @@ class vLLMHttpServer:
             raise ValueError(
                 f"NVFP4_PER_TOKEN refits through the colocated naive IPC checkpoint backend, got {checkpoint_backend!r}"
             )
+        compilation_config.setdefault("cudagraph_mode", "FULL_DECODE_ONLY")
+        if compilation_config["cudagraph_mode"] != "FULL_DECODE_ONLY":
+            raise ValueError("NVFP4_PER_TOKEN rollout requires compilation_config.cudagraph_mode=FULL_DECODE_ONLY")
 
     def _get_worker_extension_cls(self) -> str:
         """Return the fully-qualified colocate worker extension class name."""

@@ -293,19 +293,32 @@ def test_rollout_server_checks_a_per_token_config_file(tmp_path):
     pytest.importorskip("vllm")
     import json
 
+    from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_config
     from verl.workers.config.rollout import RolloutQuantizationConfig
     from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
     config_file = tmp_path / "quantization_config.json"
     config_file.write_text(json.dumps(_config()))
+    built = RolloutQuantizationConfig(config_file=str(config_file)).build_quantization_config(None)
+    assert is_nvfp4_per_token_config(built)
+    # A checkpoint that ships the config is detected the same way.
+    assert is_nvfp4_per_token_config(SimpleNamespace(to_dict=lambda: built))
+    static = build_compressed_tensors_config(linear=None, moe="NVFP4", ignore=[], config_file=None)
+    assert not is_nvfp4_per_token_config(static)
+
     server = object.__new__(vLLMHttpServer)
-    server.model_config = SimpleNamespace(local_path=None)
     server.config = SimpleNamespace(
-        quantization=RolloutQuantizationConfig(config_file=str(config_file)),
         tensor_model_parallel_size=2,
         expert_parallel_size=1,
         pipeline_model_parallel_size=1,
+        mtp=None,
+        checkpoint_engine=SimpleNamespace(backend="naive"),
     )
     with pytest.raises(ValueError, match="TP/EP/PP of 1"):
-        server._apply_quantization()
-    assert server._nvfp4_per_token
+        server._check_nvfp4_per_token_rollout({})
+    server.config.tensor_model_parallel_size = 1
+    compilation_config = {}
+    server._check_nvfp4_per_token_rollout(compilation_config)
+    assert compilation_config == {"cudagraph_mode": "FULL_DECODE_ONLY"}
+    with pytest.raises(ValueError, match="FULL_DECODE_ONLY"):
+        server._check_nvfp4_per_token_rollout({"cudagraph_mode": "FULL_AND_PIECEWISE"})

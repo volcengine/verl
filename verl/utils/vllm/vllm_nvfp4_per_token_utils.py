@@ -31,7 +31,11 @@ from dataclasses import replace
 
 import torch
 
-from verl.utils.qat.compressed_tensors import is_nvfp4_per_token_scheme, nvfp4_per_token_module_matcher
+from verl.utils.qat.compressed_tensors import (
+    is_nvfp4_per_token_config,
+    is_nvfp4_per_token_scheme,
+    nvfp4_per_token_module_matcher,
+)
 
 _EXPERT_TENSOR_RE = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.(\d+)\.(gate_proj|up_proj|down_proj)\.(\w+)$")
 _QUANTIZED_SUFFIXES = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
@@ -145,14 +149,9 @@ def nvfp4_per_token_quantization_config(vllm_config) -> dict | None:
     """The rollout ``quantization_config`` when any of its config groups is ``NVFP4_PER_TOKEN``."""
     hf_config = getattr(getattr(vllm_config, "model_config", None), "hf_config", None)
     config = getattr(hf_config, "quantization_config", None)
-    if hasattr(config, "to_dict"):
-        config = config.to_dict()
-    if not isinstance(config, dict) or config.get("quant_method") != "compressed-tensors":
+    if not is_nvfp4_per_token_config(config):
         return None
-    groups = (config.get("config_groups") or {}).values()
-    if any(is_nvfp4_per_token_scheme(g.get("weights"), g.get("input_activations")) for g in groups):
-        return config
-    return None
+    return config.to_dict() if hasattr(config, "to_dict") else config
 
 
 def is_nvfp4_per_token_method(quant_method) -> bool:

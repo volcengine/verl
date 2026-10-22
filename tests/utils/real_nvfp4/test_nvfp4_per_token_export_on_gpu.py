@@ -26,7 +26,10 @@ from verl.utils.qat.compressed_tensors import (  # noqa: E402
 )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="NVFP4 quantization runs on GPU")
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] != 10,
+    reason="vLLM's NVFP4 quantization kernel needs a Blackwell (SM100) GPU",
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
 def test_export_matches_vllm_online_quantization_bitwise(dtype):
     generator = torch.Generator(device="cuda").manual_seed(17029)

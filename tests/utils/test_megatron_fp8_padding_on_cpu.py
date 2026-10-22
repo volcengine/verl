@@ -98,7 +98,7 @@ def test_get_thd_quant_align_size(monkeypatch):
 
     # NVFP4 training (fp4 set, fp8 off) pads to its 16-element scale blocks.
     config = FakeConfig()
-    config.fp4 = "nvfp4"
+    config.fp4 = "e2m1"
     assert mcore_util.get_thd_quant_align_size(config) == 16
 
 
