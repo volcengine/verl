@@ -441,19 +441,32 @@ def test_nvfp4_rollout_is_moe_only_w4a4():
         )
 
 
-def test_nvfp4_qat_uses_experts_only_export_compatible_backends():
+@pytest.mark.parametrize("moe_name", ["mlp", "block_sparse_moe"])
+def test_nvfp4_qat_uses_experts_only_export_compatible_backends(moe_name):
     config = build_quantize_config("nvfp4")
-    weight_cfg = _entry(config, "*mlp.experts*weight_quantizer")["cfg"]
-    input_cfg = _entry(config, "*mlp.experts*input_quantizer")["cfg"]
-
-    assert weight_cfg["backend"] == "verl_nvfp4_weight"
-    assert input_cfg["backend"] == "verl_nvfp4_input"
-    assert weight_cfg["block_sizes"] == {-1: 16, "type": "dynamic", "scale_bits": (4, 3)}
-    assert input_cfg["block_sizes"] == {-1: 16, "type": "dynamic", "scale_bits": (4, 3)}
     assert config["algorithm"] is None
-    assert not any(
-        entry["quantizer_name"] == "*weight_quantizer" and entry.get("enable", True) for entry in config["quant_cfg"]
-    )
+
+    model = torch.nn.Module()
+    moe = torch.nn.Module()
+    moe.experts = torch.nn.ModuleList([torch.nn.Linear(128, 128, bias=False)])
+    moe.gate = torch.nn.Linear(128, 4, bias=False)
+    model.add_module(moe_name, moe)
+    model.dense = torch.nn.Linear(128, 128, bias=False)
+    mtq.quantize(model, config)
+
+    # Check the applied preset rather than depending on its wildcard spelling.
+    expert = moe.experts[0]
+    for quantizer, backend in (
+        (expert.weight_quantizer, "verl_nvfp4_weight"),
+        (expert.input_quantizer, "verl_nvfp4_input"),
+    ):
+        assert quantizer.is_enabled
+        assert quantizer.backend == backend
+        assert quantizer.num_bits == (2, 1)
+        assert quantizer.block_sizes == {-1: 16, "type": "dynamic", "scale_bits": (4, 3)}
+    for layer in (model.dense, moe.gate):
+        assert not layer.input_quantizer.is_enabled
+        assert not layer.weight_quantizer.is_enabled
 
 
 def test_nvfp4_qat_weight_qdq_exactly_matches_export():
