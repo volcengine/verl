@@ -464,6 +464,27 @@ class MegatronEngine(BaseEngine):
             real_nvfp4_quant_recipe_config(real_nvfp4_num_layers(hf_config), start, end)
         )
 
+    def _finish_real_nvfp4_module_init(self) -> None:
+        """Re-apply the per-module recipe to every GPTModel of the built model.
+
+        GPTModel assigns it at the end of its constructor, but a subclass may rebuild modules
+        afterwards: Megatron-Bridge's Qwen3-VL text model replaces its whole decoder, which
+        would leave every decoder layer in the global FP4 autocast. The call is idempotent.
+        """
+
+        if not self._real_nvfp4_enabled:
+            return
+        from megatron.core.models.gpt import GPTModel
+        from megatron.core.quantization.utils import get_quant_config_or_none
+
+        for model_chunk in self.module:
+            for gpt_model in unwrap_model(model_chunk).modules():
+                if not isinstance(gpt_model, GPTModel):
+                    continue
+                for name, submodule in gpt_model.named_modules():
+                    if hasattr(submodule, "finish_init"):
+                        submodule.finish_init(get_quant_config_or_none(name, gpt_model.config.quant_recipe))
+
     def _attest_real_nvfp4_runtime(self) -> None:
         """Prove that the built Megatron model will enter TE's NVFP4 context."""
 
@@ -670,6 +691,7 @@ class MegatronEngine(BaseEngine):
 
         self.module = self._build_megatron_module()
 
+        self._finish_real_nvfp4_module_init()
         self._attest_real_nvfp4_runtime()
 
         if self._qat_enabled and not self.engine_config.forward_only:

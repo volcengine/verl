@@ -233,3 +233,55 @@ def test_runtime_attestation_accepts_a_vision_tower_built_without_fp4(monkeypatc
     vision.config = SimpleNamespace(fp4="e2m1")
     with pytest.raises(RuntimeError, match="did not match vision_model.linear_proj"):
         attest(engine)
+
+
+def test_module_init_reapplies_the_recipe_to_a_rebuilt_decoder(monkeypatch):
+    pytest.importorskip("megatron.core.quantization.quant_config")
+    import megatron.core.models.gpt
+    from megatron.core.quantization.quant_config import RecipeConfig
+
+    class FakeGPTModel(torch.nn.Module):
+        pass
+
+    class FakeTELinear(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.te_quant_params = None
+
+        def finish_init(self, quantization_config):
+            self.te_quant_params = quantization_config
+
+    def add(root, name, module):
+        *parents, leaf = name.split(".")
+        for part in parents:
+            if not hasattr(root, part):
+                root.add_module(part, torch.nn.Module())
+            root = getattr(root, part)
+        root.add_module(leaf, module)
+
+    monkeypatch.setattr(megatron.core.models.gpt, "GPTModel", FakeGPTModel)
+    # A VLM language model that rebuilt its decoder after GPTModel.__init__, as
+    # Megatron-Bridge's Qwen3-VL does: no decoder module has per-module params.
+    language_model = FakeGPTModel()
+    language_model.config = SimpleNamespace(
+        quant_recipe=RecipeConfig.from_config_dict(real_nvfp4_quant_recipe_config(4, 1, 1))
+    )
+    expected = {
+        "decoder.layers.0.mlp.experts.linear_fc1": "bf16",  # carved out
+        "decoder.layers.1.mlp.experts.linear_fc1": "nvfp4",
+        "decoder.layers.1.self_attention.in_proj": "bf16",
+    }
+    for name in expected:
+        add(language_model, name, FakeTELinear())
+    root = torch.nn.Module()
+    root.add_module("language_model", language_model)
+    vision = FakeTELinear()
+    add(root, "vision_model.decoder.layers.0.linear_proj", vision)
+
+    finish = _engine_method("_finish_real_nvfp4_module_init", unwrap_model=lambda module: module)
+    finish(SimpleNamespace(_real_nvfp4_enabled=True, module=[root]))
+
+    actual = {name: language_model.get_submodule(name).te_quant_params.config_key for name in expected}
+    assert actual == expected
+    # Outside every GPTModel, the module keeps its own (non-FP4) setup.
+    assert vision.te_quant_params is None
