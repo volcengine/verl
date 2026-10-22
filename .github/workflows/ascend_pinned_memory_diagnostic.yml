@@ -1,6 +1,7 @@
 name: Ascend pinned host memory diagnostic
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
