@@ -96,6 +96,33 @@ def test_update_loop_names_each_mini_batch(monkeypatch):
     assert worker.profiler.step.call_count == len(mini_batches)
 
 
+def test_variable_size_update_loop_uses_actual_global_batch_sizes(monkeypatch):
+    names = _record_names(monkeypatch)
+    worker = _worker(_engine(get_data_parallel_size=lambda: 2))
+    seen_batches = []
+
+    def train_batch(batch):
+        seen_batches.append(
+            (batch["row"].tolist(), tu.get(batch, "global_batch_size"), tu.get(batch, "update_lr_scheduler"))
+        )
+        return {}
+
+    worker.train_batch = train_batch
+    data = TensorDict({"row": torch.arange(5)}, batch_size=[5])
+    tu.assign_non_tensor_data(data, "global_mini_batch_sizes", [4, 6])
+    tu.assign_non_tensor(data, epochs=2)
+
+    assert TrainingWorker.train_mini_batch(worker, data) is None
+    assert seen_batches == [
+        ([0, 1], 4, False),
+        ([2, 3, 4], 6, False),
+        ([0, 1], 4, False),
+        ([2, 3, 4], 6, True),
+    ]
+    assert names == ["mini_batch0", "mini_batch1", "mini_batch2", "mini_batch3"]
+    assert worker.profiler.step.call_count == 4
+
+
 def test_forward_only_stage_is_not_a_profiler_step():
     data = TensorDict({}, batch_size=[])
     tu.assign_non_tensor(data, global_token_num=[4])
