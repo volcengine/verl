@@ -293,6 +293,7 @@ class vLLMColocateWorkerExtension:
                 return
             try:
                 check.check_bucket(weights)
+                weights = check.local_updates(weights)
                 param_updates, buffer_updates, named_buffers = split_buffer_updates(model, weights)
                 # The layerwise reload holds a layer's tensors until the layer is complete,
                 # while the receiver reuses its IPC buffer for the next bucket.

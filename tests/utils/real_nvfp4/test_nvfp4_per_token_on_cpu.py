@@ -211,6 +211,17 @@ def test_refit_check_accepts_packed_bf16_experts():
     _check(weights)
 
 
+def test_refit_check_keeps_only_the_local_experts_of_an_expert_parallel_rank():
+    model = _model([1], num_layers=2)
+    for layer in model.model.layers:
+        # This rank holds expert 1 of every layer.
+        layer.mlp.experts.routed_experts._map_global_expert_id_to_local_expert_id = lambda expert: expert - 1
+    check = _ROLLOUT.NVFP4PerTokenRefitCheck(model, _config(_LAYER0_BF16))
+    weights = _stream() + [("model.embed_tokens.weight", torch.ones(2, 16))]
+    kept = [name for name, _ in check.local_updates(weights)]
+    assert kept == [name for name, _ in weights if ".experts.0." not in name]
+
+
 class CompressedTensorsW4A4Nvfp4PerTokenMoEMethod:
     def __init__(self, per_token_activation: bool = True) -> None:
         self.moe_kernel = SimpleNamespace(fused_experts=SimpleNamespace(per_token_activation=per_token_activation))

@@ -185,9 +185,10 @@ class NVFP4PerTokenRefitCheck:
 
     def __init__(self, model: torch.nn.Module, quantization_config: dict):
         projections = ("gate_proj", "up_proj", "down_proj")
+        self.layers = routed_expert_layers(model, quantization_config)
         self.expected = {
             (layer, expert, projection, suffix)
-            for layer, (module, quantized) in routed_expert_layers(model, quantization_config).items()
+            for layer, (module, quantized) in self.layers.items()
             for expert in range(module.global_num_experts)
             for projection in projections
             for suffix in (_QUANTIZED_SUFFIXES if quantized else ("weight",))
@@ -223,6 +224,24 @@ class NVFP4PerTokenRefitCheck:
                     other = self.gate_up_global_scales.setdefault((layer, expert), tensor.detach().float().cpu())
                     if not torch.equal(other, tensor.detach().float().cpu()):
                         raise RuntimeError(f"NVFP4_PER_TOKEN gate_proj and up_proj global scales differ at {name}")
+
+    def local_updates(self, weights: list[tuple[str, torch.Tensor]]) -> list[tuple[str, torch.Tensor]]:
+        """Drop the expert tensors other expert-parallel ranks hold.
+
+        vLLM skips them anyway, but its layerwise reload post-processes a layer once the
+        local experts are loaded, so a later tensor of another rank's expert would reach
+        the already processed layer.
+        """
+        kept = []
+        for name, tensor in weights:
+            match = _EXPERT_TENSOR_RE.search(name)
+            if match is not None:
+                module = self.layers[int(match.group(1))][0]
+                to_local = getattr(module, "_map_global_expert_id_to_local_expert_id", None)
+                if to_local is not None and to_local(int(match.group(2))) == -1:
+                    continue
+            kept.append((name, tensor))
+        return kept
 
     def finish(self) -> None:
         missing = sorted(self.expected - self.seen)
