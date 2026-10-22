@@ -117,7 +117,7 @@ def test_r3_replay_uses_transformer_engine_padding_for_nvfp4(monkeypatch):
     monkeypatch.setattr(router_utils, "device_name", "cpu")
 
     def fake_preprocess(value, **kwargs):
-        calls.append(kwargs["use_fp8_padding"])
+        calls.append(kwargs["quant_align_size"])
         trailing_shape = value.shape[2:] if value.is_nested else value.shape[1:]
         padded = torch.zeros((1, 128, *trailing_shape), dtype=value.dtype)
         padded[0, : value.values().shape[0]] = value.values()
@@ -143,7 +143,7 @@ def test_r3_replay_uses_transformer_engine_padding_for_nvfp4(monkeypatch):
         model=object(),
     )
 
-    assert calls == [True, True]
+    assert calls == [16, 16]
     assert target["indices"].shape == (128, 1)
     assert target["mask"].shape == (128,)
     assert target["mask"][:95].all()
