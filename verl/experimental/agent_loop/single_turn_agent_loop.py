@@ -17,7 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 from verl.experimental.agent_loop.agent_loop import AgentLoopBase, AgentLoopOutput, register
-from verl.trainer.distillation.rollout import is_teacher_rollout_enabled
+from verl.experimental.teacher_rollout import is_teacher_rollout_enabled
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 from verl.workers.rollout.replica import TokenOutput

@@ -4,7 +4,9 @@
 
 Last updated: 10/22/2026.
 
-## Teacher-generated training rollouts
+## Experimental teacher-generated training rollouts
+
+This feature lives in `verl.experimental.teacher_rollout`; its API and supported configurations may change. It reuses the native trainer and existing teacher service.
 
 By default, the student generates every training response. Configure `distillation.rollout_source_selector` to let a user function choose the generation source. verl executes that choice; it does not prescribe a balancing rule. The selector runs on the trainer before worker fan-out, once per training submission, and returns one source for every prompt, worker chunk, and repeated response in that submission. Validation always generates with the student and does not call the selector.
 
@@ -31,12 +33,12 @@ Teacher generation and teacher scoring are separate requests to the existing tea
 
 A configured selector requires native synchronous V1 training, one vLLM teacher, vLLM student rollout, text-only `single_turn_agent` inputs, matching student/teacher tokenizers and vocabulary, and `forward_kl_topk` with policy gradients and task rewards disabled. Keep both temperatures at `1.0` and `rollout.calculate_log_probs=False`. Custom agent loops, custom replay samplers, and refilling failed groups are rejected at startup. Other training features (critic, auxiliary KL/entropy objectives, rollout correction, score centering, router replay, speculative decoding, group filtering) are not validated with teacher-generated rollouts; do not combine them with a selector. These restrictions apply whenever a selector is configured, including when that policy happens to choose the student. With no selector, existing configurations retain their behavior.
 
-For a config-only setup, the built-in `select_source` in `verl/trainer/distillation/rollout.py` is a fixed-probability policy:
+For a config-only setup, the built-in `select_source` in `verl/experimental/teacher_rollout.py` is a fixed-probability policy:
 
 ```bash
 DISTILLATION_LOSS_MODE=forward_kl_topk USE_POLICY_GRADIENT=False \
   bash examples/on_policy_distillation_trainer/run_qwen3_8b_fsdp.sh \
-  distillation.rollout_source_selector.path=pkg://verl.trainer.distillation.rollout \
+  distillation.rollout_source_selector.path=pkg://verl.experimental.teacher_rollout \
   distillation.rollout_source_selector.name=select_source \
   +distillation.rollout_source_selector.kwargs.teacher_probability=1.0 \
   actor_rollout_ref.rollout.temperature=1.0 \

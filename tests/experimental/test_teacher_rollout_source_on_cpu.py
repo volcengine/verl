@@ -49,7 +49,7 @@ def selector_config(tmp_path):
 
 
 def test_selector_uses_prompt_metadata_and_restored_step_without_consuming_global_rng(selector_config):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     batch = TensorDict({"index": torch.tensor([3])}, batch_size=[1])
     selector = build_rollout_source_selector(selector_config)
@@ -63,7 +63,7 @@ def test_selector_uses_prompt_metadata_and_restored_step_without_consuming_globa
 
 @pytest.mark.parametrize("name,error", [("not_callable", TypeError), ("missing", AttributeError)])
 def test_selector_load_errors_fail_before_generation(selector_config, name, error):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     selector_config.distillation.rollout_source_selector.name = name
     with pytest.raises(error):
@@ -75,7 +75,7 @@ def test_selector_load_errors_fail_before_generation(selector_config, name, erro
 def test_driver_decides_before_real_manager_fanout(
     monkeypatch, selector_config, num_workers, step, configured, expected
 ):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     chunks = []
     manager = SimpleNamespace(
@@ -105,7 +105,7 @@ def test_driver_decides_before_real_manager_fanout(
 
 @pytest.mark.parametrize("name,error", [("invalid", ValueError), ("fail", RuntimeError)])
 def test_bad_policy_result_never_publishes_or_generates(monkeypatch, selector_config, name, error):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     selector_config.distillation.rollout_source_selector.name = name
     selector_config.distillation.rollout_source_selector.kwargs = {}
@@ -129,13 +129,13 @@ def test_bad_policy_result_never_publishes_or_generates(monkeypatch, selector_co
     [(0.0, ["student"] * 5), (1.0, ["teacher"] * 5), (0.5, ["teacher", "student", "teacher", "teacher", "student"])],
 )
 def test_example_policy_is_optional_and_reproducible(probability, want):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     config = OmegaConf.create(
         {
             "distillation": {
                 "rollout_source_selector": {
-                    "path": "pkg://verl.trainer.distillation.rollout",
+                    "path": "pkg://verl.experimental.teacher_rollout",
                     "name": "select_source",
                     "kwargs": {"teacher_probability": probability},
                 }
@@ -152,13 +152,13 @@ def test_example_policy_is_optional_and_reproducible(probability, want):
 
 @pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan"), float("inf")])
 def test_example_policy_rejects_invalid_probability(probability):
-    from verl.trainer.distillation.rollout import build_rollout_source_selector
+    from verl.experimental.teacher_rollout import build_rollout_source_selector
 
     config = OmegaConf.create(
         {
             "distillation": {
                 "rollout_source_selector": {
-                    "path": "pkg://verl.trainer.distillation.rollout",
+                    "path": "pkg://verl.experimental.teacher_rollout",
                     "name": "select_source",
                     "kwargs": {"teacher_probability": probability},
                 }

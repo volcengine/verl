@@ -39,6 +39,11 @@ from verl.checkpoint_engine import CheckpointEngineManager
 from verl.experimental.agent_loop import AgentLoopManager
 from verl.experimental.reward_loop import RewardLoopManager
 from verl.experimental.teacher_loop import MultiTeacherModelManager
+from verl.experimental.teacher_rollout import (
+    assign_rollout_source,
+    build_rollout_source_selector,
+    get_student_rollout_tags,
+)
 from verl.protocol import DataProto, DataProtoFuture
 from verl.single_controller.ray import (
     RayClassWithInitArgs,
@@ -47,7 +52,6 @@ from verl.single_controller.ray import (
     create_colocated_worker_cls,
 )
 from verl.trainer.distillation import is_distillation_enabled
-from verl.trainer.distillation.rollout import build_rollout_source_selector, is_teacher_rollout_enabled
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.checkpoint_callback import build_checkpoint_callback
 from verl.trainer.ppo.core_algos import agg_loss
@@ -1499,14 +1503,12 @@ class PPOTrainer(ABC):
     def _submit_batch_to_rollout(self, batch: TensorDict) -> int:
         """Register prompts in TransferQueue and dispatch them for generation."""
         if self.rollout_source_selector is not None:
-            source = self.rollout_source_selector(
-                batch=batch, global_step=self.global_steps, seed=self.config.actor_rollout_ref.rollout.seed
+            assign_rollout_source(
+                batch,
+                self.rollout_source_selector,
+                global_step=self.global_steps,
+                seed=self.config.actor_rollout_ref.rollout.seed,
             )
-            if not isinstance(source, str) or source not in ("student", "teacher"):
-                raise ValueError(
-                    "rollout_source_selector must return 'student' or 'teacher' for the entire submission."
-                )
-            tu.assign_non_tensor_data(batch, "rollout_source", source)
         tags = [{"is_prompt": True, "status": "pending", "global_steps": self.global_steps} for _ in range(len(batch))]
         if self.trainer_mode != "sync":
             tq.kv_batch_put(
@@ -1910,12 +1912,7 @@ class PPOTrainer(ABC):
         prompt_length = data["prompts"].offsets().diff()
         response_length = data["responses"].offsets().diff()
         global_token_num = (prompt_length + response_length).tolist()
-        real_tags = [tag for tag in batch.tags if not tag.get("is_padding", False)]
-        if is_teacher_rollout_enabled(self.config) and real_tags:
-            metrics["distillation/teacher_rollout_fraction"] = sum(
-                tag.get("rollout_source", "student") == "teacher" for tag in real_tags
-            ) / len(real_tags)
-        student_tags = [tag for tag in real_tags if tag.get("rollout_source", "student") == "student"]
+        student_tags = get_student_rollout_tags(self.config, batch.tags, metrics)
         min_global_steps = np.array([tag["min_global_steps"] for tag in student_tags], dtype=int)
         max_global_steps = np.array([tag["max_global_steps"] for tag in student_tags], dtype=int)
 

@@ -238,7 +238,7 @@ class DistillationConfig(BaseConfig):
     enabled (bool):
         Whether on-policy distillation is enabled.
     rollout_source_selector (dict):
-        Optional user function configured with path, name, and kwargs. Receives the prompt batch,
+        Experimental user function configured with path, name, and kwargs. Receives the prompt batch,
         global step, and rollout seed; returns one generation source (student or teacher) per submission.
         An absent selector preserves student-only generation.
     n_gpus_per_node (int):

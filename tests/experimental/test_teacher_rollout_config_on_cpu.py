@@ -18,12 +18,12 @@ import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from verl.utils import config as config_utils
+from verl.experimental.teacher_rollout import validate_teacher_rollout_config
 
 
 @pytest.fixture
 def supported_config(request):
-    config_dir = Path(__file__).resolve().parents[3] / "verl/trainer/config"
+    config_dir = Path(__file__).resolve().parents[2] / "verl/trainer/config"
     with initialize_config_dir(config_dir=str(config_dir), version_base=None):
         overrides = [f"model_engine={request.param}"] if hasattr(request, "param") else []
         config = compose(config_name="ppo_trainer", overrides=overrides)
@@ -60,11 +60,11 @@ def supported_config(request):
 def test_malformed_selector_fails_before_allocation(selector):
     config = OmegaConf.create({"distillation": {"rollout_source_selector": selector}})
     with pytest.raises(ValueError, match="rollout_source_selector"):
-        config_utils._validate_teacher_rollout_config(config)
+        validate_teacher_rollout_config(config)
 
 
 def test_supported_config(supported_config):
-    config_utils._validate_teacher_rollout_config(supported_config)
+    validate_teacher_rollout_config(supported_config)
 
 
 @pytest.mark.parametrize(
@@ -95,22 +95,22 @@ def test_supported_config(supported_config):
 def test_opt_in_rejects_unsupported_config(supported_config, path, value):
     OmegaConf.update(supported_config, path, value, force_add=True)
     with pytest.raises(ValueError, match=path.split(".")[-1]):
-        config_utils._validate_teacher_rollout_config(supported_config)
+        validate_teacher_rollout_config(supported_config)
 
 
 def test_no_selector_preserves_existing_config_freedom(supported_config):
     supported_config.distillation.rollout_source_selector = {}
     supported_config.trainer.v1.trainer_mode = "separate_async"
     supported_config.distillation.distillation_loss.use_policy_gradient = True
-    config_utils._validate_teacher_rollout_config(supported_config)
+    validate_teacher_rollout_config(supported_config)
 
 
 def test_counts_resolved_teachers(supported_config):
     teachers = supported_config.distillation.teacher_models
     OmegaConf.update(teachers, "other", OmegaConf.to_container(teachers.teacher_model, resolve=True), force_add=True)
     teachers.other.key = "other"
-    config_utils._validate_teacher_rollout_config(supported_config)
+    validate_teacher_rollout_config(supported_config)
     OmegaConf.update(teachers, "third", OmegaConf.to_container(teachers.other, resolve=True), force_add=True)
     teachers.third.key = "third"
     with pytest.raises(ValueError, match="teacher_models"):
-        config_utils._validate_teacher_rollout_config(supported_config)
+        validate_teacher_rollout_config(supported_config)
