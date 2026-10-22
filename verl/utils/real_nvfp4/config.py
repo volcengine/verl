@@ -83,7 +83,9 @@ def real_nvfp4_quant_recipe_config(num_layers: int, num_layers_at_start: int, nu
             "bf16": {"transformer_engine_config_type": "TEQuantizationParams", "training_recipe": {}},
             "nvfp4": {
                 "transformer_engine_config_type": "TEQuantizationParams",
-                "training_recipe": {"fp4_quantization_recipe": "nvfp4"},
+                # Enter NVFP4 even outside an FP4 autocast: some decoder blocks, such as
+                # Megatron-Bridge's Qwen3-VL block, only open FP8 contexts.
+                "training_recipe": {"fp4_quantization_recipe": "nvfp4", "override_nonquantized_autocast": True},
             },
         },
         "matchers": matchers,

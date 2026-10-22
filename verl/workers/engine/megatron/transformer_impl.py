@@ -539,6 +539,9 @@ class MegatronEngine(BaseEngine):
                 else:
                     actual = recipe_name(quant_params.training_recipe, "fp4_quantization_recipe")
                     fp8 = recipe_name(quant_params.training_recipe, "fp8_quantization_recipe")
+                    if actual is not None and not quant_params.training_recipe.override_nonquantized_autocast:
+                        # Would fall back to BF16 in a block that opens no FP4 autocast.
+                        actual = "nvfp4 without autocast override"
                 layer = layer_index.search(name)
                 nvfp4 = is_routed_expert_module(name) and layer is not None and int(layer.group(1)) not in carved
                 if fp8 is not None or actual != ("nvfp4" if nvfp4 else None):

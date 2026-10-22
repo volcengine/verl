@@ -174,7 +174,9 @@ def _deepseek_like_modules(recipe):
             module = getattr(module, part)
         key = get_quant_config_or_none(name, recipe).config_key
         fp4 = "nvfp4" if key == "nvfp4" else None
-        training_recipe = SimpleNamespace(fp8_quantization_recipe=None, fp4_quantization_recipe=fp4)
+        training_recipe = SimpleNamespace(
+            fp8_quantization_recipe=None, fp4_quantization_recipe=fp4, override_nonquantized_autocast=fp4 is not None
+        )
         module.te_quant_params = SimpleNamespace(training_recipe=training_recipe)
     return root
 
@@ -197,6 +199,14 @@ def test_runtime_attestation_on_a_dense_mla_shared_expert_layout(monkeypatch):
         module=[root],
     )
     attest(engine)
+
+    # An expert that keeps NVFP4 only inside an FP4 autocast would run BF16 in a decoder
+    # block that opens none, as Megatron-Bridge's Qwen3-VL block does.
+    expert = root.get_submodule("decoder.layers.2.mlp.experts.linear_fc1")
+    expert.te_quant_params.training_recipe.override_nonquantized_autocast = False
+    with pytest.raises(RuntimeError, match="without autocast override"):
+        attest(engine)
+    expert.te_quant_params.training_recipe.override_nonquantized_autocast = True
 
     # A shared expert running in NVFP4 would not match the BF16 rollout.
     shared = root.get_submodule("decoder.layers.2.mlp.shared_experts.linear_fc1")
