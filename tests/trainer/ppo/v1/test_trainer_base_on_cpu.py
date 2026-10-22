@@ -111,9 +111,8 @@ def test_builtin_filter_groups_forwards_configured_inflight_limit():
     assert sampler.max_inflight_gen_batches == 3
 
 
-def test_builtin_sync_failure_refill_forces_single_prompt_generation():
+def test_builtin_sync_sampler_always_refills_empty_failed_groups():
     trainer = _trainer_with_filter_groups({"enable": False})
-    trainer.config.trainer.v1.sampler.sync_refill_failed_groups = True
 
     sampler = trainer._build_replay_buffer()
 
@@ -123,7 +122,7 @@ def test_builtin_sync_failure_refill_forces_single_prompt_generation():
 
 def test_sync_failure_refill_overrides_dataloader_generation_batch_size():
     trainer = _trainer_with_filter_groups({"enable": False})
-    trainer.config.trainer.v1.sampler.sync_refill_failed_groups = True
+    trainer.replay_buffer = trainer._build_replay_buffer()
     trainer.config.data.update(
         {
             "train_files": [],
@@ -193,6 +192,7 @@ def test_update_actor_passes_score_centering_flag(score_centering):
             "_minibatch_layout": {
                 "unit_prompt_count": 2,
                 "unit_global_sizes": [8],
+                "unit_padding_counts": [1],
             }
         }
     )
@@ -201,4 +201,5 @@ def test_update_actor_passes_score_centering_flag(score_centering):
 
     assert batch.extra_info["score_centering"] is score_centering
     assert batch.extra_info["global_mini_batch_sizes"] == [8]
+    assert batch.extra_info["global_mini_batch_padding_counts"] == [1]
     assert "mini_batch_size" not in batch.extra_info

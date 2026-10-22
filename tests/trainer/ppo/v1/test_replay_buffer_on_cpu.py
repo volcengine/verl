@@ -405,7 +405,7 @@ def test_sample_returns_finished_and_failure_trajectories(tq_init, partition_id)
         _clear_partition(partition_id)
 
 
-def test_sync_failure_without_trajectories_uses_padding_path_by_default(tq_init, partition_id):
+def test_direct_sync_buffer_can_keep_empty_failure_when_refill_is_disabled(tq_init, partition_id):
     finished = PromptSpec(uid=_uid(), status="finished", sessions=1)
     empty_failure = PromptSpec(uid=_uid(), status="failure", sessions=0)
     _produce(partition_id, [finished, empty_failure]).join_and_check()
