@@ -359,7 +359,9 @@ def test_fused_forward_with_labels_still_uses_kernel(monkeypatch):
 
     seen = {}
 
-    def fake_linear_cross_entropy(hidden, weight, labels_arg, temperature, reduction, group):
+    # The real call site forwards extra keyword options (e.g. `impl_backend`); accept and ignore them
+    # so this test keeps checking the labels path instead of the kernel's exact keyword list.
+    def fake_linear_cross_entropy(hidden, weight, labels_arg, temperature, reduction, group, **_options):
         seen.update(hidden=hidden, weight=weight, labels=labels_arg, temperature=temperature)
         return torch.zeros(hidden.shape[0]), torch.zeros(hidden.shape[0])
 
