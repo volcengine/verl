@@ -1156,6 +1156,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
         logits_processor_func: Callable,
         batch: TensorDict,
         data_format: str,
+        cp_layout: str = "zigzag",
+        local_cp_size: int | None = None,
     ):
         assert logits.shape[:2] == label.shape[:2]
         # avoid non-positive temperature such as padding
@@ -1191,13 +1193,15 @@ class MegatronEngineWithLMHead(MegatronEngine):
         if distillation_use_topk:
             from verl.models.mcore.util import get_thd_quant_align_size
 
-            # the teacher's top-k tensors are packed with the padding the model forward gave the student inputs
+            # the teacher's top-k tensors are packed like the student inputs: the same padding, CP layout and CP group
             ret.update(
                 logits_processor_func(
                     student_logits=logits_bak,
                     data=batch,
                     data_format=data_format,
                     quant_align_size=get_thd_quant_align_size(self.tf_config),
+                    cp_layout=cp_layout,
+                    local_cp_size=local_cp_size,
                 )
             )
         if not distillation_only:
@@ -1338,6 +1342,8 @@ class MegatronEngineWithLMHead(MegatronEngine):
                 logits_processor_func=logits_processor_func,
                 batch=batch,
                 data_format=data_format,
+                cp_layout=cp_layout,
+                local_cp_size=local_cp_size,
             )
 
             response_attention_mask = None

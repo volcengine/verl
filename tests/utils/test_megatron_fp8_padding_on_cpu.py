@@ -34,6 +34,7 @@ def _load_mcore_util_with_stubbed_megatron(monkeypatch, tp_size: int = 1, cp_siz
     parallel_state.get_context_parallel_world_size = lambda: cp_size
     parallel_state.get_context_parallel_rank = lambda: cp_rank
     parallel_state.get_context_parallel_group = lambda: object()
+    parallel_state.get_dynamic_data_context_parallel_groups = lambda group_size: f"dynamic-cp-group-of-{group_size}"
     parallel_state.get_tensor_model_parallel_world_size = lambda: tp_size
 
     class PackedSeqParams:
@@ -232,7 +233,7 @@ def test_distillation_topk_bshd_packs_teacher_with_the_student_padding(monkeypat
 
 
 @pytest.mark.parametrize("strategy", ["megatron", "fsdp"])
-def test_compute_topk_loss_passes_quant_align_size_to_the_megatron_loss_only(monkeypatch, strategy):
+def test_compute_topk_loss_passes_the_student_packing_to_the_megatron_loss_only(monkeypatch, strategy):
     import verl.trainer.distillation as distillation_pkg
     import verl.trainer.distillation.losses as distillation_losses
 
@@ -255,6 +256,101 @@ def test_compute_topk_loss_passes_quant_align_size_to_the_megatron_loss_only(mon
         {"teacher_logprobs": None, "teacher_ids": None},
         torch.zeros(1, 8, 4),
         "thd",
-        32,
+        quant_align_size=32,
+        cp_layout="contiguous",
+        local_cp_size=2,
     )
-    assert received == [{"quant_align_size": 32} if strategy == "megatron" else {}]
+    packing = {"quant_align_size": 32, "cp_layout": "contiguous", "local_cp_size": 2}
+    assert received == [packing if strategy == "megatron" else {}]
+
+
+# The teacher's rows must hold the same tokens as the student's rows, not only the same number of rows: the tests below
+# mark every token with its own number (0 is padding) and compare the rows the KL receives with the student's rows.
+
+
+def _marked(seqlens, *dense_shape, dtype=torch.long):
+    """Nested tensor in which every token holds its own number (1, 2, ... across the batch) in all its entries."""
+    rows, start = [], 1
+    for n in seqlens:
+        tokens = torch.arange(start, start + n).to(dtype)
+        rows.append(tokens.reshape(n, *[1] * len(dense_shape)).expand(n, *dense_shape).clone())
+        start += n
+    return torch.nested.as_nested_tensor(rows, layout=torch.jagged)
+
+
+def _teacher_rows_seen_by_the_kl(monkeypatch, losses):
+    seen = {}
+
+    class _RecordingKL:
+        @staticmethod
+        def apply(student_logits, teacher_log_probs, teacher_ids, *_args):
+            seen["log_probs"], seen["ids"] = teacher_log_probs, teacher_ids
+            return (torch.zeros(student_logits.shape[:2]),) * 6
+
+    monkeypatch.setattr(losses, "_VocabParallelKLDivergence", _RecordingKL)
+    return seen
+
+
+def _pack_student_and_teacher(monkeypatch, mcore_util, seqlens, **packing):
+    """Packs the student's tokens and runs the top-k loss with the same packing; returns the student rows and what the
+    KL received."""
+    losses = _load_megatron_distillation_losses(monkeypatch, mcore_util)
+    seen = _teacher_rows_seen_by_the_kl(monkeypatch, losses)
+    student_tokens, *_ = mcore_util.preprocess_thd_engine(_marked(seqlens), pre_process=True, **packing)
+    teacher_log_probs, teacher_ids = _marked(seqlens, 2, dtype=torch.float32), _marked(seqlens, 2)
+    student_logits = torch.zeros(*student_tokens.shape, 4)
+    losses.compute_forward_kl_topk(
+        student_logits, teacher_log_probs, teacher_ids, _DISTILLATION_CONFIG, "thd", **packing
+    )
+    return student_tokens, seen
+
+
+@pytest.mark.parametrize("seqlen", [17, 32])
+@pytest.mark.parametrize("quant_align_size", [None, 16, 32])
+@pytest.mark.parametrize("cp_rank", [0, 1])
+@pytest.mark.parametrize("cp_layout", ["zigzag", "contiguous"])
+def test_distillation_topk_thd_teacher_rows_hold_the_student_tokens(
+    monkeypatch, cp_layout, cp_rank, quant_align_size, seqlen
+):
+    mcore_util = _load_mcore_util_with_stubbed_megatron(monkeypatch, tp_size=1, cp_size=2, cp_rank=cp_rank)
+    student_tokens, seen = _pack_student_and_teacher(
+        monkeypatch, mcore_util, [seqlen] * 16, quant_align_size=quant_align_size, cp_layout=cp_layout
+    )
+    for k in range(2):
+        assert torch.equal(seen["ids"][..., k], student_tokens)
+        assert torch.equal(seen["log_probs"][..., k], student_tokens.to(torch.float32))
+
+
+def test_distillation_topk_thd_teacher_split_zigzag_against_a_contiguous_student_misaligns_rows(monkeypatch):
+    """What the CP layout prevents: the student split contiguously (dsv4_hybrid), the teacher with the zigzag default.
+    The shapes agree, so the assertion in the loss passes, but most rows belong to other tokens."""
+    mcore_util = _load_mcore_util_with_stubbed_megatron(monkeypatch, tp_size=1, cp_size=2, cp_rank=0)
+    seqlens = [17] * 16
+    student_tokens, *_ = mcore_util.preprocess_thd_engine(
+        _marked(seqlens), pre_process=True, quant_align_size=32, cp_layout="contiguous"
+    )
+    _, seen = _pack_student_and_teacher(monkeypatch, mcore_util, seqlens, quant_align_size=32, cp_layout="zigzag")
+    teacher_tokens = seen["ids"][..., 0]
+    valid = student_tokens != 0
+    assert teacher_tokens.shape == student_tokens.shape == (1, 256)
+    assert int(valid.sum()) == 136
+    assert int((teacher_tokens[valid] != student_tokens[valid]).sum()) == 128
+
+
+@pytest.mark.parametrize("group_rank", [0, 1])
+@pytest.mark.parametrize("cp_layout", ["zigzag", "contiguous"])
+def test_distillation_topk_thd_teacher_rows_follow_the_dynamic_cp_group(monkeypatch, cp_layout, group_rank):
+    """Dynamic CP packs a micro-batch over a group of local_cp_size ranks (2 here), not the whole CP group (4)."""
+    mcore_util = _load_mcore_util_with_stubbed_megatron(monkeypatch, tp_size=1, cp_size=4, cp_rank=3)
+    monkeypatch.setattr(torch.distributed, "get_rank", lambda group=None: group_rank)
+    seqlens = [17] * 16
+    student_tokens, seen = _pack_student_and_teacher(
+        monkeypatch, mcore_util, seqlens, quant_align_size=32, cp_layout=cp_layout, local_cp_size=2
+    )
+    assert torch.equal(seen["ids"][..., 0], student_tokens)
+
+    # packed over the whole CP group instead, the teacher rows hold other tokens
+    _, seen_static = _pack_student_and_teacher(
+        monkeypatch, mcore_util, seqlens, quant_align_size=32, cp_layout=cp_layout
+    )
+    assert not torch.equal(seen_static["ids"][..., 0], student_tokens)
