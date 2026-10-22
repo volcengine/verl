@@ -1,6 +1,6 @@
 # MXFP8 RL on Blackwell
 
-Last updated: 10/21/2026
+Last updated: 10/22/2026
 
 MXFP8 is the OCP microscaling FP8 format: E4M3 elements with one E8M0 scale per 32-element block,
 decoded natively by Blackwell tensor cores. This recipe trains with Transformer Engine's MXFP8 recipe and
@@ -47,15 +47,8 @@ Notes:
 
 ## Rollout kernels
 
-- **vLLM** serves the preset through compressed-tensors MXFP8. When vLLM 0.29 selects the backends itself, the
-  kernels depend on whether FlashInfer is available to its worker processes (`flashinfer-cubin` installed, or
-  `nvcc` on their `PATH`): with it, FlashInfer TRT-LLM for the experts and, on B200, FlashInfer CuTe-DSL for
-  the dense GEMMs (MXFP8 weights and activations); without it, DeepGEMM for the experts and Marlin for the dense
-  GEMMs (MXFP8 weights, BF16 activations). vLLM logs its dense choice (`Using ... for MXFP8 GEMM`) at
-  `INFO`; verl starts the workers with `VLLM_LOGGING_LEVEL=WARN`, so add
-  `+ray_kwargs.ray_init.runtime_env.env_vars.VLLM_LOGGING_LEVEL=INFO` to see it.
-- **SGLang** serves the preset with its own MXFP8 method (`quant_method: mxfp8`), and verl pins its MXFP8 dense
-  and MoE kernels to DeepGEMM; `VERL_ROLLOUT_USE_DEEP_GEMM=0` leaves the choice to SGLang.
+verl defaults the MXFP8 dense and MoE kernels of vLLM and SGLang to DeepGEMM; for details, see
+[Low-Precision Rollout and Quantization-Aware Training](qat.md).
 
 ## Example: Qwen3-8B on GSM8K
 
