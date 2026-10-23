@@ -1,4 +1,4 @@
-name: Ascend pinned host memory diagnostic
+name: Ascend PPO pinned host memory diagnostic
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   pinned_memory:
     runs-on: linux-aarch64-a3-800i-test-16
-    timeout-minutes: 40
+    timeout-minutes: 90
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ascend-ci/verl/verl:latest-vllm-a3-ubuntu
       options: --shm-size 16g
@@ -19,9 +19,19 @@ jobs:
       OMP_NUM_THREADS: "1"
       PYTHONUNBUFFERED: "1"
       ASCEND_PROCESS_LOG_PATH: ${{ github.workspace }}/pinned-memory-artifacts/ascend
+      VERL_ASCEND_MEMORY_DIAGNOSTICS: ${{ github.workspace }}/pinned-memory-artifacts/ppo
+      HF_DATASETS_CACHE: /root/.cache/temp/hf-datasets
+      HF_ENDPOINT: https://hf-mirror.com
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+      TRANSFORMERS_VERBOSITY: error
+      UV_SYSTEM_PYTHON: "1"
+      UV_EXTRA_INDEX_URL: https://repo.huaweicloud.com/ascend/repos/pypi
+      UV_INDEX_STRATEGY: unsafe-best-match
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+      UV_INSECURE_HOST: cache-service.nginx-pypi-cache.svc.cluster.local
     steps:
       - uses: actions/checkout@v4
-      - name: Record environment and run allocation scenarios
+      - name: Record driver and CANN installation
         shell: bash
         run: |
           mkdir -p pinned-memory-artifacts/ascend
@@ -61,7 +71,23 @@ jobs:
             fi
             rm -f "$metadata_files"
           } > pinned-memory-artifacts/cann-version.txt 2>&1
-          python3 scripts/ascend_pinned_memory_probe.py --output pinned-memory-artifacts/probe --workers 8 --repeats 2
+      - name: Prepare original PPO workload
+        shell: bash
+        run: |
+          command -v uv >/dev/null || python3 -m pip install uv
+          uv pip install --no-deps -e .
+          uv pip install --no-deps TransferQueue==0.1.11
+          uv pip uninstall nvidia-resiliency-ext
+          python3 examples/data_preprocess/gsm8k.py --local_dataset_path /root/.cache/modelscope/dataset/openai/gsm8k
+      - name: Run Qwen3-0.6B PPO with allocation instrumentation
+        shell: bash
+        run: |
+          set -o pipefail
+          ray stop --force
+          python3 verl/utils/ascend_memory_diagnostics.py --output "$VERL_ASCEND_MEMORY_DIAGNOSTICS" -- \
+            bash tests/special_npu/run_qwen3_06b_ppo.sh \
+            "++ray_kwargs.ray_init.runtime_env.env_vars.VERL_ASCEND_MEMORY_DIAGNOSTICS=$VERL_ASCEND_MEMORY_DIAGNOSTICS" \
+            2>&1 | tee pinned-memory-artifacts/ppo-console.log
       - name: Collect final kernel diagnostics
         if: always()
         shell: bash
@@ -69,6 +95,9 @@ jobs:
           mkdir -p pinned-memory-artifacts
           timeout 20s dmesg -T > pinned-memory-artifacts/kernel-final.txt 2>&1 || true
           timeout 20s journalctl -k --utc --since '-45 minutes' --no-pager > pinned-memory-artifacts/kernel-journal.txt 2>&1 || true
+          if [ -d /tmp/ray/session_latest/logs ]; then
+            timeout 60s tar -czf pinned-memory-artifacts/ray-logs.tar.gz -C /tmp/ray/session_latest logs || true
+          fi
           date -u --iso-8601=seconds > pinned-memory-artifacts/end.txt
       - name: Upload diagnostics even if allocations fail
         if: always()
