@@ -115,7 +115,8 @@ after a training step:
   such as a convolution, are not judged, and the audit reports how many it left out.
 - **Export vs engine**: on vLLM, the format of every synced weight against the quant method of the module
   that receives it. On SGLang, the refit loader compares each incoming weight's dtype with the parameter
-  that receives it before writing it (switched by `VERL_MXFP8_REFIT_CHECK`).
+  that receives it before writing it, during the first weight sync; later syncs ship the same formats and
+  skip it (switched by `VERL_MXFP8_REFIT_CHECK`).
 
 `VERL_QUANT_LAYER_AUDIT_TRACE=1` logs each step of the audit itself. The training-side trace is per layer,
 so a TE module kept in BF16 inside an FP8 layer would go unnoticed (Megatron has no such per-module option

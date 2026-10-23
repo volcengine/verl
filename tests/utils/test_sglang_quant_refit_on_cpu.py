@@ -932,3 +932,59 @@ def test_loader_runs_the_dtype_check_before_writing_anything():
     with pytest.raises(RuntimeError, match="a.weight: the sync ships bfloat16, the engine parameter is float8_e4m3fn"):
         quant_utils.load_and_reprocess(m, request)
     assert torch.equal(m.a.weight_scale_inv.data, before) and m.loaded == []  # nothing was written
+
+
+def _count_dtype_checks(monkeypatch) -> list[int]:
+    """Record the bucket size of every ``check_sync_matches_engine`` call the loader makes."""
+    calls: list[int] = []
+    check = quant_utils.check_sync_matches_engine
+
+    def counting(model, named_tensors):
+        calls.append(len(named_tensors))
+        return check(model, named_tensors)
+
+    monkeypatch.setattr(quant_utils, "check_sync_matches_engine", counting)
+    return calls
+
+
+def _bucket(m, layer):
+    # the layer's own fp8 weight (what the engine holds) and a new canonical scale
+    return [
+        (f"{layer}.weight", getattr(m, layer).weight.data.clone()),
+        (f"{layer}.weight_scale_inv", torch.full((4, 2), 7, dtype=torch.uint8)),
+    ]
+
+
+def test_loader_checks_formats_on_every_bucket_of_the_first_sync_only(monkeypatch, caplog):
+    # What a sync ships follows rollout.quantization and the engine's parameters keep their formats, so a later
+    # sync cannot disagree where the first one agreed: the check runs during the first sync only, as on vLLM.
+    _install_stub("flashinfer_cutlass")
+    m = _Model()
+    calls = _count_dtype_checks(monkeypatch)
+    with caplog.at_level(logging.INFO, logger=quant_utils.logger.name):
+        quant_utils.load_and_reprocess(m, _bucket(m, "a"))
+        quant_utils.load_and_reprocess(m, _bucket(m, "b") + quant_utils.finalize_tensors())
+    assert calls == [2, 2]  # every bucket of the first sync, before it is written
+    assert "first weight sync: 2 weights checked, 0 in a format other than the engine parameter's" in caplog.text
+    quant_utils.load_and_reprocess(m, _bucket(m, "a"))
+    quant_utils.load_and_reprocess(m, _bucket(m, "b") + quant_utils.finalize_tensors())
+    assert calls == [2, 2]  # the second sync is not checked again
+    assert m.a.quant_method.calls == 2 and m.b.quant_method.calls == 2  # it still re-derives the kernel layouts
+
+
+def test_a_first_sync_that_fails_is_checked_again_in_full(monkeypatch):
+    _install_stub("flashinfer_cutlass")
+    m = _Model()
+    calls = _count_dtype_checks(monkeypatch)
+
+    def lose_the_bucket(named_tensors):
+        raise RuntimeError("bucket lost")
+
+    m.load_weights = lose_the_bucket
+    with pytest.raises(RuntimeError, match="bucket lost"):
+        quant_utils.load_and_reprocess(m, _bucket(m, "a"))
+    del m.load_weights  # back to the model's own loader
+    quant_utils.load_and_reprocess(m, _bucket(m, "a") + quant_utils.finalize_tensors())
+    assert calls == [2, 2]  # the failed sync did not count: the next one was checked
+    quant_utils.load_and_reprocess(m, _bucket(m, "a") + quant_utils.finalize_tensors())
+    assert calls == [2, 2]
