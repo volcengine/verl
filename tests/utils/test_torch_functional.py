@@ -188,28 +188,37 @@ def _per_row_logprobs(logits, labels):
     return torch.stack(rows)
 
 
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16], ids=["bf16", "fp16"])
+@pytest.mark.parametrize("transposed", [False, True], ids=["contiguous", "non-contiguous"])
 @pytest.mark.parametrize(
-    "num_tokens,vocab_size,chunk_elements",
-    [(37, 1000, 1 << 28), (37, 1000, 4096), (37, 1000, 1), (5, 151936, 1 << 20)],
+    "num_tokens,vocab_size,chunk_bytes",
+    [(37, 1000, 1 << 26), (37, 1000, 8192), (37, 1000, 1), (5, 151936, 1 << 20)],
     ids=["one-chunk", "uneven-chunks", "one-row-per-chunk", "large-vocab"],
 )
-def test_logprobs_from_logits_v2_bf16_2d_bitwise_matches_per_row(monkeypatch, num_tokens, vocab_size, chunk_elements):
-    monkeypatch.setattr(torch_functional, "_LOGPROB_CHUNK_ELEMENTS", chunk_elements)
+def test_logprobs_from_logits_v2_2d_bitwise_matches_per_row(
+    monkeypatch, num_tokens, vocab_size, chunk_bytes, transposed, dtype
+):
+    monkeypatch.setattr(torch_functional, "_LOGPROB_CHUNK_BYTES", chunk_bytes)
     device = get_device_name()
     generator = torch.Generator().manual_seed(0)
-    base = (torch.randn(num_tokens, vocab_size, generator=generator) * 4).to(torch.bfloat16).to(device)
+    shape = (vocab_size, num_tokens) if transposed else (num_tokens, vocab_size)
+    base = (torch.randn(shape, generator=generator) * 4).to(dtype).to(device)
     labels = torch.randint(0, vocab_size, (num_tokens,), generator=generator).to(device)
-    grad_out = torch.randn(num_tokens, generator=generator).to(torch.bfloat16).to(device)
+    grad_out = torch.randn(num_tokens, generator=generator).to(dtype).to(device)
 
-    logits = base.clone().requires_grad_(True)
-    ref_logits = base.clone().requires_grad_(True)
+    leaf = base.clone().requires_grad_(True)
+    ref_leaf = base.clone().requires_grad_(True)
+    logits = leaf.t() if transposed else leaf
+    ref_logits = ref_leaf.t() if transposed else ref_leaf
+    assert logits.is_contiguous() != transposed
     out = logprobs_from_logits_v2(logits, labels)
     ref = _per_row_logprobs(ref_logits, labels)
     out.backward(grad_out)
     ref.backward(grad_out)
 
-    assert torch.equal(out, ref)
-    assert torch.equal(logits.grad, ref_logits.grad)
+    assert out.dtype == ref.dtype == dtype
+    assert torch.equal(out.view(torch.int16), ref.view(torch.int16))
+    assert torch.equal(leaf.grad.view(torch.int16), ref_leaf.grad.view(torch.int16))
 
 
 def test_logprobs_from_logits_v2_bf16_2d_does_not_loop_over_tokens(monkeypatch):
