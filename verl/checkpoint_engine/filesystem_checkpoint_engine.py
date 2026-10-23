@@ -18,20 +18,22 @@ import os
 import shutil
 import tempfile
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
 from typing import AsyncGenerator, Generator
 
 import torch
 from safetensors import safe_open
-from safetensors.torch import save_file
 
 from verl.checkpoint_engine.base import CheckpointEngine, CheckpointEngineRegistry
+from verl.utils.checkpoint.hf_safetensors import (
+    HF_WEIGHTS_INDEX_NAME,
+    export_hf_safetensors,
+)
 from verl.utils.device import get_device_name
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
-INDEX_FILE = "model.safetensors.index.json"
+INDEX_FILE = HF_WEIGHTS_INDEX_NAME
 COPY_BUFFER_SIZE = 16 << 20
 
 
@@ -39,15 +41,6 @@ def _copy_file(src: str, dst: str):
     """Copy with sequential IO, which is supported by HDFS fuse mounts."""
     with open(src, "rb") as src_file, open(dst, "wb") as dst_file:
         shutil.copyfileobj(src_file, dst_file, length=COPY_BUFFER_SIZE)
-
-
-def _save_shard(shard: dict[str, torch.Tensor], local_path: str, filesystem_path: str):
-    try:
-        save_file(shard, local_path, metadata={"format": "pt"})
-        _copy_file(local_path, filesystem_path)
-    finally:
-        if os.path.exists(local_path):
-            os.remove(local_path)
 
 
 @CheckpointEngineRegistry.register("filesystem")
@@ -121,53 +114,32 @@ class FileSystemCheckpointEngine(CheckpointEngine):
         os.makedirs(version_dir, exist_ok=True)
 
         start_time = time.time()
-        weight_map, total_size = {}, 0
-        shard, shard_bytes, num_shards = {}, 0, 0
-        pending: Future | None = None
 
-        with (
-            tempfile.TemporaryDirectory(prefix="verl-filesystem-ckpt-") as staging_dir,
-            ThreadPoolExecutor(max_workers=1) as executor,
-        ):
-
-            def flush_shard():
-                nonlocal shard, shard_bytes, num_shards, pending
-                if num_shards % num_writers == rank:
-                    # at most one shard in flight, bounding host memory to about two shards
-                    if pending is not None:
-                        pending.result()
-                    file_name = f"model-{num_shards + 1:05d}.safetensors"
-                    # local_path looks like ${TMPDIR:-/tmp}/verl-filesystem-ckpt-<random>/model-00001.safetensors
-                    local_path = os.path.join(staging_dir, file_name)
-                    # filesystem_path looks like <path>/global_step_<n>/model-00001.safetensors
-                    filesystem_path = os.path.join(version_dir, file_name)
-                    pending = executor.submit(_save_shard, shard, local_path, filesystem_path)
-                shard, shard_bytes = {}, 0
-                num_shards += 1
-
+        with tempfile.TemporaryDirectory(prefix="verl-filesystem-ckpt-") as staging_dir:
             # Every rank must drain the generator since it issues collectives; all ranks see the same
             # tensors, so they agree on the shard boundaries and the weight map.
-            for name, weight in weights:
-                if shard_bytes > 0 and shard_bytes + weight.nbytes > self.bucket_size:
-                    flush_shard()
-                if num_shards % num_writers == rank:
-                    # yielded tensors may be views of a buffer the generator overwrites later
-                    shard[name] = weight.detach().contiguous().to("cpu", copy=True)
-                weight_map[name] = f"model-{num_shards + 1:05d}.safetensors"
-                shard_bytes += weight.nbytes
-                total_size += weight.nbytes
+            total_size, num_shards, _num_tensors = export_hf_safetensors(
+                weights,
+                output_dir=staging_dir,
+                max_shard_bytes=self.bucket_size,
+                rank=rank,
+                num_writers=num_writers,
+            )
 
-            if shard_bytes > 0:
-                flush_shard()
-            if pending is not None:
-                pending.result()
+            for file_name in sorted(os.listdir(staging_dir)):
+                if not file_name.endswith(".safetensors"):
+                    continue
+                # local_path looks like ${TMPDIR:-/tmp}/verl-filesystem-ckpt-<random>/<file_name>
+                local_path = os.path.join(staging_dir, file_name)
+                # filesystem_path looks like <path>/global_step_<n>/<file_name>
+                filesystem_path = os.path.join(version_dir, file_name)
+                _copy_file(local_path, filesystem_path)
 
-        # The index commits the version, so it is written only after every shard has landed.
-        await asyncio.to_thread(torch.distributed.barrier)
-        if self.is_master:
-            with open(os.path.join(version_dir, INDEX_FILE), "w") as f:
-                json.dump({"metadata": {"total_size": total_size}, "weight_map": weight_map}, f, indent=2)
-            self.exported_dir = version_dir
+            # Copy the index last to commit the version only after every shard has landed.
+            await asyncio.to_thread(torch.distributed.barrier)
+            if self.is_master:
+                _copy_file(os.path.join(staging_dir, INDEX_FILE), os.path.join(version_dir, INDEX_FILE))
+                self.exported_dir = version_dir
 
         time_cost = time.time() - start_time
         logger.info(
