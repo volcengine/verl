@@ -447,6 +447,134 @@ class TestExpertPrecision:
             layer(torch.ones(1, 2, dtype=torch.bfloat16))
 
 
+class TestRouterReplay:
+    @staticmethod
+    def _moe():
+        moe = MiniMaxM3MoE(_tiny_args())
+        with torch.no_grad():
+            moe.gate.weight.copy_(torch.eye(4, 8))
+            moe.e_score_correction_bias.zero_()
+        x = torch.zeros(2, 8, dtype=torch.bfloat16)
+        x[:, :4] = torch.tensor([-1.0, 0.0, 1.0, 2.0])
+        return moe, x
+
+    def test_replays_recorded_rows_and_keeps_native_for_unrecorded(self):
+        moe, x = self._moe()
+        # Row 0: the rollout chose experts {0, 1}; row 1: all-zero padding (no recorded choice).
+        weights, ids = moe.route(x, torch.tensor([[0, 1], [0, 0]]))
+        assert ids.tolist() == [[0, 1], [3, 2]]
+        scores = torch.sigmoid(torch.tensor([-1.0, 0.0, 1.0, 2.0]))
+        # Weights come from this model's own scores over the replayed selection.
+        torch.testing.assert_close(weights[0], scores[[0, 1]] / scores[[0, 1]].sum() * 2.0, rtol=0, atol=1e-7)
+        torch.testing.assert_close(weights[1], scores[[3, 2]] / scores[[3, 2]].sum() * 2.0, rtol=0, atol=1e-7)
+
+    @pytest.mark.parametrize(
+        "replay", [torch.tensor([[0, 1, 2], [0, 1, 2]]), torch.tensor([[0, 4], [0, 1]])], ids=["wrong-top-k", "bad-id"]
+    )
+    def test_rejects_mismatched_routing(self, replay):
+        moe, x = self._moe()
+        with pytest.raises(ValueError, match="routed_experts"):
+            moe.route(x, replay)
+
+    def test_forward_indexes_by_absolute_layer(self):
+        from transformers import PretrainedConfig
+
+        # Layer 0 is dense, layer 1 is MoE: the model must read column 1.
+        args = _tiny_args(num_hidden_layers=2, moe_layer_freq=[0, 1], sparse_attention_config=_SPARSE)
+        model = MiniMaxM3ForCausalLM(PretrainedConfig(), args=args)
+        _randomize(model, 4)
+        model.requires_grad_(False)
+        ids = torch.arange(6)[None] % 32
+        native = model.language_model.model.layers[1].block_sparse_moe
+        seen = []
+        route = native.route
+        native.route = lambda x, replay_ids=None: seen.append(replay_ids) or route(x, replay_ids)
+        routed = torch.zeros(1, 6, 2, 2, dtype=torch.long)
+        routed[0, :, 0] = torch.tensor([1, 0])
+        routed[0, :, 1] = torch.tensor([2, 3])
+        replayed = model(ids, routed_experts=routed).logits
+        assert seen[0].tolist() == [[2, 3]] * 6
+        assert torch.isfinite(replayed).all()
+        with pytest.raises(ValueError, match="routed_experts"):
+            model(ids, routed_experts=routed[:, :, :1])
+
+
+class TestSharedOuterExpertLora:
+    """Outer factors (gate A, up A, down B) are one tensor per MoE layer; the export stays per expert."""
+
+    @staticmethod
+    def _peft_model(shared: bool, seed: int = 11):
+        from peft import LoraConfig, get_peft_model
+        from transformers import PretrainedConfig
+
+        model = MiniMaxM3ForCausalLM(
+            PretrainedConfig(),
+            args=_tiny_args(num_hidden_layers=2, moe_layer_freq=[1, 1], sparse_attention_config=_SPARSE),
+        )
+        _randomize(model, 4)
+        model = get_peft_model(model, LoraConfig(r=2, lora_alpha=4, target_modules=["w1", "w2", "w3"]))
+        if shared:
+            MiniMaxM3ForCausalLM.verl_share_expert_outer_loras(model)
+        generator = torch.Generator().manual_seed(seed)
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if ".lora_" in name:
+                    param.copy_(torch.randn(param.shape, generator=generator) * 0.05)
+        return model
+
+    @staticmethod
+    def _role(name: str) -> str:
+        proj, factor = name.split(".")[-4], name.split(".")[-3]
+        return "outer" if (proj, factor) in {("w1", "lora_A"), ("w3", "lora_A"), ("w2", "lora_B")} else "inner"
+
+    def test_parameters_are_shared_but_export_names_are_per_expert(self):
+        import re
+
+        plain, shared = self._peft_model(False), self._peft_model(True)
+        assert set(shared.state_dict()) == set(plain.state_dict())
+        expert = [n for n, _ in shared.named_parameters() if ".experts." in n and ".lora_" in n]
+        outer = [n for n in expert if self._role(n) == "outer"]
+        inner = [n for n in expert if self._role(n) == "inner"]
+        # 2 MoE layers: 3 shared outer factors per layer, 3 inner factors for each of 4 experts.
+        assert (len(outer), len(inner)) == (2 * 3, 2 * 3 * 4)
+        assert all(".experts.0." in n for n in outer)
+        state = shared.state_dict()
+        for name in state:
+            if ".experts." in name and ".lora_" in name and self._role(name) == "outer":
+                first = re.sub(r"\.experts\.\d+\.", ".experts.0.", name)
+                assert state[name].data_ptr() == state[first].data_ptr()
+
+    def test_expanded_export_reproduces_the_shared_model(self):
+        shared, plain = self._peft_model(True), self._peft_model(False, seed=12)
+        plain.load_state_dict(shared.state_dict())
+        ids = torch.arange(6).reshape(1, 6) % 32
+        assert torch.equal(shared(ids).logits, plain(ids).logits)
+        shared.load_state_dict(plain.state_dict())
+        assert torch.equal(shared(ids).logits, plain(ids).logits)
+
+    def test_shared_factor_gradient_is_the_sum_over_experts(self):
+        shared, plain = self._peft_model(True), self._peft_model(False, seed=12)
+        plain.load_state_dict(shared.state_dict())
+        ids = torch.arange(6).reshape(1, 6) % 32
+        for model in (shared, plain):
+            model(ids).logits.float().square().sum().backward()
+        grads = dict(plain.named_parameters())
+        for name, param in shared.named_parameters():
+            if ".experts.0." in name and ".lora_" in name and self._role(name) == "outer":
+                summed = sum(grads[name.replace(".experts.0.", f".experts.{i}.")].grad for i in range(4))
+                assert param.grad.abs().sum() > 0
+                torch.testing.assert_close(param.grad, summed, rtol=1e-4, atol=1e-6)
+
+    def test_requires_an_adapter_on_every_expert_projection(self):
+        from peft import LoraConfig, get_peft_model
+        from transformers import PretrainedConfig
+
+        model = MiniMaxM3ForCausalLM(PretrainedConfig(), args=_tiny_args(sparse_attention_config=_SPARSE))
+        model = get_peft_model(model, LoraConfig(r=2, lora_alpha=4, target_modules=["w1", "w2"]))
+        with pytest.raises(ValueError, match="w3"):
+            MiniMaxM3ForCausalLM.verl_share_expert_outer_loras(model)
+
+
 class TestForwardGuards:
     @staticmethod
     def _model():

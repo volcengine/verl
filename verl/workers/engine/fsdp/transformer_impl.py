@@ -15,6 +15,7 @@
 The concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP)
 """
 
+import inspect
 import logging
 import os
 import warnings
@@ -110,6 +111,9 @@ class FSDPEngine(BaseEngine):
 
     Supports model sharding, activation/optimizer offloading, LoRA, and sequence parallelism.
     """
+
+    # R3 passes the rollout's routing to the model as a forward argument; VeOmni uses its own hook.
+    routed_experts_as_model_input: bool = True
 
     def __init__(
         self,
@@ -451,6 +455,14 @@ class FSDPEngine(BaseEngine):
         dtypes = {p.dtype for p in module.parameters() if p.requires_grad}
         if dtypes != {torch.float32}:
             raise ValueError(f"Expected FP32 LoRA master parameters, got {dtypes}")
+        if self.model_config.lora.get("experts_shared_outer_loras", False):
+            share = getattr(self._native_model_cls, "verl_share_expert_outer_loras", None)
+            if share is None:
+                raise ValueError(f"{self._native_model_cls.__name__} does not implement shared-outer expert LoRA")
+            before = sum(p.numel() for p in module.parameters() if p.requires_grad)
+            tied = share(module)
+            after = sum(p.numel() for p in module.parameters() if p.requires_grad)
+            logger.info(f"Shared-outer expert LoRA: tied {tied} factors, trainable parameters {before} -> {after}")
         return module
 
     def _load_native_sharded(self, module):
@@ -1107,6 +1119,10 @@ class FSDPEngine(BaseEngine):
                 peft_config = peft_model.peft_config.get("default", None)
                 # FSDP2 adapter-only export is streamed from the shards (grouped
                 # all-gathers, no host copy of the whole adapter on every rank).
+                if layered_summon and self.model_config.lora.get("experts_shared_outer_loras", False):
+                    # layered summon walks named_parameters(), which lists a shared factor once:
+                    # the per-expert names of the other experts would be missing from the export.
+                    raise ValueError("Shared-outer expert LoRA does not support rollout.layered_summon")
                 stream_lora = fsdp_version(self.module) == 2 and base_sync_done and not layered_summon
                 params = collect_lora_params(
                     module=self.module,
@@ -1445,10 +1461,38 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 # mirrors what the veomni engine already does for fused kernels.
                 extra_args["shift_labels"] = output_args["input_ids_rmpad_rolled"].unsqueeze(0)
 
+        if self.routed_experts_as_model_input and tu.get_non_tensor_data(
+            data=micro_batch, key="enable_routing_replay", default=False
+        ):
+            model_inputs["routed_experts"] = self._pack_routed_experts(micro_batch, output_args, use_remove_padding)
+
         model_inputs.update(multi_modal_inputs)
         model_inputs.update(extra_args)
 
         return model_inputs, output_args
+
+    def _pack_routed_experts(self, micro_batch: TensorDict, output_args: dict, use_remove_padding: bool):
+        """R3: the rollout's top-k expert indices, packed like ``input_ids``.
+
+        Returns ``(1, total_nnz + pad_size, num_layers, topk)`` int64. Rows without a recorded choice
+        (the pad suffix, tokens the rollout did not route) are all zero: the model routes them natively.
+        """
+        model = getattr(self.module, "module", self.module)
+        model = model.get_base_model() if hasattr(model, "get_base_model") else model
+        routed = micro_batch.get("routed_experts", None)
+        if (
+            not use_remove_padding
+            or self.use_ulysses_sp
+            or routed is None
+            or "routed_experts" not in inspect.signature(model.forward).parameters
+        ):
+            raise NotImplementedError(
+                "FSDP router replay (R3) needs use_remove_padding=True, ulysses_sequence_parallel_size=1, "
+                "rollout.enable_rollout_routing_replay=True and a model whose forward takes `routed_experts`."
+            )
+        routed = routed.values().to(torch.int64)  # (total_nnz, num_layers, topk)
+        pad = routed.new_zeros((int(output_args["pad_size"]), *routed.shape[1:]))
+        return torch.cat([routed, pad]).unsqueeze(0)
 
     def prepare_model_outputs(self, output, output_args, micro_batch: TensorDict, logits_processor_func):
         use_remove_padding = tu.get_non_tensor_data(data=micro_batch, key="use_remove_padding", default=True)

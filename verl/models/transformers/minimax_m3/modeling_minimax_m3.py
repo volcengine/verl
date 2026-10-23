@@ -390,21 +390,36 @@ class MiniMaxM3MoE(nn.Module):
             MiniMaxM3MLP(args, args.intermediate_size * args.n_shared_experts) if args.n_shared_experts else None
         )
 
-    def route(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def route(self, x: torch.Tensor, replay_ids: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
         """vLLM ``topk_sigmoid``: select on ``sigmoid + bias``, weight by the unbiased
-        sigmoid renormalized over the selection, times ``routed_scaling_factor``."""
+        sigmoid renormalized over the selection, times ``routed_scaling_factor``.
+
+        ``replay_ids`` (``[tokens, top_k]``, R3) replaces the selection with the experts the
+        rollout used; the weights still come from this model's own scores. A row with a
+        repeated id carries no recorded choice (all-zero padding) and keeps the native one.
+        """
         with _fp32_region(x.device):
             logits = F.linear(x.float(), self.gate.weight)
             scores = torch.sigmoid(logits)
             ids = torch.topk(scores.detach() + self.e_score_correction_bias, self.top_k, dim=-1).indices
+            if replay_ids is not None:
+                lo, hi, num_experts = int(replay_ids.min()), int(replay_ids.max()), scores.shape[-1]
+                if replay_ids.shape != ids.shape or lo < 0 or hi >= num_experts:
+                    raise ValueError(
+                        f"routed_experts {tuple(replay_ids.shape)} (ids {lo}..{hi}) does not match "
+                        f"routing {tuple(ids.shape)} over {num_experts} experts"
+                    )
+                ordered = replay_ids.sort(-1).values
+                recorded = (ordered[:, 1:] != ordered[:, :-1]).all(-1)
+                ids = torch.where(recorded[:, None], replay_ids, ids)
             weights = scores.gather(-1, ids)
             denom = weights.sum(-1, keepdim=True)
             denom = torch.where(denom > 0, denom, torch.ones_like(denom))
             weights = weights / denom * self.routed_scaling_factor
         return weights, ids
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        weights, ids = self.route(x)
+    def forward(self, x: torch.Tensor, replay_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
+        weights, ids = self.route(x, replay_ids)
         flat_ids = ids.flatten()
         order = torch.argsort(flat_ids, stable=True)
         counts = torch.bincount(flat_ids, minlength=len(self.experts)).tolist()
@@ -622,13 +637,15 @@ class MiniMaxM3DecoderLayer(GradientCheckpointingLayer):
         else:
             self.mlp = MiniMaxM3MLP(args, args.dense_intermediate_size)
 
-    def forward(self, hidden_states: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, segments=None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, segments=None, replay_ids=None
+    ) -> torch.Tensor:
         residual = hidden_states
         h = self.self_attn(self.input_layernorm(hidden_states), cos, sin, segments)
         hidden_states = residual + h
         residual = hidden_states
-        ffn = self.block_sparse_moe if self.is_moe_layer else self.mlp
-        return residual + ffn(self.post_attention_layernorm(hidden_states))
+        x = self.post_attention_layernorm(hidden_states)
+        return residual + (self.block_sparse_moe(x, replay_ids) if self.is_moe_layer else self.mlp(x))
 
 
 class MiniMaxM3TextModel(nn.Module):
@@ -734,6 +751,38 @@ class MiniMaxM3ForCausalLM(PreTrainedModel):
         return load_minimax_m3_sharded(model, path, device, seed)
 
     @classmethod
+    def verl_share_expert_outer_loras(cls, model: nn.Module) -> int:
+        """Shared-outer expert LoRA: per MoE layer, all routed experts use one gate
+        (w1) ``lora_A``, one up (w3) ``lora_A`` and one down (w2) ``lora_B``; the
+        inner factors (w1/w3 ``lora_B``, w2 ``lora_A``) stay per expert.
+
+        The factors are tied by module identity after PEFT wrapped the experts:
+        ``parameters()`` yields each shared factor once (optimizer, FSDP2), while
+        ``state_dict()`` keeps every per-expert name, so the adapter export is
+        already expanded to the per-expert format the rollout engine loads by
+        default. Returns the number of replaced factor modules.
+        """
+        tied = 0
+        for moe in model.modules():
+            if not isinstance(moe, MiniMaxM3MoE):
+                continue
+            first = moe.experts[0]
+            for proj, factor in (("w1", "lora_A"), ("w3", "lora_A"), ("w2", "lora_B")):
+                shared = getattr(getattr(first, proj), factor, None)
+                if not isinstance(shared, nn.ModuleDict) or len(shared) == 0:
+                    raise ValueError(f"Shared-outer LoRA needs an adapter on every routed expert {proj}")
+                for expert in moe.experts[1:]:
+                    own = getattr(getattr(expert, proj), factor, None)
+                    if not isinstance(own, nn.ModuleDict) or set(own) != set(shared):
+                        raise ValueError(f"Shared-outer LoRA needs an adapter on every routed expert {proj}")
+                    for adapter in shared:
+                        own[adapter] = shared[adapter]
+                        tied += 1
+        if tied == 0:
+            raise ValueError("Shared-outer LoRA found no routed experts to tie")
+        return tied
+
+    @classmethod
     def verl_validate_lora_export(cls, names: list[str], args: Optional[MiniMaxM3Args] = None) -> None:
         """Fail loudly on adapter names vLLM would silently ignore.
 
@@ -813,6 +862,7 @@ class MiniMaxM3ForCausalLM(PreTrainedModel):
         cu_seqlens_cpu: Optional[torch.Tensor] = None,
         use_cache: bool = False,
         return_dict: bool = True,
+        routed_experts: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> CausalLMOutputWithPast:
         if kwargs.get("inputs_embeds") is not None:
@@ -846,8 +896,19 @@ class MiniMaxM3ForCausalLM(PreTrainedModel):
         cos, sin = rope_cos_sin(pos, self.args.rotary_dim, self.args.rope_theta)
         inner = self.language_model.model
         h = inner.embed_tokens(input_ids.reshape(-1))
+        if routed_experts is not None:
+            # R3: [batch, seq, num_hidden_layers, top_k], indexed by absolute decoder layer.
+            if routed_experts.shape[:3] != (batch, seq, len(inner.layers)):
+                raise ValueError(
+                    f"routed_experts {tuple(routed_experts.shape)} does not match "
+                    f"[{batch}, {seq}, {len(inner.layers)}, top_k]"
+                )
+            routed_experts = routed_experts.reshape(batch * seq, len(inner.layers), -1)
         for layer in inner.layers:
-            h = layer(h, cos, sin, segments=segments)
+            replay_ids = None
+            if routed_experts is not None and layer.is_moe_layer:
+                replay_ids = routed_experts[:, layer.layer_id]
+            h = layer(h, cos, sin, segments=segments, replay_ids=replay_ids)
         hidden = inner.norm(h).view(batch, seq, -1)
         logits = self.language_model.lm_head(hidden)
         return CausalLMOutputWithPast(logits=logits)
