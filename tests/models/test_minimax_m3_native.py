@@ -28,8 +28,11 @@ from verl.models.transformers.minimax_m3.modeling_minimax_m3 import (
     MiniMaxM3ExpertLinear,
     MiniMaxM3ForCausalLM,
     MiniMaxM3MoE,
+    _linear,
     _read_text_config,
+    _rounded,
     _segments_from_inputs,
+    mxfp8_qdq,
     qk_norm_rope,
     rope_cos_sin,
     select_blocks,
@@ -423,6 +426,26 @@ class TestExpertPrecision:
         )
         assert not torch.equal(out, (_mm_fp32(rounded.bfloat16(), expert.w2.weight) / 2.0).bfloat16())
 
+    def test_fc2_adapter_delta_is_added_before_the_single_rounding(self):
+        args = _tiny_args(hidden_size=16, intermediate_size=32)
+        expert = MiniMaxM3Expert(args).requires_grad_(False)
+        _randomize(expert, 4)
+        x = torch.randn(64, 16, generator=torch.Generator().manual_seed(5)).to(torch.bfloat16)
+        base = expert.w2
+        hidden = swigluoai(expert.w1(x), expert.w3(x), *expert.act, out_dtype=x.dtype)
+        product = base(hidden)
+        delta = product * 2.0**-8
+
+        class WithDelta(torch.nn.Module):
+            def forward(self, value):
+                return base(value) + delta
+
+        expert.w2 = WithDelta()
+        out = expert(x)
+        assert out.dtype == torch.bfloat16
+        assert torch.equal(out, (product + delta).bfloat16())
+        assert not torch.equal(out, product.bfloat16() + delta.bfloat16())
+
     def test_routed_sum_is_rounded_before_shared_add(self):
         args = _tiny_args(n_shared_experts=1)
         moe = MiniMaxM3MoE(args).requires_grad_(False)
@@ -445,6 +468,61 @@ class TestExpertPrecision:
         layer = MiniMaxM3ExpertLinear(2, 1)
         with pytest.raises(RuntimeError, match="frozen"):
             layer(torch.ones(1, 2, dtype=torch.bfloat16))
+
+
+class TestProjectionPrecision:
+    def test_adapter_delta_is_added_before_the_single_rounding(self):
+        layer = _linear(16, 16).requires_grad_(False)
+        _randomize(layer, 7)
+        x = torch.randn(64, 16, generator=torch.Generator().manual_seed(8)).to(torch.bfloat16)
+        product = layer(x)
+        assert product.dtype == torch.float32
+        assert torch.equal(product, torch.nn.functional.linear(x.float(), layer.weight.float()))
+        # A delta of 0.4% of each element is about one BF16 ulp or less.
+        delta = product * 2.0**-8
+
+        class WithDelta(torch.nn.Module):
+            def forward(self, value):
+                return layer(value) + delta
+
+        out = _rounded(WithDelta(), x)
+        assert out.dtype == torch.bfloat16
+        assert torch.equal(out, (product + delta).bfloat16())
+        # Adding the delta to the rounded product (the old behaviour) is a different function.
+        assert not torch.equal(out, product.bfloat16() + delta.bfloat16())
+
+    def test_frozen_weight_backward_is_the_bf16_product(self):
+        layer = _linear(16, 12).requires_grad_(False)
+        _randomize(layer, 9)
+        x = torch.randn(5, 16, generator=torch.Generator().manual_seed(10)).to(torch.bfloat16).requires_grad_()
+        grad = torch.randn(5, 12, generator=torch.Generator().manual_seed(11))
+        layer(x).backward(grad)
+        assert torch.equal(x.grad, grad.bfloat16() @ layer.weight)
+
+
+class TestLinearActivationQat:
+    def test_qdq_is_e4m3_on_a_power_of_two_block_scale(self):
+        x = torch.zeros(1, 64)
+        x[0, :4] = torch.tensor([448.0, 1.0, 3.3, -0.07])  # block scale 1: E4M3 grid directly
+        x[0, 32:36] = torch.tensor([900.0, 1.0, 5.0, -3.0])  # block scale 4
+        out = mxfp8_qdq(x)
+        assert out[0, :4].tolist() == [448.0, 1.0, 3.25, -0.0703125]
+        assert out[0, 32:36].tolist() == [896.0, 1.0, 5.0, -3.0]
+
+    def test_base_product_reads_the_quantized_input_and_backward_is_straight_through(self):
+        layer = _linear(64, 8, act_quant=True).requires_grad_(False)
+        _randomize(layer, 12)
+        x = torch.randn(5, 64, generator=torch.Generator().manual_seed(13)).to(torch.bfloat16).requires_grad_()
+        out = layer(x)
+        assert torch.equal(out, torch.nn.functional.linear(mxfp8_qdq(x.detach().float()), layer.weight.float()))
+        assert not torch.equal(out, torch.nn.functional.linear(x.detach().float(), layer.weight.float()))
+        grad = torch.randn(5, 8, generator=torch.Generator().manual_seed(14))
+        out.backward(grad)
+        assert torch.equal(x.grad, grad.bfloat16() @ layer.weight)
+
+    def test_rejects_an_input_dim_that_is_not_a_block_multiple(self):
+        with pytest.raises(ValueError, match="divisible"):
+            _linear(48, 8, act_quant=True)
 
 
 class TestRouterReplay:

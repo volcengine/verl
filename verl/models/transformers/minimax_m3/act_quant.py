@@ -107,15 +107,28 @@ def fc2_quantize(a: torch.Tensor, shards: int) -> tuple[list[torch.Tensor], list
 _E2M1_CODE_VALUES = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, -0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0)
 
 
+_DECODE_LUT: dict[torch.device, torch.Tensor] = {}
+
+
+def _decode_lut(device: torch.device) -> torch.Tensor:
+    """[256, 2] BF16: the E2M1 values of a packed byte's low and high nibble."""
+    lut = _DECODE_LUT.get(device)
+    if lut is None:
+        values = torch.tensor(_E2M1_CODE_VALUES, dtype=torch.bfloat16, device=device)
+        byte = torch.arange(256, device=device)
+        lut = _DECODE_LUT[device] = torch.stack((values[byte & 0xF], values[byte >> 4]), -1)
+    return lut
+
+
 def _decode(packed: torch.Tensor, sf: torch.Tensor, rows: int, cols: int) -> torch.Tensor:
-    """Packed E2M1 (low nibble first) + linear E4M3 block scales -> exact BF16 ``code * sf``."""
-    lut = torch.tensor(_E2M1_CODE_VALUES, dtype=torch.float32, device=packed.device)
-    packed = packed.view(torch.uint8).reshape(rows, cols // 2)
-    codes = torch.stack((lut[(packed & 0xF).long()], lut[(packed >> 4).long()]), -1).view(
-        rows, cols // NVFP4_BLOCK, NVFP4_BLOCK
-    )
-    sf = sf.view(torch.float8_e4m3fn).reshape(rows, -1)[:, : cols // NVFP4_BLOCK].float()
-    return (codes * sf[..., None]).view(rows, cols).to(torch.bfloat16)
+    """Packed E2M1 (low nibble first) + linear E4M3 block scales -> exact BF16 ``code * sf``.
+
+    A code has at most 2 significant bits and an E4M3 scale 4, so the product is exact in BF16
+    and is formed there directly.
+    """
+    codes = _decode_lut(packed.device)[packed.view(torch.uint8).reshape(rows, cols // 2).int()]
+    sf = sf.view(torch.float8_e4m3fn).reshape(rows, -1)[:, : cols // NVFP4_BLOCK].float().to(torch.bfloat16)
+    return (codes.view(rows, cols // NVFP4_BLOCK, NVFP4_BLOCK) * sf[..., None]).view(rows, cols)
 
 
 def fc1_quantize_kernel(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -104,6 +104,9 @@ class MiniMaxM3Args:
     # "kernel": FlashInfer's per-token NVFP4 quantizer, as the rollout (bitwise rollout numerics);
     # "torch": the IEEE PyTorch mirror (~1e-4 of codes differ by one step).
     expert_qat_backend: str = "kernel"
+    # MXFP8 activation QAT of the attention / shared-expert / dense-MLP projections:
+    # the rollout runs them as MXFP8 W8A8 GEMMs that quantize their input.
+    linear_activation_qat: bool = False
 
     _REQUIRED_EQUAL = {
         "use_gemma_norm": True,
@@ -207,7 +210,12 @@ def _reject_config_overrides(config, raw_text: dict[str, Any]) -> None:
         )
 
 
-_TRAINING_SWITCHES = {"expert_activation_qat": bool, "expert_qat_tp_shards": int, "expert_qat_backend": str}
+_TRAINING_SWITCHES = {
+    "expert_activation_qat": bool,
+    "expert_qat_tp_shards": int,
+    "expert_qat_backend": str,
+    "linear_activation_qat": bool,
+}
 
 
 def _training_overrides(config) -> dict[str, Any]:
@@ -291,8 +299,9 @@ class MiniMaxM3ExpertLinear(nn.Linear):
 
     ``act_quant`` = ``(mode, shards, backend)`` enables the deployed NVFP4
     activation quantization of this projection's input (``act_quant.py``).
-    ``out_fp32`` returns the scaled FP32 accumulator without rounding (FC1 feeds
-    the activation from the accumulator). ``input_global_scale`` is loaded for
+    ``out_fp32`` returns the scaled FP32 accumulator without rounding: FC1 feeds
+    the activation from it, and FC2's adapter delta is added to it before the
+    expert rounds the sum once. ``input_global_scale`` is loaded for
     checkpoint completeness but unused: the rollout's per-token dynamic scaling
     replaces it with 1.
     """
@@ -312,8 +321,88 @@ class MiniMaxM3ExpertLinear(nn.Linear):
         return NVFP4ActQuantLinear.apply(x, self.weight, self.weight_global_scale, mode, shards, backend, self.out_fp32)
 
 
-def _linear(in_features: int, out_features: int) -> nn.Linear:
-    return nn.Linear(in_features, out_features, bias=False, dtype=torch.bfloat16)
+MXFP8_BLOCK = 32
+
+
+def mxfp8_qdq(x: torch.Tensor) -> torch.Tensor:
+    """MXFP8 activation quantize + dequantize of FP32 rows ``[rows, in]``.
+
+    Blocks of 32 along the input dim; the block scale is the power of two that
+    brings the block maximum under the largest E4M3 value (448); values are
+    rounded to E4M3. This is what the rollout's MXFP8 GEMM does to its input.
+    """
+    rows, cols = x.shape
+    blocks = x.view(rows, cols // MXFP8_BLOCK, MXFP8_BLOCK)
+    amax = blocks.abs().amax(dim=-1).clamp(min=torch.finfo(torch.float32).tiny)
+    scale = torch.exp2(torch.ceil(torch.log2(amax / 448.0)).clamp(-127.0, 127.0)).unsqueeze(-1)
+    return ((blocks / scale).to(torch.float8_e4m3fn).to(torch.float32) * scale).view(rows, cols)
+
+
+class _FrozenLinearFP32(torch.autograd.Function):
+    """``x @ W.T`` with an FP32 product for a frozen BF16 weight.
+
+    Only the weight is kept for the backward (the FP32 copy is a temporary), and
+    the input gradient is a BF16 product, as under the trainer's autocast. With
+    ``act_quant`` the input is MXFP8-quantized first (straight-through backward).
+    """
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, weight: torch.Tensor, act_quant: bool) -> torch.Tensor:
+        ctx.save_for_backward(weight)
+        ctx.x_dtype = x.dtype
+        with _fp32_region(x.device):
+            x32 = x.float()
+            if act_quant:
+                x32 = mxfp8_qdq(x32.reshape(-1, x32.shape[-1])).view(x32.shape)
+            return F.linear(x32, weight.float())
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor):
+        (weight,) = ctx.saved_tensors
+        with _fp32_region(grad.device):
+            return (grad.to(weight.dtype) @ weight).to(ctx.x_dtype), None, None
+
+
+class MiniMaxM3Linear(nn.Linear):
+    """BF16 projection that returns its FP32 product without rounding.
+
+    An adapter wrapped around it adds its delta to the FP32 product, and the
+    caller rounds the sum once (``_rounded``). Adding the delta to a product
+    that is already rounded to BF16 drops the part of it below half an ulp of
+    each element. The rollout adds the delta to its rounded BF16 product (per TP
+    rank on row-parallel layers), so neither order reproduces it exactly; here
+    only the final rounding can drop part of the delta.
+
+    ``act_quant`` MXFP8-quantizes the base product's input, as the rollout's
+    MXFP8 GEMM does; an adapter around this layer still reads the original input.
+    """
+
+    act_quant = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.weight.requires_grad and torch.is_grad_enabled():
+            # A trainable base weight needs its own gradient: plain autograd.
+            with _fp32_region(x.device):
+                x32 = x.float()
+                if self.act_quant:
+                    quantized = mxfp8_qdq(x32.detach().reshape(-1, x32.shape[-1])).view(x32.shape)
+                    x32 = x32 + (quantized - x32.detach())
+                return F.linear(x32, self.weight.float())
+        return _FrozenLinearFP32.apply(x, self.weight, self.act_quant)
+
+
+def _linear(in_features: int, out_features: int, act_quant: bool = False) -> nn.Linear:
+    layer = MiniMaxM3Linear(in_features, out_features, bias=False, dtype=torch.bfloat16)
+    if act_quant:
+        if in_features % MXFP8_BLOCK:
+            raise ValueError(f"MXFP8 activation QAT needs in_features divisible by {MXFP8_BLOCK}, got {in_features}")
+        layer.act_quant = True
+    return layer
+
+
+def _rounded(proj: nn.Module, x: torch.Tensor) -> torch.Tensor:
+    """``proj(x)`` (base product plus any adapter delta, FP32) rounded once to ``x``'s dtype."""
+    return proj(x).to(x.dtype)
 
 
 def swigluoai(
@@ -337,13 +426,15 @@ class MiniMaxM3MLP(nn.Module):
 
     def __init__(self, args: MiniMaxM3Args, intermediate_size: int):
         super().__init__()
-        self.gate_proj = _linear(args.hidden_size, intermediate_size)
-        self.up_proj = _linear(args.hidden_size, intermediate_size)
-        self.down_proj = _linear(intermediate_size, args.hidden_size)
+        qat = args.linear_activation_qat
+        self.gate_proj = _linear(args.hidden_size, intermediate_size, qat)
+        self.up_proj = _linear(args.hidden_size, intermediate_size, qat)
+        self.down_proj = _linear(intermediate_size, args.hidden_size, qat)
         self.act = (args.swiglu_alpha, args.swiglu_beta, args.swiglu_limit)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(swigluoai(self.gate_proj(x), self.up_proj(x), *self.act))
+        hidden = swigluoai(_rounded(self.gate_proj, x), _rounded(self.up_proj, x), *self.act)
+        return _rounded(self.down_proj, hidden)
 
 
 class MiniMaxM3Expert(nn.Module):
@@ -352,9 +443,10 @@ class MiniMaxM3Expert(nn.Module):
     def __init__(self, args: MiniMaxM3Args):
         super().__init__()
         # FC1 (w1 gate, w3 up) hands its FP32 accumulator to the activation; the
-        # activation output is rounded to BF16 and is the FC2 (w2) input.
+        # activation output is rounded to BF16 and is the FC2 (w2) input. FC2 is
+        # rounded once, after its adapter delta (``_rounded``).
         self.w1 = MiniMaxM3ExpertLinear(args.hidden_size, args.intermediate_size, out_fp32=True)
-        self.w2 = MiniMaxM3ExpertLinear(args.intermediate_size, args.hidden_size)
+        self.w2 = MiniMaxM3ExpertLinear(args.intermediate_size, args.hidden_size, out_fp32=True)
         self.w3 = MiniMaxM3ExpertLinear(args.hidden_size, args.intermediate_size, out_fp32=True)
         self.act = (args.swiglu_alpha, args.swiglu_beta, args.swiglu_limit)
         if args.expert_activation_qat:
@@ -365,7 +457,7 @@ class MiniMaxM3Expert(nn.Module):
             self.w2.act_quant = ("fc2", args.expert_qat_tp_shards, args.expert_qat_backend)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w2(swigluoai(self.w1(x), self.w3(x), *self.act, out_dtype=x.dtype))
+        return _rounded(self.w2, swigluoai(self.w1(x), self.w3(x), *self.act, out_dtype=x.dtype))
 
 
 class MiniMaxM3Router(nn.Module):
@@ -518,12 +610,13 @@ class MiniMaxM3Attention(nn.Module):
         self.local_blocks = sparse.get("sparse_local_block", 0)
         self.init_blocks = sparse.get("sparse_init_block", 0)
         hidden = args.hidden_size
-        self.q_proj = _linear(hidden, self.num_heads * self.head_dim)
-        self.k_proj = _linear(hidden, self.num_kv_heads * self.head_dim)
-        self.v_proj = _linear(hidden, self.num_kv_heads * self.head_dim)
-        self.o_proj = _linear(self.num_heads * self.head_dim, hidden)
-        self.index_q_proj = _linear(hidden, self.num_index_heads * self.index_head_dim)
-        self.index_k_proj = _linear(hidden, self.index_head_dim)
+        qat = args.linear_activation_qat
+        self.q_proj = _linear(hidden, self.num_heads * self.head_dim, qat)
+        self.k_proj = _linear(hidden, self.num_kv_heads * self.head_dim, qat)
+        self.v_proj = _linear(hidden, self.num_kv_heads * self.head_dim, qat)
+        self.o_proj = _linear(self.num_heads * self.head_dim, hidden, qat)
+        self.index_q_proj = _linear(hidden, self.num_index_heads * self.index_head_dim, qat)
+        self.index_k_proj = _linear(hidden, self.index_head_dim, qat)
         self.q_norm = MiniMaxM3RMSNorm(self.head_dim, self.eps)
         self.k_norm = MiniMaxM3RMSNorm(self.head_dim, self.eps)
         self.index_q_norm = MiniMaxM3RMSNorm(self.index_head_dim, self.eps)
@@ -561,7 +654,7 @@ class MiniMaxM3Attention(nn.Module):
     ) -> torch.Tensor:
         tokens = x.shape[0]
         q = qk_norm_rope(
-            self.q_proj(x).view(tokens, self.num_heads, self.head_dim),
+            _rounded(self.q_proj, x).view(tokens, self.num_heads, self.head_dim),
             self.q_norm.weight,
             self.eps,
             cos,
@@ -569,17 +662,17 @@ class MiniMaxM3Attention(nn.Module):
             self.rotary_dim,
         )
         k = qk_norm_rope(
-            self.k_proj(x).view(tokens, self.num_kv_heads, self.head_dim),
+            _rounded(self.k_proj, x).view(tokens, self.num_kv_heads, self.head_dim),
             self.k_norm.weight,
             self.eps,
             cos,
             sin,
             self.rotary_dim,
         )
-        v = self.v_proj(x).view(tokens, self.num_kv_heads, self.head_dim)
+        v = _rounded(self.v_proj, x).view(tokens, self.num_kv_heads, self.head_dim)
         with torch.no_grad():
             iq = qk_norm_rope(
-                self.index_q_proj(x).view(tokens, self.num_index_heads, self.index_head_dim),
+                _rounded(self.index_q_proj, x).view(tokens, self.num_index_heads, self.index_head_dim),
                 self.index_q_norm.weight,
                 self.eps,
                 cos,
@@ -587,7 +680,7 @@ class MiniMaxM3Attention(nn.Module):
                 self.rotary_dim,
             )
             ik = qk_norm_rope(
-                self.index_k_proj(x).view(tokens, 1, self.index_head_dim),
+                _rounded(self.index_k_proj, x).view(tokens, 1, self.index_head_dim),
                 self.index_k_norm.weight,
                 self.eps,
                 cos,
@@ -618,7 +711,7 @@ class MiniMaxM3Attention(nn.Module):
             # adapters) in the graph with exact zero gradients, so every FSDP2 rank
             # reduce-scatters the same parameter set. Empty slices: no value enters.
             attn = attn + (q[:0].sum() + k[:0].sum() + v[:0].sum())
-        return self.o_proj(attn)
+        return _rounded(self.o_proj, attn)
 
 
 # --------------------------------------------------------------------------- #
@@ -660,7 +753,8 @@ class MiniMaxM3LanguageModel(nn.Module):
     def __init__(self, args: MiniMaxM3Args):
         super().__init__()
         self.model = MiniMaxM3TextModel(args)
-        self.lm_head = _linear(args.hidden_size, args.vocab_size)
+        # No adapter on the head: a plain BF16 product (an FP32 one would double the logits' memory).
+        self.lm_head = nn.Linear(args.hidden_size, args.vocab_size, bias=False, dtype=torch.bfloat16)
 
 
 def _segments_from_inputs(
