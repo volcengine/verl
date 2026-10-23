@@ -63,6 +63,35 @@ def enable_full_determinism(seed: int):
     torch.backends.cudnn.enabled = False
 
 
+def enable_batch_invariance():
+    """Install vLLM's batch-invariant kernel overrides in this process.
+
+    ``init_batch_invariance()`` replaces softmax, log_softmax, mean, bmm (and matmul on SM80) with the
+    batch-invariant kernels a rollout under ``VLLM_BATCH_INVARIANT=1`` uses and pins TF32 and cuBLASLt
+    the same way. It also writes vLLM's NCCL profile into ``os.environ``; the training communicators are
+    created after this call and that profile would throttle them, so every env change outside
+    ``BATCH_INVARIANT_ENV`` (which main_ppo already exports) is reverted.
+    """
+    try:
+        from vllm.model_executor.determinism.batch_invariant import init_batch_invariance
+    except ImportError as e:
+        raise ImportError(
+            "batch_invariant needs a vLLM that provides vllm.model_executor.determinism.batch_invariant"
+        ) from e
+
+    from verl.trainer.constants_ppo import BATCH_INVARIANT_ENV
+
+    os.environ["VLLM_BATCH_INVARIANT"] = "1"
+    before = dict(os.environ)
+    init_batch_invariance()
+    for key in set(before) | set(os.environ):
+        if key not in BATCH_INVARIANT_ENV and os.environ.get(key) != before.get(key):
+            if key in before:
+                os.environ[key] = before[key]
+            else:
+                del os.environ[key]
+
+
 def pad_packed_inputs(
     input_ids_rmpad: torch.Tensor,
     position_ids_rmpad: torch.Tensor | None,
