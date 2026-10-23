@@ -746,6 +746,82 @@ def test_update_weights_from_ipc_accumulates_lora_across_buckets(monkeypatch):
     torch.testing.assert_close(added[0]["lora.A.weight"], torch.ones(1))
 
 
+class _ReusedBufferReceiver:
+    """Hands out views into one reused buffer, like the IPC transport does."""
+
+    def __init__(self, buckets):
+        self._buckets = buckets
+        self._buffer = torch.empty(max(sum(t.numel() for _, t in bucket) for bucket, _ in buckets))
+
+    def receive_weights(self, on_bucket_received):
+        for bucket, is_last in self._buckets:
+            views, offset = [], 0
+            for name, tensor in bucket:
+                view = self._buffer[offset : offset + tensor.numel()].view(tensor.shape)
+                view.copy_(tensor)
+                views.append((name, view))
+                offset += tensor.numel()
+            on_bucket_received(views, is_last)
+            self._buffer.fill_(-1.0)
+
+
+def _make_lora_ipc_worker(monkeypatch, receiver, lora_dtype=None):
+    monkeypatch.setattr(_vllm_rollout_utils, "BucketedWeightReceiver", lambda *a, **k: receiver)
+    added = []
+    worker = _make_worker(_FakeModel({"q.base_layer.weight": torch.empty(0)}))
+    worker.model_runner.lora_manager = types.SimpleNamespace(lora_config=types.SimpleNamespace(lora_dtype=lora_dtype))
+    worker.add_lora = lambda request: added.append(dict(request.lora_tensors))
+    worker.remove_lora = lambda lora_id: None
+    worker.device = torch.device("cpu")
+    worker.local_rank = 0
+    worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-lora.sock"
+    return worker, added
+
+
+@pytest.mark.parametrize(
+    "lora_dtype,expected_dtype",
+    [(torch.bfloat16, torch.bfloat16), ("bfloat16", torch.bfloat16), ("auto", torch.float32), (None, torch.float32)],
+    ids=["dtype", "dtype-name", "auto", "unset"],
+)
+def test_update_weights_from_ipc_stages_lora_in_lora_dtype(monkeypatch, lora_dtype, expected_dtype):
+    tensors = {
+        "lora.A.weight": torch.arange(4, dtype=torch.float32).view(2, 2) / 7,
+        "lora.B.weight": torch.arange(6, dtype=torch.float32).view(2, 3) / 3,
+        "lora2.A.weight": torch.tensor([0.1, 0.2]),
+    }
+    receiver = _ReusedBufferReceiver(
+        [
+            ([(name, tensors[name]) for name in ("lora.A.weight", "lora.B.weight")], False),
+            ([("lora2.A.weight", tensors["lora2.A.weight"])], True),
+        ]
+    )
+    worker, added = _make_lora_ipc_worker(monkeypatch, receiver, lora_dtype)
+
+    worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
+
+    assert len(added) == 1
+    assert set(added[0]) == set(tensors)
+    for name, tensor in tensors.items():
+        assert added[0][name].dtype == expected_dtype
+        assert torch.equal(added[0][name], tensor.to(expected_dtype))
+
+
+@pytest.mark.parametrize(
+    "buckets",
+    [
+        [([("lora.A.weight", torch.ones(1))], False), ([("lora.A.weight", torch.zeros(1))], True)],
+        [([("lora.A.weight", torch.ones(1)), ("lora.A.weight", torch.zeros(1))], True)],
+    ],
+    ids=["across-buckets", "within-bucket"],
+)
+def test_update_weights_from_ipc_rejects_repeated_lora_tensor(monkeypatch, buckets):
+    worker, added = _make_lora_ipc_worker(monkeypatch, _FakeBucketReceiver(buckets))
+
+    with pytest.raises(ValueError, match="more than once"):
+        worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
+    assert added == []
+
+
 def test_update_weights_from_ipc_standard_loads_per_bucket(monkeypatch):
     """Standard (non-LoRA) base sync loads every bucket immediately (no accumulation)."""
     monkeypatch.setattr(

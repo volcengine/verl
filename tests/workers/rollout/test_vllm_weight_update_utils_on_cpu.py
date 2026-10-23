@@ -71,6 +71,7 @@ def _load_weight_update_utils():
 _weight_update_utils = _load_weight_update_utils()
 apply_buffer_updates = _weight_update_utils.apply_buffer_updates
 split_buffer_updates = _weight_update_utils.split_buffer_updates
+stage_lora_bucket = _weight_update_utils.stage_lora_bucket
 
 
 def _load_vllm_rollout_utils():
@@ -299,3 +300,19 @@ def test_vllm_update_weights_syncs_buffers_to_mtp_drafter():
     expected = torch.tensor([5, 6, 7, 8], dtype=torch.float32)
     torch.testing.assert_close(main_model.model.layers[0].e_score_correction_bias, expected)
     torch.testing.assert_close(drafter_model.model.layers[0].e_score_correction_bias, expected)
+
+
+def test_stage_lora_bucket_keeps_order_and_per_tensor_dtype_without_target():
+    weights = [
+        ("h", torch.ones(2, dtype=torch.float16)),
+        ("f", torch.full((3,), 65536.0)),
+        ("g", torch.zeros(1, dtype=torch.float16)),
+    ]
+
+    staged = stage_lora_bucket(weights, "auto")
+
+    assert [name for name, _ in staged] == ["h", "f", "g"]
+    assert [tensor.dtype for _, tensor in staged] == [torch.float16, torch.float32, torch.float16]
+    for (_, got), (_, want) in zip(staged, weights, strict=True):
+        assert torch.equal(got, want) and got.data_ptr() != want.data_ptr()
+    assert stage_lora_bucket([], torch.bfloat16) == []

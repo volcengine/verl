@@ -45,6 +45,7 @@ from verl.workers.rollout.vllm_rollout.weight_update_utils import (
     apply_buffer_updates,
     drop_tied_alias_updates,
     split_buffer_updates,
+    stage_lora_bucket,
 )
 
 logger = logging.getLogger(__file__)
@@ -291,17 +292,26 @@ class vLLMColocateWorkerExtension:
         # the bucketed transport may split one across buckets. Accumulate and
         # apply only after ``is_last``; standard base weights load per bucket.
         lora_weights: dict[str, torch.Tensor] | None = {} if (peft_config and base_sync_done) else None
+        lora_dtype = None
+        if lora_weights is not None:
+            lora_config = getattr(getattr(self.model_runner, "lora_manager", None), "lora_config", None)
+            lora_dtype = getattr(lora_config, "lora_dtype", None)
 
         def on_bucket_received(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
             if lora_weights is not None:
-                # Clone: add_lora keeps these past the callback (reused IPC buffer, #6454).
-                lora_weights.update((name, tensor.clone()) for name, tensor in weights)
+                # Copy out of the reused IPC buffer: add_lora keeps these past the callback (#6454).
+                staged = stage_lora_bucket(weights, lora_dtype)
+                repeated = [name for name, _ in staged if name in lora_weights]
+                if repeated or len({name for name, _ in staged}) != len(staged):
+                    raise ValueError(f"LoRA tensor received more than once: {repeated[:3] or 'within one bucket'}")
+                lora_weights.update(staged)
                 if not is_last:
                     return
                 self._update_weights(
                     list(lora_weights.items()),
                     peft_config=peft_config,
                     base_sync_done=base_sync_done,
+                    weights_owned=True,
                 )
                 lora_weights.clear()
                 return
@@ -344,11 +354,13 @@ class vLLMColocateWorkerExtension:
         weights: list[tuple[str, torch.Tensor]],
         peft_config: dict,
         base_sync_done: bool,
+        weights_owned: bool = False,
     ):
         if peft_config and base_sync_done:
             # Clone out of the receiver's reused IPC bucket buffer: add_lora keeps these tensors
             # past this callback, so views into the freed/overwritten buffer crash later (#6454).
-            weights = {name: tensor.clone() for name, tensor in weights}
+            # ``weights_owned``: the caller already copied them out.
+            weights = dict(weights) if weights_owned else {name: tensor.clone() for name, tensor in weights}
             lora_request = TensorLoRARequest(
                 lora_name=VLLM_LORA_NAME,
                 lora_int_id=VLLM_LORA_INT_ID,

@@ -115,3 +115,39 @@ def apply_buffer_updates(
         loaded += 1
 
     return loaded
+
+
+@torch.no_grad()
+def stage_lora_bucket(weights: list[WeightUpdate], dtype: torch.dtype | str | None = None) -> list[WeightUpdate]:
+    """Copy one received bucket of LoRA tensors into a single host block.
+
+    The returned ``(name, view)`` pairs own their memory (they do not alias the
+    transport's reused bucket buffer), live on CPU (pinned when the source is on
+    an accelerator) and have ``dtype``. ``dtype`` may be a dtype name, as vLLM's
+    ``LoRAConfig.lora_dtype`` can be; anything else (``None``, ``"auto"``) keeps
+    each tensor's own dtype. vLLM then finds the adapter tensors already on
+    pinned host memory in the LoRA dtype, so its per-tensor copies are no-ops.
+    """
+    if not weights:
+        return []
+    if isinstance(dtype, str):
+        dtype = getattr(torch, dtype, None)
+    if not isinstance(dtype, torch.dtype):
+        sources = {tensor.dtype for _, tensor in weights}
+        if len(sources) > 1:
+            staged = [None] * len(weights)
+            for source in sources:
+                index = [i for i, (_, tensor) in enumerate(weights) if tensor.dtype == source]
+                for i, item in zip(index, stage_lora_bucket([weights[i] for i in index], source), strict=True):
+                    staged[i] = item
+            return staged
+        dtype = weights[0][1].dtype
+    flat = torch.cat([tensor.reshape(-1).to(dtype) for _, tensor in weights])
+    block = torch.empty(flat.numel(), dtype=dtype, pin_memory=flat.device.type != "cpu")
+    block.copy_(flat)
+    staged, offset = [], 0
+    for name, tensor in weights:
+        count = tensor.numel()
+        staged.append((name, block[offset : offset + count].view(tensor.shape)))
+        offset += count
+    return staged
