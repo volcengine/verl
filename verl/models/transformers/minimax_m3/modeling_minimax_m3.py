@@ -17,7 +17,7 @@ Written from the vLLM implementation (``vllm/models/minimax_m3/nvidia/model.py``
 and the released checkpoint. Only the text backbone is modeled; the vision tower,
 projector and MTP heads are not part of the training graph.
 
-Precision contract (each item mirrors what vLLM computes):
+Precision choices (each item follows vLLM's computation for that op):
 
 * Gemma RMSNorm statistics in FP32, output in the activation dtype.
 * Per-head QK norm followed by partial NeoX RoPE, both in FP32, one rounding to
@@ -30,6 +30,19 @@ Precision contract (each item mirrors what vLLM computes):
 The trainer runs the forward under a BF16 autocast region, which downcasts
 matmul-like ops even when their inputs are FP32. Every FP32 section above
 therefore disables autocast locally.
+
+Known differences from vLLM serving (not emulated):
+
+* Adapter add order: an adapter delta is added to the FP32 base product and the
+  sum is rounded once; vLLM adds it to the BF16-rounded product.
+* Routed-expert FC2 finalize: each expert's ``base + delta`` is rounded, then
+  weighted and summed in FP32; vLLM accumulates the routing-weighted base outputs
+  and the weighted deltas separately before its final store.
+* Residual add and RMSNorm: the residual sum is rounded to BF16 before the norm;
+  vLLM's fused add + RMSNorm normalizes the FP32 sum.
+* Tensor parallelism: row-parallel projections and the FC2 shards are summed in
+  FP32 here; vLLM rounds rank-local outputs before the TP reduction.
+* The NVFP4 KV cache and indexer cache of the rollout are not emulated.
 """
 
 from __future__ import annotations
@@ -96,12 +109,12 @@ class MiniMaxM3Args:
     tie_word_embeddings: bool = False
     # Training-only switches (not checkpoint semantics), set through
     # ``text_config`` overrides (see ``_training_overrides``).
-    # Routed-expert NVFP4 activation QAT matching the deployed rollout (act_quant.py).
+    # Routed-expert NVFP4 activation QAT emulating the rollout's quantizer (act_quant.py).
     expert_activation_qat: bool = False
     # FC2-input scales are per tensor-parallel shard of the intermediate dim in the
     # rollout (TRT-LLM MoE quantizes each rank's I/TP columns): set to rollout TP.
     expert_qat_tp_shards: int = 4
-    # "kernel": FlashInfer's per-token NVFP4 quantizer, as the rollout (bitwise rollout numerics);
+    # "kernel": FlashInfer's per-token NVFP4 quantizer, as the rollout (bitwise equal to it);
     # "torch": the IEEE PyTorch mirror (~1e-4 of codes differ by one step).
     expert_qat_backend: str = "kernel"
     # MXFP8 activation QAT of the attention / shared-expert / dense-MLP projections:

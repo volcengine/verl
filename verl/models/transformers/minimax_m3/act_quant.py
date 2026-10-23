@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Routed-expert NVFP4 activation QAT matching the deployed vLLM rollout.
+"""Routed-expert NVFP4 activation QAT: emulates the vLLM rollout's activation quantizer.
+
+This reproduces the quantization rule, not the rest of the served MoE kernel (TP-rank-local
+rounding, expert finalize order); see the model module for known differences.
 
 The rollout serves routed experts with the FlashInfer TRT-LLM NVFP4 MoE
 (``TrtLlmNvFp4LoRAExperts``) and *per-token dynamic* activation scales; the
@@ -133,7 +136,7 @@ def _decode(packed: torch.Tensor, sf: torch.Tensor, rows: int, cols: int) -> tor
 
 def fc1_quantize_kernel(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """:func:`fc1_quantize` through FlashInfer's per-token NVFP4 quantizer, as vLLM's
-    ``quantize_nvfp4_per_token_input`` runs it on the FC1 input (bitwise rollout numerics)."""
+    ``quantize_nvfp4_per_token_input`` runs it on the FC1 input (bitwise equal to that quantizer)."""
     (unit,), (scale,) = fc2_quantize_kernel(x, 1)
     return unit, scale
 
@@ -180,7 +183,7 @@ def _mm_fp32(a: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 
 
 class NVFP4ActQuantLinear(torch.autograd.Function):
-    """``y = Q(x) @ W.T / weight_global_scale`` with deployed numerics, STE backward.
+    """``y = Q(x) @ W.T / weight_global_scale`` with the rollout's activation quantization, STE backward.
 
     ``mode`` is ``"fc1"``/``"fc2"`` (deployed NVFP4 activation quantization) or
     ``"none"`` (``Q`` is the identity). In every mode the GEMM accumulator stays
