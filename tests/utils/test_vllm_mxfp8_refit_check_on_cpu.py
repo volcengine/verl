@@ -224,11 +224,22 @@ def test_moe_check_passes_on_a_re_derived_layout_and_fails_on_a_stale_one():
 
 
 def test_moe_check_is_skipped_where_the_probe_cannot_reproduce_the_layer(caplog):
-    for kwargs in ({"ep": 2}, {"dp": 2}, {"activation": "swigluoai"}):
+    for kwargs, reason in (
+        ({"ep": 2}, "expert or data parallelism (ep_size=2, dp_size=1)"),
+        ({"dp": 2}, "expert or data parallelism (ep_size=1, dp_size=2)"),
+        ({"activation": "swigluoai"}, "activation swigluoai"),
+    ):
+        check._WARNED.clear()
+        caplog.clear()
         model = torch.nn.Module()
         model.experts = _RoutedExperts(**kwargs)
         _stage(model)
-        assert check.snapshot_mxfp8_moe_for_check(model) is None, kwargs
+        with caplog.at_level(logging.WARNING, logger=check.logger.name):
+            assert check.snapshot_mxfp8_moe_for_check(model) is None, kwargs
+            assert check.snapshot_mxfp8_moe_for_check(model) is None, kwargs  # the next sync
+        msgs = [r.getMessage() for r in caplog.records if "MoE refit check skipped on experts" in r.getMessage()]
+        assert len(msgs) == 1 and reason in msgs[0], (kwargs, msgs)  # a warning, once per layer
+    caplog.clear()
 
     model = torch.nn.Module()
     model.experts = _RoutedExperts()  # never staged: the expert scales are still in the kernel layout

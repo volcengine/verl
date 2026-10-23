@@ -605,18 +605,37 @@ def test_moe_self_check_catches_expert_scales_the_kernel_never_re_derived():
     refit_check.self_check_mxfp8_moe(snap)
 
 
-def test_moe_self_check_is_skipped_under_expert_parallelism_and_when_disabled(monkeypatch):
+def test_moe_self_check_is_skipped_under_expert_parallelism_and_when_disabled(monkeypatch, caplog):
     m = _canonical_moe_model()
-    m.moe.moe_ep_size = 2
-    assert refit_check.snapshot_mxfp8_moe_for_check(m) is None  # cannot route to a global expert without EP dispatch
-    m.moe.moe_ep_size = 1
-    m.moe.moe_tp_size = 2  # TP without reduce_results: the layer output is a partial sum, no reference possible
-    assert refit_check.snapshot_mxfp8_moe_for_check(m) is None
-    m.moe.moe_tp_size = 1
+    refit_check._WARNED.clear()
+    with caplog.at_level(logging.WARNING, logger=refit_check.logger.name):
+        m.moe.moe_ep_size = 2
+        assert refit_check.snapshot_mxfp8_moe_for_check(m) is None  # cannot route to a global expert without EP
+        assert refit_check.snapshot_mxfp8_moe_for_check(m) is None  # the next sync
+        m.moe.moe_ep_size = 1
+        m.moe.moe_tp_size = 2  # TP without reduce_results: the layer returns this rank's partial sum
+        assert refit_check.snapshot_mxfp8_moe_for_check(m) is None
+        m.moe.moe_tp_size = 1
+    msgs = [r.getMessage() for r in caplog.records if "MoE refit check skipped on moe (sglang)" in r.getMessage()]
+    assert len(msgs) == 2  # a warning per reason, once
+    assert "expert parallelism (moe_ep_size=2)" in msgs[0] and "TP 2 without reduce_results" in msgs[1]
     monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", "0")
     assert refit_check.snapshot_mxfp8_moe_for_check(m) is None
     monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK")
     assert refit_check.snapshot_mxfp8_moe_for_check(m) is not None
+
+
+def test_moe_probe_is_skipped_with_a_warning_when_the_scales_are_not_canonical(caplog):
+    m = _canonical_moe_model()
+    s = m.moe.w13_weight_scale_inv
+    # the scales left in a kernel layout instead of the canonical [E, N, K/32]
+    m.moe.w13_weight_scale_inv = torch.nn.Parameter(s.data.reshape(s.shape[0], -1), requires_grad=False)
+    refit_check._WARNED.clear()
+    with caplog.at_level(logging.WARNING, logger=refit_check.logger.name):
+        assert refit_check.snapshot_mxfp8_moe_for_check(m) is None
+        assert refit_check.snapshot_mxfp8_moe_for_check(m) is None  # the next sync
+    msgs = [r.getMessage() for r in caplog.records if "MoE refit check skipped on moe (sglang)" in r.getMessage()]
+    assert len(msgs) == 1 and "not the canonical uint8" in msgs[0]
 
 
 def test_moe_probe_feeds_the_trtllm_runner_router_logits_and_catches_stale_scales():

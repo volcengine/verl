@@ -97,22 +97,23 @@ def snapshot_mxfp8_moe_for_check(model: torch.nn.Module):
         return None
     name, module = best
     if getattr(module, "moe_ep_size", 1) > 1:
-        logger.debug("mxfp8 MoE refit check skipped on %s: expert parallelism %d", name, module.moe_ep_size)
+        _warn_skip(
+            name,
+            f"expert parallelism (moe_ep_size={module.moe_ep_size}); the probe routes every row to local expert 0, "
+            "which is global expert 0 only without it",
+        )
         return None
     if getattr(module, "moe_tp_size", 1) > 1 and not getattr(module, "reduce_results", False):
-        logger.debug("mxfp8 MoE refit check skipped on %s: TP without reduce_results", name)
+        _warn_skip(
+            name,
+            f"TP {module.moe_tp_size} without reduce_results; the layer returns this rank's partial sum and the "
+            "probe compares reduced outputs only",
+        )
         return None
     topk = _find_topk_module(model, name)
     problem = _probe_routing_problem(module, topk)
     if problem is not None:
-        if (name, problem) not in _WARNED:
-            _WARNED.add((name, problem))
-            logger.warning(
-                "mxfp8 MoE refit check skipped on %s (sglang): %s; the probe needs softmax routing it can send to "
-                "one expert at weight 1",
-                name,
-                problem,
-            )
+        _warn_skip(name, f"{problem}; the probe needs softmax routing it can send to one expert at weight 1")
         return None
     w13, w2 = module.w13_weight.data, module.w2_weight.data
     s13, s2 = module.w13_weight_scale_inv.data, module.w2_weight_scale_inv.data
@@ -122,7 +123,11 @@ def snapshot_mxfp8_moe_for_check(model: torch.nn.Module):
         or tuple(s13.shape) != _canonical_scale_shape(w13)
         or tuple(s2.shape) != _canonical_scale_shape(w2)
     ):
-        logger.debug("mxfp8 MoE refit check skipped on %s: scales not in canonical layout after load", name)
+        _warn_skip(
+            name,
+            "its expert scales are not the canonical uint8 [E, N, K/32] tensors after the weight sync, so there is "
+            "no reference for the kernel",
+        )
         return None
     expert = 0  # local expert 0 == global expert 0 when EP is off
     return (
@@ -140,6 +145,15 @@ def snapshot_mxfp8_moe_for_check(model: torch.nn.Module):
 
 # (layer, reason) pairs already reported, so a probe that cannot run on a layer warns once, not every sync.
 _WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_skip(name: str, reason: str) -> None:
+    """Warn, once per layer and reason, that the expert probe cannot run on this layer."""
+    if (name, reason) not in _WARNED:
+        _WARNED.add((name, reason))
+        logger.warning("mxfp8 MoE refit check skipped on %s (sglang): %s", name, reason)
+
+
 # Routing the probe's logits steer exactly: softmax over experts, then (Renormalize) or before (Default /
 # RenormalizeNaive) the top-k. With logit 0 for the probed expert and _PROBE_OTHER_LOGIT for every other one, the
 # probed expert gets weight 1.0 and the others exactly 0 in every case.

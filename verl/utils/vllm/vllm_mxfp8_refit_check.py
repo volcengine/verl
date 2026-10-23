@@ -135,7 +135,8 @@ def snapshot_mxfp8_moe_for_check(model):
     while ``w13_weight_scale`` / ``w2_weight_scale`` are the canonical
     ``[E, N, K // 32]`` uint8 tensors the sync just wrote. Returns ``None`` when the
     check is disabled, no layer qualifies, or the layer's parallelism or activation
-    is one the probe cannot reproduce (expert or data parallelism, non-SiLU gating).
+    is one the probe cannot reproduce (expert or data parallelism, non-SiLU gating);
+    a layer skipped for a reason is reported once.
     """
     if not refit_check_enabled():
         return None
@@ -150,11 +151,24 @@ def snapshot_mxfp8_moe_for_check(model):
     name, module = best
     tp, ep, dp = _moe_parallel(module)
     if ep > 1 or dp > 1:
-        logger.debug("mxfp8 MoE refit check skipped on %s: ep_size=%d dp_size=%d", name, ep, dp)
+        _warn_once(
+            f"moe-parallel:{name}",
+            "mxfp8 MoE refit check skipped on %s (vllm): expert or data parallelism (ep_size=%d, dp_size=%d); the "
+            "probe routes every row to local expert 0, which is global expert 0 only without them",
+            name,
+            ep,
+            dp,
+        )
         return None
     act = getattr(module, "activation", None)
     if act is not None and "silu" not in str(getattr(act, "value", act)).lower():
-        logger.debug("mxfp8 MoE refit check skipped on %s: activation %s is not the SiLU gate", name, act)
+        _warn_once(
+            f"moe-activation:{name}",
+            "mxfp8 MoE refit check skipped on %s (vllm): activation %s; the reference implements the SiLU-gated "
+            "MLP only",
+            name,
+            act,
+        )
         return None
     problem = _monolithic_routing_problem(module)
     if problem is not None:
