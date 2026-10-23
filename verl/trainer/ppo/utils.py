@@ -108,21 +108,6 @@ def need_critic(config: DictConfig) -> bool:
         return False
 
 
-def get_balance_mini_batch_size(config: DictConfig, use_critic: bool, update_actor: bool) -> int:
-    """Return the largest global sample count that every PPO mini-batch of this step is a multiple of.
-
-    Every actor and critic mini-batch is a run of consecutive chunks of this size, so balancing each chunk
-    across DP ranks balances all of them. Returns 0, i.e. balance the whole batch, if no model is updated or
-    any model enables ``shuffle`` with ``ppo_epochs > 1``. Worker-side reshuffling across epochs mixes
-    the balanced mini-batches, so we fall back to whole-batch balancing in that case.
-    """
-    models = [config.critic] if use_critic else []
-    models += [config.actor_rollout_ref.actor] if update_actor else []
-    if any(model.shuffle and model.ppo_epochs > 1 for model in models):
-        return 0
-    return math.gcd(*(model.ppo_mini_batch_size * config.actor_rollout_ref.rollout.n for model in models))
-
-
 def validate_minibatching_config(config: DictConfig, use_critic: bool) -> None:
     """Validate settings that would break UID-grouped mini-batch boundaries."""
     models = [("actor", config.actor_rollout_ref.actor)]
@@ -140,9 +125,8 @@ def validate_minibatching_config(config: DictConfig, use_critic: bool) -> None:
 def get_uid_balance_unit_size(config: DictConfig, use_critic: bool, update_actor: bool) -> int:
     """Return the prompt/UID count of a balancing unit.
 
-    Unlike :func:`get_balance_mini_batch_size`, this count intentionally does not
-    multiply by ``rollout.n``: optimizer mini-batches are defined in prompt/UID
-    units, while each prompt may contribute any number of training rows.
+    Optimizer mini-batches are defined in prompt/UID units, while each prompt
+    may contribute any number of training rows.
     """
     models = [config.critic] if use_critic else []
     models += [config.actor_rollout_ref.actor] if update_actor else []
@@ -227,11 +211,6 @@ def get_minibatch_padding_multiple(
             )
         )
     return math.lcm(*multiples)
-
-
-def need_minibatch_shuffle(config: DictConfig, use_critic: bool) -> bool:
-    """Whether samples should be randomly assigned to PPO mini-batches."""
-    return bool(config.actor_rollout_ref.actor.shuffle or (use_critic and config.critic.shuffle))
 
 
 def create_rl_dataset(data_paths, data_config, tokenizer, processor, is_train=True, max_samples: int = -1):
