@@ -511,11 +511,7 @@ class SeparateRayPPOTrainer(RayPPOTrainer):
         if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
             from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
 
-            apply_bypass_mode(
-                batch=batch,
-                rollout_corr_config=rollout_corr_config,
-                policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
-            )
+            apply_bypass_mode(batch)
         else:  # Recompute old_log_probs
             with marked_timer("old_log_prob", timing_raw, color="blue"):
                 old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)

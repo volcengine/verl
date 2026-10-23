@@ -68,7 +68,6 @@ import torch
 import verl.utils.torch_functional as verl_F
 from verl.protocol import DataProto
 from verl.trainer.config.algorithm import RolloutCorrectionConfig
-from verl.workers.config.actor import PolicyLossConfig
 
 # Safety bound to prevent numerical overflow/underflow when exponentiating
 # exp(20) ≈ 485 million (upper limit for stable weights), exp(-20) ≈ 2e-9 (lower limit)
@@ -192,6 +191,12 @@ def _parse_rollout_rs_thresholds(
                 "upper": upper,
             }
     return thresholds
+
+
+def _masked_extreme(values: torch.Tensor, mask: torch.Tensor, extreme) -> float:
+    """max / min over the masked values; 0.0 when none is selected (e.g. a padding-only micro-batch)."""
+    selected = values[mask]
+    return extreme(selected).item() if selected.numel() > 0 else 0.0
 
 
 def compute_rollout_rejection_mask(
@@ -438,9 +443,6 @@ def compute_rs_metrics(
         rollout_rs_threshold_lower: Lower threshold (ignored if ``apply_lower_threshold`` is False).
         apply_lower_threshold: Whether to mask/log metrics for values below the lower threshold.
     """
-    if not response_mask.any():
-        raise ValueError("response_mask must contain at least one valid token (1).")
-
     metrics: dict[str, float] = {}
     prefix = f"rollout_rs_{option_name}"
     mask_bool: torch.Tensor = response_mask.bool()
@@ -462,8 +464,8 @@ def compute_rs_metrics(
         metrics[f"{prefix}_max"] = seq_values_valid.max().item()
         metrics[f"{prefix}_min"] = seq_values_valid.min().item()
     else:
-        metrics[f"{prefix}_max"] = rs_statistic.masked_fill(~mask_bool, float("-inf")).max().item()
-        metrics[f"{prefix}_min"] = rs_statistic.masked_fill(~mask_bool, float("inf")).min().item()
+        metrics[f"{prefix}_max"] = _masked_extreme(rs_statistic, mask_bool, torch.max)
+        metrics[f"{prefix}_min"] = _masked_extreme(rs_statistic, mask_bool, torch.min)
 
     # Fractions above/below the thresholds.
     if level == "sequence" and seq_values_valid.numel() > 0:
@@ -514,7 +516,8 @@ def compute_rs_metrics(
         metrics[f"{prefix}_seq_min"] = 0.0
         metrics[f"{prefix}_seq_max_deviation"] = 0.0
         metrics[f"{prefix}_seq_fraction_high"] = 0.0
-        metrics[f"{prefix}_seq_fraction_low"] = 0.0
+        if apply_lower_threshold:
+            metrics[f"{prefix}_seq_fraction_low"] = 0.0
 
     return metrics
 
@@ -686,9 +689,6 @@ def compute_is_metrics(
     Returns:
         Dictionary of IS weight metrics (all scalars).
     """
-    if not response_mask.any():
-        raise ValueError("response_mask must contain at least one valid token (1).")
-
     metrics: dict[str, float] = {}
     device: torch.device = rollout_is_weights.device
     # Default lower threshold (reciprocal of upper threshold)
@@ -734,8 +734,8 @@ def compute_is_metrics(
 
         # Max/min (mask out padding tokens)
         mask_bool: torch.Tensor = response_mask.bool()
-        metrics["rollout_is_max"] = rollout_is_weights.masked_fill(~mask_bool, float("-inf")).max().item()
-        metrics["rollout_is_min"] = rollout_is_weights.masked_fill(~mask_bool, float("inf")).min().item()
+        metrics["rollout_is_max"] = _masked_extreme(rollout_is_weights, mask_bool, torch.max)
+        metrics["rollout_is_min"] = _masked_extreme(rollout_is_weights, mask_bool, torch.min)
 
     # Compute standard deviation / ESS from the actual applied weights so exact
     # IcePop diagnostics preserve zeroed-out coefficients.
@@ -754,9 +754,8 @@ def compute_is_metrics(
     weights_for_ess: torch.Tensor = rollout_is_weights.clamp(min=0.0, max=rollout_is_threshold)
     mean_for_ess: torch.Tensor = verl_F.masked_mean(weights_for_ess, response_mask)
     is_weights_normalized: torch.Tensor = weights_for_ess / (mean_for_ess + 1e-8)  # Avoid division by zero
-    metrics["rollout_is_eff_sample_size"] = (
-        1.0 / verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
-    )
+    ess_denominator = verl_F.masked_mean(is_weights_normalized.square(), response_mask).item()
+    metrics["rollout_is_eff_sample_size"] = 1.0 / ess_denominator if ess_denominator > 0 else 0.0
 
     # Add sequence-level metrics if weights have batch dimension
     if rollout_is_weights.dim() > 1:
@@ -833,9 +832,6 @@ def compute_rollout_correction_and_rejection_mask(
                 - Rejection sampling rates
                 - Policy mismatch metrics (KL, PPL, etc.)
     """
-    # Validate input masks
-    if not response_mask.any():
-        raise ValueError("response_mask must contain at least one valid token (1).")
     if old_log_prob.shape != rollout_log_prob.shape:
         raise ValueError(
             f"old_log_prob shape {old_log_prob.shape} does not match rollout_log_prob shape {rollout_log_prob.shape}."
@@ -936,8 +932,6 @@ def compute_offpolicy_metrics(
     Returns:
         Dictionary of off-policy metrics (without prefix)
     """
-    # Validate that we have at least one valid token
-    assert response_mask.any(), "Expected at least one valid token in response_mask"
 
     metrics = {}
 
@@ -1106,16 +1100,34 @@ def compute_rollout_corr_metrics_from_logprobs(
     return metrics_with_prefix
 
 
-def apply_bypass_mode(
-    batch: DataProto,
-    rollout_corr_config: Optional[RolloutCorrectionConfig] = None,
-    policy_loss_config: PolicyLossConfig = None,
-) -> None:
+def configure_bypass_mode(config) -> None:
+    """Select the bypass-mode actor loss when algorithm.rollout_correction.bypass_mode is set.
+
+    Actor workers copy their config when they are created, so trainers call this before
+    creating them. An explicitly configured loss_mode other than vanilla (e.g. gspo) is kept.
+    """
+    from omegaconf import open_dict
+
+    rollout_corr_config = config.algorithm.get("rollout_correction", None)
+    if not (rollout_corr_config and rollout_corr_config.get("bypass_mode", False)):
+        return
+    policy_loss_config = config.actor_rollout_ref.actor.policy_loss
+    if policy_loss_config.get("loss_mode", "vanilla") not in ("vanilla", "bypass_mode"):
+        return
+    with open_dict(policy_loss_config):
+        # Pass rollout_correction config to actor for loss computation and metrics
+        policy_loss_config["rollout_correction"] = rollout_corr_config
+        # Always use bypass_mode loss function which handles both loss_types
+        policy_loss_config["loss_mode"] = "bypass_mode"
+
+
+def apply_bypass_mode(batch: DataProto) -> None:
     """
     Setup bypass mode: Use rollout_log_probs as old_log_probs.
 
     Bypass mode skips expensive actor forward pass for old_log_prob computation
     by setting old_log_probs = rollout_log_probs (2 policies instead of 3).
+    The actor loss is selected by configure_bypass_mode before the workers start.
 
     Uses compute_policy_loss_bypass_mode() which supports:
     - loss_type="ppo_clip" (default): PPO clipped objective (IS handled by ratio)
@@ -1126,8 +1138,6 @@ def apply_bypass_mode(
     Note:
         The implementation is copied from szrlee <szrlee@gmail.com>.
     """
-    from omegaconf import open_dict
-
     if "rollout_log_probs" not in batch.batch:
         raise ValueError(
             "bypass_mode=True requires rollout_log_probs in batch. "
@@ -1136,9 +1146,3 @@ def apply_bypass_mode(
 
     # Use rollout log probs as old log probs (zero-cost substitution)
     batch.batch["old_log_probs"] = batch.batch["rollout_log_probs"]
-
-    with open_dict(policy_loss_config):
-        # Pass rollout_correction config to actor for loss computation and metrics
-        policy_loss_config["rollout_correction"] = rollout_corr_config
-        # Always use bypass_mode loss function which handles both loss_types
-        policy_loss_config["loss_mode"] = "bypass_mode"

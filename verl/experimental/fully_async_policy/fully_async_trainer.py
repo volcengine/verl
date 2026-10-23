@@ -35,6 +35,7 @@ from verl.experimental.separation.ray_trainer import SeparateRayPPOTrainer
 from verl.single_controller.ray import RayClassWithInitArgs, RayWorkerGroup
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager
+from verl.trainer.ppo.rollout_corr_helper import configure_bypass_mode
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path, should_save_ckpt_esi
 from verl.utils.config import omega_conf_to_dataclass
@@ -71,6 +72,7 @@ class FullyAsyncTrainer(SeparateRayPPOTrainer):
         # Store the tokenizer for text processing
         self.tokenizer = tokenizer
         self.config = config
+        configure_bypass_mode(config)
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert not self.hybrid_engine

@@ -39,6 +39,7 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 from verl.trainer.ppo.reward import extract_reward
+from verl.trainer.ppo.rollout_corr_helper import configure_bypass_mode
 from verl.trainer.ppo.utils import Role, WorkerType, need_critic, need_reference_policy, need_reward_model
 from verl.utils.debug import marked_timer
 from verl.utils.import_utils import load_class_from_fqn
@@ -83,6 +84,7 @@ class OneStepOffRayTrainer(SeparateRayPPOTrainer):
         self.tokenizer = tokenizer
         self.processor = processor
         self.config = config
+        configure_bypass_mode(config)
 
         self.hybrid_engine = config.actor_rollout_ref.hybrid_engine
         assert not self.hybrid_engine

@@ -62,7 +62,10 @@ from verl.trainer.ppo.metric_utils import (
 )
 from verl.trainer.ppo.padding_utils import upsample_batch_to_divisible_size
 from verl.trainer.ppo.ray_trainer import apply_kl_penalty, compute_spec_decode_metrics
-from verl.trainer.ppo.rollout_corr_helper import compute_rollout_correction_and_add_to_batch
+from verl.trainer.ppo.rollout_corr_helper import (
+    compute_rollout_correction_and_add_to_batch,
+    configure_bypass_mode,
+)
 from verl.trainer.ppo.utils import (
     Role,
     create_rl_dataset,
@@ -126,6 +129,8 @@ class PPOTrainer(ABC):
         self.use_teacher_policy = need_teacher_policy(self.config)
         if self.config.algorithm.use_kl_in_reward:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
+
+        configure_bypass_mode(self.config)
 
         self.trainer_mode = self.config.trainer.v1.trainer_mode
         self.parameter_sync_step = self.config.trainer.v1.get(self.trainer_mode, {}).get("parameter_sync_step", 1)

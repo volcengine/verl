@@ -557,8 +557,7 @@ rollout_correction:
 **Additional requirements for bypass mode:**
 
 - Set `actor_rollout_ref.actor.use_rollout_log_probs: true`
-- Set `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode`
-- Set rollout correction config via `actor_rollout_ref.actor.policy_loss.rollout_correction`
+- The trainer sets `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode` (unless another non-vanilla `loss_mode` is set) and copies `algorithm.rollout_correction` into `actor_rollout_ref.actor.policy_loss.rollout_correction` before it creates the workers
 
 **Theory:** See [rollout_corr_math.md §3.1.2](rollout_corr_math.md#312-bypass-mode-two-policies)
 
@@ -916,8 +915,7 @@ actor_rollout_ref:
 ### Additional Configurations for Bypass Mode
 
 - Set `actor_rollout_ref.actor.use_rollout_log_probs: true`
-- Set `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode`
-- Set rollout correction config via `actor_rollout_ref.actor.policy_loss.rollout_correction`
+- The trainer sets `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode` (unless another non-vanilla `loss_mode` is set) and copies `algorithm.rollout_correction` into `actor_rollout_ref.actor.policy_loss.rollout_correction` before it creates the workers
 
 ### Metrics
 
