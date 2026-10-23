@@ -49,6 +49,7 @@ from verl.trainer.ppo.metric_utils import (
     process_validation_metrics,
 )
 from verl.trainer.ppo.reward import extract_reward
+from verl.trainer.ppo.rollout_corr_helper import configure_bypass_mode
 from verl.trainer.ppo.utils import (
     Role,
     WorkerType,
@@ -365,8 +366,6 @@ class RayPPOTrainer:
             self.kl_ctrl_in_reward = core_algos.get_kl_controller(self.config.algorithm.kl_ctrl)
 
         self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
-
-        from verl.trainer.ppo.rollout_corr_helper import configure_bypass_mode
 
         configure_bypass_mode(self.config)
 

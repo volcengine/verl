@@ -69,6 +69,7 @@ def test_actor_loss(bypass_mode, loss_mode, expected):
     [
         ("gspo", None, {"rollout_is": "token"}, "rollout_is has no effect"),
         ("gspo", None, {"loss_type": "reinforce"}, "loss_type has no effect"),
+        ("gspo", {"rollout_is": "token"}, {}, "rollout_correction.rollout_is differs"),
         ("bypass_mode", {"loss_type": "reinforce"}, {}, "rollout_correction.loss_type differs"),
         (
             "bypass_mode",
@@ -106,6 +107,7 @@ def test_actor_loss(bypass_mode, loss_mode, expected):
     ids=[
         "explicit-loss-with-is",
         "explicit-loss-with-reinforce",
+        "explicit-loss-with-actor-side-is",
         "conflicting-actor-mirror",
         "different-is-bounds",
         "different-rs-bounds",
@@ -187,3 +189,11 @@ def test_padding_only_micro_batch_has_zero_loss(loss_type, correction):
     )
     assert metrics.keys() == real_metrics.keys()
     assert all(math.isfinite(float(value)) for value in metrics.values())
+    # No valid token or sequence: no extreme weight and nothing past a threshold.
+    for suffix in (
+        "rollout_is_max",
+        "rollout_is_min",
+        "rollout_is_ratio_fraction_high",
+        "rollout_is_ratio_fraction_low",
+    ):
+        assert [metrics[key] for key in metrics if key.endswith(suffix)] == [0.0]

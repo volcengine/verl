@@ -705,20 +705,24 @@ def compute_is_metrics(
 
     # Compute metrics based on aggregation level
     if rollout_is == "sequence":
-        # Sequence-level aggregation: use log-space for unclamped stats
-        log_max: torch.Tensor = log_ratio_for_metrics.max()
-        log_min: torch.Tensor = log_ratio_for_metrics.min()
-        metrics["rollout_is_max"] = torch.exp(torch.clamp(log_max, max=SAFETY_BOUND)).item()
-        metrics["rollout_is_min"] = torch.exp(log_min).item()
+        # Sequence-level aggregation: use log-space for unclamped stats, over sequences with valid tokens
+        seq_log_ratio: torch.Tensor = log_ratio_for_metrics[response_mask.bool().any(dim=-1)]
+        if seq_log_ratio.numel() > 0:
+            log_max: torch.Tensor = seq_log_ratio.max()
+            log_min: torch.Tensor = seq_log_ratio.min()
+            metrics["rollout_is_max"] = torch.exp(torch.clamp(log_max, max=SAFETY_BOUND)).item()
+            metrics["rollout_is_min"] = torch.exp(log_min).item()
+            # Fraction of weights exceeding thresholds (log-space for accuracy)
+            metrics["rollout_is_ratio_fraction_high"] = (seq_log_ratio > log_threshold_upper).float().mean().item()
+            metrics["rollout_is_ratio_fraction_low"] = (seq_log_ratio < log_threshold_lower).float().mean().item()
+        else:
+            metrics["rollout_is_max"] = 0.0
+            metrics["rollout_is_min"] = 0.0
+            metrics["rollout_is_ratio_fraction_high"] = 0.0
+            metrics["rollout_is_ratio_fraction_low"] = 0.0
 
         # Mean uses truncated weights to avoid overflow
         metrics["rollout_is_mean"] = verl_F.masked_mean(rollout_is_weights, response_mask).item()
-
-        # Fraction of weights exceeding thresholds (log-space for accuracy)
-        exceeds_upper: torch.Tensor = log_ratio_for_metrics > log_threshold_upper
-        below_lower: torch.Tensor = log_ratio_for_metrics < log_threshold_lower
-        metrics["rollout_is_ratio_fraction_high"] = exceeds_upper.float().mean().item()
-        metrics["rollout_is_ratio_fraction_low"] = below_lower.float().mean().item()
 
     else:  # token-level
         # Token-level aggregation: the applied weights drive loss, std, and ESS,
@@ -1143,6 +1147,16 @@ def configure_bypass_mode(config) -> None:
         return
     policy_loss_config = config.actor_rollout_ref.actor.policy_loss
     loss_mode = policy_loss_config.get("loss_mode", "vanilla")
+    # A hand-written actor-side rollout_correction must agree with the algorithm config.
+    actor_rc = policy_loss_config.get("rollout_correction", None) or {}
+    for key in actor_rc:
+        if _parsed_setting(key, actor_rc[key], rollout_corr_config) != _parsed_setting(
+            key, rollout_corr_config.get(key), rollout_corr_config
+        ):
+            raise ValueError(
+                f"actor_rollout_ref.actor.policy_loss.rollout_correction.{key} differs from "
+                f"algorithm.rollout_correction.{key}; bypass mode trains with the algorithm config."
+            )
     if loss_mode not in ("vanilla", "bypass_mode"):
         # In bypass mode only the bypass_mode loss applies these.
         for key, inactive in (
@@ -1170,16 +1184,6 @@ def configure_bypass_mode(config) -> None:
             "algorithm.rollout_correction.rollout_is_batch_normalize with bypass_mode=True is not supported "
             "with Megatron pipeline parallelism or dynamic context parallelism."
         )
-    # A hand-written actor-side mirror must agree with the algorithm config it is replaced by.
-    actor_rc = policy_loss_config.get("rollout_correction", None) or {}
-    for key in actor_rc:
-        if _parsed_setting(key, actor_rc[key], rollout_corr_config) != _parsed_setting(
-            key, rollout_corr_config.get(key), rollout_corr_config
-        ):
-            raise ValueError(
-                f"actor_rollout_ref.actor.policy_loss.rollout_correction.{key} differs from "
-                f"algorithm.rollout_correction.{key}; bypass mode trains with the algorithm config."
-            )
     with open_dict(policy_loss_config):
         # Pass rollout_correction config to actor for loss computation and metrics
         policy_loss_config["rollout_correction"] = rollout_corr_config
