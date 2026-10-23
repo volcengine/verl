@@ -26,6 +26,7 @@ from typing import Any, Literal, Optional, get_args
 
 import torch
 from vllm.outputs import RequestOutput
+from vllm.utils.platform_utils import is_pin_memory_available
 
 from verl.utils.device import get_device_name, is_npu_available
 from verl.utils.vllm import TensorLoRARequest, VLLMHijack, resolve_weight_name
@@ -292,19 +293,19 @@ class vLLMColocateWorkerExtension:
         # the bucketed transport may split one across buckets. Accumulate and
         # apply only after ``is_last``; standard base weights load per bucket.
         lora_weights: dict[str, torch.Tensor] | None = {} if (peft_config and base_sync_done) else None
-        lora_dtype = None
+        lora_dtype, lora_pin_memory = None, False
         if lora_weights is not None:
             lora_config = getattr(getattr(self.model_runner, "lora_manager", None), "lora_config", None)
             lora_dtype = getattr(lora_config, "lora_dtype", None)
+            lora_pin_memory = is_pin_memory_available()
 
         def on_bucket_received(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
             if lora_weights is not None:
                 # Copy out of the reused IPC buffer: add_lora keeps these past the callback (#6454).
-                staged = stage_lora_bucket(weights, lora_dtype)
-                repeated = [name for name, _ in staged if name in lora_weights]
-                if repeated or len({name for name, _ in staged}) != len(staged):
-                    raise ValueError(f"LoRA tensor received more than once: {repeated[:3] or 'within one bucket'}")
-                lora_weights.update(staged)
+                repeated = [name for name, _ in weights if name in lora_weights]
+                if repeated:
+                    raise ValueError(f"LoRA tensor received more than once: {repeated[:3]}")
+                lora_weights.update(stage_lora_bucket(weights, lora_dtype, pin_memory=lora_pin_memory))
                 if not is_last:
                     return
                 self._update_weights(

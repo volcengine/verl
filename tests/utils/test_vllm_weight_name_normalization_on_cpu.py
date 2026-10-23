@@ -95,6 +95,11 @@ def _load_vllm_rollout_utils():
     fake_outputs.RequestOutput = _FakeRequestOutput
     fake_vllm = types.ModuleType("vllm")
     fake_vllm.outputs = fake_outputs
+    fake_platform_utils = types.ModuleType("vllm.utils.platform_utils")
+    fake_platform_utils.is_pin_memory_available = lambda: False
+    fake_vllm_utils_pkg = types.ModuleType("vllm.utils")
+    fake_vllm_utils_pkg.platform_utils = fake_platform_utils
+    fake_vllm.utils = fake_vllm_utils_pkg
 
     # Stub ``vllm.lora.layers.base.BaseLayerWithLoRA`` WITHOUT ``load_weights`` --
     # the module-level probe (``"load_weights" in BaseLayerWithLoRA.__dict__``)
@@ -181,6 +186,8 @@ def _load_vllm_rollout_utils():
     fakes = {
         "vllm": fake_vllm,
         "vllm.outputs": fake_outputs,
+        "vllm.utils": fake_vllm_utils_pkg,
+        "vllm.utils.platform_utils": fake_platform_utils,
         "vllm.lora": fake_lora,
         "vllm.lora.layers": fake_lora_layers,
         "vllm.lora.layers.base": fake_lora_base,
@@ -775,6 +782,7 @@ def _make_lora_ipc_worker(monkeypatch, receiver, lora_dtype=None):
     worker.device = torch.device("cpu")
     worker.local_rank = 0
     worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-lora.sock"
+    monkeypatch.setattr(_vllm_rollout_utils, "is_pin_memory_available", lambda: False)
     return worker, added
 
 
@@ -796,6 +804,15 @@ def test_update_weights_from_ipc_stages_lora_in_lora_dtype(monkeypatch, lora_dty
         ]
     )
     worker, added = _make_lora_ipc_worker(monkeypatch, receiver, lora_dtype)
+    staged_ptrs = {}
+    stage_lora_bucket = _vllm_rollout_utils.stage_lora_bucket
+
+    def spy_stage_lora_bucket(*args, **kwargs):
+        staged = stage_lora_bucket(*args, **kwargs)
+        staged_ptrs.update((name, tensor.data_ptr()) for name, tensor in staged)
+        return staged
+
+    monkeypatch.setattr(_vllm_rollout_utils, "stage_lora_bucket", spy_stage_lora_bucket)
 
     worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
 
@@ -803,18 +820,15 @@ def test_update_weights_from_ipc_stages_lora_in_lora_dtype(monkeypatch, lora_dty
     assert set(added[0]) == set(tensors)
     for name, tensor in tensors.items():
         assert added[0][name].dtype == expected_dtype
+        assert added[0][name].device.type == "cpu"
         assert torch.equal(added[0][name], tensor.to(expected_dtype))
+    assert {name: tensor.data_ptr() for name, tensor in added[0].items()} == staged_ptrs
+    first_bucket = [added[0][name].untyped_storage().data_ptr() for name in ("lora.A.weight", "lora.B.weight")]
+    assert first_bucket[0] == first_bucket[1]
 
 
-@pytest.mark.parametrize(
-    "buckets",
-    [
-        [([("lora.A.weight", torch.ones(1))], False), ([("lora.A.weight", torch.zeros(1))], True)],
-        [([("lora.A.weight", torch.ones(1)), ("lora.A.weight", torch.zeros(1))], True)],
-    ],
-    ids=["across-buckets", "within-bucket"],
-)
-def test_update_weights_from_ipc_rejects_repeated_lora_tensor(monkeypatch, buckets):
+def test_update_weights_from_ipc_rejects_repeated_lora_tensor(monkeypatch):
+    buckets = [([("lora.A.weight", torch.ones(1))], False), ([("lora.A.weight", torch.zeros(1))], True)]
     worker, added = _make_lora_ipc_worker(monkeypatch, _FakeBucketReceiver(buckets))
 
     with pytest.raises(ValueError, match="more than once"):

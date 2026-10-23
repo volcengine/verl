@@ -18,6 +18,7 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
 import torch
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -92,6 +93,11 @@ def _load_vllm_rollout_utils():
     fake_outputs.RequestOutput = _FakeRequestOutput
     fake_vllm = types.ModuleType("vllm")
     fake_vllm.outputs = fake_outputs
+    fake_platform_utils = types.ModuleType("vllm.utils.platform_utils")
+    fake_platform_utils.is_pin_memory_available = lambda: False
+    fake_vllm_utils_pkg = types.ModuleType("vllm.utils")
+    fake_vllm_utils_pkg.platform_utils = fake_platform_utils
+    fake_vllm.utils = fake_vllm_utils_pkg
 
     fake_vllm_third_party = types.ModuleType("verl.third_party.vllm")
     fake_vllm_third_party.VLLM_SLEEP_LEVEL = 1
@@ -142,6 +148,8 @@ def _load_vllm_rollout_utils():
     fakes = {
         "vllm": fake_vllm,
         "vllm.outputs": fake_outputs,
+        "vllm.utils": fake_vllm_utils_pkg,
+        "vllm.utils.platform_utils": fake_platform_utils,
         "verl.third_party.vllm": fake_vllm_third_party,
         "verl.utils.vllm": fake_vllm_utils,
         "verl.utils.vllm.patch": fake_vllm_patch,
@@ -315,4 +323,25 @@ def test_stage_lora_bucket_keeps_order_and_per_tensor_dtype_without_target():
     assert [tensor.dtype for _, tensor in staged] == [torch.float16, torch.float32, torch.float16]
     for (_, got), (_, want) in zip(staged, weights, strict=True):
         assert torch.equal(got, want) and got.data_ptr() != want.data_ptr()
+    assert staged[0][1].untyped_storage().data_ptr() == staged[2][1].untyped_storage().data_ptr()
     assert stage_lora_bucket([], torch.bfloat16) == []
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinned host memory needs CUDA")
+@pytest.mark.parametrize("pin_memory", [True, False], ids=["pinned", "pageable"])
+def test_stage_lora_bucket_copies_device_bucket_into_one_host_block(pin_memory):
+    source = torch.arange(10, dtype=torch.float32, device="cuda") / 7
+    weights = [("a", source[:4].view(2, 2)), ("b", source[4:].view(3, 2))]
+    expected = [tensor.to(torch.bfloat16).cpu() for _, tensor in weights]
+
+    with torch.device("cuda"):
+        staged = stage_lora_bucket(weights, torch.bfloat16, pin_memory=pin_memory)
+    source.fill_(-1.0)
+
+    for (_, got), want in zip(staged, expected, strict=True):
+        assert got.device.type == "cpu" and got.is_pinned() == pin_memory
+        assert torch.equal(got, want)
+    assert staged[0][1].untyped_storage().data_ptr() == staged[1][1].untyped_storage().data_ptr()
+    assert staged[0][1].to(device="cpu", dtype=torch.bfloat16).data_ptr() == staged[0][1].data_ptr()
+    if pin_memory:
+        assert staged[0][1].pin_memory().data_ptr() == staged[0][1].data_ptr()

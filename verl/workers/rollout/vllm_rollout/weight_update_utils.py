@@ -118,14 +118,16 @@ def apply_buffer_updates(
 
 
 @torch.no_grad()
-def stage_lora_bucket(weights: list[WeightUpdate], dtype: torch.dtype | str | None = None) -> list[WeightUpdate]:
+def stage_lora_bucket(
+    weights: list[WeightUpdate], dtype: torch.dtype | str | None = None, pin_memory: bool = False
+) -> list[WeightUpdate]:
     """Copy one received bucket of LoRA tensors into a single host block.
 
     The returned ``(name, view)`` pairs own their memory (they do not alias the
-    transport's reused bucket buffer), live on CPU (pinned when the source is on
-    an accelerator) and have ``dtype``. ``dtype`` may be a dtype name, as vLLM's
-    ``LoRAConfig.lora_dtype`` can be; anything else (``None``, ``"auto"``) keeps
-    each tensor's own dtype. vLLM then finds the adapter tensors already on
+    transport's reused bucket buffer), live on CPU, pinned if ``pin_memory``
+    (callers pass vLLM's ``is_pin_memory_available()``), and have ``dtype``.
+    ``dtype`` may be a dtype name, as vLLM's ``LoRAConfig.lora_dtype`` can be;
+    anything else (``None``, ``"auto"``) keeps each tensor's own dtype. vLLM then finds the adapter tensors already on
     pinned host memory in the LoRA dtype, so its per-tensor copies are no-ops.
     """
     if not weights:
@@ -138,12 +140,14 @@ def stage_lora_bucket(weights: list[WeightUpdate], dtype: torch.dtype | str | No
             staged = [None] * len(weights)
             for source in sources:
                 index = [i for i, (_, tensor) in enumerate(weights) if tensor.dtype == source]
-                for i, item in zip(index, stage_lora_bucket([weights[i] for i in index], source), strict=True):
+                for i, item in zip(
+                    index, stage_lora_bucket([weights[i] for i in index], source, pin_memory), strict=True
+                ):
                     staged[i] = item
             return staged
         dtype = weights[0][1].dtype
     flat = torch.cat([tensor.reshape(-1).to(dtype) for _, tensor in weights])
-    block = torch.empty(flat.numel(), dtype=dtype, pin_memory=flat.device.type != "cpu")
+    block = torch.empty(flat.numel(), dtype=dtype, device="cpu", pin_memory=pin_memory)
     block.copy_(flat)
     staged, offset = [], 0
     for name, tensor in weights:

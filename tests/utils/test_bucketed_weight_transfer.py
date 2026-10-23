@@ -119,6 +119,35 @@ def test_sender_accepts_strided_tensor(monkeypatch):
     assert torch.equal(recovered, weight)
 
 
+@pytest.mark.parametrize(
+    "weights",
+    [
+        [("w", torch.ones(4)), ("w", torch.zeros(4))],
+        [("w", torch.ones(1 << 18)), ("v", torch.ones(1 << 18)), ("w", torch.zeros(1 << 18))],
+    ],
+    ids=["same-bucket", "later-bucket"],
+)
+def test_sender_rejects_repeated_weight_name(monkeypatch, weights):
+    from verl.workers.rollout.vllm_rollout import bucketed_weight_transfer
+
+    socket = _FakeSocket()
+    sender = bucketed_weight_transfer.BucketedWeightSender(
+        zmq_handle="ipc:///tmp/test-bwt-unused.sock",
+        bucket_size_mb=1,
+        use_shm=True,
+    )
+    monkeypatch.setattr(sender, "_init_socket", lambda: setattr(sender, "socket", socket))
+    monkeypatch.setattr(
+        sender, "_init_buffer", lambda: setattr(sender, "buffer", torch.empty(1 << 20, dtype=torch.uint8))
+    )
+    monkeypatch.setattr(sender, "_cleanup", lambda: None)
+    monkeypatch.setattr(bucketed_weight_transfer, "get_torch_device", lambda: _FakeTorchDevice())
+
+    with pytest.raises(ValueError, match="more than once"):
+        asyncio.run(sender.async_send_weights(iter(weights)))
+    assert not any(message["is_last"] for message in socket.messages)
+
+
 # ---------------------------------------------------------------------------
 # Process entry points (must be module-level for pickling with spawn)
 # ---------------------------------------------------------------------------
@@ -288,7 +317,7 @@ class TestBucketedWeightTransferIPC:
         specs = [("embedding", (1024, 1024), torch.float32)]  # 4MB
         specs.extend([(f"layer{i}.weight", (128,), torch.bfloat16) for i in range(5)])
         specs.append(("gate_up_proj", (1024, 1024), torch.float32))  # 4MB
-        specs.extend([(f"layer{i}.weight", (128,), torch.bfloat16) for i in range(20)])
+        specs.extend([(f"layer{i}.weight", (128,), torch.bfloat16) for i in range(5, 25)])
         specs.append(("lm_head", (1024, 1024), torch.float32))  # 4MB
 
         _transfer_and_validate(specs, bucket_size_mb=1, use_shm=False)
