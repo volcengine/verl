@@ -3,8 +3,8 @@
 # GRPO (DAPO-Math-17K, AIME-2024 eval) | MiniMax M3.1 NVFP4 | FSDP2 + LoRA | vLLM rollout | 4 nodes x 4 GPUs
 #
 # The trainer runs the verl-native MiniMax M3 text model (verl/models/transformers/minimax_m3): NVFP4 expert
-# weights decoded to BF16, the served activation rules on the routed experts (NVFP4) and on the other
-# projections (MXFP8), the adapter delta added in FP32. Only LoRA adapters are trained and synced (r32/alpha64 on
+# weights decoded to BF16, emulated activation quantization on the routed experts (NVFP4, FC2 per rollout TP
+# shard) and on the other projections (MXFP8), the adapter delta added in FP32. Only LoRA adapters are trained and synced (r32/alpha64 on
 # attention, dense MLP, shared and routed experts; routed experts share their outer factors). The rollout
 # records the routed experts and the trainer replays them (R3).
 #
@@ -14,14 +14,15 @@
 # algorithm.rollout_correction, so the bypass loss is also set on the actor here.
 #
 # Needs a vLLM build with MiniMax M3 LoRA serving (routed-expert LoRA on the FlashInfer TRTLLM NVFP4 MoE is
-# vllm-project/vllm#63024; MiniMax M3 LoRA support itself is a separate vLLM PR), a Ray cluster with
+# vllm-project/vllm#63024; MiniMax M3 LoRA support is vllm-project/vllm#63323), a Ray cluster with
 # nnodes x 4 GPUs, the model on every node, and DAPO-Math-17K / AIME-2024 parquet files with data_source
 # math_dapo / aime_2024.
 #
 # Reference run: 4 nodes x 4 GB300, 200 steps; AIME-2024 mean@8 36.3% at step 10, 67.5% at step 200. Steps 1-100
 # ran before the bypass settings reached the actor workers (decoupled PPO + token IS with the old-log-prob pass; same
 # gradient with one update per batch); steps 101-200 ran this configuration, resumed from step 100. That run rounded
-# the routed-expert FC2 product before adding the adapter delta; the model code here adds it first.
+# the routed-expert FC2 product before adding the adapter delta (the model code here adds it first), and its
+# server quantized the FC1 input with a row rule instead of vLLM's per-token FlashInfer quantizer used here.
 
 set -xeuo pipefail
 
@@ -59,7 +60,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=true \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     +actor_rollout_ref.model.override_config.text_config.expert_activation_qat=true \
-    +actor_rollout_ref.model.override_config.text_config.linear_activation_qat=true \
+    +actor_rollout_ref.model.override_config.text_config.linear_activation_qat=true     +actor_rollout_ref.model.override_config.text_config.expert_qat_tp_shards="$rollout_tp" \
     actor_rollout_ref.model.lora_rank=32 \
     actor_rollout_ref.model.lora_alpha=64 \
     "actor_rollout_ref.model.target_modules=[q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj,w1,w2,w3]" \
