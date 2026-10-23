@@ -22,7 +22,12 @@ from tensordict import TensorDict
 
 import verl.trainer.ppo.v1.agent_loop_tq as agent_loop_tq
 from verl.experimental.agent_loop.agent_loop import AgentLoopMetrics, AgentLoopOutput, AgentLoopWorker
-from verl.trainer.ppo.v1.agent_loop_tq import AgentLoopManagerTQ, AgentLoopWorkerTQ, _settle_session_tasks
+from verl.trainer.ppo.v1.agent_loop_tq import (
+    AgentLoopManagerTQ,
+    AgentLoopWorkerTQ,
+    _settle_session_tasks,
+    apply_greedy_sampling_params,
+)
 
 
 def _recording_worker(worker_id, dispatched):
@@ -208,6 +213,41 @@ async def test_agent_loop_tq_postprocess_stores_unpadded_rollout_topk(monkeypatc
     assert log_probs[2].tolist() == pytest.approx([-0.1, -2.0]) and log_probs[3].tolist() == pytest.approx([-0.2, -1.5])
     assert ids[0].tolist() == [0, 1] and ids[4].tolist() == [0, 1]
     assert "response_topk_ids" not in fields["extra_fields"][0]
+    assert fields["rollout_support_complete"][0].tolist() == [True, True, False, False, True]
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_tq_postprocess_stores_nested_provider_coverage(monkeypatch):
+    output = _output(
+        {
+            "response_topk_ids": [[11, 13], [12, 14]],
+            "response_topk_log_probs": [[0.0, float("-inf")], [-0.2, -1.5]],
+            "response_support_complete": [True, False],
+        }
+    )
+    short_output = AgentLoopOutput(
+        prompt_ids=[101, 102],
+        response_ids=[11],
+        response_mask=[1],
+        num_turns=2,
+        metrics=AgentLoopMetrics(),
+        extra_fields={
+            "response_topk_ids": [[11, 13]],
+            "response_topk_log_probs": [[-0.1, -2.0]],
+            "response_support_complete": [False],
+        },
+    )
+    fields = await _postprocess(monkeypatch, _DummyWorker(topk_log_probs=2), [output, short_output], validate=False)
+    complete = fields["rollout_support_complete"]
+    assert complete.is_nested and complete.dtype == torch.bool
+    assert complete[0].tolist() == [True, True, True, False, True]
+    assert complete[1].tolist() == [True, False, True]
+
+
+def test_greedy_reward_baseline_does_not_request_score_centering_heads():
+    params = {"top_p": 0.9, "top_k": 64, "temperature": 1.0, "topk_log_probs": 128, "logprobs": True}
+    apply_greedy_sampling_params(params)
+    assert params == {"top_p": 1.0, "top_k": -1, "temperature": 0, "logprobs": True}
 
 
 @pytest.mark.asyncio
@@ -246,10 +286,7 @@ def test_successful_prompt_writes_terminal_status_after_all_sessions_and_applies
         )
 
         assert [session["session_id"] for session in sessions] == [0, 1]
-        assert all(
-            session["sampling_params"] == {"temperature": 0, "top_p": 1.0, "top_k": -1}
-            for session in sessions
-        )
+        assert all(session["sampling_params"] == {"temperature": 0, "top_p": 1.0, "top_k": -1} for session in sessions)
         assert puts == [
             {"key": "prompt", "partition_id": "train", "tag": {"status": "running"}},
             {"key": "prompt", "partition_id": "train", "tag": {"status": "finished"}},

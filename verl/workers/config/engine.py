@@ -129,7 +129,7 @@ class QATEngineConfig(BaseConfig):
 
     Args:
         enable (bool): Whether to enable QAT, default False
-        mode (str): Quantization mode, "w4a16" or "w4a4", default "w4a16"
+        mode (str): Quantization mode, "fp8", "mxfp8", "mxfp4", or "nvfp4", default "fp8"
         group_size (int): Group size for blockwise quantization, default 16
         ignore_patterns (list[str]): Module name patterns to exclude from quantization
         activation_observer (str): Observer strategy for activation global_scale (W4A4 only)
@@ -137,7 +137,7 @@ class QATEngineConfig(BaseConfig):
     """
 
     enable: bool = False
-    mode: str = "w4a16"
+    mode: str = "fp8"
     group_size: int = 16
     ignore_patterns: list[str] = field(default_factory=lambda: ["lm_head", "embed_tokens", "re:.*mlp.gate$"])
     activation_observer: str = "static_minmax"
@@ -370,6 +370,9 @@ class VeOmniEngineConfig(EngineConfig):
             in distributed training. Important: this will negatively impact performance, so only use it for
             debugging.
         mixed_precision (Optional[dict[str, Any]]): Mixed precision configuration for FSDP, default None
+        low_precision_reduce_scatter_comm (bool): Use VeOmni's node-local BF16 ReduceScatter
+            transport while retaining FP32 accumulation and output. Requires mixed precision
+            and only affects backward gradient communication. Default False.
         pad_to_length (bool): Round every packed micro-batch up to a multiple of
             ``pad_to_length_bucket`` tokens, so the packed shape only takes a handful of distinct
             values instead of a new one per micro-batch, which avoids repeated kernel
@@ -418,6 +421,7 @@ class VeOmniEngineConfig(EngineConfig):
     seed: int = 42
     full_determinism: bool = False
     mixed_precision: bool = False
+    low_precision_reduce_scatter_comm: bool = False
     init_device: str = "meta"
     enable_full_shard: bool = False
     ckpt_manager: Literal["dcp"] = "dcp"

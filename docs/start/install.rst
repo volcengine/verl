@@ -36,7 +36,10 @@ committed ``uv.lock`` covers every backend, and you pick the backends for a
 given run as **extras**:
 
 - Inference: ``vllm`` or ``sglang``.
-- Training: ``fsdp`` or ``megatron``.
+- Training: ``fsdp``, ``megatron``, or ``veomni`` (``veomni`` runs VeOmni's
+  FSDP/SP/EP parallelism on the same cu130 / torch-2.13 stack as ``fsdp``;
+  select it at runtime with ``model_engine=veomni`` for PPO/GRPO or
+  ``engine=veomni`` for SFT).
 - ``cpu``: GPU-free, for CI / quick checks.
 
 There is **no install step**. ``uv run --extra ...`` materializes the project
@@ -164,7 +167,7 @@ A typical run combines **one inference engine** with **one training backend**,
 for example ``--extra vllm --extra fsdp``. The rules:
 
 - Choose at most one inference engine: ``vllm`` **or** ``sglang`` (not both).
-- Add a training backend: ``fsdp`` (default) or ``megatron``.
+- Add a training backend: ``fsdp`` (default), ``megatron``, or ``veomni``.
 - ``cpu`` is GPU-free and is used on its own.
 
 The mutually exclusive sets are declared in ``[tool.uv].conflicts``, so uv
@@ -261,7 +264,7 @@ Pick a base image
 
    * - Extra(s)
      - Recommended base image
-   * - ``vllm`` / ``fsdp`` / ``megatron``
+   * - ``vllm`` / ``fsdp`` / ``megatron`` / ``veomni``
      - ``nvidia/cuda:13.0.2-devel-ubuntu24.04`` (matches ``docker/Dockerfile.uv.cu130``)
    * - ``sglang``
      - ``lmsysorg/sglang:v0.5.20`` or ``nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04``

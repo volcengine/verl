@@ -375,6 +375,7 @@ class VeOmniEngine(FSDPEngine):
             weights_path=self.model_config.local_path,
             enable_reshard_after_forward=self.engine_config.enable_full_shard,
             mixed_precision=veomni_mixed_precision_config,
+            low_precision_reduce_scatter_comm=self.engine_config.low_precision_reduce_scatter_comm,
             enable_gradient_checkpointing=self.model_config.enable_gradient_checkpointing,
             enable_fsdp_offload=self.engine_config.enable_fsdp_offload,
             basic_modules=list(

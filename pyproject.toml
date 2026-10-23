@@ -16,7 +16,7 @@ requires-python = ">=3.10,<3.13"
 #
 #   uv sync --extra fsdp --extra vllm     # or: python manage_envs.py sync fsdp vllm
 #
-# All backends use torch 2.13.0: vllm/sglang/fsdp/megatron on cu130, cpu on cpu
+# All backends use torch 2.13.0: vllm/sglang/fsdp/megatron/veomni on cu130, cpu on cpu
 # wheels (CI/dev). Both torch worlds coexist via [tool.uv].conflicts forks.
 # torchaudio stays at 2.11.0 — its last release, and what vllm 0.29 / sglang
 # 0.5.20 themselves pin alongside torch 2.13.
@@ -179,6 +179,33 @@ megatron = [
     # transformers NOT pinned here (see fsdp note): settled via override-deps below.
 ]
 
+# VeOmni is the third cu130 / torch-2.13 training backend, peer to fsdp / megatron.
+# verl's VeOmni engine (verl/workers/engine/veomni) subclasses the FSDP engine and
+# drives ByteDance-Seed/VeOmni's own parallelism (FSDP / Ulysses-SP / EP) on the
+# SAME native stack fsdp uses, so this extra carries the fsdp runtime pins plus the
+# deps-free veomni package — i.e. it is the named, first-class form of the
+# `fsdp + veomni-sft` composition CI already runs. Select it at runtime with
+# `model_engine=veomni` (PPO/GRPO) or `engine=veomni` (SFT), e.g.
+# `uv run --extra vllm --extra veomni -- python -m verl.trainer.main_ppo ...`.
+# veomni itself is installed deps-free (empty requires-dist in
+# [[tool.uv.dependency-metadata]] below): its real metadata pins
+# datasets<=2.21.0, which would downgrade the shared datasets dependency. Some
+# VeOmni-generated models additionally need an on-the-fly Transformers overlay
+# (`uv run --with transformers==5.16.1`); the locked 5.12.1 covers the Qwen / GPT-OSS
+# models the examples use.
+veomni = [
+    "verl[verl-core]",
+    "verl[flash-attn-cu130torch213]",
+    "verl[cupy-cu130]",
+    "torch==2.13.0",
+    "torchvision==0.28.0",
+    "torchaudio==2.11.0",
+    "liger-kernel==0.8.4",
+    "trl==0.27.0",
+    "flash-linear-attention==0.5.2",
+    "veomni==0.1.12",
+]
+
 # ---- CI-only extras --------------------------------------------------------
 # Layered by .github/workflows on top of a backend combo so CI deps come from
 # the lock (`sync <backend...> ci`) instead of ad-hoc `uv pip install`. No
@@ -193,8 +220,12 @@ ci = [
     "sglang-router==0.2.2",  # router coverage in reward_model_sglang
 ]
 
-# veomni drives the PPO and SFT engine tests. Installed deps-free (empty requires-dist
-# in [[tool.uv.dependency-metadata]] below): its real metadata pins
+# veomni package alone, as a conflict-free ADD-ON the PPO/SFT engine-test jobs
+# layer on top of an already-synced cu130 backend (fsdp OR megatron) so one env can
+# host several engines at once (see .github/workflows/e2e_sft_*.yml). End users who
+# just want to train with VeOmni should sync the standalone `veomni` training backend
+# above instead, which bundles the matching fsdp stack. Installed deps-free (empty
+# requires-dist in [[tool.uv.dependency-metadata]] below): its real metadata pins
 # datasets<=2.21.0, which would downgrade the shared datasets dependency.
 # VeOmni CI overlays transformers==5.16.1 for this pinned revision.
 veomni-sft = ["veomni==0.1.12"]
@@ -350,14 +381,15 @@ environments = [
 ]
 
 # Mutually exclusive extras — at most one per set per `uv sync`. Distinct torch
-# worlds never mix (cu130: vllm/sglang/fsdp/megatron; cpu). vllm/sglang/cpu are
-# mutually exclusive; cpu also excludes fsdp/megatron. fsdp/megatron CAN combine
-# with a cu130 inference engine (e.g. --extra megatron --extra vllm).
+# worlds never mix (cu130: vllm/sglang/fsdp/megatron/veomni; cpu). vllm/sglang/cpu
+# are mutually exclusive; cpu also excludes every cu130 trainer. fsdp/megatron/veomni
+# CAN combine with a cu130 inference engine (e.g. --extra veomni --extra vllm).
 conflicts = [
     # (trtllm DEFERRED — add `{ extra = "trtllm" }` to each set when it rejoins.)
     [{ extra = "vllm" }, { extra = "sglang" }, { extra = "cpu" }],
     [{ extra = "fsdp" }, { extra = "cpu" }],
     [{ extra = "megatron" }, { extra = "cpu" }],
+    [{ extra = "veomni" }, { extra = "cpu" }],
 ]
 
 # Global override pins:
@@ -425,9 +457,11 @@ name = "megatron-bridge"
 version = "0.6.2"
 requires-dist = []
 
-# veomni 0.1.12 (veomni-sft extra) is likewise installed deps-free: its metadata
-# pins datasets<=2.21.0, which would downgrade the shared datasets dependency.
-# The backend extras already supply the PPO/SFT tests' runtime dependencies.
+# veomni 0.1.12 (pulled by BOTH the standalone `veomni` training backend and the
+# CI-only `veomni-sft` add-on) is installed deps-free: its metadata pins
+# datasets<=2.21.0, which would downgrade the shared datasets dependency. The
+# `veomni` backend (and the fsdp/megatron bases the add-on rides on) already supply
+# the PPO/SFT runtime dependencies.
 [[tool.uv.dependency-metadata]]
 name = "veomni"
 version = "0.1.12"
@@ -481,6 +515,7 @@ torch = [
     { index = "pytorch-cu130", extra = "sglang" },
     { index = "pytorch-cu130", extra = "fsdp" },
     { index = "pytorch-cu130", extra = "megatron" },
+    { index = "pytorch-cu130", extra = "veomni" },
     { index = "pytorch-cpu",   extra = "cpu" },
     # trtllm (DEFERRED) would route to CUDA 13 here:
     #   { index = "pytorch-cu130", extra = "trtllm" },
@@ -490,6 +525,7 @@ torchvision = [
     { index = "pytorch-cu130", extra = "sglang" },
     { index = "pytorch-cu130", extra = "fsdp" },
     { index = "pytorch-cu130", extra = "megatron" },
+    { index = "pytorch-cu130", extra = "veomni" },
     { index = "pytorch-cpu",   extra = "cpu" },
 ]
 torchaudio = [
@@ -497,6 +533,7 @@ torchaudio = [
     { index = "pytorch-cu130", extra = "sglang" },
     { index = "pytorch-cu130", extra = "fsdp" },
     { index = "pytorch-cu130", extra = "megatron" },
+    { index = "pytorch-cu130", extra = "veomni" },
     { index = "pytorch-cpu",   extra = "cpu" },
 ]
 
