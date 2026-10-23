@@ -106,7 +106,7 @@ def test_multi_epoch_shuffle_is_rejected():
         validate_minibatching_config(config, use_critic=False)
 
 
-def test_balance_batch_partitions_variable_outputs_by_uid(monkeypatch):
+def test_balance_batch_allows_partial_final_uid_minibatches(monkeypatch):
     config = _minibatching_config(dynamic=True)
     trainer = _StubTrainer.__new__(_StubTrainer)
     trainer.config = config
@@ -117,7 +117,7 @@ def test_balance_batch_partitions_variable_outputs_by_uid(monkeypatch):
     trainer.tokenizer = SimpleNamespace(eos_token_id=0)
     trainer.actor_rollout_wg = SimpleNamespace(_dispatch_info={"actor": [0, 1]})
 
-    output_counts = {"p0": 2, "p1": 1, "p2": 3, "p3": 2, "p4": 1, "p5": 4, "p6": 2, "p7": 3}
+    output_counts = {"p0": 2, "p1": 1, "p2": 3, "p3": 2, "p4": 1, "p5": 4, "p6": 2}
     uid_keys = {
         uid: [f"{uid}_0_{output_idx}" for output_idx in range(output_count)]
         for uid, output_count in output_counts.items()
@@ -150,10 +150,10 @@ def test_balance_batch_partitions_variable_outputs_by_uid(monkeypatch):
     layout = result.extra_info["_minibatch_layout"]
     assert layout == {
         "unit_prompt_count": 2,
-        "unit_global_sizes": [4, 6, 6, 6],
-        "unit_padding_counts": [1, 1, 1, 1],
+        "unit_global_sizes": [4, 6, 6, 2],
+        "unit_padding_counts": [1, 1, 1, 0],
     }
-    assert len(result) == 22
+    assert len(result) == 18
 
     def reconstruct_global_minibatches(global_sizes):
         shards = [result.keys[: len(result) // 2], result.keys[len(result) // 2 :]]
@@ -180,5 +180,5 @@ def test_balance_batch_partitions_variable_outputs_by_uid(monkeypatch):
             real_keys = [key for key in mini_batch if not key.startswith("pad")]
             assert sorted(real_keys) == sorted(expected_keys)
 
-    assert_uid_minibatches(config.actor_rollout_ref.actor.ppo_mini_batch_size, [10, 12], [2, 2])
-    assert_uid_minibatches(config.critic.ppo_mini_batch_size, [4, 6, 6, 6], [1, 1, 1, 1])
+    assert_uid_minibatches(config.actor_rollout_ref.actor.ppo_mini_batch_size, [10, 8], [2, 1])
+    assert_uid_minibatches(config.critic.ppo_mini_batch_size, [4, 6, 6, 2], [1, 1, 1, 0])

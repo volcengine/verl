@@ -48,6 +48,7 @@ def _trainer_with_filter_groups(filter_groups: dict, trainer_mode: str = "sync")
                     trainer_mode: {},
                     "sampler": {
                         "custom_sampler": None,
+                        "sync_refill_failed_groups": False,
                         "max_off_policy_threshold": 1,
                         "max_off_policy_strategy": "drop",
                         "sampler_kwargs": {},
@@ -111,17 +112,19 @@ def test_builtin_filter_groups_forwards_configured_inflight_limit():
     assert sampler.max_inflight_gen_batches == 3
 
 
-def test_builtin_sync_sampler_always_refills_empty_failed_groups():
+def test_builtin_sync_sampler_keeps_empty_failed_groups_by_default():
     trainer = _trainer_with_filter_groups({"enable": False})
 
     sampler = trainer._build_replay_buffer()
 
-    assert sampler.sync_refill_failed_groups is True
-    assert sampler.gen_batch_size == 1
+    assert sampler.sync_refill_failed_groups is False
+    assert sampler.gen_batch_size == 8
 
 
-def test_sync_failure_refill_overrides_dataloader_generation_batch_size():
+@pytest.mark.parametrize(("refill_failed_groups", "expected_batch_size"), [(False, 8), (True, 1)])
+def test_sync_failure_refill_controls_generation_batch_size(refill_failed_groups, expected_batch_size):
     trainer = _trainer_with_filter_groups({"enable": False})
+    trainer.config.trainer.v1.sampler.sync_refill_failed_groups = refill_failed_groups
     trainer.replay_buffer = trainer._build_replay_buffer()
     trainer.config.data.update(
         {
@@ -148,9 +151,12 @@ def test_sync_failure_refill_overrides_dataloader_generation_batch_size():
     ):
         trainer._init_dataloader()
 
-    assert trainer.config.data.gen_batch_size == 1
-    assert dataloader.call_args_list[0].kwargs["batch_size"] == 1
-    warning.assert_any_call("data.gen_batch_size=8 is overridden to 1.")
+    assert trainer.config.data.gen_batch_size == expected_batch_size
+    assert dataloader.call_args_list[0].kwargs["batch_size"] == expected_batch_size
+    if refill_failed_groups:
+        warning.assert_any_call("data.gen_batch_size=8 is overridden to 1.")
+    else:
+        warning.assert_not_called()
 
 
 def test_builtin_filter_groups_warns_when_total_generation_limit_is_configured():

@@ -103,15 +103,15 @@ class ReplayBuffer:
 
     |   trainer mode   |   drop   |               DAPO               |                 failure                  |
     | ---------------- | -------- | -------------------------------- | ---------------------------------------- |
-    |       sync       |   NO-OP  |    Evict ``k``; refill ``2k``    | Keep nonempty; evict/refill ``k`` empty  |
+    |       sync       |   NO-OP  |    Evict ``k``; refill ``2k``    | Keep; optionally refill ``k`` empty      |
     |      async       |                   All the same: Evict ``k``; refill ``k``.                    |
 
     In sync mode, DAPO is opt-in and trades generation time for training stability. Each ``k`` evictions add
     ``2k`` logical refill credits, but prompts are fetched only as bounded pending/running slots become available.
     Terminal groups are filtered while other requests remain in flight. Once enough groups are sampleable, inflight
-    requests are drained and discarded. The built-in sync trainer keeps partially failed groups that still have
-    trajectories, but evicts and replaces groups with no trajectories so every train batch has its configured
-    number of materializable prompt/UID groups.
+    requests are drained and discarded. The built-in sync trainer always keeps partially failed groups that still
+    have trajectories. Depending on ``sync_refill_failed_groups``, it either keeps empty failed groups as consumed
+    prompt slots or evicts and replaces them.
     In async mode, ``num_warmup_batches`` absorbs retry cost, so all three paths refill exactly ``k`` prompts.
 
     Args:
@@ -133,8 +133,6 @@ class ReplayBuffer:
         gen_batch_size (int, optional): Dataloader fetch granularity for refill dispatches.
         max_inflight_gen_batches (int): Maximum Sync DAPO prompt batches concurrently pending or running.
         sync_refill_failed_groups (bool): Whether sync sampling replaces failed groups with no trajectories.
-            The built-in V1 sync trainer always enables this; the argument remains available to direct users of
-            ``ReplayBuffer``.
     """
 
     def __init__(

@@ -1029,6 +1029,7 @@ trainer:
         switch_threshold_release_steps: 2
         switch_cost_window_size: 3
     sampler:
+      sync_refill_failed_groups: false
       max_off_policy_threshold: 8
       max_off_policy_strategy: drop
       custom_sampler:

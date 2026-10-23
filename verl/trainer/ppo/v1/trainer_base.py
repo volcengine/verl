@@ -170,8 +170,7 @@ class PPOTrainer(ABC):
         # their filtering semantics and can consume algorithm.filter_groups through their own config.
         if not has_custom_sampler:
             filter_groups_metric = self._resolve_filter_groups_metric()
-            # UID-count mini-batching requires every sampled sync prompt to materialize at least one trajectory.
-            replace_empty_failed_groups = sampler_cls is ReplayBuffer
+            replace_empty_failed_groups = sampler_cls is ReplayBuffer and sampler_config.sync_refill_failed_groups
             replay_buffer_kwargs.update(
                 filter_groups_metric=filter_groups_metric,
                 sync_refill_failed_groups=replace_empty_failed_groups,
@@ -182,9 +181,12 @@ class PPOTrainer(ABC):
                 if filter_groups_metric is not None:
                     max_inflight_gen_batches = filter_groups.get("max_inflight_gen_batches", 1)
                 train_batch_size = self.config.data.train_batch_size
+                gen_batch_size = self.config.data.get("gen_batch_size", None) or train_batch_size
+                if filter_groups_metric is not None or replace_empty_failed_groups:
+                    gen_batch_size = 1
                 replay_buffer_kwargs.update(
                     train_batch_size=train_batch_size,
-                    gen_batch_size=1,
+                    gen_batch_size=gen_batch_size,
                     max_inflight_gen_batches=max_inflight_gen_batches,
                 )
         return sampler_cls(**replay_buffer_kwargs)
@@ -577,9 +579,9 @@ class PPOTrainer(ABC):
     def _step_once(self, metrics: dict, timing_raw: dict, sample_batch_size: int) -> KVBatchMeta:
         """Process one train batch through rollout post-processing and PPO updates.
 
-        The batch contains ``sample_batch_size`` prompt/UID groups. Actor training
-        performs ``sample_batch_size // actor.ppo_mini_batch_size`` optimizer
-        updates per PPO epoch (after per-mini-batch trajectory padding).
+        The batch contains up to ``sample_batch_size`` materialized prompt/UID groups.
+        Each model performs one optimizer update per full or final partial UID
+        mini-batch in every PPO epoch.
         """
         # 1. sample batch from replay buffer
         with marked_timer("gen", timing_raw, color="red"):
@@ -748,7 +750,8 @@ class PPOTrainer(ABC):
         filter_groups = self.config.algorithm.get("filter_groups", None)
         dapo_enabled = bool(filter_groups is not None and filter_groups.get("enable", False))
         builtin_sync_sampler = type(self.replay_buffer) is ReplayBuffer
-        requires_exact_refill = self.trainer_mode != "sync" or dapo_enabled or builtin_sync_sampler
+        sync_failure_refill = builtin_sync_sampler and self.replay_buffer.sync_refill_failed_groups
+        requires_exact_refill = self.trainer_mode != "sync" or dapo_enabled or sync_failure_refill
         if requires_exact_refill:
             user_gen_batch_size = self.config.data.get("gen_batch_size", None)
             if user_gen_batch_size not in (None, 1):
@@ -1626,7 +1629,7 @@ class PPOTrainer(ABC):
 
     @staticmethod
     def _get_global_mini_batch_layout(batch: KVBatchMeta, prompt_mini_batch_size: int) -> dict[str, list[int]]:
-        """Coalesce padded row counts and padding counts into optimizer mini-batches."""
+        """Coalesce balancing units into full or final partial optimizer mini-batches."""
         layout = batch.extra_info[_MINIBATCH_LAYOUT_KEY]
         unit_prompt_count = layout["unit_prompt_count"]
         if prompt_mini_batch_size % unit_prompt_count != 0:
@@ -1636,10 +1639,6 @@ class PPOTrainer(ABC):
             )
         units_per_mini_batch = prompt_mini_batch_size // unit_prompt_count
         unit_global_sizes = layout["unit_global_sizes"]
-        if len(unit_global_sizes) % units_per_mini_batch != 0:
-            raise ValueError(
-                f"{len(unit_global_sizes)} balancing units cannot form mini-batches of {units_per_mini_batch} units"
-            )
 
         def coalesce(unit_sizes: list[int]) -> list[int]:
             return [
@@ -1672,21 +1671,9 @@ class PPOTrainer(ABC):
 
         uids = list(uid_to_indices)
         update_actor = self.config.trainer.critic_warmup <= self.global_steps
-        active_models = [("critic", self.config.critic)] if self.use_critic else []
-        active_models += [("actor", self.config.actor_rollout_ref.actor)] if update_actor else []
-        for name, model in active_models:
-            if len(uids) % model.ppo_mini_batch_size != 0:
-                raise ValueError(
-                    f"The number of sampled UIDs ({len(uids)}) must be divisible by "
-                    f"{name}.ppo_mini_batch_size ({model.ppo_mini_batch_size})"
-                )
-
+        if not uids:
+            raise ValueError("The sampled train batch contains no materialized UID groups")
         unit_prompt_count = self._get_uid_balance_unit_size() or len(uids)
-        if not uids or len(uids) % unit_prompt_count != 0:
-            raise ValueError(
-                f"The number of sampled UIDs ({len(uids)}) must be a positive multiple of "
-                f"the balancing unit ({unit_prompt_count})"
-            )
         shuffle_seeds = []
         if update_actor and self.config.actor_rollout_ref.actor.shuffle:
             shuffle_seeds.append(self.config.actor_rollout_ref.actor.data_loader_seed)
