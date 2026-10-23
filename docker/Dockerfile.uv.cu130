@@ -138,6 +138,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 #
 #     grep -E 'nvidia-(cudnn|nccl)-cu13' uv.lock
 ARG NCCL_VERSION=2.29.7-1
+# Keep the system NVSHMEM version aligned with uv.lock.
+ARG NVSHMEM_VERSION=3.4.5
 
 # Source to build from. Override VERL_REF for tags / commits.
 ARG VERL_REPO=https://github.com/verl-project/verl.git
@@ -285,6 +287,15 @@ RUN mkdir -p /tmp/gdrcopy && cd /tmp \
 
 # DeepEP IBGDA symlink fix (sglang base).
 RUN ln -sf /usr/lib/$(uname -m)-linux-gnu/libmlx5.so.1 /usr/lib/$(uname -m)-linux-gnu/libmlx5.so
+
+# Make NVSHMEM available independently of runtime uv environments.
+ENV NVSHMEM_DIR=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem
+RUN python3 -m pip install --break-system-packages --no-cache-dir --no-deps \
+        --only-binary=:all: "nvidia-nvshmem-cu13==${NVSHMEM_VERSION}" \
+    && ln -sfn libnvshmem_host.so.3 "${NVSHMEM_DIR}/lib/libnvshmem_host.so" \
+    && printf '%s\n' "${NVSHMEM_DIR}/lib" > /etc/ld.so.conf.d/nvshmem.conf \
+    && ldconfig
+ENV LD_LIBRARY_PATH="${NVSHMEM_DIR}/lib:${LD_LIBRARY_PATH}"
 
 # ---------------------------------------------------------------------------
 # uv — single static binary. We bake the full uv cache from the committed
