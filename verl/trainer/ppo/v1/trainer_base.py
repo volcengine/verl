@@ -72,7 +72,6 @@ from verl.trainer.ppo.utils import (
     need_critic,
     need_reference_policy,
     need_teacher_policy,
-    validate_minibatching_config,
 )
 from verl.trainer.ppo.v1.replay_buffer import DAPO_FILTERED_REWARD_COUNTS_KEY, ReplayBuffer, ReplayBufferAsync
 from verl.trainer.ppo.v1.utils import MetricsAggregator, compute_advantage_for_multi_trajectories
@@ -126,7 +125,6 @@ class PPOTrainer(ABC):
         self.config = config
         self.checkpoint_callback = build_checkpoint_callback(config)
         self.use_critic = need_critic(self.config)
-        validate_minibatching_config(self.config, self.use_critic)
         self.use_reference_policy = need_reference_policy(self.config)
         self.use_teacher_policy = need_teacher_policy(self.config)
         if self.config.algorithm.use_kl_in_reward:
