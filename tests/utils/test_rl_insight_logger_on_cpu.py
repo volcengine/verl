@@ -97,7 +97,9 @@ def test_log_lazy_inits_and_writes_gauge(monkeypatch, mock_rl_insight):
     RLInsightLogger.log({"reward/mean": 1.25, "bad": object()}, step=3)
 
     mock_rl_insight.init.assert_called_once_with()
-    mock_rl_insight.metric_gauge.assert_called_once_with("reward_mean", 1.25)
+    mock_rl_insight.metric_gauge.assert_called_once_with(
+        "reward_mean", 1.25, rl_insight_step=3, rl_insight_metric_name="reward/mean"
+    )
     assert RLInsightLogger._init_done is True
 
 
