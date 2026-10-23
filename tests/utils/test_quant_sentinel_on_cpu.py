@@ -33,8 +33,8 @@ HEALTHY = {
 }
 
 
-def _cfg(quantization, model_path=None, ignore_eos=False):
-    rollout = {"quantization": quantization, "ignore_eos": ignore_eos}
+def _cfg(quantization, model_path=None, ignore_eos=False, response_length=None):
+    rollout = {"quantization": quantization, "ignore_eos": ignore_eos, "response_length": response_length}
     return SimpleNamespace(actor_rollout_ref=SimpleNamespace(rollout=rollout, model=SimpleNamespace(path=model_path)))
 
 
@@ -134,6 +134,13 @@ def test_natively_quantized_model_arms_the_guard(monkeypatch, tmp_path, nested):
     assert QuantizedRolloutSentinel.from_config(_cfg(_structured(), model_path=str(tmp_path))).enabled
 
 
+def test_empty_legacy_override_still_reads_the_model_config(tmp_path):
+    # An empty string from a config older than the structured rollout.quantization sets nothing itself.
+    (tmp_path / "config.json").write_text(json.dumps({"quantization_config": {"quant_method": "fp8"}}))
+    assert rollout_quantization_label(_cfg("", model_path=str(tmp_path))) == "native fp8"
+    assert rollout_quantization_label(_cfg("")) is None
+
+
 def test_bf16_model_or_unreadable_path_is_not_checked(tmp_path):
     (tmp_path / "config.json").write_text(json.dumps({"model_type": "qwen3"}))
     assert rollout_quantization_label(_cfg(_structured(), model_path=str(tmp_path))) is None
@@ -174,3 +181,17 @@ def test_zero_clip_steps_turns_the_clip_rule_off():
     for step in range(1, 4):
         s.check({**HEALTHY, "response_length/clip_ratio": 1.0}, step)
     s.check(HEALTHY, 4)
+
+
+def test_clip_rule_needs_the_longest_response_at_the_cap(monkeypatch):
+    # The V1 trainer pads responses to the batch's longest, so clip_ratio 1.0 can mean "every response equally
+    # short": with rollout.response_length known, a step counts only when the longest response reached it.
+    monkeypatch.setenv("VERL_QUANT_SENTINEL", "raise")
+    s = QuantizedRolloutSentinel.from_config(_cfg("mxfp8", response_length=256))
+    equally_short = {**HEALTHY, "response_length/clip_ratio": 1.0, "response_length/max": 37}
+    for step in (1, 2, 3):
+        s.check(equally_short, step)
+    at_cap = {**HEALTHY, "response_length/clip_ratio": 1.0, "response_length/max": 256}
+    s.check(at_cap, 4)
+    with pytest.raises(RuntimeError, match="consecutive steps"):
+        s.check(at_cap, 5)

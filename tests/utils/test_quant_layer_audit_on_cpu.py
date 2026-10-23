@@ -555,3 +555,27 @@ def test_the_known_gemm_projections_are_judged(leaf):
     problems, _ = audit_train_vs_export(r, {name: (True, "float8_e4m3fn")})  # layer 0 ran in BF16
     assert _problem_names(problems) == {name}
     assert unjudged_weights({name: (True, "float8_e4m3fn")}) == []
+
+
+def test_worker_asks_an_engine_that_cannot_answer_only_once(caplog):
+    # A rollout whose quant methods cannot be read counts as asked: the query is not repeated at every weight sync.
+    import asyncio
+
+    from verl.workers.engine_workers import ActorRolloutRefWorker
+
+    aud = QuantLayerAuditor("warn", engine="vllm")
+    list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
+    assert aud.wants_engine_recheck()
+    queries = []
+
+    class _Rollout:
+        async def quant_methods_of(self, names):
+            queries.append(len(names))
+            raise RuntimeError("this worker class has no quant_layer_audit_methods")
+
+    worker = object.__new__(ActorRolloutRefWorker)
+    worker.quant_layer_auditor, worker.rollout = aud, _Rollout()
+    for _ in range(3):  # three weight syncs
+        asyncio.run(worker._recheck_quant_layers_against_engine())
+    assert len(queries) == 1 and not aud.wants_engine_recheck()
+    assert caplog.text.count("could not read the engine's quant methods") == 1

@@ -28,9 +28,11 @@ each step on which any of these hold:
 
 1. ``training/rollout_probs_diff_mean`` is non-finite while the batch had valid tokens;
 2. ``rollout_corr/kl`` is non-finite or above ``kl_max`` (default 1.0);
-3. ``response_length/clip_ratio`` is ~1.0 (every response truncated at the cap) on
-   ``clip_steps`` consecutive steps (default 2; ``0`` turns this rule off, and it is off
-   under ``rollout.ignore_eos``, where every response runs to the cap by design).
+3. ``response_length/clip_ratio`` is ~1.0 and the longest response reached ``rollout.response_length``
+   (every response truncated at the cap) on ``clip_steps`` consecutive steps (default 2; ``0`` turns this
+   rule off, and it is off under ``rollout.ignore_eos``, where every response runs to the cap by design).
+   The V1 trainer pads responses to the batch's longest one, so a clip ratio of 1.0 alone can also mean
+   "every response equally short".
 
 The rollout counts as quantized under the rule the trainer-side weight exporter uses
 (``verl.utils.qat.dispatch_rollout_weight_quantizer``): ``rollout.quantization`` sets
@@ -62,6 +64,7 @@ _KEY_DIFF_MEAN = "training/rollout_probs_diff_mean"
 _KEY_DIFF_VALID = "training/rollout_probs_diff_valid"
 _KEY_KL = "rollout_corr/kl"
 _KEY_CLIP = "response_length/clip_ratio"
+_KEY_LEN_MAX = "response_length/max"
 _OFF = ("0", "off", "false")
 
 
@@ -107,7 +110,9 @@ def rollout_quantization_label(config: Any) -> str | None:
     ref = config.actor_rollout_ref
     quantization = _field(ref.rollout, "quantization")
     if isinstance(quantization, str):  # configs older than the structured rollout.quantization
-        return quantization or None
+        if quantization:
+            return quantization
+        quantization = None  # an empty override says nothing; the checkpoint may still be quantized
     override = [f"{key}={value}" for key in ("linear", "moe", "config_file") if (value := _field(quantization, key))]
     if override:
         return ", ".join(override)
@@ -124,6 +129,7 @@ class QuantizedRolloutSentinel:
         kl_max: float = 1.0,
         clip_steps: int = 2,
         ignore_eos: bool = False,
+        response_cap: float | None = None,
     ):
         self.quantization = quantization
         self.mode = mode
@@ -131,6 +137,8 @@ class QuantizedRolloutSentinel:
         self.kl_max = kl_max
         # Under ignore_eos every response runs to the cap by design, so the clip rule says nothing.
         self.clip_steps = 0 if ignore_eos else clip_steps
+        # rollout.response_length: a clip ratio of 1.0 counts only when the longest response reached it
+        self.response_cap = response_cap
         self._clip_streak = 0
 
     @classmethod
@@ -139,7 +147,15 @@ class QuantizedRolloutSentinel:
         kl_max = float(os.environ.get("VERL_QUANT_SENTINEL_KL_MAX", "1.0"))
         clip_steps = int(os.environ.get("VERL_QUANT_SENTINEL_CLIP_STEPS", "2"))
         ignore_eos = bool(_field(config.actor_rollout_ref.rollout, "ignore_eos"))
-        return cls(quantization, mode=sentinel_mode(), kl_max=kl_max, clip_steps=clip_steps, ignore_eos=ignore_eos)
+        response_cap = _as_float(_field(config.actor_rollout_ref.rollout, "response_length"))
+        return cls(
+            quantization,
+            mode=sentinel_mode(),
+            kl_max=kl_max,
+            clip_steps=clip_steps,
+            ignore_eos=ignore_eos,
+            response_cap=response_cap,
+        )
 
     def check(self, metrics: dict[str, Any], step: int) -> None:
         if not self.enabled:
@@ -159,7 +175,11 @@ class QuantizedRolloutSentinel:
 
         clip = _as_float(metrics.get(_KEY_CLIP))
         if clip is not None and self.clip_steps > 0:
-            self._clip_streak = self._clip_streak + 1 if clip >= 0.999 else 0
+            # The V1 trainer pads responses to the batch's longest, so clip_ratio 1.0 can also mean "every
+            # response equally short"; count the step only if the longest response reached the cap.
+            longest = _as_float(metrics.get(_KEY_LEN_MAX))
+            at_cap = self.response_cap is None or longest is None or longest >= self.response_cap
+            self._clip_streak = self._clip_streak + 1 if clip >= 0.999 and at_cap else 0
             if self._clip_streak >= self.clip_steps:
                 problems.append(
                     f"{_KEY_CLIP} = {clip:.3f} on {self._clip_streak} consecutive steps (every response hit the "

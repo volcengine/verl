@@ -793,6 +793,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             methods = await self.rollout.quant_methods_of(auditor.weight_names())
         except Exception as err:  # noqa: BLE001 - the training-vs-export verdict already stands
             logger.warning("quantized-layer audit: could not read the engine's quant methods: %s", err)
+            auditor.recheck_against_engine(None)  # a rank that cannot be asked counts as asked: no retry per sync
             return
         auditor.recheck_against_engine(methods)
 
