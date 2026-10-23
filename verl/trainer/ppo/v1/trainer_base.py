@@ -1855,8 +1855,6 @@ class PPOTrainer(ABC):
         )
         extra_info = {
             "calculate_entropy": calculate_entropy,
-            # entropy_coeff == 0: entropy is only reported, so compute it without autograd.
-            "entropy_requires_grad": self.config.actor_rollout_ref.actor.entropy_coeff != 0.0,
             "distillation_use_topk": distillation_use_topk,
             "distillation_only": distillation_only,
             "score_centering": score_centering,
