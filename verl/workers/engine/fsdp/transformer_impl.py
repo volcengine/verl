@@ -51,6 +51,7 @@ from verl.utils.fsdp_utils import (
     get_fsdp_wrap_policy,
     get_init_weight_context_manager,
     init_fn,
+    iter_full_tensors,
     load_fsdp_model_to_gpu,
     load_fsdp_optimizer,
     merged_lora_context,
@@ -162,6 +163,8 @@ class FSDPEngine(BaseEngine):
         self._is_lora = self.model_config.lora_rank > 0
         # Set in _build_fsdp_module when FSDP2 CPUOffloadPolicy is configured (see #5995).
         self._uses_fsdp2_cpu_offload_policy = False
+        # verl-native model class built on meta and loaded per shard (see _build_native_sharded_module).
+        self._native_model_cls = None
 
         # Defaults for mixed-precision state. _build_fsdp_module overrides these when it
         # runs; subclasses that bypass _build_fsdp_module (e.g. VeOmniEngine) keep the
@@ -255,9 +258,44 @@ class FSDPEngine(BaseEngine):
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
+    def _build_native_sharded_module(self, model_cls):
+        """Build a verl-native model on the meta device on every rank.
+
+        The class owns its parameter dtypes (e.g. FP32 router buffers next to
+        BF16 frozen weights), so there is no ``from_pretrained``, no rank-0 full
+        load and no whole-model dtype cast. Weights are materialized after
+        ``apply_fsdp2`` by ``model_cls.verl_load_sharded`` (see _build_fsdp_module).
+        """
+        unsupported = {
+            "strategy != fsdp2": self.engine_config.strategy != "fsdp2",
+            "ulysses_sequence_parallel_size > 1": self.ulysses_sequence_parallel_size > 1,
+            "use_liger": bool(self.model_config.use_liger),
+            "use_fused_kernels": bool(self.model_config.use_fused_kernels),
+            "offload_policy / forward_only (FSDP2 CPUOffloadPolicy)": bool(
+                self.engine_config.offload_policy or self.engine_config.forward_only
+            ),
+            "lora_adapter_path": getattr(self.model_config, "lora_adapter_path", None) is not None,
+            "qat": bool(self._qat_enabled),
+            "model_type != language_model": self.model_config.model_type != "language_model",
+        }
+        bad = [name for name, flag in unsupported.items() if flag]
+        if bad:
+            raise NotImplementedError(f"{model_cls.__name__} sharded init does not support: {bad}")
+        self._native_model_cls = model_cls
+        with torch.device("meta"), warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            module = model_cls(self.model_config.hf_config)
+        if self.model_config.enable_gradient_checkpointing:
+            module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        return module
+
     def _build_module(self):
-        from verl.utils.model import get_hf_auto_model_class
+        from verl.utils.model import get_hf_auto_model_class, get_verl_native_model_class
         from verl.utils.torch_dtypes import PrecisionType
+
+        native_cls = get_verl_native_model_class(self.model_config.hf_config)
+        if native_cls is not None and getattr(native_cls, "_verl_sharded_init", False):
+            return self._build_native_sharded_module(native_cls)
 
         torch_dtype = self.engine_config.model_dtype
 
@@ -369,6 +407,8 @@ class FSDPEngine(BaseEngine):
                 "exclude_modules": convert_to_regular_types(self.model_config.exclude_modules),
                 "bias": "none",
             }
+            if self._native_model_cls is not None:
+                return self._build_native_lora_module(module, lora_config)
             module = get_peft_model(module, LoraConfig(**lora_config))
 
             # FSDP requires all params in a flat group to share dtype: cast a
@@ -385,6 +425,52 @@ class FSDPEngine(BaseEngine):
                         param.data = param.data.to(base_dtype)
 
         return module
+
+    def _build_native_lora_module(self, module, lora_config):
+        """PEFT on a meta-device verl-native model.
+
+        Adapters are created on meta too (the loader initializes them) and stay
+        in PEFT's FP32: FSDP2 only requires the *trainable* parameters of a
+        group to share a dtype, and its BF16 ``param_dtype`` makes the
+        all-gather uniform. Modules named in ``_verl_lora_forbidden_modules``
+        (no gradient path, or no adapter slot in the rollout engine) must not
+        get an adapter.
+        """
+        forbidden = tuple(getattr(self._native_model_cls, "_verl_lora_forbidden_modules", ()))
+        if lora_config["exclude_modules"] is None and forbidden:
+            lora_config["exclude_modules"] = list(forbidden)
+        with torch.device("meta"):
+            module = get_peft_model(module, LoraConfig(**lora_config))
+        wrapped = [
+            name
+            for name, sub in module.named_modules()
+            if hasattr(sub, "lora_A") and name.rsplit(".", 1)[-1] in forbidden
+        ]
+        if wrapped:
+            raise ValueError(f"LoRA must not target {forbidden}; got adapters on e.g. {wrapped[:4]}")
+        dtypes = {p.dtype for p in module.parameters() if p.requires_grad}
+        if dtypes != {torch.float32}:
+            raise ValueError(f"Expected FP32 LoRA master parameters, got {dtypes}")
+        return module
+
+    def _load_native_sharded(self, module):
+        """Materialize an FSDP2-wrapped meta model through its class's loader."""
+        import inspect
+
+        model_cls = self._native_model_cls
+        stats = model_cls.verl_load_sharded(
+            module, self.model_config.local_path, get_device_id(), seed=self.engine_config.seed
+        )
+        meta = [name for name, t in list(module.named_parameters()) + list(module.named_buffers()) if t.is_meta]
+        if meta:
+            raise RuntimeError(f"{len(meta)} tensors still on meta after sharded load, e.g. {meta[:4]}")
+        if self.rank == 0:
+            print(
+                f"[verl native sharded init] class={model_cls.__module__}.{model_cls.__qualname__} "
+                f"source={inspect.getsourcefile(model_cls)} wrapped={type(module).__name__} "
+                f"path={self.model_config.local_path} stats={stats}",
+                flush=True,
+            )
 
     def _build_fsdp_module(self, module):
         # TODO(ziheng): need to improve
@@ -472,9 +558,13 @@ class FSDPEngine(BaseEngine):
                 "offload_policy": offload_policy,
                 "reshard_after_forward": self.engine_config.reshard_after_forward,
             }
-            full_state = module.state_dict()
-            apply_fsdp2(module, fsdp_kwargs, self.engine_config)
-            fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
+            if self._native_model_cls is not None:
+                apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+                self._load_native_sharded(module)
+            else:
+                full_state = module.state_dict()
+                apply_fsdp2(module, fsdp_kwargs, self.engine_config)
+                fsdp2_load_full_state_dict(module, full_state, fsdp_mesh, offload_policy)
         else:
             raise NotImplementedError(f"Unknown strategy {self.engine_config.strategy}")
 
@@ -997,19 +1087,38 @@ class FSDPEngine(BaseEngine):
         log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
 
         peft_config = None
+        stream_lora = False
         merge_lora = self.model_config.lora.get("merge", False)
 
         peft_model = getattr(self.module, "_fsdp_wrapped_module", self.module)
+        if self._native_model_cls is not None and not (
+            hasattr(peft_model, "peft_config") and not merge_lora and base_sync_done
+        ):
+            # The trainer holds dequantized BF16 base weights while the rollout
+            # engine serves the released quantized checkpoint, so base or merged
+            # weights cannot be streamed into it. Load the base from the
+            # checkpoint in the rollout (load_format != dummy) and sync adapters.
+            raise NotImplementedError(
+                f"{self._native_model_cls.__name__} supports adapter-only weight sync "
+                "(LoRA, lora.merge=false, rollout.load_format != dummy)"
+            )
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
+                # FSDP2 adapter-only export is streamed from the shards (grouped
+                # all-gathers, no host copy of the whole adapter on every rank).
+                stream_lora = fsdp_version(self.module) == 2 and base_sync_done and not layered_summon
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,
                     base_sync_done=base_sync_done,
+                    materialize=not stream_lora,
                 )
                 if not base_sync_done:
                     params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+                validate = getattr(self._native_model_cls, "verl_validate_lora_export", None)
+                if validate is not None:
+                    validate(list(params.keys()), getattr(peft_model.get_base_model(), "args", None))
             else:  # merge lora
                 # state_dict() aliases the live parameter storage and merged_lora_context
                 # restores the un-merged base weights on exit, so tensors must be
@@ -1027,7 +1136,7 @@ class FSDPEngine(BaseEngine):
         log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
 
         if peft_config is not None and base_sync_done:
-            per_tensor_param = params.items()
+            per_tensor_param = iter_full_tensors(params) if stream_lora else params.items()
         else:
             device = get_device_id()  # used when fsdp2 set cpu_offload_policy
             per_tensor_param = (
