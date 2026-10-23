@@ -306,8 +306,9 @@ class vLLMColocateWorkerExtension:
                 if isinstance(lora_dtype, torch.dtype) and weights:
                     sizes = [tensor.numel() for _, tensor in weights]
                     block = torch.empty(sum(sizes), dtype=lora_dtype, device="cpu", pin_memory=pin_memory)
-                    block.copy_(torch.cat([tensor.reshape(-1).to(lora_dtype) for _, tensor in weights]))
                     parts = block.split(sizes)
+                    for part, (_, tensor) in zip(parts, weights, strict=True):
+                        part.copy_(tensor.reshape(-1))
                     lora_weights.update(
                         (name, part.view(tensor.shape)) for (name, tensor), part in zip(weights, parts, strict=True)
                     )
