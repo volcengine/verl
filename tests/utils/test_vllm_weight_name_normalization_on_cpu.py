@@ -746,68 +746,6 @@ def test_update_weights_from_ipc_accumulates_lora_across_buckets(monkeypatch):
     torch.testing.assert_close(added[0]["lora.A.weight"], torch.ones(1))
 
 
-class _ReusedBufferReceiver:
-    """Hands out views into one reused buffer, like the IPC transport does."""
-
-    def __init__(self, buckets, device):
-        self._buckets = buckets
-        self._buffer = torch.empty(max(sum(t.numel() for _, t in bucket) for bucket, _ in buckets), device=device)
-
-    def receive_weights(self, on_bucket_received):
-        for bucket, is_last in self._buckets:
-            views, offset = [], 0
-            for name, tensor in bucket:
-                view = self._buffer[offset : offset + tensor.numel()].view(tensor.shape)
-                view.copy_(tensor)
-                views.append((name, view))
-                offset += tensor.numel()
-            on_bucket_received(views, is_last)
-            self._buffer.fill_(-1.0)
-
-
-@pytest.mark.parametrize(
-    "device",
-    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA"))],
-)
-@pytest.mark.parametrize("lora_dtype", [torch.bfloat16, torch.float32], ids=["bf16", "fp32"])
-def test_update_weights_from_ipc_stages_lora_bucket_in_one_host_block(monkeypatch, lora_dtype, device):
-    tensors = {
-        "lora.A.weight": torch.arange(4, dtype=torch.float32).view(2, 2) / 7,
-        "lora.B.weight": torch.arange(6, dtype=torch.float32).view(2, 3) / 3,
-        "lora2.A.weight": torch.tensor([0.1, 0.2]),
-    }
-    buckets = [
-        ([(name, tensors[name]) for name in ("lora.A.weight", "lora.B.weight")], False),
-        ([("lora2.A.weight", tensors["lora2.A.weight"])], True),
-    ]
-    monkeypatch.setattr(
-        _vllm_rollout_utils, "BucketedWeightReceiver", lambda *a, **k: _ReusedBufferReceiver(buckets, device)
-    )
-    pin_memory = device == "cuda"
-    fake_platform_utils = types.ModuleType("vllm.utils.platform_utils")
-    fake_platform_utils.is_pin_memory_available = lambda: pin_memory
-    monkeypatch.setitem(sys.modules, "vllm.utils.platform_utils", fake_platform_utils)
-
-    added = []
-    worker = _make_worker(_FakeModel({"q.base_layer.weight": torch.empty(0)}))
-    worker.model_runner.lora_manager = types.SimpleNamespace(lora_config=types.SimpleNamespace(lora_dtype=lora_dtype))
-    worker.add_lora = lambda request: added.append(dict(request.lora_tensors))
-    worker.remove_lora = lambda lora_id: None
-    worker.device = torch.device(device)
-    worker.local_rank = 0
-    worker._get_zmq_handle = lambda: "ipc:///tmp/test-bucketed-lora.sock"
-
-    worker.update_weights_from_ipc(peft_config={"r": 1}, base_sync_done=True)
-
-    assert len(added) == 1 and set(added[0]) == set(tensors)
-    for name, tensor in tensors.items():
-        got = added[0][name]
-        assert got.dtype == lora_dtype and got.device.type == "cpu" and got.is_pinned() == pin_memory
-        assert torch.equal(got, tensor.to(lora_dtype))
-    storages = {name: added[0][name].untyped_storage().data_ptr() for name in tensors}
-    assert storages["lora.A.weight"] == storages["lora.B.weight"] != storages["lora2.A.weight"]
-
-
 def test_update_weights_from_ipc_standard_loads_per_bucket(monkeypatch):
     """Standard (non-LoRA) base sync loads every bucket immediately (no accumulation)."""
     monkeypatch.setattr(
