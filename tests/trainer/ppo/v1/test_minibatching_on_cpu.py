@@ -148,7 +148,11 @@ def test_balance_batch_allows_partial_final_uid_minibatches(monkeypatch):
     result = trainer._balance_batch(batch, metrics={})
 
     layout = result.extra_info["_minibatch_layout"]
-    assert layout == {"unit_prompt_count": 2, "unit_global_sizes": [4, 6, 6, 2]}
+    assert layout == {
+        "unit_prompt_count": 2,
+        "unit_global_sizes": [4, 6, 6, 2],
+        "unit_padding_counts": [1, 1, 1, 0],
+    }
     assert len(result) == 18
 
     def reconstruct_global_minibatches(global_sizes):
@@ -162,10 +166,13 @@ def test_balance_batch_allows_partial_final_uid_minibatches(monkeypatch):
         assert all(local_offset == len(shard) for shard in shards)
         return mini_batches
 
-    def assert_uid_minibatches(prompt_mini_batch_size, expected_global_sizes):
-        global_sizes = trainer._get_global_mini_batch_sizes(result, prompt_mini_batch_size)
-        assert global_sizes == expected_global_sizes
-        mini_batches = reconstruct_global_minibatches(global_sizes)
+    def assert_uid_minibatches(prompt_mini_batch_size, expected_global_sizes, expected_padding_counts):
+        layout = trainer._get_global_mini_batch_layout(result, prompt_mini_batch_size)
+        assert layout == {
+            "global_mini_batch_sizes": expected_global_sizes,
+            "global_mini_batch_padding_counts": expected_padding_counts,
+        }
+        mini_batches = reconstruct_global_minibatches(expected_global_sizes)
         uids = list(output_counts)
         for index, mini_batch in enumerate(mini_batches):
             expected_uids = uids[index * prompt_mini_batch_size : (index + 1) * prompt_mini_batch_size]
@@ -173,5 +180,5 @@ def test_balance_batch_allows_partial_final_uid_minibatches(monkeypatch):
             real_keys = [key for key in mini_batch if not key.startswith("pad")]
             assert sorted(real_keys) == sorted(expected_keys)
 
-    assert_uid_minibatches(config.actor_rollout_ref.actor.ppo_mini_batch_size, [10, 8])
-    assert_uid_minibatches(config.critic.ppo_mini_batch_size, [4, 6, 6, 2])
+    assert_uid_minibatches(config.actor_rollout_ref.actor.ppo_mini_batch_size, [10, 8], [2, 1])
+    assert_uid_minibatches(config.critic.ppo_mini_batch_size, [4, 6, 6, 2], [1, 1, 1, 0])

@@ -1626,8 +1626,8 @@ class PPOTrainer(ABC):
         )
 
     @staticmethod
-    def _get_global_mini_batch_sizes(batch: KVBatchMeta, prompt_mini_batch_size: int) -> list[int]:
-        """Coalesce balancing-unit row counts into full or final partial optimizer mini-batches."""
+    def _get_global_mini_batch_layout(batch: KVBatchMeta, prompt_mini_batch_size: int) -> dict[str, list[int]]:
+        """Coalesce balancing units into full or final partial optimizer mini-batches."""
         layout = batch.extra_info[_MINIBATCH_LAYOUT_KEY]
         unit_prompt_count = layout["unit_prompt_count"]
         if prompt_mini_batch_size % unit_prompt_count != 0:
@@ -1636,11 +1636,17 @@ class PPOTrainer(ABC):
                 f"unit_prompt_count={unit_prompt_count}"
             )
         units_per_mini_batch = prompt_mini_batch_size // unit_prompt_count
-        unit_global_sizes = layout["unit_global_sizes"]
-        return [
-            sum(unit_global_sizes[start : start + units_per_mini_batch])
-            for start in range(0, len(unit_global_sizes), units_per_mini_batch)
-        ]
+
+        def coalesce(unit_sizes: list[int]) -> list[int]:
+            return [
+                sum(unit_sizes[start : start + units_per_mini_batch])
+                for start in range(0, len(unit_sizes), units_per_mini_batch)
+            ]
+
+        return {
+            "global_mini_batch_sizes": coalesce(layout["unit_global_sizes"]),
+            "global_mini_batch_padding_counts": coalesce(layout["unit_padding_counts"]),
+        }
 
     def _balance_batch(self, batch: KVBatchMeta, metrics, logging_prefix="global_seqlen"):
         """Build UID-grouped mini-batches, pad each one, and balance it across DP ranks."""
@@ -1706,6 +1712,7 @@ class PPOTrainer(ABC):
         batch.extra_info[_MINIBATCH_LAYOUT_KEY] = {
             "unit_prompt_count": unit_prompt_count,
             "unit_global_sizes": [len(unit) for unit in units],
+            "unit_padding_counts": pad_sizes,
         }
         batch.reorder([j for partition in global_partition_lst for j in partition])
         global_balance_stats = log_seqlen_unbalance(
@@ -1888,7 +1895,7 @@ class PPOTrainer(ABC):
         """Update the critic network."""
         ppo_mini_batch_size = self.config.critic.ppo_mini_batch_size
         extra_info = {
-            "global_mini_batch_sizes": self._get_global_mini_batch_sizes(batch, ppo_mini_batch_size),
+            **self._get_global_mini_batch_layout(batch, ppo_mini_batch_size),
             "epochs": self.config.critic.ppo_epochs,
             "seed": self.config.critic.data_loader_seed,
             "dataloader_kwargs": {"shuffle": False},
@@ -1932,7 +1939,7 @@ class PPOTrainer(ABC):
             "distillation_use_topk": distillation_use_topk,
             "distillation_only": distillation_only,
             "score_centering": score_centering,
-            "global_mini_batch_sizes": self._get_global_mini_batch_sizes(batch, ppo_mini_batch_size),
+            **self._get_global_mini_batch_layout(batch, ppo_mini_batch_size),
             "epochs": self.config.actor_rollout_ref.actor.ppo_epochs,
             "seed": self.config.actor_rollout_ref.actor.data_loader_seed,
             "dataloader_kwargs": {"shuffle": False},

@@ -96,7 +96,7 @@ def test_update_loop_names_each_mini_batch(monkeypatch):
     assert worker.profiler.step.call_count == len(mini_batches)
 
 
-def test_variable_size_update_loop_uses_actual_global_batch_sizes(monkeypatch):
+def test_variable_size_update_loop_excludes_padding_from_loss_normalization(monkeypatch):
     names = _record_names(monkeypatch)
     worker = _worker(_engine(get_data_parallel_size=lambda: 2))
     seen_batches = []
@@ -110,14 +110,15 @@ def test_variable_size_update_loop_uses_actual_global_batch_sizes(monkeypatch):
     worker.train_batch = train_batch
     data = TensorDict({"row": torch.arange(5)}, batch_size=[5])
     tu.assign_non_tensor_data(data, "global_mini_batch_sizes", [4, 6])
+    tu.assign_non_tensor_data(data, "global_mini_batch_padding_counts", [1, 1])
     tu.assign_non_tensor(data, epochs=2)
 
     assert TrainingWorker.train_mini_batch(worker, data) is None
     assert seen_batches == [
-        ([0, 1], 4, False),
-        ([2, 3, 4], 6, False),
-        ([0, 1], 4, False),
-        ([2, 3, 4], 6, True),
+        ([0, 1], 3, False),
+        ([2, 3, 4], 5, False),
+        ([0, 1], 3, False),
+        ([2, 3, 4], 5, True),
     ]
     assert names == ["mini_batch0", "mini_batch1", "mini_batch2", "mini_batch3"]
     assert worker.profiler.step.call_count == 4
