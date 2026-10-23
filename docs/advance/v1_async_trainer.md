@@ -182,6 +182,7 @@ Keep `max_outstanding_batches` at least `watermark_batches` (enforced) and prefe
 Each coordinator pass synchronizes TransferQueue metadata once and reuses that snapshot for request handling and refill.
 
 `watermark_batches` replaces the old warmup-batch setting: it defines the steady-state in-flight session target rather than a one-time startup submission.
+At comparable average concurrency (`watermark_batches` is roughly the old `num_warmup_batches + 0.5` under uniform completion timing), continuous refill keeps `trajectory_staleness` similar while mean `trajectory_spans` and `trajectory_staleness_worst` can be about `0.5` model versions higher.
 
 Trajectory tensors remain in TransferQueue and do not cross the actor boundary. Validation keeps its dataloader in the trainer but sends each validation batch through the actor's `sample` method, so the actor remains the sole owner of `AgentLoopManagerTQ`.
 
