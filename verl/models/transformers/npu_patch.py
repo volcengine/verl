@@ -522,6 +522,7 @@ def _patch_qwen3_omni_moe():
     modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextExperts.forward = qwen3_5_moe_experts_forward_npu
     modeling_qwen3_omni_moe.Qwen3OmniMoeTalkerTextExperts.forward = qwen3_5_moe_experts_forward_npu
     modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextRMSNorm.forward = rms_norm_forward_npu
+    modeling_qwen3_omni_moe.Qwen3OmniMoeTextRMSNorm.forward = rms_norm_forward_npu
     modeling_qwen3_omni_moe.Qwen3OmniMoeRMSNorm.forward = rms_norm_forward_npu
     modeling_qwen3_omni_moe.Qwen3OmniMoeThinkerTextMLP.forward = silu_forward_npu
     modeling_qwen3_omni_moe.Qwen3OmniMoeTalkerTextMLP.forward = silu_forward_npu
