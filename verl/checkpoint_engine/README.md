@@ -28,8 +28,11 @@ Set `engine_kwargs.filesystem.path` to a directory mounted on all actor and roll
 
 ```bash
 actor_rollout_ref.rollout.checkpoint_engine.backend=filesystem \
-+actor_rollout_ref.rollout.checkpoint_engine.engine_kwargs.filesystem.path=/mnt/hdfs/path/to/weights
++actor_rollout_ref.rollout.checkpoint_engine.engine_kwargs.filesystem.path=/mnt/hdfs/path/to/weights \
++actor_rollout_ref.rollout.checkpoint_engine.engine_kwargs.filesystem.distributed_write=True
 ```
+
+`distributed_write` is enabled by default: actor ranks write different HF shards in parallel; disable it to make rank 0 write all shards.
 
 ##### kimi_ckpt_engine detail:
 

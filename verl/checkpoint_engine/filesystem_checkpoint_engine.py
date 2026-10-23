@@ -56,7 +56,7 @@ class FileSystemCheckpointEngine(CheckpointEngine):
         bucket_size (int): Max size in bytes of a safetensors shard.
         path (str): Root directory of the exported weights, mounted on all actor and rollout nodes.
         distributed_write (bool): Whether all actor ranks write the shards round-robin, otherwise only
-            rank 0 writes them. Defaults to False.
+            rank 0 writes them. Defaults to True.
         is_master (bool): Whether the current process is actor rank 0.
     """
 
@@ -64,7 +64,7 @@ class FileSystemCheckpointEngine(CheckpointEngine):
         self,
         bucket_size: int,
         path: str,
-        distributed_write: bool = False,
+        distributed_write: bool = True,
         is_master: bool = False,
     ) -> None:
         assert "://" not in path, f"path must be a mounted directory, e.g. a HDFS fuse mount, got {path}"
