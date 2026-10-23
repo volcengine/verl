@@ -137,7 +137,9 @@ class FileSystemCheckpointEngine(CheckpointEngine):
                     if pending is not None:
                         pending.result()
                     file_name = f"model-{num_shards + 1:05d}.safetensors"
+                    # local_path looks like ${TMPDIR:-/tmp}/verl-filesystem-ckpt-<random>/model-00001.safetensors
                     local_path = os.path.join(staging_dir, file_name)
+                    # filesystem_path looks like <path>/global_step_<n>/model-00001.safetensors
                     filesystem_path = os.path.join(version_dir, file_name)
                     pending = executor.submit(_save_shard, shard, local_path, filesystem_path)
                 shard, shard_bytes = {}, 0
@@ -192,13 +194,9 @@ class FileSystemCheckpointEngine(CheckpointEngine):
             weight_map = json.load(f)["weight_map"]
 
         device = get_device_name()
-        with tempfile.TemporaryDirectory(prefix="verl-filesystem-ckpt-") as staging_dir:
-            for file_name in sorted(set(weight_map.values())):
-                local_path = os.path.join(staging_dir, file_name)
-                _copy_file(os.path.join(version_dir, file_name), local_path)
-                with safe_open(local_path, framework="pt") as f:
-                    for name in f.keys():
-                        yield name, f.get_tensor(name).to(device)
-                os.remove(local_path)
+        for file_name in sorted(set(weight_map.values())):
+            with safe_open(os.path.join(version_dir, file_name), framework="pt") as f:
+                for name in f.keys():
+                    yield name, f.get_tensor(name).to(device)
 
         logger.info(f"Load weights from {version_dir} done, time cost: {time.time() - start_time:.2f}s")
