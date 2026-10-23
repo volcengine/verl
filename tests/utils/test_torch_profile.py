@@ -73,10 +73,12 @@ class _DeviceActivityTestCase(unittest.TestCase):
         super().setUp()
         if not is_npu_available:
             return
-        self.enterContext(patch("verl.utils.profiler.torch_profile.DEVICE_ACTIVITIES", _TEST_DEVICE_ACTIVITIES))
-        self.enterContext(
-            patch("verl.utils.profiler.torch_profile.DEVICE_CONTENTS", frozenset(_TEST_DEVICE_ACTIVITIES) | {"cpu"})
-        )
+        for patcher in (
+            patch("verl.utils.profiler.torch_profile.DEVICE_ACTIVITIES", _TEST_DEVICE_ACTIVITIES),
+            patch("verl.utils.profiler.torch_profile.DEVICE_CONTENTS", frozenset(_TEST_DEVICE_ACTIVITIES) | {"cpu"}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
 
 class TestTorchProfile(_DeviceActivityTestCase):

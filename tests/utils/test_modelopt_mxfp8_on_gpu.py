@@ -44,8 +44,6 @@ from verl.utils.qat.compressed_tensors import (
 )
 # isort: on
 
-from verl.utils.device import is_npu_available
-
 
 def _entry(config: dict, name: str):
     return next(entry for entry in config["quant_cfg"] if entry["quantizer_name"] == name)
@@ -64,10 +62,6 @@ def test_mxfp8_qat_uses_modelopt_native_preset():
 
 
 def test_mxfp8_qat_appends_user_ignores_without_mutating_modelopt_preset():
-    if is_npu_available:
-        _check_npu_mxfp8_user_ignores()
-        return
-
     original = mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"])
 
     config = build_quantize_config("mxfp8", ["*linear_attn.in_proj_a"])
@@ -85,25 +79,6 @@ def test_mxfp8_qat_appends_user_ignores_without_mutating_modelopt_preset():
     assert mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"]) == original
 
 
-def _check_npu_mxfp8_user_ignores():
-    original = mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"])
-
-    config = build_quantize_config("mxfp8", ["*block.projection_a"])
-
-    # Avoid ModelOpt preset exclusions such as *linear_attn.in_proj_a*.
-    model = torch.nn.Module()
-    model.block = torch.nn.Module()
-    model.block.projection_a = torch.nn.Linear(128, 32, bias=False)
-    model.block.projection_ab = torch.nn.Linear(128, 128, bias=False)
-    mtq.quantize(model, config)
-
-    assert not model.block.projection_a.input_quantizer.is_enabled
-    assert not model.block.projection_a.weight_quantizer.is_enabled
-    assert model.block.projection_ab.input_quantizer.is_enabled
-    assert model.block.projection_ab.weight_quantizer.is_enabled
-    assert mtq.normalize_quant_cfg_list(mtq.MXFP8_DEFAULT_CFG["quant_cfg"]) == original
-
-
 @pytest.mark.parametrize("mode", ["fp8", "mxfp8"])
 @pytest.mark.parametrize(
     "pattern, input_enabled, weight_enabled",
@@ -118,15 +93,10 @@ def _check_npu_mxfp8_user_ignores():
 def test_qat_ignore_module_and_quantizer_patterns(mode, pattern, input_enabled, weight_enabled):
     model = torch.nn.Module()
     model.projection = torch.nn.Linear(128, 128, bias=False)
-    # Only the NPU image needs a control layer for ModelOpt's enabled-weight check.
-    if is_npu_available:
-        model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config(mode, [pattern]))
 
     assert model.projection.input_quantizer.is_enabled == input_enabled
     assert model.projection.weight_quantizer.is_enabled == weight_enabled
-    if is_npu_available:
-        assert model.control.weight_quantizer.is_enabled
 
 
 @pytest.mark.parametrize(
@@ -135,15 +105,11 @@ def test_qat_ignore_module_and_quantizer_patterns(mode, pattern, input_enabled, 
 def test_qat_ignore_keeps_megatron_aliases(pattern, module_name):
     model = torch.nn.Module()
     model.add_module(module_name, torch.nn.Linear(128, 128, bias=False))
-    if is_npu_available:
-        model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config("fp8", [pattern]))
 
     layer = model.get_submodule(module_name)
     assert not layer.input_quantizer.is_enabled
     assert not layer.weight_quantizer.is_enabled
-    if is_npu_available:
-        assert model.control.weight_quantizer.is_enabled
 
 
 def test_fp8_ignored_module_preserves_forward_and_backward():
@@ -151,13 +117,7 @@ def test_fp8_ignored_module_preserves_forward_and_backward():
     model = torch.nn.Module()
     model.projection = torch.nn.Linear(128, 32, bias=False).to(torch.bfloat16)
     reference = copy.deepcopy(model.projection)
-    if is_npu_available:
-        model.control = torch.nn.Linear(128, 128, bias=False)
     mtq.quantize(model, build_quantize_config("fp8", ["projection"]))
-    if is_npu_available:
-        assert not model.projection.input_quantizer.is_enabled
-        assert not model.projection.weight_quantizer.is_enabled
-        assert model.control.weight_quantizer.is_enabled
     inputs = torch.randn(16, 128, dtype=torch.bfloat16, requires_grad=True)
     reference_inputs = inputs.detach().clone().requires_grad_(True)
 
@@ -472,11 +432,6 @@ def test_nvfp4_rollout_is_moe_only_w4a4():
 
 
 def test_nvfp4_qat_uses_experts_only_export_compatible_backends():
-    if is_npu_available:
-        for moe_name in ("mlp", "block_sparse_moe"):
-            _check_npu_nvfp4_expert_quantizers(moe_name)
-        return
-
     config = build_quantize_config("nvfp4")
     weight_cfg = _entry(config, "*mlp.experts*weight_quantizer")["cfg"]
     input_cfg = _entry(config, "*mlp.experts*input_quantizer")["cfg"]
@@ -489,33 +444,6 @@ def test_nvfp4_qat_uses_experts_only_export_compatible_backends():
     assert not any(
         entry["quantizer_name"] == "*weight_quantizer" and entry.get("enable", True) for entry in config["quant_cfg"]
     )
-
-
-def _check_npu_nvfp4_expert_quantizers(moe_name):
-    config = build_quantize_config("nvfp4")
-    assert config["algorithm"] is None
-
-    model = torch.nn.Module()
-    moe = torch.nn.Module()
-    moe.experts = torch.nn.ModuleList([torch.nn.Linear(128, 128, bias=False)])
-    moe.gate = torch.nn.Linear(128, 4, bias=False)
-    model.add_module(moe_name, moe)
-    model.dense = torch.nn.Linear(128, 128, bias=False)
-    mtq.quantize(model, config)
-
-    # Check the applied preset rather than depending on its wildcard spelling.
-    expert = moe.experts[0]
-    for quantizer, backend in (
-        (expert.weight_quantizer, "verl_nvfp4_weight"),
-        (expert.input_quantizer, "verl_nvfp4_input"),
-    ):
-        assert quantizer.is_enabled
-        assert quantizer.backend == backend
-        assert quantizer.num_bits == (2, 1)
-        assert quantizer.block_sizes == {-1: 16, "type": "dynamic", "scale_bits": (4, 3)}
-    for layer in (model.dense, moe.gate):
-        assert not layer.input_quantizer.is_enabled
-        assert not layer.weight_quantizer.is_enabled
 
 
 def test_nvfp4_qat_weight_qdq_exactly_matches_export():

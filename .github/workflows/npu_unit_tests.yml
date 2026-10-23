@@ -103,7 +103,8 @@ jobs:
           clean: true
       - name: Install the current repository
         run: |
-          uv pip install mlflow pytest-asyncio
+          # Match the GPU CI ModelOpt version and keep the shared quantization tests unchanged.
+          uv pip install mlflow pytest-asyncio "nvidia-modelopt==0.44.0"
       - name: Check final pip list
         run: |
           uv pip list
