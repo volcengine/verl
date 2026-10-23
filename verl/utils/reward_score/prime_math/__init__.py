@@ -98,6 +98,8 @@ def _str_is_int(x: str) -> bool:
 
 def _str_to_int(x: str) -> bool:
     x = x.replace(",", "")
+    if re.fullmatch(r"[-+]?[0-9]+(\.0*)?", x):
+        return int(x.split(".")[0])  # exact, also above 2**53
     x = float(x)
     return int(x)
 
@@ -170,7 +172,9 @@ def _normalize(expr: str) -> str:
         expr = expr[1:-1]
 
     expr = re.sub(",\\\\! *", "", expr)
-    if _is_float(expr) and _is_int(float(expr)):
+    if re.fullmatch(r"[-+]?[0-9]+(\.0*)?", expr):
+        expr = str(int(expr.split(".")[0]))  # exact, also above 2**53
+    elif _is_float(expr) and _is_int(float(expr)):
         expr = str(int(round(float(expr))))
     if "\\" in expr:
         with contextlib.suppress(Exception):

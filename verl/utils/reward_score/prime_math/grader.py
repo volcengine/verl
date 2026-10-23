@@ -118,6 +118,19 @@ def is_digit(s):
         return False, None
 
 
+def _int_value(x):
+    """Exact int value of an integer literal such as "22500", "22,500" or "22500.0", else None."""
+    s = str(x).replace("{,}", "").replace(",", "")
+    return int(s.split(".")[0]) if re.fullmatch(r"[-+]?[0-9]+(\.0*)?", s) else None
+
+
+def _normalize_interval_brackets(s: str) -> str:
+    """Drop \\left / \\right, and write the bracket at an infinite endpoint as open: (0, \\infty] -> (0, \\infty)."""
+    s = re.sub(r"\\(left|right)(?![A-Za-z])", "", s)  # \left and \right only size the brackets
+    s = re.sub(r"(\\infty|∞)(\s*)\]", r"\1\2)", s)
+    return re.sub(r"\[(\s*-\s*(?:\\infty|∞))", r"(\1", s)
+
+
 def normalize(answer, pi) -> str:
     # checking if answer is $<number> and removing $ in that case to compare
     if isinstance(answer, str) and bool(re.match(r"\$\d+(\.\d+)?", answer)):
@@ -185,6 +198,10 @@ def math_equal(
     2. symbolic equal: both can convert to sympy expression and are equal
     """
 
+    # x100 / x0.01 only follow a percent sign: "83\\%" matches 83 and 0.83, and "25\\%" matches 0.25
+    prediction_is_percent = "%" in str(prediction)
+    reference_is_percent = "%" in str(reference)
+
     prediction = normalize(prediction, pi)
     reference = normalize(reference, pi)
 
@@ -200,13 +217,22 @@ def math_equal(
 
     try:  # 1. numerical equal
         if is_digit(prediction)[0] and is_digit(reference)[0]:
+            prediction_int, reference_int = _int_value(prediction), _int_value(reference)
             prediction = is_digit(prediction)[1]
             reference = is_digit(reference)[1]
             # number questions
-            gt_result = [reference / 100, reference, reference * 100] if include_percentage else [reference]
+            gt_result = [reference]
+            if include_percentage and reference_is_percent and not prediction_is_percent:
+                gt_result.append(reference / 100)
+            elif include_percentage and prediction_is_percent and not reference_is_percent:
+                gt_result.append(reference * 100)
+            if len(gt_result) == 1 and prediction_int is not None and reference_int is not None:
+                return prediction_int == reference_int  # exact, also above 2**53
+            # an integer reference requires an exact match, as in grade_answer
+            rel_tol = 0 if reference.is_integer() else tolerance
             for item in gt_result:
                 try:
-                    if isclose(item, prediction, rel_tol=tolerance):
+                    if isclose(item, prediction, rel_tol=rel_tol):
                         return True
                 except Exception:
                     continue
@@ -223,6 +249,20 @@ def math_equal(
 
     ## deal with [], (), {}
     prediction = format_intervals(prediction)
+    prediction = _normalize_interval_brackets(prediction)
+    reference = _normalize_interval_brackets(reference)
+
+    ## intervals with different endpoint brackets are different sets, e.g. [1, 2) vs. [1, 2]
+    if (
+        "," in prediction
+        and "," in reference
+        and prediction[0] in "(["
+        and prediction[-1] in ")]"
+        and reference[0] in "(["
+        and reference[-1] in ")]"
+        and re.sub(r"[^()\[\]]", "", prediction) != re.sub(r"[^()\[\]]", "", reference)
+    ):
+        return False
 
     pred_str, ref_str = prediction, reference
     if (prediction.startswith("[") and prediction.endswith("]") and not reference.startswith("(")) or (
