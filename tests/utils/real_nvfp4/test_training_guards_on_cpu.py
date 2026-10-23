@@ -20,6 +20,7 @@ import pytest
 import torch
 
 from verl.utils.real_nvfp4.config import (
+    real_nvfp4_bf16_layers,
     real_nvfp4_quant_recipe_config,
     validate_real_nvfp4_te_recipe,
 )
@@ -31,17 +32,21 @@ def _model_config(**kwargs):
     return SimpleNamespace(**values)
 
 
-def _apply_overrides(overrides, start=2, end=4):
+def _fp4_overrides(**kwargs):
+    return {
+        "fp4": "e2m1",
+        "fp4_recipe": "nvfp4",
+        "first_last_layers_bf16": True,
+        "num_layers_at_start_in_bf16": 2,
+        "num_layers_at_end_in_bf16": 4,
+        **kwargs,
+    }
+
+
+def _apply_overrides(overrides):
     from verl.utils.real_nvfp4.megatron import apply_real_nvfp4_overrides
 
-    apply_real_nvfp4_overrides(
-        overrides,
-        _model_config(),
-        num_layers_at_start_in_bf16=start,
-        num_layers_at_end_in_bf16=end,
-        pipeline_size=1,
-        virtual_pipeline_size=None,
-    )
+    apply_real_nvfp4_overrides(overrides, _model_config(), pipeline_size=1, virtual_pipeline_size=None)
 
 
 def _attest(root, tf_config=None):
@@ -51,8 +56,8 @@ def _attest(root, tf_config=None):
         [root],
         tf_config or SimpleNamespace(fp4="e2m1", fp4_recipe="nvfp4"),
         SimpleNamespace(num_hidden_layers=6, n_routed_experts=8),
-        num_layers_at_start_in_bf16=1,
-        num_layers_at_end_in_bf16=1,
+        1,
+        1,
     )
 
 
@@ -90,29 +95,40 @@ def test_recipe_lists_carved_out_layers_before_general_patterns():
         ("language_model.decoder.layers.10.self_attention.in_proj", "bf16"),
     ],
 )
-def test_overrides_set_megatron_recipe_and_fp4_options(module_path, expected):
+def test_fp4_override_limits_nvfp4_to_routed_experts(module_path, expected):
     pytest.importorskip("megatron.core.quantization.quant_config")
     from megatron.core.quantization.utils import get_quant_config_or_none
 
-    overrides = {"num_layers_at_start_in_bf16": 2}  # restating a value is allowed
+    overrides = _fp4_overrides()
     _apply_overrides(overrides)
 
-    assert {key: value for key, value in overrides.items() if key != "quant_recipe"} == {
-        "fp4": "e2m1",
-        "fp4_recipe": "nvfp4",
-        "fp4_param": False,
-        "first_last_layers_bf16": True,
-        "num_layers_at_start_in_bf16": 2,
-        "num_layers_at_end_in_bf16": 4,
-    }
+    assert {key: value for key, value in overrides.items() if key != "quant_recipe"} == _fp4_overrides()
     assert get_quant_config_or_none(module_path, overrides["quant_recipe"]).config_key == expected
 
 
-def test_overrides_without_carveout_disable_first_last_layers_bf16():
+def test_bf16_layers_follow_megatron_core_options():
+    assert real_nvfp4_bf16_layers({}) is None
+    assert real_nvfp4_bf16_layers({"fp8": "e4m3"}) is None
+    assert real_nvfp4_bf16_layers(_fp4_overrides()) == (2, 4)
+    assert real_nvfp4_bf16_layers(_fp4_overrides(first_last_layers_bf16=False)) == (0, 0)
+    # Megatron-Core keeps one layer at each end by default.
+    assert real_nvfp4_bf16_layers({"fp4": "e2m1", "first_last_layers_bf16": True}) == (1, 1)
+    with pytest.raises(ValueError, match="fp4_recipe='nvfp4'"):
+        real_nvfp4_bf16_layers({"fp4": "e2m1", "fp4_recipe": "custom"})
+
+
+@pytest.mark.parametrize(
+    "extra,match",
+    [
+        ({"fp8": "e4m3"}, "combined with fp8"),
+        ({"fp4_param": True}, "fp4_param=False"),
+        ({"quant_recipe": {}}, "quant_recipe"),
+    ],
+)
+def test_fp4_override_rejects_conflicting_options(extra, match):
     pytest.importorskip("megatron.core.quantization.quant_config")
-    overrides = {}
-    _apply_overrides(overrides, start=0, end=0)
-    assert overrides["first_last_layers_bf16"] is False
+    with pytest.raises(ValueError, match=match):
+        _apply_overrides(_fp4_overrides(**extra))
 
 
 def _te_recipe(**overrides):

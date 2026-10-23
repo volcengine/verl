@@ -153,15 +153,3 @@ qat:
   activation_observer: null
   # Path to quantization config JSON for vLLM weight export
   quantization_config_path: null
-
-# Native NVFP4 training, an alternative to the ModelOpt fake-QAT path above:
-# routed-expert MLP GEMMs run Transformer Engine's NVFP4 recipe with per-token
-# activation scaling, while parameters stay BF16 and attention, dense MLPs and
-# shared experts run in BF16. Pair it with rollout.quantization.moe=NVFP4_PER_TOKEN.
-# TE reads the recipe from NVTE_* environment variables; see examples/real_nvfp4.
-real_nvfp4:
-  _target_: verl.workers.config.RealNVFP4EngineConfig
-  enable: false
-  # Decoder layers kept fully BF16 at the start/end, in training and rollout.
-  num_layers_at_start_in_bf16: 0
-  num_layers_at_end_in_bf16: 0

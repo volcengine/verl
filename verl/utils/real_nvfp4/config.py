@@ -15,7 +15,7 @@
 """Validation for routed-expert, per-token NVFP4 training and rollout."""
 
 import fnmatch
-from typing import Any
+from typing import Any, Mapping, Optional
 
 # Megatron module paths of routed-expert GEMMs (grouped or sequential experts). Dense MLPs
 # (``mlp.linear_fc1``) and shared experts (``mlp.shared_experts.linear_fc1``) do not match.
@@ -40,6 +40,30 @@ def real_nvfp4_num_layers(hf_config: Any) -> int:
 
 def is_routed_expert_module(module_path: str) -> bool:
     return any(fnmatch.fnmatch(module_path, pattern) for pattern in ROUTED_EXPERT_PATTERNS)
+
+
+def real_nvfp4_bf16_layers(override_transformer_config: Mapping[str, Any]) -> Optional[tuple[int, int]]:
+    """BF16 decoder layers at the start and end, or None without NVFP4 training.
+
+    NVFP4 training is switched on by ``override_transformer_config.fp4``, as FP8
+    training is by ``fp8``; it applies to routed-expert GEMMs only. The BF16
+    layers follow Megatron-Core's ``first_last_layers_bf16`` options.
+    """
+
+    fp4 = override_transformer_config.get("fp4")
+    if not fp4:
+        return None
+    fp4_recipe = override_transformer_config.get("fp4_recipe") or "nvfp4"
+    if fp4 != "e2m1" or fp4_recipe != "nvfp4":
+        raise ValueError(f"FP4 training supports fp4='e2m1' with fp4_recipe='nvfp4', got {fp4!r}/{fp4_recipe!r}")
+    if not override_transformer_config.get("first_last_layers_bf16", False):
+        return 0, 0
+    # Megatron-Core defaults
+    start = override_transformer_config.get("num_layers_at_start_in_bf16", 1)
+    end = override_transformer_config.get("num_layers_at_end_in_bf16", 1)
+    if start < 0 or end < 0:
+        raise ValueError(f"NVFP4 BF16 layer carve-out must be non-negative, got {start}/{end}")
+    return start, end
 
 
 def real_nvfp4_bf16_layer_indices(num_layers: int, num_layers_at_start: int, num_layers_at_end: int) -> list[int]:

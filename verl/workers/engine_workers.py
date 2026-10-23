@@ -44,6 +44,7 @@ from verl.utils.metric.utils import Metric
 from verl.utils.profiler import DistProfiler, DistProfilerExtension, ProfilerConfig, log_gpu_memory_usage
 from verl.utils.py_functional import append_to_dict
 from verl.utils.qat import dispatch_rollout_weight_quantizer
+from verl.utils.real_nvfp4 import real_nvfp4_bf16_layers
 from verl.utils.tensordict_utils import maybe_fix_3d_position_ids
 from verl.utils.torch_functional import allgather_dict_into_dict
 from verl.workers.config import (
@@ -735,7 +736,9 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 model_config=model_config,
                 rollout_config=self.config.rollout,
                 qat_config=getattr(engine_config, "qat", None),
-                real_nvfp4_config=getattr(engine_config, "real_nvfp4", None),
+                real_nvfp4_bf16_layers=real_nvfp4_bf16_layers(
+                    getattr(engine_config, "override_transformer_config", None) or {}
+                ),
             )
             if weight_quantizer is not None:
                 self.actor.engine.set_rollout_weight_quantizer(weight_quantizer)

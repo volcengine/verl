@@ -57,9 +57,7 @@ def _dispatch(ignore=_CARVE_IGNORE, moe="NVFP4_PER_TOKEN", start=2, end=2, engin
         rollout_config=SimpleNamespace(
             name=engine, quantization=SimpleNamespace(linear=None, moe=moe, ignore=ignore, config_file=None)
         ),
-        real_nvfp4_config=SimpleNamespace(
-            enable=True, num_layers_at_start_in_bf16=start, num_layers_at_end_in_bf16=end
-        ),
+        real_nvfp4_bf16_layers=(start, end),
     )
 
 

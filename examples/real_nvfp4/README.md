@@ -8,15 +8,15 @@ storage its CUDA graphs captured.
 
 ## Precision and supported configuration
 
-`actor_rollout_ref.actor.megatron.real_nvfp4.enable=True` runs the routed-expert
-MLPs in NVFP4 with per-token activation scaling, dequantized backward, and
+`actor_rollout_ref.actor.megatron.override_transformer_config.fp4=e2m1` (with
+`fp4_recipe=nvfp4`) runs the routed-expert MLPs in NVFP4 with per-token activation scaling, dequantized backward, and
 adaptive 4-over-6 disabled. The `NVFP4_PER_TOKEN` rollout preset uses the same
 precision: NVFP4 expert weights and activations quantized per token by
 FlashInfer's TRT-LLM MoE kernel. Attention, router, norms, embeddings and the
 LM head remain BF16 on both sides.
 
-`num_layers_at_start_in_bf16` and `num_layers_at_end_in_bf16` keep whole decoder
-layers in BF16 during training; `rollout.quantization.ignore` must list the same
+Megatron-Core's `first_last_layers_bf16` with `num_layers_at_start_in_bf16` and
+`num_layers_at_end_in_bf16` keeps whole decoder layers in BF16 during training; `rollout.quantization.ignore` must list the same
 routed-expert layers, which the trainer checks at startup. This example keeps
 the first two and last four of 48 layers in BF16.
 

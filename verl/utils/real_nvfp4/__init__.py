@@ -17,6 +17,7 @@
 from .config import (
     is_routed_expert_module,
     real_nvfp4_bf16_layer_indices,
+    real_nvfp4_bf16_layers,
     real_nvfp4_num_layers,
     real_nvfp4_quant_recipe_config,
     validate_real_nvfp4_model_contract,
@@ -27,6 +28,7 @@ from .config import (
 __all__ = [
     "is_routed_expert_module",
     "real_nvfp4_bf16_layer_indices",
+    "real_nvfp4_bf16_layers",
     "real_nvfp4_num_layers",
     "real_nvfp4_quant_recipe_config",
     "validate_real_nvfp4_model_contract",

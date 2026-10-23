@@ -188,8 +188,10 @@ activations the same way:
 actor_rollout_ref:
   actor:
     megatron:
-      real_nvfp4:
-        enable: true
+      override_transformer_config:
+        fp4: e2m1
+        fp4_recipe: nvfp4
+        first_last_layers_bf16: true
         num_layers_at_start_in_bf16: 2   # whole decoder layers kept in BF16
         num_layers_at_end_in_bf16: 4
   rollout:
@@ -198,7 +200,8 @@ actor_rollout_ref:
       ignore: ["re:.*layers\\.(0|1|44|45|46|47)\\.mlp\\.experts\\..*"]  # same layers, 48-layer model
 ```
 
-`real_nvfp4` and `qat` are mutually exclusive. The trainer checks at startup
+verl limits `fp4` to the routed experts, as the rollout preset does. It and
+`qat` are mutually exclusive. The trainer checks at startup
 that the rollout keeps exactly the BF16 layers of the training carve-out.
 Transformer Engine reads its NVFP4 recipe from `NVTE_*` environment variables;
 see `examples/real_nvfp4` for those, the supported layouts and a Qwen3-30B-A3B

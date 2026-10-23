@@ -22,6 +22,7 @@ import torch
 from .config import (
     is_routed_expert_module,
     real_nvfp4_bf16_layer_indices,
+    real_nvfp4_bf16_layers,
     real_nvfp4_num_layers,
     real_nvfp4_quant_recipe_config,
     validate_real_nvfp4_model_contract,
@@ -36,44 +37,28 @@ def apply_real_nvfp4_overrides(
     override_transformer_config: dict,
     hf_config: Any,
     *,
-    num_layers_at_start_in_bf16: int,
-    num_layers_at_end_in_bf16: int,
     pipeline_size: int,
     virtual_pipeline_size: int | None,
 ) -> None:
-    """Set the MCore FP4 options and per-module recipe owned by real_nvfp4.
+    """Limit ``override_transformer_config.fp4`` to routed-expert GEMMs with a per-module recipe.
 
-    An explicit override may restate a value but not contradict it.
+    The rollout's ``NVFP4_PER_TOKEN`` preset quantizes routed experts only, so attention,
+    dense MLPs and shared experts stay BF16 in training too.
     """
 
     from megatron.core.quantization.quant_config import RecipeConfig
 
+    start, end = real_nvfp4_bf16_layers(override_transformer_config)
     validate_real_nvfp4_model_contract(hf_config)
     # Layer-index recipes and the post-build attestation use global layer
     # indices, which only holds without pipeline splitting.
     validate_real_nvfp4_parallelism(pipeline_size=pipeline_size, virtual_pipeline_size=virtual_pipeline_size)
     if override_transformer_config.get("fp8") not in (None, False):
-        raise ValueError("real_nvfp4 cannot be combined with an FP8 transformer recipe")
+        raise ValueError("override_transformer_config.fp4 cannot be combined with fp8")
+    if override_transformer_config.get("fp4_param"):
+        raise ValueError("NVFP4 training keeps BF16 parameters for Adam and refit; set fp4_param=False")
     if override_transformer_config.get("quant_recipe") is not None:
-        raise ValueError("real_nvfp4 owns override_transformer_config.quant_recipe")
-
-    start, end = num_layers_at_start_in_bf16, num_layers_at_end_in_bf16
-    # first_last_layers_bf16 keeps the carved-out layers outside the FP4
-    # autocast; the per-module recipe below must agree with it.
-    required_overrides = {
-        "fp4": "e2m1",
-        "fp4_recipe": "nvfp4",
-        # BF16 master parameters for Adam and refit; W4A4 refers to GEMMs.
-        "fp4_param": False,
-        "first_last_layers_bf16": start + end > 0,
-        "num_layers_at_start_in_bf16": start,
-        "num_layers_at_end_in_bf16": end,
-    }
-    for key, expected in required_overrides.items():
-        configured = override_transformer_config.get(key)
-        if configured is not None and configured != expected:
-            raise ValueError(f"real_nvfp4 requires override_transformer_config.{key}={expected!r}, got {configured!r}")
-        override_transformer_config[key] = expected
+        raise ValueError("NVFP4 training sets override_transformer_config.quant_recipe itself")
     override_transformer_config["quant_recipe"] = RecipeConfig.from_config_dict(
         real_nvfp4_quant_recipe_config(real_nvfp4_num_layers(hf_config), start, end)
     )
@@ -103,7 +88,6 @@ def attest_real_nvfp4_runtime(
     models: Iterable[torch.nn.Module],
     tf_config: Any,
     hf_config: Any,
-    *,
     num_layers_at_start_in_bf16: int,
     num_layers_at_end_in_bf16: int,
 ) -> None:

@@ -213,17 +213,13 @@ class MegatronEngine(BaseEngine):
             logger.info(f"QAT enabled in MegatronEngine: mode={self._qat_config.mode}")
         self._rollout_weight_quantizer = None
 
-        # Real NVFP4 is a separate TE execution path, not a QAT mode.
-        self._real_nvfp4_config = getattr(self.engine_config, "real_nvfp4", None)
-        self._real_nvfp4_enabled = self._real_nvfp4_config is not None and getattr(
-            self._real_nvfp4_config, "enable", False
-        )
+        # override_transformer_config.fp4 trains the routed experts in NVFP4.
+        from verl.utils.real_nvfp4 import real_nvfp4_bf16_layers
+
+        self._real_nvfp4_bf16_layers = real_nvfp4_bf16_layers(self.engine_config.override_transformer_config)
+        self._real_nvfp4_enabled = self._real_nvfp4_bf16_layers is not None
         if self._real_nvfp4_enabled:
-            logger.info(
-                "Real NVFP4 enabled in MegatronEngine: BF16 layers at start/end=%d/%d",
-                self._real_nvfp4_config.num_layers_at_start_in_bf16,
-                self._real_nvfp4_config.num_layers_at_end_in_bf16,
-            )
+            logger.info("NVFP4 routed-expert training: BF16 layers at start/end=%d/%d", *self._real_nvfp4_bf16_layers)
 
         # Router replay configuration for MoE models
         self.enable_routing_replay = self.engine_config.router_replay.mode != "disabled"
@@ -307,8 +303,6 @@ class MegatronEngine(BaseEngine):
             apply_real_nvfp4_overrides(
                 override_transformer_config,
                 self.model_config.hf_config,
-                num_layers_at_start_in_bf16=self._real_nvfp4_config.num_layers_at_start_in_bf16,
-                num_layers_at_end_in_bf16=self._real_nvfp4_config.num_layers_at_end_in_bf16,
                 pipeline_size=self.engine_config.pipeline_model_parallel_size,
                 virtual_pipeline_size=self.engine_config.virtual_pipeline_model_parallel_size,
             )
@@ -567,8 +561,7 @@ class MegatronEngine(BaseEngine):
                 models,
                 self.tf_config,
                 self.model_config.hf_config,
-                num_layers_at_start_in_bf16=self._real_nvfp4_config.num_layers_at_start_in_bf16,
-                num_layers_at_end_in_bf16=self._real_nvfp4_config.num_layers_at_end_in_bf16,
+                *self._real_nvfp4_bf16_layers,
             )
 
         if self._qat_enabled and not self.engine_config.forward_only:

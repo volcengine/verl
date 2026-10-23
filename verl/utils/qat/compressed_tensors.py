@@ -76,7 +76,7 @@ SUPPORTED_SCHEMES: dict[str, Optional[str]] = {
     "NVFP4": "nvfp4",
     # NVFP4 expert weights with activations quantized per token at runtime, as
     # Transformer Engine's row-scaled NVFP4 training does. No ModelOpt QAT mode
-    # matches it; it pairs with ``actor.megatron.real_nvfp4``.
+    # matches it; it pairs with ``override_transformer_config.fp4`` training.
     "NVFP4_PER_TOKEN": None,
 }
 
@@ -663,7 +663,9 @@ def _as_quantization_config(config: Any) -> Optional[dict[str, Any]]:
     raise TypeError(f"quantization_config must be a mapping, got {type(config).__name__}")
 
 
-def _check_real_nvfp4_carveout(hf_config: Any, quantization_config: Mapping[str, Any], real_nvfp4_config: Any) -> None:
+def _check_real_nvfp4_carveout(
+    hf_config: Any, quantization_config: Mapping[str, Any], bf16_layers: tuple[int, int]
+) -> None:
     """Training and rollout must keep the same layers' routed experts in BF16.
 
     Matches expert names like the export does, so dense layers need no special casing.
@@ -671,9 +673,7 @@ def _check_real_nvfp4_carveout(hf_config: Any, quantization_config: Mapping[str,
     from verl.utils.real_nvfp4 import real_nvfp4_bf16_layer_indices, real_nvfp4_num_layers
 
     num_layers = real_nvfp4_num_layers(hf_config)
-    expected = real_nvfp4_bf16_layer_indices(
-        num_layers, real_nvfp4_config.num_layers_at_start_in_bf16, real_nvfp4_config.num_layers_at_end_in_bf16
-    )
+    expected = real_nvfp4_bf16_layer_indices(num_layers, *bf16_layers)
     per_token = nvfp4_per_token_module_matcher(quantization_config)
     high_precision = [
         layer for layer in range(num_layers) if not per_token(f"model.layers.{layer}.mlp.experts.0.gate_proj")
@@ -682,7 +682,7 @@ def _check_real_nvfp4_carveout(hf_config: Any, quantization_config: Mapping[str,
         layers = "|".join(str(layer) for layer in expected)
         hint = f'["re:.*layers\\.({layers})\\.mlp\\.experts\\..*"]' if expected else "[]"
         raise ValueError(
-            f"rollout.quantization keeps the routed experts of layers {high_precision} in BF16, but real_nvfp4 "
+            f"rollout.quantization keeps the routed experts of layers {high_precision} in BF16, but NVFP4 training "
             f"trains layers {expected} in BF16; set rollout.quantization.ignore={hint}"
         )
 
@@ -692,7 +692,7 @@ def dispatch_rollout_weight_quantizer(
     model_config: Any,
     rollout_config: Any,
     qat_config: Any = None,
-    real_nvfp4_config: Any = None,
+    real_nvfp4_bf16_layers: Optional[tuple[int, int]] = None,
 ) -> Optional[Any]:
     """Select the trainer-side exporter for native or overridden rollout quantization.
 
@@ -703,7 +703,7 @@ def dispatch_rollout_weight_quantizer(
     still gets an FP8 quantizer object, but it passes through the private mixed
     FP8/FP4 layout already produced by Megatron-Bridge.
     ``NVFP4_PER_TOKEN`` routed experts use :class:`NVFP4PerTokenWeightQuantizer`;
-    Megatron's ``real_nvfp4`` training requires that preset and the same BF16 layers.
+    NVFP4 training (``real_nvfp4_bf16_layers`` set) requires that preset and the same BF16 layers.
     """
     rollout_quantization = getattr(rollout_config, "quantization", None)
     linear = getattr(rollout_quantization, "linear", None)
@@ -728,10 +728,10 @@ def dispatch_rollout_weight_quantizer(
         quantization_config = _as_quantization_config(native)
 
     qat_mode = qat_config.mode if qat_config is not None and qat_config.enable else None
-    real_nvfp4 = real_nvfp4_config is not None and getattr(real_nvfp4_config, "enable", False)
+    real_nvfp4 = real_nvfp4_bf16_layers is not None
     if quantization_config is None:
         if real_nvfp4:
-            raise ValueError("actor.megatron.real_nvfp4 needs rollout.quantization.moe=NVFP4_PER_TOKEN")
+            raise ValueError("override_transformer_config.fp4 needs rollout.quantization.moe=NVFP4_PER_TOKEN")
         if qat_mode is not None:
             raise ValueError(
                 "QAT needs a quantized rollout to sync to: use a model with a native "
@@ -747,14 +747,14 @@ def dispatch_rollout_weight_quantizer(
     if per_token and getattr(rollout_config, "name", None) != "vllm":
         raise ValueError("rollout.quantization.moe=NVFP4_PER_TOKEN is supported only with the vLLM rollout")
     if per_token and qat_mode is not None:
-        raise ValueError("rollout.quantization.moe=NVFP4_PER_TOKEN pairs with actor.megatron.real_nvfp4, not QAT")
+        raise ValueError("rollout.quantization.moe=NVFP4_PER_TOKEN pairs with override_transformer_config.fp4, not QAT")
     if real_nvfp4 and not per_token:
         raise ValueError(
-            "actor.megatron.real_nvfp4 trains routed experts in the precision of the "
+            "override_transformer_config.fp4 trains routed experts in the precision of the "
             "rollout.quantization.moe=NVFP4_PER_TOKEN preset; set it for the rollout"
         )
     if real_nvfp4:
-        _check_real_nvfp4_carveout(hf_config, quantization_config, real_nvfp4_config)
+        _check_real_nvfp4_carveout(hf_config, quantization_config, real_nvfp4_bf16_layers)
     if quant_method == "compressed-tensors":
         qat_modes = qat_modes_for_config(quantization_config) if qat_mode is not None else set()
         if per_token:
