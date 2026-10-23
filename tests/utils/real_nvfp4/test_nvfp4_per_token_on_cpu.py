@@ -333,8 +333,7 @@ def test_rollout_server_checks_a_per_token_config_file(tmp_path):
         server._check_nvfp4_per_token_rollout({}, {"enable_eplb": True})
     # Tensor-parallel experts
     server.config.expert_parallel_size = 1
-    with pytest.raises(ValueError, match="needs expert_parallel_size=4"):
-        server._check_nvfp4_per_token_rollout({}, {})
+    server._check_nvfp4_per_token_rollout({}, {})
     # Data-parallel attention with all2all expert parallelism
     server.config.tensor_model_parallel_size, server.config.data_parallel_size = 1, 4
     with pytest.raises(ValueError, match="data_parallel_size=1"):

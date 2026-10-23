@@ -26,9 +26,9 @@ architecture: dense MLP layers, shared experts and other attention types such
 as MLA stay BF16 on both sides. It has been validated on Qwen3-30B-A3B and,
 with a small random model, on the DeepSeek-V3 layout (dense first layer, MLA,
 shared expert). Training uses PP=1 without virtual pipeline parallelism, and
-rollout TP=EP (`ROLLOUT_TP`, default 1) with the colocated `naive` checkpoint
-engine, BF16 KV cache, `FULL_DECODE_ONLY` CUDA graphs and no speculative
-decoding.
+rollout TP (`ROLLOUT_TP`, default 1) with EP=1 or EP=TP (`ROLLOUT_EP`), the
+colocated `naive` checkpoint engine, BF16 KV cache, `FULL_DECODE_ONLY` CUDA
+graphs and no speculative decoding.
 
 ## Installation
 
