@@ -392,11 +392,32 @@ def test_engine_recheck_catches_an_engine_that_matched_a_module_differently(capl
     assert not aud.wants_engine_recheck()  # asked once
 
 
-def test_engine_recheck_reports_agreement_once_and_only_after_a_verdict(caplog):
+def test_engine_recheck_runs_at_the_first_sync_before_any_training_step(caplog):
+    # Export vs engine needs no training-side trace: at the first weight sync, before any step (no FP8 workspace
+    # yet), the engine is asked, so a mismatch is reported before the first rollout. Training vs export still waits.
     names = _hf_names()
-    fresh = QuantLayerAuditor("warn", engine="vllm")
-    list(fresh.record(iter(_export(names))))
-    assert not fresh.wants_engine_recheck()  # no training-vs-export verdict yet
+    skipped = [f"model.layers.{i}.mlp.{p}" for i in range(N_LAYERS) for p in ("gate_proj", "up_proj")]
+    empty = [_Chunk(quantized_layers=set())]
+    aud = QuantLayerAuditor("warn", engine="vllm")
+    assert not aud.wants_engine_recheck()  # nothing exported yet
+    list(aud.record(iter(_export(names)), modules=empty))  # the init sync
+    assert not aud.done and aud.wants_engine_recheck()
+    problems = aud.recheck_against_engine(_engine_methods(names, skipped))
+    assert _problem_names(problems) == {name + ".weight" for name in skipped}
+    assert "the exported weights and the vllm engine disagree on 8 weight(s)" in caplog.text
+    # the first sync after a training step reaches the training-vs-export verdict; the engine is not asked again
+    list(aud.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
+    assert aud.done and not aud.wants_engine_recheck()
+    assert aud.recheck_against_engine(_engine_methods(names, skipped)) is None
+    # raise mode stops the run at the init sync
+    strict = QuantLayerAuditor("raise", engine="vllm")
+    list(strict.record(iter(_export(names)), modules=empty))
+    with pytest.raises(RuntimeError, match="disagree on 8 weight"):
+        strict.recheck_against_engine(_engine_methods(names, skipped))
+
+
+def test_engine_recheck_reports_agreement_once(caplog):
+    names = _hf_names()
     aud = QuantLayerAuditor("warn", engine="vllm")
     list(aud.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
     methods = _engine_methods(names)
@@ -579,3 +600,26 @@ def test_worker_asks_an_engine_that_cannot_answer_only_once(caplog):
         asyncio.run(worker._recheck_quant_layers_against_engine())
     assert len(queries) == 1 and not aud.wants_engine_recheck()
     assert caplog.text.count("could not read the engine's quant methods") == 1
+
+
+def test_worker_asks_the_engine_at_the_init_sync():
+    # The worker calls _recheck_quant_layers_against_engine after every weight sync; the init sync, before any
+    # training step, already asks the engine, once.
+    import asyncio
+
+    from verl.workers.engine_workers import ActorRolloutRefWorker
+
+    aud = QuantLayerAuditor("warn", engine="vllm")
+    list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers=set())]))  # no FP8 trace yet
+    queries = []
+
+    class _Rollout:
+        async def quant_methods_of(self, names):
+            queries.append(len(names))
+            return _engine_methods(names)
+
+    worker = object.__new__(ActorRolloutRefWorker)
+    worker.quant_layer_auditor, worker.rollout = aud, _Rollout()
+    for _ in range(2):  # the init sync, then the next one
+        asyncio.run(worker._recheck_quant_layers_against_engine())
+    assert len(queries) == 1 and not aud.done  # asked once, before any training-vs-export verdict

@@ -24,7 +24,7 @@ with). On B200, vLLM 0.24's ModelOpt MXFP8 config matched the router exclusion
 of Qwen3-1.7B were served in BF16 while training ran them in FP8, and nothing
 reported it.
 
-What. Three sources, compared at the first weight sync after a training step:
+What. Three sources:
 
 - training: which decoder layers hold a TE FP8 weight workspace
   (``module._fp8_workspaces``), per mcore ``TransformerLayer``;
@@ -48,8 +48,10 @@ the audit reports how many it left out. Export vs engine reports every
 disagreement: both sides read ``rollout.quantization``, so one means the engine
 matched a layer differently from the exporter.
 
-Runs once, at the first weight sync that happens after an FP8 forward (the first
-sync, before any step, has no workspaces yet). Controlled by
+Each comparison runs once. Training vs export waits for the first weight sync that
+happens after an FP8 forward (the first sync, before any step, has no workspaces
+yet). Export vs engine on vLLM needs only the export and the engine, so it runs at
+the first weight sync, before the first rollout. Controlled by
 ``VERL_QUANT_LAYER_AUDIT``: ``warn`` (default) logs the disagreements, ``raise``
 raises ``RuntimeError``, ``0`` disables.
 
@@ -459,8 +461,8 @@ class QuantLayerAuditor:
             )
             return cls(mode, rollout_name, enabled=False)
         logger.info(
-            "quantized-layer audit: armed (engine=%s, training FP8 recipe=%s, mode=%s); runs at the first weight "
-            "sync after a training step",
+            "quantized-layer audit: armed (engine=%s, training FP8 recipe=%s, mode=%s); training vs export runs at "
+            "the first weight sync after a training step, export vs engine (vLLM) at the first weight sync",
             rollout_name,
             trainer_fp8_recipe,
             mode,
@@ -562,7 +564,7 @@ class QuantLayerAuditor:
                 " On SGLang the MXFP8 refit loader compares the export with the engine's parameters when it loads."
             )
         elif self.engine == "vllm":
-            engine_note = " On vLLM the export is compared with the engine's quant methods after this sync."
+            engine_note = " On vLLM the export is compared with the engine's quant methods at the first weight sync."
         else:
             engine_note = ""
         self._report(
@@ -577,15 +579,19 @@ class QuantLayerAuditor:
         return problems
 
     def wants_engine_recheck(self) -> bool:
-        """True once a training-vs-export verdict exists and the engine has not been asked yet."""
-        return self.enabled and self.done and self._verdict is not None and not self._rechecked
+        """True once a sync has recorded the export and the engine has not been asked yet.
+
+        Export vs engine needs no training-side trace, so it runs at the first weight sync, before the first
+        rollout, instead of waiting for the training-vs-export verdict.
+        """
+        return self.enabled and bool(self.exported) and not self._rechecked
 
     def weight_names(self) -> list[str]:
         return list(self.exported)
 
     def recheck_against_engine(self, methods: Optional[Mapping[str, Optional[str]]]) -> Optional[list[str]]:
         """Compare the recorded export with the quant methods of the engine modules that receive it."""
-        if self._verdict is None or self._rechecked:
+        if self._rechecked:
             return None
         self._rechecked = True  # asked once; a rank whose rollout cannot be asked has no answer to wait for
         if not methods:
