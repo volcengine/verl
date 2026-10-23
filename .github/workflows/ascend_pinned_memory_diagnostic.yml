@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   pinned_memory:
-    runs-on: linux-aarch64-a3-800i-16
+    runs-on: linux-aarch64-a3-800i-test-16
     timeout-minutes: 40
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/modelfoundry/ascend-ci/verl/verl:latest-vllm-a3-ubuntu
