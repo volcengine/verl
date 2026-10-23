@@ -64,9 +64,7 @@ def test_task_runner_creates_node_affined_dataloader_with_trainer_dependencies(m
     runner.init_streaming_dataloader()
 
     assert runner.streaming_dataloader == "streaming-actor"
-    assert calls["options"] == {
-        "scheduling_strategy": ("node-affinity", {"node_id": "node-1", "soft": False})
-    }
+    assert calls["options"] == {"scheduling_strategy": ("node-affinity", {"node_id": "node-1", "soft": False})}
     assert calls["remote"] == {
         "config": runner.config,
         "tokenizer": "tokenizer",
