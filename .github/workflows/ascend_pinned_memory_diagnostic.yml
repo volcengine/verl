@@ -28,7 +28,39 @@ jobs:
           date -u --iso-8601=seconds > pinned-memory-artifacts/start.txt
           hostname > pinned-memory-artifacts/hostname.txt
           cat /usr/local/Ascend/driver/version.info > pinned-memory-artifacts/driver-version.txt 2>&1 || true
-          find /usr/local/Ascend/ascend-toolkit/latest -name ascend_toolkit_install.info -exec cat {} \; > pinned-memory-artifacts/cann-version.txt 2>&1 || true
+          {
+            echo 'CANN installation metadata (may include multiple installed versions)'
+            for variable in ASCEND_HOME_PATH ASCEND_TOOLKIT_HOME ASCEND_INSTALL_PATH; do
+              printf '%s=%s\n' "$variable" "${!variable:-<unset>}"
+            done
+            metadata_files=$(mktemp)
+            for root in "${ASCEND_HOME_PATH:-}" "${ASCEND_TOOLKIT_HOME:-}" \
+              "${ASCEND_INSTALL_PATH:-}" /usr/local/Ascend/ascend-toolkit \
+              /usr/local/Ascend/cann /usr/local/Ascend/nnal; do
+              [ -n "$root" ] || continue
+              printf '\nSearch root: %s\n' "$root"
+              if [ ! -d "$root" ]; then
+                echo 'Directory missing or inaccessible'
+                continue
+              fi
+              printf 'Resolved root: %s\n' "$(readlink -f "$root")"
+              # latest and architecture directories can be symlinks.
+              timeout 20s find -L "$root" -maxdepth 6 -type f \
+                \( -name '*install.info' -o -name 'version.info' -o -name 'version.cfg' \) \
+                -print >> "$metadata_files" || echo 'WARNING: metadata search failed or timed out; results may be incomplete'
+            done
+            if [ -s "$metadata_files" ]; then
+              sort -u "$metadata_files" -o "$metadata_files"
+              while IFS= read -r metadata; do
+                printf '\n=== %s ===\n' "$metadata"
+                cat "$metadata" || echo 'WARNING: could not read metadata'
+                echo
+              done < "$metadata_files"
+            else
+              echo 'WARNING: no CANN version metadata found; CANN version remains unknown'
+            fi
+            rm -f "$metadata_files"
+          } > pinned-memory-artifacts/cann-version.txt 2>&1
           python3 scripts/ascend_pinned_memory_probe.py --output pinned-memory-artifacts/probe --workers 8 --repeats 2
       - name: Collect final kernel diagnostics
         if: always()
