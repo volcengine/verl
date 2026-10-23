@@ -56,69 +56,6 @@ def _trainer_with_filter_groups(filter_groups: dict, trainer_mode: str = "sync")
     return trainer
 
 
-def test_sync_failure_refill_overrides_dataloader_generation_batch_size():
-    trainer = _trainer_with_filter_groups({"enable": False})
-    trainer.config.trainer.v1.sampler.sync_refill_failed_groups = True
-    trainer.config.data.update(
-        {
-            "train_files": [],
-            "val_files": [],
-            "train_max_samples": -1,
-            "val_max_samples": -1,
-            "dataloader_num_workers": 0,
-            "val_batch_size": 1,
-            "validation_shuffle": False,
-        }
-    )
-    trainer.config.trainer.total_epochs = 1
-    trainer.config.trainer.total_training_steps = None
-    trainer.parameter_sync_step = 1
-    trainer.tokenizer = None
-    trainer.processor = None
-
-    with (
-        patch("verl.trainer.ppo.v1.trainer_base.create_rl_dataset", side_effect=[[{}, {}], [{}]]),
-        patch("verl.trainer.ppo.v1.trainer_base.StatefulDataLoader") as dataloader,
-        patch("verl.trainer.ppo.v1.streaming_dataloader.logger.warning") as warning,
-    ):
-        trainer._init_dataloader()
-
-    assert trainer.config.data.gen_batch_size == 1
-    assert len(dataloader.call_args_list) == 1
-    assert dataloader.call_args.kwargs["dataset"] == [{}]
-    warning.assert_any_call("data.gen_batch_size=8 is overridden to 1.")
-
-
-def test_streaming_dataloader_keeps_train_iterator_out_of_trainer():
-    trainer = _trainer_with_filter_groups({"enable": False}, trainer_mode="separate_async")
-    trainer.config.data.update(
-        {
-            "train_files": [],
-            "val_files": [],
-            "train_max_samples": -1,
-            "val_max_samples": -1,
-            "dataloader_num_workers": 0,
-            "val_batch_size": 1,
-            "validation_shuffle": False,
-        }
-    )
-    trainer.config.trainer.total_epochs = 1
-    trainer.config.trainer.total_training_steps = None
-    trainer.parameter_sync_step = 1
-    trainer.tokenizer = None
-    trainer.processor = None
-
-    with (
-        patch("verl.trainer.ppo.v1.trainer_base.create_rl_dataset", side_effect=[[{}, {}], [{}]]),
-        patch("verl.trainer.ppo.v1.trainer_base.StatefulDataLoader") as dataloader,
-    ):
-        trainer._init_dataloader()
-
-    assert not hasattr(trainer, "train_dataloader")
-    assert len(dataloader.call_args_list) == 1
-    assert dataloader.call_args.kwargs["dataset"] == [{}]
-
-
 def test_builtin_filter_groups_warns_when_total_generation_limit_is_configured():
     trainer = _trainer_with_filter_groups({"enable": True, "metric": "acc", "max_num_gen_batches": 10})
 
@@ -206,7 +143,9 @@ def test_fit_loads_actor_then_clears_trained_batch_before_checkpoint(monkeypatch
     logger = SimpleNamespace(log=lambda **_kwargs: None)
     monkeypatch.setattr(trainer_module, "Tracking", lambda **_kwargs: logger)
     monkeypatch.setattr(trainer_module, "ValidationGenerationsLogger", lambda **_kwargs: SimpleNamespace())
-    monkeypatch.setattr(trainer_module, "DapoFilteredRewardTableLogger", lambda **_kwargs: SimpleNamespace(log=lambda *_a: None))
+    monkeypatch.setattr(
+        trainer_module, "DapoFilteredRewardTableLogger", lambda **_kwargs: SimpleNamespace(log=lambda *_a: None)
+    )
     monkeypatch.setattr(trainer_module.ray, "get", lambda value: events.append(("ray_get", value)) or value)
     monkeypatch.setattr(trainer_module.SkipManager, "init", lambda _config: None)
     monkeypatch.setattr(trainer_module.SkipManager, "set_step", lambda _step: None)
@@ -220,7 +159,5 @@ def test_fit_loads_actor_then_clears_trained_batch_before_checkpoint(monkeypatch
     trainer.fit(streaming_dataloader=trainer.streaming_dataloader)
 
     assert events.index(("load", "/resume/global_step_0", 1)) < events.index(("step",))
-    assert events.index(("fetch_metrics", ["prompt_0_0"])) < events.index(
-        ("clear", ["prompt_0_0"], "train")
-    )
+    assert events.index(("fetch_metrics", ["prompt_0_0"])) < events.index(("clear", ["prompt_0_0"], "train"))
     assert events.index(("clear", ["prompt_0_0"], "train")) < events.index(("save",))

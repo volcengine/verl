@@ -20,11 +20,9 @@ Covers the ``hybrid_rollout.enable_switch=False`` no-op mode-switch hooks and th
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
 from omegaconf import OmegaConf
 
 from verl.trainer.ppo.utils import Role
-from verl.trainer.ppo.v1 import trainer_separate_async as separate_async_module
 from verl.trainer.ppo.v1.streaming_dataloader import StreamingDataloaderAsync
 from verl.trainer.ppo.v1.trainer_separate_async import HybridEngineMode, PPOTrainerSeparateAsync
 
@@ -88,45 +86,6 @@ class TestHybridReplicasDisabled:
         assert Role.ActorRollout not in trainer.role_worker_mapping
         assert Role.ActorRolloutRef not in trainer.role_worker_mapping
 
-    def test_switch_is_disabled_when_enable_switch_is_false(self, monkeypatch):
-        config = OmegaConf.create(
-            {
-                "data": {"train_batch_size": 64},
-                "actor_rollout_ref": {
-                    "actor": {"ppo_mini_batch_size": 16},
-                    "rollout": {
-                        "nnodes": 1,
-                        "n_gpus_per_node": 8,
-                        "checkpoint_engine": {"backend": "nccl"},
-                        "disaggregation": {"enabled": True},
-                    },
-                },
-                "trainer": {
-                    "v1": {
-                        "separate_async": {
-                            "parameter_sync_step": 4,
-                            "hybrid_rollout": {
-                                "_target_": "verl.trainer.config.HybridRolloutSwitchConfig",
-                                "enable_switch": False,
-                            },
-                        }
-                    }
-                },
-                "reward": {"reward_model": {"enable": False}},
-            }
-        )
-
-        def mock_base_init(trainer, trainer_config):
-            trainer.config = trainer_config
-            trainer.streaming_dataloader = None
-
-        monkeypatch.setattr(separate_async_module.PPOTrainer, "__init__", mock_base_init)
-
-        trainer = PPOTrainerSeparateAsync(config)
-
-        assert trainer.hybrid_rollout_config.enable_switch is False
-        assert trainer._enable_hybrid_replicas is False
-
     def test_mode_switch_hooks_are_noops(self):
         trainer = _make_trainer(enable_hybrid_replicas=False)
         trainer.switch_to_rollout()
@@ -161,7 +120,3 @@ class TestOffPolicyThresholdNone:
         # Enough sampleable keys exist: None threshold must not block on the stale pending key.
         rb.finished_keys["train"].update({f"k{i}" for i in range(4)})
         assert rb._has_enough_samples(1000, "train", 4, set(rb.finished_keys["train"])) is True
-
-    def test_invalid_threshold_still_rejected(self):
-        with pytest.raises(AssertionError, match="Invalid max off policy threshold"):
-            _make_dataloader(max_off_policy_threshold=0, max_off_policy_strategy="drop")

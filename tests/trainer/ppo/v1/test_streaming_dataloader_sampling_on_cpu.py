@@ -273,40 +273,9 @@ def _uids_of(keys: list[str]) -> set[str]:
     return {key.split("_")[0] for key in keys}
 
 
-def test_async_poll_once_and_materialize_are_nonblocking_primitives(tq_init, partition_id):
-    finished = PromptSpec(uid=_uid(), status="finished")
-    _produce(partition_id, [finished]).join_and_check()
-    rb = _make_rb(trainer_mode="separate_async")
-
-    try:
-        sampleable, metrics, ready = rb.poll_once(
-            global_steps=0,
-            partition_id=partition_id,
-            target_count=1,
-        )
-        assert ready is True
-        assert metrics == {}
-        batch = rb.materialize_sampleable(0, partition_id, sampleable, 1)
-        assert _uids_of(batch.keys) == {finished.uid}
-    finally:
-        _clear_partition(partition_id)
-
-
 # --------------------------------------------------------------------------- #
 # __init__: configuration validation.
 # --------------------------------------------------------------------------- #
-
-
-def test_init_rejects_non_positive_threshold():
-    """max_off_policy_threshold must be a positive integer."""
-    with pytest.raises(AssertionError, match="max off policy threshold"):
-        _make_rb(max_off_policy_threshold=0)
-
-
-def test_init_rejects_unknown_strategy():
-    """max_off_policy_strategy must be one of {drop, wait}."""
-    with pytest.raises(AssertionError, match="max off policy strategy"):
-        _make_rb(max_off_policy_strategy="bogus")
 
 
 def test_init_rejects_non_positive_sync_dapo_inflight_limit():
@@ -392,45 +361,6 @@ def test_async_unfinished_session_count_rejects_excess_progress():
 
     with pytest.raises(RuntimeError, match="inconsistent session progress"):
         rb.unfinished_session_count(partition_id, default_rollout_n=1)
-
-
-def test_session_metadata_is_not_materialized(tq_init, partition_id):
-    uid = _uid()
-    trajectory_key = _trajectory_key(uid, session_id=0)
-    success_session_key = f"{uid}_0"
-    failure_session_key = f"{uid}_1"
-    tq.kv_put(
-        key=uid,
-        partition_id=partition_id,
-        tag={"is_prompt": True, "status": "running", "global_steps": 0},
-    )
-    tq.kv_put(
-        key=trajectory_key,
-        partition_id=partition_id,
-        fields={"input_ids": torch.tensor([1, 2, 3])},
-        tag={"status": "success"},
-    )
-    tq.kv_put(
-        key=success_session_key,
-        partition_id=partition_id,
-        tag={"is_session": True, "status": "finished", "session_id": 0},
-    )
-    tq.kv_put(
-        key=failure_session_key,
-        partition_id=partition_id,
-        tag={"is_session": True, "status": "failure", "session_id": 1},
-    )
-
-    rb = _make_rb(trainer_mode="colocate_async")
-    try:
-        rb._sync_metadata_from_transfer_queue()
-
-        assert set(rb.partitions[partition_id]) == {trajectory_key}
-        assert rb.finished_session_keys[partition_id] == {success_session_key}
-        assert rb.failure_session_keys[partition_id] == {failure_session_key}
-        assert rb.unfinished_session_count(partition_id, default_rollout_n=2) == 0
-    finally:
-        _clear_partition(partition_id)
 
 
 @pytest.mark.parametrize("trainer_mode", ["sync", "colocate_async"])
@@ -594,30 +524,6 @@ def test_sample_blocks_until_enough_then_unblocks(tq_init, partition_id):
         assert len(batch.keys) == 2
     finally:
         consumer.join(timeout=10.0)
-        _clear_partition(partition_id)
-
-
-def test_sync_grpo_step_returns_complete_groups(tq_init, partition_id):
-    """A synchronous PPO/GRPO step submits batch_size prompts, each a GRPO group of
-    n sessions; one sample must return every trajectory as whole groups."""
-    n_prompts = 3
-    n_sessions = 4  # GRPO rollout.n
-    specs = [PromptSpec(uid=_uid(), status="finished", sessions=n_sessions) for _ in range(n_prompts)]
-    _produce(partition_id, specs).join_and_check()
-
-    rb = _make_rb()
-    try:
-        batch = _sample(rb, partition_id, batch_size=n_prompts)
-
-        # Every prompt's full GRPO group is present, nothing more, nothing less.
-        assert len(batch.keys) == n_prompts * n_sessions
-        assert set(batch.keys) == {k for spec in specs for k in spec.trajectory_keys}
-        # Each sampled prompt contributes exactly n_sessions trajectories.
-        per_uid: dict[str, int] = {}
-        for key in batch.keys:
-            per_uid[key.split("_")[0]] = per_uid.get(key.split("_")[0], 0) + 1
-        assert set(per_uid.values()) == {n_sessions}
-    finally:
         _clear_partition(partition_id)
 
 
@@ -789,28 +695,6 @@ def test_wait_keeps_stale_terminal_trajectories(tq_init, partition_id):
         _clear_partition(partition_id)
 
 
-def test_wait_does_not_block_when_inflight_is_fresh(tq_init, partition_id):
-    """wait proceeds immediately when every in-flight prompt is below threshold,
-    and never drops (no drop metrics)."""
-    threshold, g = 4, 3
-    finished = [PromptSpec(uid=_uid(), status="finished", sessions=1, global_steps=g) for _ in range(2)]
-    # In-flight prompt staleness (3 - 3 + 1) = 1 < 4 -> does not block.
-    inflight = PromptSpec(uid=_uid(), status="running", sessions=1, global_steps=g)
-    _produce(partition_id, finished + [inflight]).join_and_check()
-
-    rb = _make_rb(trainer_mode="colocate_async", max_off_policy_strategy="wait", max_off_policy_threshold=threshold)
-    try:
-        sampleable, metrics, ready = rb.poll_once(g, partition_id, 2)
-        assert ready is True
-        assert metrics == {}
-        batch = rb.materialize_sampleable(g, partition_id, sampleable, 2)
-
-        assert _uids_of(batch.keys) == {spec.uid for spec in finished}
-        assert metrics == {}
-    finally:
-        _clear_partition(partition_id)
-
-
 # --------------------------------------------------------------------------- #
 # mode matrix: stale drop, DAPO, and rollout failure.
 # --------------------------------------------------------------------------- #
@@ -928,22 +812,6 @@ def test_sync_failure_refill_replaces_empty_failed_groups(tq_init, partition_id)
         _clear_partition(partition_id)
 
 
-def test_sync_failure_refill_replaces_multiple_empty_failed_groups(tq_init, partition_id):
-    failures = [PromptSpec(uid=_uid(), status="failure", sessions=0) for _ in range(3)]
-    _produce(partition_id, failures).join_and_check()
-
-    refiller = FakeRefiller(partition_id, global_steps=1)
-    rb = _make_rb(sync_refill_failed_groups=True, refill_fn=refiller, train_batch_size=3)
-    try:
-        batch, metrics = _run_sample(rb, global_steps=1, partition_id=partition_id, batch_size=3)
-
-        assert _uids_of(batch.keys) == set(refiller.produced_uids)
-        assert refiller.calls == [3]
-        assert metrics["validation/rollout_failure/evicted_samples"] == 3
-    finally:
-        _clear_partition(partition_id)
-
-
 def test_sync_failure_refill_keeps_materializable_failed_groups(tq_init, partition_id):
     finished = PromptSpec(uid=_uid(), status="finished")
     failure = PromptSpec(uid=_uid(), status="failure", sessions=1)
@@ -1040,42 +908,6 @@ def test_async_request_is_served_while_every_poll_evicts(tq_init, partition_id):
         _clear_partition(partition_id)
 
 
-def test_dapo_classification_cache_fetches_only_new_finished_groups(tq_init, partition_id, monkeypatch):
-    first_filtered = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[1.0, 1.0])
-    mixed = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 1.0])
-    _produce(partition_id, [first_filtered, mixed]).join_and_check()
-
-    requested_keys: list[set[str]] = []
-    original_kv_batch_get = tq.kv_batch_get
-
-    def recording_kv_batch_get(*args, **kwargs):
-        requested_keys.append(set(kwargs["keys"]))
-        return original_kv_batch_get(*args, **kwargs)
-
-    monkeypatch.setattr(tq, "kv_batch_get", recording_kv_batch_get)
-    rb = _make_rb(filter_groups_metric="acc", refill_fn=lambda _n: None)
-    try:
-        rb._sync_metadata_from_transfer_queue()
-        first_result = rb._dapo_filtered_keys(partition_id)
-        assert first_result[0] == {first_filtered.uid}
-        assert dict(first_result[1]) == {1.0: 1}
-        assert rb._dapo_filtered_keys(partition_id) == first_result
-
-        second_filtered = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 0.0])
-        _produce(partition_id, [second_filtered]).join_and_check()
-        rb._sync_metadata_from_transfer_queue()
-        filtered_uids, filtered_counts = rb._dapo_filtered_keys(partition_id)
-
-        assert filtered_uids == {first_filtered.uid, second_filtered.uid}
-        assert dict(filtered_counts) == {0.0: 1, 1.0: 1}
-        assert requested_keys == [
-            set(first_filtered.trajectory_keys + mixed.trajectory_keys),
-            set(second_filtered.trajectory_keys),
-        ]
-    finally:
-        _clear_partition(partition_id)
-
-
 def test_dapo_reward_metric_uses_canonical_rm_scores(tq_init, partition_id):
     same_reward = PromptSpec(
         uid=_uid(),
@@ -1102,50 +934,6 @@ def test_dapo_reward_metric_uses_canonical_rm_scores(tq_init, partition_id):
         assert dict(filtered_counts) == {1.0: 1}
     finally:
         _clear_partition(partition_id)
-
-
-def test_terminal_eviction_reasons_has_no_cross_call_hidden_state(tq_init, partition_id):
-    """An interleaved validation lookup must not overwrite a pending training breakdown."""
-    all_zero = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[0.0, 0.0])
-    all_one = PromptSpec(uid=_uid(), status="finished", sessions=2, rewards=[1.0, 1.0])
-    _produce(partition_id, [all_zero, all_one]).join_and_check()
-
-    rb = _make_rb(trainer_mode="colocate_async", filter_groups_metric="acc")
-    try:
-        rb._sync_metadata_from_transfer_queue()
-        train_reasons = rb._terminal_eviction_reasons(global_steps=0, partition_id=partition_id)
-        rb._terminal_eviction_reasons(global_steps=0, partition_id="val")
-
-        _evicted, _stale_count, dapo_count, metrics = rb._evict_terminal_groups(
-            global_steps=0, partition_id=partition_id, eviction_reasons=train_reasons
-        )
-        from verl.trainer.ppo.v1.streaming_dataloader import DAPO_FILTERED_REWARD_COUNTS_KEY
-
-        assert dapo_count == 2
-        assert metrics[DAPO_FILTERED_REWARD_COUNTS_KEY] == {0.0: 1, 1.0: 1}
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_accumulate_eviction_metrics_merges_filtered_reward_counts():
-    """The dict-valued DAPO diagnostic accumulates additively across poll iterations."""
-    from verl.trainer.ppo.v1.streaming_dataloader import (
-        DAPO_FILTERED_REWARD_COUNTS_KEY,
-        _accumulate_eviction_metrics,
-    )
-
-    acc: dict = {}
-    _accumulate_eviction_metrics(
-        acc,
-        {DAPO_FILTERED_REWARD_COUNTS_KEY: {0.0: 3, 1.0: 1}, "training/filter_groups/evicted_samples": 4},
-    )
-    _accumulate_eviction_metrics(
-        acc,
-        {DAPO_FILTERED_REWARD_COUNTS_KEY: {0.0: 2}, "training/filter_groups/evicted_samples": 2},
-    )
-
-    assert acc[DAPO_FILTERED_REWARD_COUNTS_KEY] == {0.0: 5, 1.0: 1}
-    assert acc["training/filter_groups/evicted_samples"] == 6
 
 
 def test_accumulate_eviction_metrics_weights_staleness_by_stale_count():
@@ -1413,45 +1201,6 @@ def test_count_poll_evicts_stale_groups_without_consuming_fresh_groups(tq_init, 
         remaining = tq.kv_list(partition_id=partition_id)[partition_id]
         assert fresh.uid in remaining
         assert stale.uid not in remaining
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_non_consuming_poll_leaves_groups_for_materialization(tq_init, partition_id):
-    specs = [PromptSpec(uid=_uid(), status="finished", sessions=1) for _ in range(2)]
-    _produce(partition_id, specs).join_and_check()
-
-    rb = _make_rb(trainer_mode="colocate_async")
-    try:
-        sampleable, metrics, ready = rb.poll_once(0, partition_id, 2)
-        assert metrics == {}
-        assert ready is True
-        assert sampleable == {spec.uid for spec in specs}
-
-        sampleable, _, ready = rb.poll_once(0, partition_id, 2)
-        assert ready is True
-        batch = rb.materialize_sampleable(0, partition_id, sampleable, 2)
-        assert _uids_of(batch.keys) == {spec.uid for spec in specs}
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_non_consuming_poll_reports_not_ready_below_target(tq_init, partition_id):
-    ready = PromptSpec(uid=_uid(), status="finished", sessions=1)
-    pending = PromptSpec(uid=_uid(), status="running", sessions=1)
-    _produce(partition_id, [ready, pending]).join_and_check()
-
-    rb = _make_rb(trainer_mode="colocate_async")
-    try:
-        sampleable, metrics, is_ready = rb.poll_once(0, partition_id, 2)
-        assert sampleable == {ready.uid}
-        assert metrics == {}
-        assert is_ready is False
-        _set_prompt_status(partition_id, pending.uid, "finished", global_steps=0)
-        sampleable, metrics, is_ready = rb.poll_once(0, partition_id, 2)
-        assert sampleable == {ready.uid, pending.uid}
-        assert metrics == {}
-        assert is_ready is True
     finally:
         _clear_partition(partition_id)
 

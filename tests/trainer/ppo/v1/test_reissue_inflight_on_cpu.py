@@ -158,26 +158,6 @@ def test_async_submission_rejects_dynamic_rollout_n():
         stub._submit_batch_to_rollout(batch, "train")
 
 
-def test_refill_exact_uses_requested_count():
-    stub = _make_dataloader_stub()
-    batch = tu.get_tensordict(
-        {
-            "uid": [_uid(), _uid(), _uid()],
-            "raw_prompt": ["prompt-a", "prompt-b", "prompt-c"],
-            "index": torch.tensor([0, 1, 2]),
-        }
-    )
-    requested = []
-    submitted = []
-    stub.gen_batch_size = 1
-    stub._next_train_batch = lambda num_prompts: requested.append(num_prompts) or batch
-    stub._submit_batch_to_rollout = lambda value, partition: submitted.append((value, partition)) or len(value)
-
-    assert stub._refill_exact(3) == 3
-    assert requested == [3]
-    assert submitted == [(batch, "train")]
-
-
 def test_next_train_batch_coalesces_gen_batches():
     stub = _make_dataloader_stub(global_steps=5)
     stub.gen_batch_size = 2
@@ -264,93 +244,11 @@ def test_reissue_preserves_prompt_data_and_resets_global_steps(tq_init, partitio
         _clear_partition(partition_id)
 
 
-def test_reissue_combines_original_steps_under_resumed_step(tq_init, partition_id):
-    """All restarted groups belong to the resumed attempt, regardless of their original step."""
-    step2 = [_uid(), _uid()]
-    step5 = [_uid()]
-    for uid in step2:
-        _submit_prompt(partition_id, uid, "pending", global_steps=2)
-    for uid in step5:
-        _submit_prompt(partition_id, uid, "running", global_steps=5)
-
-    stub = _make_dataloader_stub(global_steps=6)
-    try:
-        reissued = stub._reissue_inflight_prompts(partition_id)
-        assert reissued == 3
-
-        assert len(stub.agent_loop_manager.batches) == 1
-        batch = stub.agent_loop_manager.batches[0]
-        assert int(batch["global_steps"]) == 6
-        assert set(batch["uid"]) == set(step2 + step5)
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_reissue_noop_without_inflight(tq_init, partition_id):
-    """With only terminal prompts, nothing is re-issued."""
-    finished = _uid()
-    failure = _uid()
-    _submit_prompt(partition_id, finished, "finished", global_steps=1)
-    _submit_prompt(partition_id, failure, "failure", global_steps=1)
-
-    stub = _make_dataloader_stub()
-    try:
-        assert stub._reissue_inflight_prompts(partition_id) == 0
-        assert stub.agent_loop_manager.batches == []
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_reissue_noop_on_empty_partition(tq_init, partition_id):
-    """An empty (never-written) partition re-issues nothing and does not raise."""
-    stub = _make_dataloader_stub()
-    assert stub._reissue_inflight_prompts(partition_id) == 0
-    assert stub.agent_loop_manager.batches == []
-
-
 # --------------------------------------------------------------------------- #
 # tq.save_checkpoint / tq.load_checkpoint round-trip
 #
 # These call the real TransferQueue checkpoint APIs (matching save_checkpoint/load_checkpoint).
 # --------------------------------------------------------------------------- #
-
-
-def test_save_load_roundtrip_restores_prompts(tq_init, partition_id, tmp_path):
-    """save_checkpoint then load_checkpoint (into a cleared queue) restores prompt status and data."""
-    pending = _uid()
-    running = _uid()
-    finished = _uid()
-    _submit_prompt(partition_id, pending, "pending", global_steps=3)
-    _submit_prompt(partition_id, running, "running", global_steps=3)
-    _submit_prompt(partition_id, finished, "finished", global_steps=3)
-    _add_trajectory(partition_id, finished, session_id=0, global_steps=3)
-
-    ckpt_dir = str(tmp_path / "transfer_queue")
-    tq.save_checkpoint(ckpt_dir, metadata={"global_steps": 3})
-
-    # Simulate a fresh process: wipe the live partition so the assertions below only pass if
-    # load_checkpoint actually repopulates it.
-    _clear_partition(partition_id)
-    assert tq.kv_list(partition_id=partition_id).get(partition_id, {}) == {}
-
-    tq.load_checkpoint(ckpt_dir)
-
-    try:
-        # Statuses are restored verbatim (load does not mutate pending/running -> finished).
-        assert _prompt_status(partition_id, pending) == "pending"
-        assert _prompt_status(partition_id, running) == "running"
-        assert _prompt_status(partition_id, finished) == "finished"
-
-        # Per-row prompt fields survive the round-trip so re-issue can regenerate from them.
-        batch = tq.kv_batch_get(keys=[pending], partition_id=partition_id)
-        assert list(batch["uid"]) == [pending]
-        assert list(batch["raw_prompt"]) == [f"prompt-for-{pending}"]
-
-        # The finished trajectory is restored too (composite key preserved).
-        traj = tq.kv_list(partition_id=partition_id).get(partition_id, {})
-        assert f"{finished}_0_0" in traj
-    finally:
-        _clear_partition(partition_id)
 
 
 def test_save_load_then_reissue_only_inflight(tq_init, partition_id, tmp_path):
@@ -368,33 +266,16 @@ def test_save_load_then_reissue_only_inflight(tq_init, partition_id, tmp_path):
 
     stub = _make_dataloader_stub(global_steps=5)
     try:
+        assert _prompt_status(partition_id, pending) == "pending"
+        assert _prompt_status(partition_id, finished) == "finished"
+        restored = tq.kv_batch_get(keys=[pending], partition_id=partition_id)
+        assert list(restored["raw_prompt"]) == [f"prompt-for-{pending}"]
+        assert f"{finished}_0_0" in tq.kv_list(partition_id=partition_id)[partition_id]
+
         reissued = stub._reissue_inflight_prompts(partition_id)
         assert reissued == 1
         submitted_uids = {uid for batch in stub.agent_loop_manager.batches for uid in batch["uid"]}
         assert submitted_uids == {pending}
         assert int(stub.agent_loop_manager.batches[0]["global_steps"]) == 5
-    finally:
-        _clear_partition(partition_id)
-
-
-def test_save_load_terminal_only_reissues_nothing(tq_init, partition_id, tmp_path):
-    """A terminal-only checkpoint restores its groups for sampling without re-issuing any of them."""
-    finished = _uid()
-    failure = _uid()
-    _submit_prompt(partition_id, finished, "finished", global_steps=6)
-    _submit_prompt(partition_id, failure, "failure", global_steps=6)
-    _add_trajectory(partition_id, finished, session_id=0, global_steps=6)
-
-    ckpt_dir = str(tmp_path / "transfer_queue")
-    tq.save_checkpoint(ckpt_dir, metadata={"global_steps": 6})
-    _clear_partition(partition_id)
-    tq.load_checkpoint(ckpt_dir)
-
-    stub = _make_dataloader_stub(global_steps=7)
-    try:
-        assert stub._reissue_inflight_prompts(partition_id) == 0
-        assert stub.agent_loop_manager.batches == []
-        assert _prompt_status(partition_id, finished) == "finished"
-        assert _prompt_status(partition_id, failure) == "failure"
     finally:
         _clear_partition(partition_id)

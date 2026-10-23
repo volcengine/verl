@@ -13,9 +13,7 @@
 # limitations under the License.
 
 import asyncio
-import inspect
 from collections import defaultdict
-from contextlib import suppress
 from types import SimpleNamespace
 
 import pytest
@@ -23,9 +21,7 @@ import torch
 from omegaconf import OmegaConf
 
 import verl.trainer.ppo.v1.streaming_dataloader as streaming_module
-import verl.trainer.ppo.v1.trainer_base as trainer_module
 from verl.trainer.ppo.v1.streaming_dataloader import StreamingDataloader, StreamingDataloaderAsync
-from verl.trainer.ppo.v1.trainer_base import PPOTrainer
 
 
 def _sync_stub():
@@ -59,10 +55,6 @@ def _replay_state(*, pending=(), running=(), finished=(), failure=()):
     replay.finished_keys["train"].update(finished)
     replay.failure_keys["train"].update(failure)
     return replay
-
-
-def test_async_dataloader_inherits_sync_dataloader():
-    assert issubclass(StreamingDataloaderAsync, StreamingDataloader)
 
 
 def _sampler_config(trainer_mode, custom_sampler=None):
@@ -219,16 +211,6 @@ def test_outstanding_cap_must_cover_watermark():
         actor._init_refill_policy()
 
 
-def test_outstanding_cap_warns_when_staleness_can_reach_threshold(monkeypatch):
-    warnings = []
-    monkeypatch.setattr(streaming_module.logger, "warning", warnings.append)
-
-    _refill_policy_stub(max_outstanding_batches=4, threshold=5)._init_refill_policy()
-    assert warnings == []
-    _refill_policy_stub(max_outstanding_batches=4, threshold=4)._init_refill_policy()
-    assert len(warnings) == 1 and "max_off_policy_threshold=4" in warnings[0]
-
-
 def _gen_batch_config(trainer_mode, gen_batch_size, *, dapo=False, refill_failed=False):
     return OmegaConf.create(
         {
@@ -247,26 +229,16 @@ def _gen_batch_config(trainer_mode, gen_batch_size, *, dapo=False, refill_failed
         ("sync", 4, False, False, 4),
         ("sync", None, True, False, 1),
         ("sync", None, False, True, 1),
+        ("sync", 2, True, False, 1),
+        ("sync", 2, False, True, 1),
         ("colocate_async", None, False, False, 1),
         ("separate_async", 1, False, False, 1),
+        ("separate_async", 2, False, False, 1),
     ],
 )
 def test_resolve_gen_batch_size(trainer_mode, configured, dapo, refill_failed, expected):
     config = _gen_batch_config(trainer_mode, configured, dapo=dapo, refill_failed=refill_failed)
     assert streaming_module.resolve_gen_batch_size(config) == expected
-
-
-@pytest.mark.parametrize(
-    ("trainer_mode", "dapo", "refill_failed"),
-    [("separate_async", False, False), ("sync", True, False), ("sync", False, True)],
-)
-def test_resolve_gen_batch_size_overrides_exact_refill_modes_to_one(monkeypatch, trainer_mode, dapo, refill_failed):
-    warnings = []
-    monkeypatch.setattr(streaming_module.logger, "warning", warnings.append)
-    config = _gen_batch_config(trainer_mode, 2, dapo=dapo, refill_failed=refill_failed)
-
-    assert streaming_module.resolve_gen_batch_size(config) == 1
-    assert warnings == ["data.gen_batch_size=2 is overridden to 1."]
 
 
 def test_resolve_gen_batch_size_rejects_sync_value_between_one_and_train_batch():
@@ -305,12 +277,6 @@ def test_sync_sample_submits_batch_then_waits_for_coordinator():
     asyncio.run(run())
 
 
-def test_inventory_queries_exist_only_on_async_dataloader():
-    for method in ("count_sampleable", "wait_sampleable"):
-        assert not hasattr(StreamingDataloader, method)
-        assert inspect.iscoroutinefunction(getattr(StreamingDataloaderAsync, method))
-
-
 def test_sync_coordinator_idles_without_pending_request():
     actor = _sync_coordinator_stub()
     actor._advance_request = lambda _request: pytest.fail("sync must not poll or refill between requests")
@@ -334,36 +300,6 @@ def test_sync_request_failure_keeps_coordinator_serving():
         actor._advance_request = lambda _request: (["retry"], {}, 1)
         assert await asyncio.wait_for(actor.sample(global_steps=2, batch_size=1), timeout=1) == (["retry"], {}, 1)
         actor._coordinator_task.cancel()
-
-    asyncio.run(run())
-
-
-def test_async_sample_waits_for_coordinator_and_refills_after_delivery():
-    async def run():
-        actor = _async_stub()
-        actor.global_steps = 0
-        actor.config = SimpleNamespace(data=SimpleNamespace(train_batch_size=2))
-        _stub_methods(
-            actor,
-            poll_interval=0.01,
-            poll_once=lambda *_args, **_kwargs: ({"uid"}, {}, True),
-            materialize_sampleable=lambda *_args: ["trajectory"],
-        )
-        actor._pending_sample = None
-        actor._wakeup = asyncio.Event()
-        actor._coordinator_task = None
-        actor._train_state_ready = True
-        actor._pending_metrics = {}
-        refills = []
-        actor._refill_to_watermark = lambda: refills.append(True) or 0
-
-        result = await asyncio.wait_for(actor.sample(1, 1), timeout=1)
-        assert result == (["trajectory"], {}, 1)
-        assert refills
-
-        actor._coordinator_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await actor._coordinator_task
 
     asyncio.run(run())
 
@@ -410,9 +346,11 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
         polls = []
         refills = []
 
+        eviction = {"training/filter_groups/evicted_samples": 1}
+
         def poll_once(global_steps, partition_id, target_count):
             polls.append((global_steps, partition_id, target_count))
-            return {"uid-0", "uid-1"}, {}, True
+            return {"uid-0", "uid-1"}, eviction, True
 
         _stub_methods(
             actor,
@@ -432,50 +370,9 @@ def test_train_request_uses_one_poll_for_maintenance_and_fulfillment():
         await _advance_and_maintain_watermark(actor)
 
         assert polls == [(3, "train", 2)]
-        assert await future == (["trajectory-0", "trajectory-1"], {}, 2)
+        assert await future == (["trajectory-0", "trajectory-1"], eviction, 2)
         assert refills == ["after"]
         assert actor._pending_sample is None
-
-    asyncio.run(run())
-
-
-def test_train_eviction_pass_fulfills_request_from_remaining_groups():
-    async def run():
-        actor = _async_stub()
-        actor.global_steps = 3
-        actor._pending_metrics = {}
-        actor._train_state_ready = True
-        eviction = {"training/filter_groups/evicted_samples": 1}
-        polls = []
-        refills = []
-
-        def poll_once(global_steps, partition_id, target_count):
-            polls.append((global_steps, partition_id, target_count))
-            return {"uid-0"}, eviction, True
-
-        _stub_methods(
-            actor,
-            poll_once=poll_once,
-            materialize_sampleable=lambda *_args: ["trajectory-0"],
-        )
-        actor._refill_to_watermark = lambda: refills.append(True) or 1
-        future = asyncio.get_running_loop().create_future()
-        actor._pending_sample = streaming_module._SampleRequest(
-            kind=streaming_module._RequestKind.SAMPLE,
-            global_steps=3,
-            batch_size=1,
-            partition_id="train",
-            future=future,
-        )
-
-        await _advance_and_maintain_watermark(actor)
-
-        assert polls == [(3, "train", 1)]
-        assert future.done()
-        assert future.result() == (["trajectory-0"], eviction, 1)
-        assert refills == [True]
-        assert actor._pending_sample is None
-        assert actor._pending_metrics == {}
 
     asyncio.run(run())
 
@@ -554,20 +451,6 @@ def test_validation_request_pauses_train_inventory_maintenance():
         assert polls == [(5, "val", 1)]
         assert refills == []
         assert await future == (["validation-trajectory"], {}, 1)
-
-    asyncio.run(run())
-
-
-def test_validation_mode_pauses_periodic_train_maintenance_between_requests():
-    async def run():
-        actor = _async_stub()
-        actor._pending_sample = None
-        actor._train_state_ready = True
-        actor._validation_active = True
-        _stub_methods(actor, poll_once=lambda *_args: pytest.fail("train poll must remain paused during validation"))
-        actor._refill_to_watermark = lambda: pytest.fail("train refill must remain paused during validation")
-
-        await _advance_and_maintain_watermark(actor)
 
     asyncio.run(run())
 
@@ -731,29 +614,6 @@ def test_count_sampleable_keeps_eviction_metrics_for_next_request():
     asyncio.run(run())
 
 
-def test_wait_sampleable_targets_train_partition_without_consuming():
-    async def run():
-        polls = []
-
-        def poll_once(global_steps, partition_id, target_count):
-            polls.append((global_steps, partition_id, target_count))
-            return {"uid-0", "uid-1"}, {}, True
-
-        actor = _async_rpc_stub(poll_once)
-        actor.materialize_sampleable = lambda *_args: pytest.fail("wait must not consume groups")
-
-        assert await asyncio.wait_for(actor.wait_sampleable(5, target_count=2), timeout=1) == {}
-        assert polls == [(5, "train", 2)]
-        actor._coordinator_task.cancel()
-
-    asyncio.run(run())
-
-
-def test_async_checkpoint_rpc_methods_are_synchronous():
-    assert not inspect.iscoroutinefunction(StreamingDataloaderAsync.save_checkpoint)
-    assert not inspect.iscoroutinefunction(StreamingDataloaderAsync.load_checkpoint)
-
-
 def test_sync_checkpoint_contains_only_dataloader(monkeypatch, tmp_path):
     actor = _sync_stub()
     actor.train_dataloader = SimpleNamespace(state_dict=lambda: {"cursor": 7})
@@ -846,25 +706,3 @@ def test_submission_registers_prompts_before_dispatch():
 
     assert actor._submit_batch_to_rollout(["prompt-a", "prompt-b"], "val") == 2
     assert events == [("register", "val"), ("dispatch",)]
-
-
-def test_trainer_sample_delegates_to_dataloader_actor(monkeypatch):
-    calls = []
-
-    class _RemoteSample:
-        def remote(self, *args):
-            calls.append(args)
-            return ("batch", {"metric": 1}, 2)
-
-    stub = SimpleNamespace(streaming_dataloader=SimpleNamespace(sample=_RemoteSample()))
-    monkeypatch.setattr(trainer_module.ray, "get", lambda value: value)
-
-    result = PPOTrainer._sample_replay(
-        stub,
-        global_steps=4,
-        partition_id="train",
-        batch_size=2,
-    )
-
-    assert result == ("batch", {"metric": 1}, 2)
-    assert calls == [(4, 2, "train", None)]

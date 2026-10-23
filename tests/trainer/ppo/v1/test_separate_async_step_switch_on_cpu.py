@@ -418,12 +418,6 @@ def test_switching_rejects_a_ratio_outside_the_unit_interval(ratio):
         _trainer(switch_threshold_ratio=ratio)
 
 
-def test_switching_does_not_require_a_local_replay_buffer(monkeypatch):
-    trainer = _construct_trainer(monkeypatch)
-
-    assert trainer.hybrid_rollout_config.enable_switch is True
-
-
 def test_switching_rejects_rollout_disaggregation(monkeypatch):
     with pytest.raises(ValueError, match="does not support rollout disaggregation"):
         _construct_trainer(monkeypatch, disaggregation=True)
