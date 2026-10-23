@@ -303,7 +303,7 @@ verl 通过层级化的 YAML 配置文件管理所有参数，涉及到的所有
 | `reward.reward_model.n_gpus_per_node` | `8` | 奖励模型每节点 GPU 数 |
 | `reward.reward_model.nnodes` | `0` | 奖励模型节点数 |
 | `reward.reward_model.model_path` | `null` | 奖励模型路径 |
-| `reward.sandbox_fusion.url` | `null` | Sandbox Fusion URL |
+| `reward.sandbox_fusion.url` | `null` | Sandbox Fusion URL，或用于第三方包注册的沙箱运行器的 `<scheme>://...` |
 | `reward.sandbox_fusion.max_concurrent` | `64` | Sandbox Fusion 最大并发数 |
 | `reward.sandbox_fusion.memory_limit_mb` | `1024` | Sandbox Fusion 内存限制（MB） |
 

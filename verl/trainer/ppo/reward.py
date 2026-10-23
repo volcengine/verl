@@ -136,6 +136,13 @@ def load_reward_manager(config: DictConfig, tokenizer: Any, **reward_kwargs: Any
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
         memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024) if sandbox_config else 1024
         if sandbox_url:
+            from verl.utils.reward_score.sandbox_fusion.utils import get_sandbox_runner, sandbox_runner_scheme
+
+            scheme = sandbox_runner_scheme(sandbox_url)
+            if scheme is not None:
+                # Here, once, rather than scoring every code sample of the run as an error (where
+                # the cases run in this process; remote workers report a missing runner per case)
+                get_sandbox_runner(scheme)
             sandbox_manager = multiprocessing.Manager()
             # Create a semaphore to control concurrent access to the sandbox
             _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
