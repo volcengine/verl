@@ -145,6 +145,9 @@ def _strip_string(string):
     string = string.replace("\\left", "")
     string = string.replace("\\right", "")
 
+    # unicode infinity
+    string = string.replace("∞", "\\infty")
+
     # Remove circ (degrees)
     string = string.replace("^{\\circ}", "")
     string = string.replace("^\\circ", "")
