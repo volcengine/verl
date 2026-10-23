@@ -52,7 +52,7 @@ verl defaults the MXFP8 dense and MoE kernels of vLLM and SGLang to DeepGEMM; fo
 
 ## Checks
 
-![The quantized-rollout sentinel, the post-sync self-check and the quantized-layer audit](https://github.com/user-attachments/assets/e0d8ff8e-83db-4020-acaf-28ef875281c7)
+![The quantized-rollout sentinel, the post-sync self-check and the quantized-layer audit](https://github.com/user-attachments/assets/031f882a-9379-4ef7-bbce-3a746959d317)
 
 | Check | Runs | Reports | Switch |
 |---|---|---|---|
