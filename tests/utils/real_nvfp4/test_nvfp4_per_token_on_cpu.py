@@ -306,17 +306,25 @@ def test_rollout_server_checks_a_per_token_config_file(tmp_path):
 
     server = object.__new__(vLLMHttpServer)
     server.config = SimpleNamespace(
-        tensor_model_parallel_size=2,
-        expert_parallel_size=1,
-        pipeline_model_parallel_size=1,
+        tensor_model_parallel_size=4,
+        expert_parallel_size=4,
+        data_parallel_size=1,
         mtp=None,
         checkpoint_engine=SimpleNamespace(backend="naive"),
     )
-    with pytest.raises(ValueError, match="TP/EP/PP of 1"):
-        server._check_nvfp4_per_token_rollout({})
-    server.config.tensor_model_parallel_size = 1
+    # Expert parallelism within one engine keeps whole experts per rank.
     compilation_config = {}
-    server._check_nvfp4_per_token_rollout(compilation_config)
+    server._check_nvfp4_per_token_rollout(compilation_config, {})
     assert compilation_config == {"cudagraph_mode": "FULL_DECODE_ONLY"}
     with pytest.raises(ValueError, match="FULL_DECODE_ONLY"):
-        server._check_nvfp4_per_token_rollout({"cudagraph_mode": "FULL_AND_PIECEWISE"})
+        server._check_nvfp4_per_token_rollout({"cudagraph_mode": "FULL_AND_PIECEWISE"}, {})
+    with pytest.raises(ValueError, match="no EPLB"):
+        server._check_nvfp4_per_token_rollout({}, {"enable_eplb": True})
+    # Tensor-parallel experts
+    server.config.expert_parallel_size = 1
+    with pytest.raises(ValueError, match="needs expert_parallel_size=4"):
+        server._check_nvfp4_per_token_rollout({}, {})
+    # Data-parallel attention with all2all expert parallelism
+    server.config.tensor_model_parallel_size, server.config.data_parallel_size = 1, 4
+    with pytest.raises(ValueError, match="data_parallel_size=1"):
+        server._check_nvfp4_per_token_rollout({}, {})

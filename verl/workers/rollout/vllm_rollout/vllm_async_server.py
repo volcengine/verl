@@ -331,7 +331,7 @@ class vLLMHttpServer:
 
         # Whether it comes from rollout.quantization or ships with the checkpoint.
         if is_nvfp4_per_token_config(effective_quantization_config):
-            self._check_nvfp4_per_token_rollout(compilation_config)
+            self._check_nvfp4_per_token_rollout(compilation_config, engine_kwargs)
         compilation_config.setdefault("cudagraph_mode", "FULL_AND_PIECEWISE")
 
         # FULL cuda graph is not yet supported with DCP, downgrade to PIECEWISE
@@ -1415,16 +1415,25 @@ class vLLMHttpServer:
         logger.info(f"Rollout compressed-tensors quantization_config: {quantization_config}")
         return {"quantization_config": quantization_config}
 
-    def _check_nvfp4_per_token_rollout(self, compilation_config: dict) -> None:
+    def _check_nvfp4_per_token_rollout(self, compilation_config: dict, engine_kwargs: dict) -> None:
         """Keep NVFP4_PER_TOKEN to the validated layout: whole experts per rank, colocated IPC
         refit and full CUDA graphs for decode only."""
-        sizes = {
-            "tensor_model_parallel_size": self.config.tensor_model_parallel_size,
-            "expert_parallel_size": self.config.expert_parallel_size,
-            "pipeline_model_parallel_size": self.config.pipeline_model_parallel_size,
-        }
-        if any(size != 1 for size in sizes.values()):
-            raise ValueError(f"NVFP4_PER_TOKEN rollout currently requires vLLM TP/EP/PP of 1, got {sizes}")
+        tp, ep = self.config.tensor_model_parallel_size, self.config.expert_parallel_size
+        dp = self.config.data_parallel_size
+        # vLLM runs per-token NVFP4 activations only on the monolithic FlashInfer TRT-LLM
+        # MoE kernel, which has no all2all expert dispatch.
+        if dp != 1 or engine_kwargs.get("enable_eplb", False):
+            raise ValueError(
+                "NVFP4_PER_TOKEN rollout requires data_parallel_size=1 and no EPLB: vLLM supports "
+                f"per-token NVFP4 MoE only without all2all expert parallelism, got dp={dp}"
+            )
+        # Tensor-parallel experts would split each FC2 input row, so its per-token scale would
+        # come from a shard rather than the whole row as in training.
+        if tp > 1 and ep != tp:
+            raise ValueError(
+                f"NVFP4_PER_TOKEN rollout with tensor_model_parallel_size={tp} needs expert_parallel_size={tp} "
+                f"so that every rank holds whole experts, got {ep}"
+            )
         if self.config.mtp is not None and self.config.mtp.enable and self.config.mtp.enable_rollout:
             raise ValueError("NVFP4_PER_TOKEN rollout does not support speculative decoding/MTP")
         checkpoint_backend = getattr(self.config.checkpoint_engine, "backend", None)

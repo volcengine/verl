@@ -223,7 +223,7 @@ DAPO script.
   requested expert activation scheme. verl routes MXFP4 experts through the
   DeepGEMM FP4 backend, whose dynamic FP8 activations use group size 128.
 - **vLLM NVFP4**: verl supports only W4A4 routed experts and forces FlashInfer CUTLASS. W4A16, dense NVFP4 and other MoE backends are rejected.
-- **vLLM NVFP4_PER_TOKEN**: per-token activation scaling exists only in FlashInfer TRT-LLM, which verl selects. The trainer quantizes expert weights with vLLM's `scaled_fp4_quant`, bit-identical to vLLM's online `nvfp4_per_token` method; refits use vLLM's layerwise reload. Rollout TP/EP/PP must be 1, with `FULL_DECODE_ONLY` CUDA graphs and the `naive` checkpoint engine.
+- **vLLM NVFP4_PER_TOKEN**: per-token activation scaling exists only in FlashInfer TRT-LLM, which verl selects. The trainer quantizes expert weights with vLLM's `scaled_fp4_quant`, bit-identical to vLLM's online `nvfp4_per_token` method; refits use vLLM's layerwise reload. Rollout TP>1 needs EP=TP so that each rank holds whole experts; vLLM has no per-token path for data-parallel EP or EPLB. It also needs `FULL_DECODE_ONLY` CUDA graphs and the `naive` checkpoint engine.
 
 ## Example
 
@@ -281,8 +281,7 @@ SGLang uses the default CUDA Graph configuration):
 | Blackwell | SGLang | ❌ | NVFP4 MoE + NVFP4 QAT | FlashInfer CUTLASS (MoE; BF16 Linear) | 0.00653 |
 
 Native NVFP4 rollout and training, measured separately with the same script on
-Qwen3.5-35B-A3B (EP=4 on 4 GPUs; vLLM rollout TP=1, which `NVFP4_PER_TOKEN`
-requires):
+Qwen3.5-35B-A3B (EP=4 on 4 GPUs; vLLM rollout TP=1):
 
 | GPU | Engine | R3 | Rollout | Backend | k3_kl |
 |---|---|---|---|---|---|
