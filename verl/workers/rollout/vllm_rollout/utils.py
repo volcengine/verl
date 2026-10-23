@@ -147,6 +147,11 @@ def monkey_patch_compute_logits(model, vocab_size: int, banned_token_ids: Option
     model.compute_logits = MethodType(compute_logits, model)
 
 
+_NVFP4_PER_TOKEN_PARTIAL_REFIT = (
+    "A previous NVFP4_PER_TOKEN refit did not complete and left part of the model updated; restart the job"
+)
+
+
 class vLLMColocateWorkerExtension:
     """
     The class for vLLM's worker to inherit from, in the colocate setting.
@@ -279,9 +284,7 @@ class vLLMColocateWorkerExtension:
         from verl.utils.vllm.vllm_nvfp4_per_token_utils import NVFP4PerTokenRefitCheck
 
         if self._nvfp4_per_token_update_failed:
-            raise RuntimeError(
-                "A previous NVFP4_PER_TOKEN refit did not complete and left part of the model updated; restart the job"
-            )
+            raise RuntimeError(_NVFP4_PER_TOKEN_PARTIAL_REFIT)
         model = self.model_runner.get_model()
         model_config = self.model_runner.vllm_config.model_config
         check = NVFP4PerTokenRefitCheck(model, self._nvfp4_per_token_config)
@@ -316,8 +319,13 @@ class vLLMColocateWorkerExtension:
             self._attest_nvfp4_per_token_runtime()
         except BaseException:
             # Earlier buckets may already have replaced weights, so neither this model nor a
-            # later refit starting from it can be trusted.
+            # later refit starting from it can be trusted: refuse both.
             self._nvfp4_per_token_update_failed = True
+
+            def refuse(*args, **kwargs):
+                raise RuntimeError(_NVFP4_PER_TOKEN_PARTIAL_REFIT)
+
+            self.model_runner.execute_model = refuse
             raise
 
     def update_weights_from_ipc(self, peft_config: dict = None, base_sync_done=False, use_shm: bool = False):

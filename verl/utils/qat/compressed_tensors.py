@@ -505,9 +505,9 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
 
     Each expert's ``gate_proj`` and ``up_proj`` share one global scale computed
     over both, since the rollout runs them as one fused GEMM. Weights are
-    quantized with vLLM's ``scaled_fp4_quant``, the kernel vLLM's online
-    ``nvfp4_per_token`` method uses, so the exported values match what that
-    method produces from the same BF16 weights. Activations need no scale: the
+    quantized with :func:`verl.utils.qat.nvfp4.quantize_nvfp4`, which matches
+    the kernel vLLM's online ``nvfp4_per_token`` method uses bitwise, so the
+    exported values match what that method produces from the same BF16 weights. Activations need no scale: the
     static input scale is exported as 1 and the kernel scales each token.
 
     With ``bf16_expert_layers`` (NVFP4 training), every exported routed-expert
@@ -538,9 +538,9 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
 
     @staticmethod
     def _quantize(weight: torch.Tensor, global_scale: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        from vllm._custom_ops import scaled_fp4_quant
+        from verl.utils.qat.nvfp4 import quantize_nvfp4
 
-        return scaled_fp4_quant(weight.contiguous(), global_scale, is_sf_swizzled_layout=False)
+        return quantize_nvfp4(weight, global_scale)
 
     @staticmethod
     def _global_scale(*weights: torch.Tensor) -> torch.Tensor:

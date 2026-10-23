@@ -983,12 +983,26 @@ def _nvfp4_per_token_worker(monkeypatch, events, load_weights):
     monkeypatch.setattr(
         per_token, "attest_nvfp4_per_token_runtime", lambda model, config: events.append(("attest", config))
     )
-    # One routed-expert layer with one expert, quantized per token.
-    layer = types.SimpleNamespace(global_num_experts=1)
+    # One routed-expert layer with one expert, quantized per token: hidden 32, intermediate 16.
+    moe_config = types.SimpleNamespace(
+        hidden_dim_unpadded=32,
+        intermediate_size_per_partition_unpadded=16,
+        moe_parallel_config=types.SimpleNamespace(tp_size=1),
+    )
+    layer = types.SimpleNamespace(global_num_experts=1, moe_config=moe_config)
     monkeypatch.setattr(per_token, "routed_expert_layers", lambda model, config: {0: (layer, True)})
-    suffixes = ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale")
+
+    def tensors(projection):
+        rows, cols = (32, 16) if projection == "down_proj" else (16, 32)
+        return {
+            "weight_packed": torch.ones(rows, cols // 2, dtype=torch.uint8),
+            "weight_scale": torch.ones(rows, cols // 16).to(torch.float8_e4m3fn),
+            "weight_global_scale": torch.ones(1),
+            "input_global_scale": torch.ones(1),
+        }
+
     buckets = [
-        [(f"model.layers.0.mlp.experts.0.{projection}.{suffix}", torch.ones(1)) for suffix in suffixes]
+        [(f"model.layers.0.mlp.experts.0.{projection}.{suffix}", t) for suffix, t in tensors(projection).items()]
         for projection in ("gate_proj", "up_proj", "down_proj")
     ]
     monkeypatch.setattr(
@@ -1042,7 +1056,9 @@ def test_nvfp4_per_token_load_error_still_drains_the_round(monkeypatch):
     # Every bucket is still acknowledged; nothing is loaded or finalized after the error.
     assert events == ["initialize", "load", "ack0", "ack1", "ack2"]
 
-    # The model is now partly updated: a later refit must not start from it.
+    # The model is now partly updated: neither a later refit nor generation may use it.
     with pytest.raises(RuntimeError, match="restart the job"):
         worker.update_weights_from_ipc(peft_config=None, base_sync_done=False)
+    with pytest.raises(RuntimeError, match="restart the job"):
+        worker.model_runner.execute_model(None)
     assert events == ["initialize", "load", "ack0", "ack1", "ack2"]
