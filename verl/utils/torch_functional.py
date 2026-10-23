@@ -170,6 +170,9 @@ def logprobs_from_logits_naive(logits: torch.Tensor, labels: torch.Tensor) -> to
     return logpy
 
 
+_LOGPROB_CHUNK_ELEMENTS = 1 << 28
+
+
 def logprobs_from_logits_v2(logits: torch.FloatTensor, labels: torch.Tensor) -> torch.Tensor:
     """Memory-efficient log-probability computation using row-wise processing.
 
@@ -198,12 +201,25 @@ def logprobs_from_logits_v2(logits: torch.FloatTensor, labels: torch.Tensor) -> 
         logprobs_labels = logits_labels - logsumexp_values  # log_softmax(x_i) = x_i - logsumexp(x)
     else:
         # logsumexp approach is unstable with bfloat16, fall back to slightly less efficent approach
-        logprobs_labels = []
-        for row_logits, row_labels in zip(logits, labels, strict=True):  # loop to reduce peak mem consumption
-            row_logprobs = F.log_softmax(row_logits, dim=-1)
-            row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
-            logprobs_labels.append(row_logprobs_labels)
-        logprobs_labels = torch.stack(logprobs_labels)
+        if logits.dim() == 2:
+            # (num_tokens, vocab) under remove-padding: process rows in chunks of bounded size instead of
+            # one log_softmax per token; split() keeps a single autograd node for the whole input.
+            if labels.shape != logits.shape[:-1]:
+                raise ValueError(f"labels shape {tuple(labels.shape)} does not match logits {tuple(logits.shape)}")
+            rows = max(1, _LOGPROB_CHUNK_ELEMENTS // logits.shape[-1])
+            logprobs_labels = torch.cat(
+                [
+                    F.log_softmax(chunk, dim=-1).gather(dim=-1, index=chunk_labels.unsqueeze(-1)).squeeze(-1)
+                    for chunk, chunk_labels in zip(logits.split(rows), labels.split(rows), strict=True)
+                ]
+            )
+        else:
+            logprobs_labels = []
+            for row_logits, row_labels in zip(logits, labels, strict=True):  # loop to reduce peak mem consumption
+                row_logprobs = F.log_softmax(row_logits, dim=-1)
+                row_logprobs_labels = row_logprobs.gather(dim=-1, index=row_labels.unsqueeze(-1)).squeeze(-1)
+                logprobs_labels.append(row_logprobs_labels)
+            logprobs_labels = torch.stack(logprobs_labels)
     return logprobs_labels
 
 

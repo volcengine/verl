@@ -18,13 +18,16 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+import torch.nn.functional as F
 
+from verl.utils import torch_functional
 from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
 from verl.utils.torch_functional import (
     calculate_sum_pi_squared_from_logits,
     distributed_masked_mean,
     distributed_mean_max_min_std,
     expand_as_nested,
+    logprobs_from_logits_v2,
     masked_mean,
 )
 
@@ -178,3 +181,47 @@ def test_expand_as_nested():
 
     with pytest.raises(AssertionError):
         expand_as_nested(tensor, nested_tensor.unsqueeze(-1))
+
+
+def _per_row_logprobs(logits, labels):
+    rows = [F.log_softmax(row, dim=-1)[label] for row, label in zip(logits, labels, strict=True)]
+    return torch.stack(rows)
+
+
+@pytest.mark.parametrize(
+    "num_tokens,vocab_size,chunk_elements",
+    [(37, 1000, 1 << 28), (37, 1000, 4096), (37, 1000, 1), (5, 151936, 1 << 20)],
+    ids=["one-chunk", "uneven-chunks", "one-row-per-chunk", "large-vocab"],
+)
+def test_logprobs_from_logits_v2_bf16_2d_bitwise_matches_per_row(monkeypatch, num_tokens, vocab_size, chunk_elements):
+    monkeypatch.setattr(torch_functional, "_LOGPROB_CHUNK_ELEMENTS", chunk_elements)
+    device = get_device_name()
+    generator = torch.Generator().manual_seed(0)
+    base = (torch.randn(num_tokens, vocab_size, generator=generator) * 4).to(torch.bfloat16).to(device)
+    labels = torch.randint(0, vocab_size, (num_tokens,), generator=generator).to(device)
+    grad_out = torch.randn(num_tokens, generator=generator).to(torch.bfloat16).to(device)
+
+    logits = base.clone().requires_grad_(True)
+    ref_logits = base.clone().requires_grad_(True)
+    out = logprobs_from_logits_v2(logits, labels)
+    ref = _per_row_logprobs(ref_logits, labels)
+    out.backward(grad_out)
+    ref.backward(grad_out)
+
+    assert torch.equal(out, ref)
+    assert torch.equal(logits.grad, ref_logits.grad)
+
+
+def test_logprobs_from_logits_v2_bf16_2d_does_not_loop_over_tokens(monkeypatch):
+    calls = []
+    log_softmax = F.log_softmax
+
+    def counting_log_softmax(*args, **kwargs):
+        calls.append(args[0].shape)
+        return log_softmax(*args, **kwargs)
+
+    monkeypatch.setattr(torch_functional.F, "log_softmax", counting_log_softmax)
+    logits = torch.randn(64, 1000).to(torch.bfloat16)
+    labels = torch.randint(0, 1000, (64,))
+    assert logprobs_from_logits_v2(logits, labels).shape == (64,)
+    assert calls == [torch.Size([64, 1000])]
