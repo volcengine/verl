@@ -308,6 +308,13 @@ class FSDPCheckpointManager(BaseCheckpointManager):
                             f"Failed to load LoRA-only checkpoint: unexpected keys {result.unexpected_keys}. "
                             f"Ensure the model has the correct LoRA adapters configured."
                         )
+                    missing_keys = result.missing_keys if result is not None else []
+                    missing_adapter_keys = [k for k in missing_keys if "lora_" in k or ".adapter_" in k]
+                    if missing_adapter_keys:
+                        raise ValueError(
+                            f"Failed to load LoRA-only checkpoint: missing adapter keys {missing_adapter_keys}. "
+                            f"They would silently keep their initial values."
+                        )
                     log_with_rank(
                         f"Loaded LoRA-only checkpoint ({len(model_state_dict)} keys) from {remote_model_path}",
                         rank=self.rank,

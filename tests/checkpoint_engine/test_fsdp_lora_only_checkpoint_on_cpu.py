@@ -208,6 +208,26 @@ class TestFSDPCheckpointManagerLoraOnly:
         assert model_after._fsdp_wrapped_module.base_weight.item() == 99.0
         assert model_after._fsdp_wrapped_module.lora_A_weight.item() == 0.5
 
+    def test_load_lora_only_checkpoint_missing_adapter_key_raises(self, tmp_path):
+        import torch
+
+        mgr = self._make_fsdp_manager(
+            checkpoint_config={"save_lora_only": True, "save_contents": ["model"]},
+            model=_FakeFSDPModel(has_lora=True),
+        )
+        save_dir = tmp_path / "lora_only"
+        mgr.save_checkpoint(local_path=str(save_dir), global_step=1)
+        saved_path = save_dir / "model_world_size_1_rank_0.pt"
+        state_dict = torch.load(saved_path, weights_only=False)
+        state_dict = {k: v for k, v in state_dict.items() if "lora_B" not in k}
+        torch.save(state_dict, saved_path)
+
+        model_after = _FakeFSDPModel(has_lora=True)
+        model_after._fsdp_wrapped_module.lora_B_weight.data.fill_(7.0)
+        mgr2 = self._make_fsdp_manager(checkpoint_config={"load_contents": ["model"]}, model=model_after)
+        with pytest.raises(ValueError, match="missing adapter keys"):
+            mgr2.load_checkpoint(local_path=str(save_dir))
+
     def test_load_full_checkpoint_still_works(self, tmp_path):
         model = _FakeFSDPModel(has_lora=True)
         model._fsdp_wrapped_module.base_weight.data.fill_(42.0)
@@ -285,6 +305,7 @@ class _FakePEFTModel:
 
     def load_state_dict(self, state_dict, strict=True, assign=False):
         unexpected_keys = []
+        missing_keys = [k for k in self.state_dict() if k not in state_dict]
         for key, tensor in state_dict.items():
             if "base.weight" in key or key == "base.weight":
                 self.base_weight.data.copy_(tensor)
@@ -294,4 +315,4 @@ class _FakePEFTModel:
                 self.lora_B_weight.data.copy_(tensor)
             else:
                 unexpected_keys.append(key)
-        return _LoadStateDictResult(missing_keys=[], unexpected_keys=unexpected_keys)
+        return _LoadStateDictResult(missing_keys=missing_keys, unexpected_keys=unexpected_keys)
