@@ -50,40 +50,16 @@ def _cuda_platform():
     return platform
 
 
-# Keep platform-selection tests independent of accelerator imports that mutate
-# torch.profiler.ProfilerActivity (e.g. transfer_to_npu aliases CUDA to NPU).
-_OTHER_DEVICE = (
-    "test_accelerator"
-    if is_npu_available
-    else next(iter(sorted(device for device in DEVICE_ACTIVITIES if device != "cuda")), None)
-)
+# Some device torch can profile that is not CUDA, taken from whatever this build exposes so that no
+# single accelerator is baked into the tests.
+_OTHER_DEVICE = next(iter(sorted(device for device in DEVICE_ACTIVITIES if device != "cuda")), None)
 _requires_other_device = unittest.skipIf(
     _OTHER_DEVICE is None, "this torch build exposes no device activity other than CUDA"
 )
-_TEST_DEVICE_ACTIVITIES = {"cuda": mock.sentinel.cuda_activity, _OTHER_DEVICE: mock.sentinel.other_activity}
 
 
-def _cuda_activity():
-    # Keep GPU assertions tied to the real CUDA enum; isolate only NPU monkey patches.
-    return _TEST_DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA
-
-
-class _DeviceActivityTestCase(unittest.TestCase):
+class TestTorchProfile(unittest.TestCase):
     def setUp(self):
-        super().setUp()
-        if not is_npu_available:
-            return
-        for patcher in (
-            patch("verl.utils.profiler.torch_profile.DEVICE_ACTIVITIES", _TEST_DEVICE_ACTIVITIES),
-            patch("verl.utils.profiler.torch_profile.DEVICE_CONTENTS", frozenset(_TEST_DEVICE_ACTIVITIES) | {"cpu"}),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-
-
-class TestTorchProfile(_DeviceActivityTestCase):
-    def setUp(self):
-        super().setUp()
         # Reset process-global Profiler class state so tests don't leak into each other.
         Profiler._define_count = 0
         Profiler._active_prof = None
@@ -100,10 +76,13 @@ class TestTorchProfile(_DeviceActivityTestCase):
         mock_profile.assert_called_once()
         _, kwargs = mock_profile.call_args
 
+        # transfer_to_npu rebinds CUDA after DEVICE_ACTIVITIES captures the original enum.
         # Verify activities
         activities = kwargs["activities"]
         self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-        self.assertIn(_cuda_activity(), activities)
+        self.assertIn(
+            (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA), activities
+        )
 
         # Verify options
         self.assertTrue(kwargs["with_stack"])
@@ -668,7 +647,7 @@ class TestTorchProfile(_DeviceActivityTestCase):
         dist_profiler.stop()
 
 
-class TestCpuActivityAlwaysCollected(_DeviceActivityTestCase):
+class TestCpuActivityAlwaysCollected(unittest.TestCase):
     """Stage markers are CPU-side events, so a device-only trace hides every verl stage.
 
     ``contents`` is left exactly as the user wrote it; CPU activity is enabled when the profiler is
@@ -684,7 +663,10 @@ class TestCpuActivityAlwaysCollected(_DeviceActivityTestCase):
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
                 activities = mock_profile.call_args[1]["activities"]
                 self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-                self.assertIn(_cuda_activity(), activities)
+                self.assertIn(
+                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
+                    activities,
+                )
 
     @patch("torch.profiler.profile")
     def test_contents_are_not_rewritten(self, mock_profile):
@@ -696,7 +678,7 @@ class TestCpuActivityAlwaysCollected(_DeviceActivityTestCase):
         self.assertEqual(contents, ["cuda"])
 
 
-class TestDeviceActivityFromPlatform(_DeviceActivityTestCase):
+class TestDeviceActivityFromPlatform(unittest.TestCase):
     """The device activity is resolved from the active platform's ``device_name``."""
 
     def _platform(self, device_name):
@@ -717,12 +699,13 @@ class TestDeviceActivityFromPlatform(_DeviceActivityTestCase):
                 mock_profile.reset_mock()
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
                 activities = self._activities(mock_profile)
-                self.assertIn(
-                    (_TEST_DEVICE_ACTIVITIES if is_npu_available else DEVICE_ACTIVITIES)[_OTHER_DEVICE], activities
-                )
+                self.assertIn(DEVICE_ACTIVITIES[_OTHER_DEVICE], activities)
                 # torch checks CUDA before every other device: leaving it in a list it does not
                 # belong to disables device profiling altogether.
-                self.assertNotIn(_cuda_activity(), activities)
+                self.assertNotIn(
+                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
+                    activities,
+                )
 
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
@@ -733,7 +716,10 @@ class TestDeviceActivityFromPlatform(_DeviceActivityTestCase):
             with self.subTest(contents=contents):
                 mock_profile.reset_mock()
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
-                self.assertIn(_cuda_activity(), self._activities(mock_profile))
+                self.assertIn(
+                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
+                    self._activities(mock_profile),
+                )
 
     @_requires_other_device
     @patch("verl.utils.profiler.torch_profile.get_platform")
@@ -749,7 +735,7 @@ class TestDeviceActivityFromPlatform(_DeviceActivityTestCase):
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
     def test_device_without_profiler_activity_warns(self, mock_profile, mock_get_platform):
-        # Explicitly choose a device absent from the fixture, regardless of installed backends.
+        # On NPU, use an explicitly unsupported device rather than assuming NPU is absent.
         mock_get_platform.return_value = self._platform("unsupported_device" if is_npu_available else "npu")
         with self.assertLogs("verl.utils.profiler.torch_profile", level="WARNING"):
             get_torch_profiler(contents=[], save_path="/tmp/test", rank=0)
@@ -770,8 +756,8 @@ class TestDeviceActivityFromPlatform(_DeviceActivityTestCase):
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
     def test_every_device_keyword_resolves_its_activity(self, mock_profile, mock_get_platform):
-        # Every device in the fixture resolves to its own activity.
-        for device, activity in (_TEST_DEVICE_ACTIVITIES if is_npu_available else DEVICE_ACTIVITIES).items():
+        # Holds for whatever members a torch build exposes, however they are capitalized.
+        for device, activity in DEVICE_ACTIVITIES.items():
             with self.subTest(device=device):
                 mock_profile.reset_mock()
                 mock_get_platform.return_value = self._platform(device)
