@@ -51,6 +51,8 @@ _MERGED_EXTRA_FIELDS = frozenset(
         "max_global_steps",
     }
 )
+# per-response speculative-decoding counters; resume attempts add up
+_SUMMED_EXTRA_FIELDS = ("spec_num_draft_tokens", "spec_num_accepted_tokens", "spec_num_verify_steps")
 
 
 class LLMServerClient:
@@ -330,7 +332,9 @@ class FullyAsyncLLMServerClient(LLMServerClient):
                 final_output.num_preempted += output.num_preempted
             # carry every other extra field through; the latest attempt wins
             for key, value in output.extra_fields.items():
-                if key not in _MERGED_EXTRA_FIELDS:
+                if key in _SUMMED_EXTRA_FIELDS and key in final_output.extra_fields:
+                    final_output.extra_fields[key] = int(final_output.extra_fields[key]) + int(value)
+                elif key not in _MERGED_EXTRA_FIELDS:
                     final_output.extra_fields[key] = value
             # sampler top-k heads for score centering, one row per newly generated token
             for key in ("response_topk_ids", "response_topk_log_probs"):

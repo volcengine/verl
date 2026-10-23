@@ -64,6 +64,36 @@ async def test_single_attempt_keeps_backend_extra_fields(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_single_attempt_keeps_spec_decode_counts(monkeypatch):
+    segment = TokenOutput(token_ids=[101], stop_reason="completed")
+    segment.extra_fields.update(
+        {"spec_num_draft_tokens": 10, "spec_num_accepted_tokens": 6, "spec_num_verify_steps": 4}
+    )
+    _install_segments(monkeypatch, [segment])
+
+    output = await _client().generate(request_id="r", prompt_ids=[1, 2], sampling_params={})
+
+    assert output.extra_fields["spec_num_draft_tokens"] == 10
+    assert output.extra_fields["spec_num_accepted_tokens"] == 6
+    assert output.extra_fields["spec_num_verify_steps"] == 4
+
+
+@pytest.mark.asyncio
+async def test_resume_sums_spec_decode_counts(monkeypatch):
+    first = TokenOutput(token_ids=[101], stop_reason="aborted")
+    first.extra_fields.update({"spec_num_draft_tokens": 10, "spec_num_accepted_tokens": 6, "spec_num_verify_steps": 4})
+    second = TokenOutput(token_ids=[102], stop_reason="completed")
+    second.extra_fields.update({"spec_num_draft_tokens": 5, "spec_num_accepted_tokens": 3, "spec_num_verify_steps": 2})
+    _install_segments(monkeypatch, [first, second])
+
+    output = await _client().generate(request_id="r", prompt_ids=[1, 2], sampling_params={})
+
+    assert output.extra_fields["spec_num_draft_tokens"] == 15
+    assert output.extra_fields["spec_num_accepted_tokens"] == 9
+    assert output.extra_fields["spec_num_verify_steps"] == 6
+
+
+@pytest.mark.asyncio
 async def test_resume_keeps_latest_extra_fields_and_merged_keys(monkeypatch):
     first = TokenOutput(token_ids=[101], stop_reason="aborted")
     first.extra_fields.update(
