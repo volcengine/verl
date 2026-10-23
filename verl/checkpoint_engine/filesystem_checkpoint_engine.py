@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import AsyncGenerator, Generator
@@ -31,6 +32,22 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 INDEX_FILE = "model.safetensors.index.json"
+COPY_BUFFER_SIZE = 16 << 20
+
+
+def _copy_file(src: str, dst: str):
+    """Copy with sequential IO, which is supported by HDFS fuse mounts."""
+    with open(src, "rb") as src_file, open(dst, "wb") as dst_file:
+        shutil.copyfileobj(src_file, dst_file, length=COPY_BUFFER_SIZE)
+
+
+def _save_shard(shard: dict[str, torch.Tensor], local_path: str, filesystem_path: str):
+    try:
+        save_file(shard, local_path, metadata={"format": "pt"})
+        _copy_file(local_path, filesystem_path)
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
 
 
 @CheckpointEngineRegistry.register("filesystem")
@@ -108,7 +125,10 @@ class FileSystemCheckpointEngine(CheckpointEngine):
         shard, shard_bytes, num_shards = {}, 0, 0
         pending: Future | None = None
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with (
+            tempfile.TemporaryDirectory(prefix="verl-filesystem-ckpt-") as staging_dir,
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
 
             def flush_shard():
                 nonlocal shard, shard_bytes, num_shards, pending
@@ -116,8 +136,10 @@ class FileSystemCheckpointEngine(CheckpointEngine):
                     # at most one shard in flight, bounding host memory to about two shards
                     if pending is not None:
                         pending.result()
-                    file_path = os.path.join(version_dir, f"model-{num_shards + 1:05d}.safetensors")
-                    pending = executor.submit(save_file, shard, file_path, metadata={"format": "pt"})
+                    file_name = f"model-{num_shards + 1:05d}.safetensors"
+                    local_path = os.path.join(staging_dir, file_name)
+                    filesystem_path = os.path.join(version_dir, file_name)
+                    pending = executor.submit(_save_shard, shard, local_path, filesystem_path)
                 shard, shard_bytes = {}, 0
                 num_shards += 1
 
@@ -170,9 +192,13 @@ class FileSystemCheckpointEngine(CheckpointEngine):
             weight_map = json.load(f)["weight_map"]
 
         device = get_device_name()
-        for file_name in sorted(set(weight_map.values())):
-            with safe_open(os.path.join(version_dir, file_name), framework="pt") as f:
-                for name in f.keys():
-                    yield name, f.get_tensor(name).to(device)
+        with tempfile.TemporaryDirectory(prefix="verl-filesystem-ckpt-") as staging_dir:
+            for file_name in sorted(set(weight_map.values())):
+                local_path = os.path.join(staging_dir, file_name)
+                _copy_file(os.path.join(version_dir, file_name), local_path)
+                with safe_open(local_path, framework="pt") as f:
+                    for name in f.keys():
+                        yield name, f.get_tensor(name).to(device)
+                os.remove(local_path)
 
         logger.info(f"Load weights from {version_dir} done, time cost: {time.time() - start_time:.2f}s")
