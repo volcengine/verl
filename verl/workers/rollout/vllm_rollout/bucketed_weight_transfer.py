@@ -115,12 +115,8 @@ class BucketedWeightSender:
             # send bucket weights
             offset = 0
             bucket_meta: dict[str, TensorMetadata] = {}
-            sent_names: set[str] = set()
             # dtype = PrecisionType.to_dtype(self.config.dtype)
             async for name, weight in ensure_async_iterator(weights):
-                if name in sent_names:
-                    raise ValueError(f"Weight {name} is sent more than once in one transfer.")
-                sent_names.add(name)
                 # model parameters are in fp32 full precision
                 # (vermouth1992) we should not force cast weight here because some parameters
                 # (such as moe gate) have to keep fp32 precision. If a weight is bf16 in the rollout side,
