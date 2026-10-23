@@ -16,6 +16,7 @@ import logging
 import os
 import tempfile
 import unittest
+from contextlib import nullcontext
 from unittest import mock
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -76,13 +77,16 @@ class TestTorchProfile(unittest.TestCase):
         mock_profile.assert_called_once()
         _, kwargs = mock_profile.call_args
 
-        # transfer_to_npu rebinds CUDA after DEVICE_ACTIVITIES captures the original enum.
         # Verify activities
         activities = kwargs["activities"]
         self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-        self.assertIn(
-            (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA), activities
-        )
+        # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
+        with (
+            patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
+            if is_npu_available
+            else nullcontext()
+        ):
+            self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
         # Verify options
         self.assertTrue(kwargs["with_stack"])
@@ -663,10 +667,13 @@ class TestCpuActivityAlwaysCollected(unittest.TestCase):
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
                 activities = mock_profile.call_args[1]["activities"]
                 self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-                self.assertIn(
-                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
-                    activities,
-                )
+                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
+                with (
+                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
+                    if is_npu_available
+                    else nullcontext()
+                ):
+                    self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
     @patch("torch.profiler.profile")
     def test_contents_are_not_rewritten(self, mock_profile):
@@ -702,10 +709,13 @@ class TestDeviceActivityFromPlatform(unittest.TestCase):
                 self.assertIn(DEVICE_ACTIVITIES[_OTHER_DEVICE], activities)
                 # torch checks CUDA before every other device: leaving it in a list it does not
                 # belong to disables device profiling altogether.
-                self.assertNotIn(
-                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
-                    activities,
-                )
+                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
+                with (
+                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
+                    if is_npu_available
+                    else nullcontext()
+                ):
+                    self.assertNotIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
@@ -716,10 +726,13 @@ class TestDeviceActivityFromPlatform(unittest.TestCase):
             with self.subTest(contents=contents):
                 mock_profile.reset_mock()
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
-                self.assertIn(
-                    (DEVICE_ACTIVITIES["cuda"] if is_npu_available else torch.profiler.ProfilerActivity.CUDA),
-                    self._activities(mock_profile),
-                )
+                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
+                with (
+                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
+                    if is_npu_available
+                    else nullcontext()
+                ):
+                    self.assertIn(torch.profiler.ProfilerActivity.CUDA, self._activities(mock_profile))
 
     @_requires_other_device
     @patch("verl.utils.profiler.torch_profile.get_platform")
