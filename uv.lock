@@ -35,6 +35,10 @@ overrides = [
 ]
 
 [[manifest.dependency-metadata]]
+name = "deep-ep"
+version = "1.2.1"
+
+[[manifest.dependency-metadata]]
 name = "megatron-bridge"
 version = "0.6.2"
 
@@ -846,6 +850,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/6e/1e58e17c87abbbbd749db3b892b268ad35f0103f62931f45abf170283748/decord2-3.4.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:241a6027fafa03295db8f3b5b7cd405367d44ae008efe631854c2161ae986feb", size = 26627618, upload-time = "2026-05-30T13:23:30.168Z" },
     { url = "https://files.pythonhosted.org/packages/ec/ad/1e9f5081c9120653b483d6a91a707df65255b45b7c2a9d382aaafe0dcf55/decord2-3.4.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:f4ca81aa56aea80ecaaf1a285d8db9ea8aeda14cc929218255ad3419ea8a4a0e", size = 24476754, upload-time = "2026-05-30T13:23:41.243Z" },
     { url = "https://files.pythonhosted.org/packages/df/56/c32c85e48a691aafd037902d9333bbbf870650c1fa32d6057e23eb2f24a9/decord2-3.4.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:8444c97945a823844fc138d54a1db8377e258db1f887e40ea68c58dc6debb377", size = 26627613, upload-time = "2026-05-30T13:23:45.847Z" },
+]
+
+[[package]]
+name = "deep-ep"
+version = "1.2.1"
+source = { registry = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" }
+wheels = [
+    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/deep-ep-3f601f7ac1c062c46502646ff04c535013bfca00-py3.11-torch2.13.0-cu130/deep_ep-1.2.1-cp311-cp311-linux_aarch64.whl" },
+    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/deep-ep-3f601f7ac1c062c46502646ff04c535013bfca00-py3.11-torch2.13.0-cu130/deep_ep-1.2.1-cp311-cp311-linux_x86_64.whl" },
+    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/deep-ep-3f601f7ac1c062c46502646ff04c535013bfca00-py3.12-torch2.13.0-cu130/deep_ep-1.2.1-cp312-cp312-linux_aarch64.whl" },
+    { url = "https://github.com/verl-project/verl-wheelhouse/releases/download/deep-ep-3f601f7ac1c062c46502646ff04c535013bfca00-py3.12-torch2.13.0-cu130/deep_ep-1.2.1-cp312-cp312-linux_x86_64.whl" },
 ]
 
 [[package]]
@@ -5328,6 +5343,7 @@ megatron = [
     { name = "codetiming" },
     { name = "cupy-cuda13x" },
     { name = "datasets" },
+    { name = "deep-ep" },
     { name = "dill" },
     { name = "einops" },
     { name = "fastapi", version = "0.136.3", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and extra != 'extra-4-verl-cpu') or extra == 'extra-4-verl-vllm' or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-fsdp') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-megatron') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-sglang') or (extra == 'extra-4-verl-cpu' and extra == 'extra-4-verl-veomni')" },
@@ -5563,6 +5579,7 @@ requires-dist = [
     { name = "cupy-cuda13x", marker = "extra == 'cupy-cu130'", specifier = "==14.0.1" },
     { name = "datasets" },
     { name = "datasets", marker = "extra == 'verl-core'" },
+    { name = "deep-ep", marker = "extra == 'megatron'", specifier = "==1.2.1", index = "https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple/" },
     { name = "dill" },
     { name = "dill", marker = "extra == 'verl-core'" },
     { name = "einops", marker = "extra == 'torchtitan'" },

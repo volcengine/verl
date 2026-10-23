@@ -168,6 +168,8 @@ megatron = [
     # [[tool.uv.dependency-metadata]] below. The wheelhouse builds tag v0.6.2.
     "megatron-bridge==0.6.2",
     "megatron-core",
+    # Native MoE dispatcher, built against this extra's torch 2.13 / CUDA 13.0.
+    "deep-ep==1.2.1",
     # Qwen3.5 Gated DeltaNet kernels; Bridge's dependencies are disabled below.
     "flash-linear-attention==0.5.2",
     # megatron.bridge.training.config imports megatron.energon at module level,
@@ -485,6 +487,14 @@ requires-dist = []
 name = "TransferQueue"
 requires-dist = []
 
+# DeepEP's pynvml dependency overlaps the pynvml module provided by
+# nvidia-ml-py in the inference stack. The runtime dependencies (torch, numpy,
+# einops and nvidia-ml-py) are already supplied by the Megatron/core stack.
+[[tool.uv.dependency-metadata]]
+name = "deep-ep"
+version = "1.2.1"
+requires-dist = []
+
 # Heavy native packages come prebuilt from the verl wheelhouse (cu130 / torch 2.13
 # / cp312, built for x86_64 AND aarch64) — no source build here. megatron-bridge
 # rides along (pure-python wheel off the same wheelhouse, so no git clone / build
@@ -498,6 +508,7 @@ requires-dist = []
 # for the same reason — vllm/sglang pin their own and the wheelhouse's 0.6.13
 # matches neither.
 [tool.uv.sources]
+deep-ep              = { index = "verl-wheelhouse" }
 apex                 = { index = "verl-wheelhouse" }
 flash-attn           = { index = "verl-wheelhouse" }
 transformer-engine   = { index = "verl-wheelhouse" }
