@@ -16,10 +16,10 @@ import logging
 import os
 import tempfile
 import unittest
-from contextlib import nullcontext
 from unittest import mock
 from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
 import torch
 from omegaconf import OmegaConf
 
@@ -38,6 +38,17 @@ from verl.utils.profiler.torch_profile import (
     build_trace_basename,
     get_torch_profiler,
 )
+
+
+@pytest.fixture
+def restore_cuda_activity():
+    """Restore the CUDA enum for selected NPU tests and undo the patch on any exit."""
+    if not is_npu_available:
+        yield
+        return
+    # transfer_to_npu rebinds CUDA while the activity map retains the original enum.
+    with patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"]):
+        yield
 
 
 def _cuda_platform():
@@ -71,6 +82,7 @@ class TestTorchProfile(unittest.TestCase):
 
     @patch("verl.utils.profiler.torch_profile.get_platform", new=_cuda_platform)
     @patch("torch.profiler.profile")
+    @pytest.mark.usefixtures("restore_cuda_activity")
     def test_get_torch_profiler(self, mock_profile):
         # Test wrapper function
         get_torch_profiler(contents=["cpu", "cuda", "stack"], save_path="/tmp/test", rank=0)
@@ -80,13 +92,7 @@ class TestTorchProfile(unittest.TestCase):
         # Verify activities
         activities = kwargs["activities"]
         self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-        # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
-        with (
-            patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
-            if is_npu_available
-            else nullcontext()
-        ):
-            self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
+        self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
         # Verify options
         self.assertTrue(kwargs["with_stack"])
@@ -660,6 +666,7 @@ class TestCpuActivityAlwaysCollected(unittest.TestCase):
 
     @patch("verl.utils.profiler.torch_profile.get_platform", new=_cuda_platform)
     @patch("torch.profiler.profile")
+    @pytest.mark.usefixtures("restore_cuda_activity")
     def test_cpu_activity_added_for_device_only_contents(self, mock_profile):
         for contents in (["cuda"], ["cuda", "memory"], []):
             with self.subTest(contents=contents):
@@ -667,13 +674,7 @@ class TestCpuActivityAlwaysCollected(unittest.TestCase):
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
                 activities = mock_profile.call_args[1]["activities"]
                 self.assertIn(torch.profiler.ProfilerActivity.CPU, activities)
-                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
-                with (
-                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
-                    if is_npu_available
-                    else nullcontext()
-                ):
-                    self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
+                self.assertIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
     @patch("torch.profiler.profile")
     def test_contents_are_not_rewritten(self, mock_profile):
@@ -699,6 +700,7 @@ class TestDeviceActivityFromPlatform(unittest.TestCase):
     @_requires_other_device
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
+    @pytest.mark.usefixtures("restore_cuda_activity")
     def test_non_cuda_device_recorded(self, mock_profile, mock_get_platform):
         mock_get_platform.return_value = self._platform(_OTHER_DEVICE)
         for contents in ([], [_OTHER_DEVICE], [_OTHER_DEVICE, "memory"]):
@@ -709,16 +711,11 @@ class TestDeviceActivityFromPlatform(unittest.TestCase):
                 self.assertIn(DEVICE_ACTIVITIES[_OTHER_DEVICE], activities)
                 # torch checks CUDA before every other device: leaving it in a list it does not
                 # belong to disables device profiling altogether.
-                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
-                with (
-                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
-                    if is_npu_available
-                    else nullcontext()
-                ):
-                    self.assertNotIn(torch.profiler.ProfilerActivity.CUDA, activities)
+                self.assertNotIn(torch.profiler.ProfilerActivity.CUDA, activities)
 
     @patch("verl.utils.profiler.torch_profile.get_platform")
     @patch("torch.profiler.profile")
+    @pytest.mark.usefixtures("restore_cuda_activity")
     def test_cuda_platform_unchanged(self, mock_profile, mock_get_platform):
         # Regression guard for every in-tree CUDA/ROCm user: same activities as before.
         mock_get_platform.return_value = self._platform("cuda")
@@ -726,13 +723,7 @@ class TestDeviceActivityFromPlatform(unittest.TestCase):
             with self.subTest(contents=contents):
                 mock_profile.reset_mock()
                 get_torch_profiler(contents=list(contents), save_path="/tmp/test", rank=0)
-                # Restore only this assertion; transfer_to_npu aliases the CUDA attribute to NPU.
-                with (
-                    patch.object(torch.profiler.ProfilerActivity, "CUDA", DEVICE_ACTIVITIES["cuda"])
-                    if is_npu_available
-                    else nullcontext()
-                ):
-                    self.assertIn(torch.profiler.ProfilerActivity.CUDA, self._activities(mock_profile))
+                self.assertIn(torch.profiler.ProfilerActivity.CUDA, self._activities(mock_profile))
 
     @_requires_other_device
     @patch("verl.utils.profiler.torch_profile.get_platform")
