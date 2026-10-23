@@ -1,0 +1,37 @@
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Megatron/Transformer Engine NVFP4 training helpers."""
+
+from .config import (
+    is_routed_expert_module,
+    real_nvfp4_bf16_layer_indices,
+    real_nvfp4_bf16_layers,
+    real_nvfp4_num_layers,
+    real_nvfp4_quant_recipe_config,
+    validate_real_nvfp4_model_contract,
+    validate_real_nvfp4_parallelism,
+    validate_real_nvfp4_te_recipe,
+)
+
+__all__ = [
+    "is_routed_expert_module",
+    "real_nvfp4_bf16_layer_indices",
+    "real_nvfp4_bf16_layers",
+    "real_nvfp4_num_layers",
+    "real_nvfp4_quant_recipe_config",
+    "validate_real_nvfp4_model_contract",
+    "validate_real_nvfp4_parallelism",
+    "validate_real_nvfp4_te_recipe",
+]

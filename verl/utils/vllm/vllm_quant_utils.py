@@ -52,6 +52,7 @@ from verl.utils.vllm.vllm_fp8_utils import (
     process_fp8_weights_after_loading,
     stage_fp8_params_for_loading,
 )
+from verl.utils.vllm.vllm_nvfp4_per_token_utils import install_nvfp4_per_token_compressed_tensors_patch
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,7 @@ def apply_vllm_quant_patches():
     """
     install_mxfp4_mxfp8_compressed_tensors_patch()
     install_nvfp4_cutlass_compressed_tensors_patch()
+    install_nvfp4_per_token_compressed_tensors_patch()
     if fp8_state.vllm_patches:
         logger.debug("vLLM quantization patches already applied")
         return
