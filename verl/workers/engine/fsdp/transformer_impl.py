@@ -231,8 +231,7 @@ class FSDPEngine(BaseEngine):
             per_tensor_param_fn=self._get_hf_export_per_tensor_param,
             hf_export_dtype=self._autocast_dtype,
         )
-        if self._qat_enabled and self.checkpoint_manager.should_save_hf_model:
-            raise NotImplementedError("Saving 'hf_model' in checkpoints is not supported with QAT enabled.")
+        self._check_hf_model_export()
 
         self.to(
             device="cpu",
@@ -261,6 +260,21 @@ class FSDPEngine(BaseEngine):
             self.ulysses_parallel_group = self.ulysses_device_mesh["sp"].get_group()
 
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
+
+    def _check_hf_model_export(self):
+        """Reject a checkpoint 'hf_model' export that this engine cannot produce faithfully."""
+        if not self.checkpoint_manager.should_save_hf_model:
+            return
+        if self._qat_enabled:
+            raise NotImplementedError("Saving 'hf_model' in checkpoints is not supported with QAT enabled.")
+        if self._native_model_cls is not None:
+            # The trainer holds dequantized base weights whose quantization global scale is applied
+            # to the GEMM output: a merged adapter would be divided by that scale too, and the
+            # export would not be the released quantized checkpoint format either.
+            raise NotImplementedError(
+                f"Saving 'hf_model' in checkpoints is not supported for {self._native_model_cls.__name__}; "
+                "save the LoRA adapter instead (checkpoint.save_lora_only=True)."
+            )
 
     def _build_native_sharded_module(self, model_cls):
         """Build a verl-native model on the meta device on every rank.
@@ -911,7 +925,11 @@ class FSDPEngine(BaseEngine):
         if isinstance(self.module, FSDP):
             grad_norm = self.module.clip_grad_norm_(self.optimizer_config.clip_grad)
         elif isinstance(self.module, FSDPModule):
-            grad_norm = fsdp2_clip_grad_norm_(self.module.parameters(), max_norm=self.optimizer_config.clip_grad)
+            grad_norm = fsdp2_clip_grad_norm_(
+                self.module.parameters(),
+                max_norm=self.optimizer_config.clip_grad,
+                local_shards=self._native_model_cls is not None,
+            )
         else:
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.module.parameters(), max_norm=self.optimizer_config.clip_grad
@@ -1117,13 +1135,18 @@ class FSDPEngine(BaseEngine):
         if hasattr(peft_model, "peft_config"):  # LoRA
             if not merge_lora:
                 peft_config = peft_model.peft_config.get("default", None)
-                # FSDP2 adapter-only export is streamed from the shards (grouped
-                # all-gathers, no host copy of the whole adapter on every rank).
+                # Native models: the FSDP2 adapter-only export is streamed from the shards
+                # (grouped all-gathers, no host copy of the whole adapter on every rank).
                 if layered_summon and self.model_config.lora.get("experts_shared_outer_loras", False):
                     # layered summon walks named_parameters(), which lists a shared factor once:
                     # the per-expert names of the other experts would be missing from the export.
                     raise ValueError("Shared-outer expert LoRA does not support rollout.layered_summon")
-                stream_lora = fsdp_version(self.module) == 2 and base_sync_done and not layered_summon
+                stream_lora = (
+                    self._native_model_cls is not None
+                    and fsdp_version(self.module) == 2
+                    and base_sync_done
+                    and not layered_summon
+                )
                 params = collect_lora_params(
                     module=self.module,
                     layered_summon=layered_summon,

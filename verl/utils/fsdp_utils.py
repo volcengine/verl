@@ -654,8 +654,14 @@ def _clip_sharded_grad_norm_(grads, max_norm, error_if_nonfinite=False):
     return total_norm
 
 
-def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
-    """torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor"""
+def fsdp2_clip_grad_norm_(
+    parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None, local_shards: bool = False
+):
+    """torch.nn.utils.clip_grad_norm_ cann't run on cpu parameter DTensor
+
+    ``local_shards=True`` computes the L2 norm of 1-D-mesh sharded gradients on their local
+    shards (see ``_clip_sharded_grad_norm_``); other gradients keep the default path.
+    """
     from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
     if isinstance(parameters, torch.Tensor):
@@ -664,12 +670,8 @@ def fsdp2_clip_grad_norm_(parameters, max_norm, norm_type=2.0, error_if_nonfinit
         # prevent generators from being exhausted
         parameters = list(parameters)
     grads = [p.grad for p in parameters if p.grad is not None]
-    if _all_dim_sharded(grads) and float(norm_type) == 2.0:
+    if local_shards and _all_dim_sharded(grads) and float(norm_type) == 2.0:
         return _clip_sharded_grad_norm_(grads, max_norm, error_if_nonfinite)
-    if len(grads) > 4096:
-        logger.warning(
-            "Clipping %d gradients through the DTensor foreach path, which is quadratic in the tensor count", len(grads)
-        )
     total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
     total_norm = total_norm.to(get_device_id(), non_blocking=True)
     _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
