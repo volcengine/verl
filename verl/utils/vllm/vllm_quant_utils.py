@@ -227,9 +227,18 @@ def process_quanted_weights_after_loading(model, reload_state):
     # Last: the rebuild reads ``wo_a``, which is only back in its inference
     # layout once the staged FP8 params above have been reinstated.
     refresh_rocm_attention_weight_caches(model)
+    process_model_weights = getattr(model, "process_weights_after_loading", None)
+    if process_model_weights is not None:
+        process_model_weights()
 
 
-def load_quanted_weights(weights, model_runner, is_drafter=False):
+def load_quanted_weights(weights, model_runner, is_drafter=False, peft_config=None):
+    """Load a trainer-quantized weight bucket into the rollout model or its MTP drafter.
+
+    When peft_config is provided, reconcile LoRA base-layer names with the
+    live namespace. Restore temporary parameter classes after loading and
+    return the names reported by the model loader.
+    """
     if is_drafter:
         drafter = getattr(model_runner, "drafter", None)
         model = drafter.model if drafter is not None and hasattr(drafter, "model") else None
@@ -239,6 +248,24 @@ def load_quanted_weights(weights, model_runner, is_drafter=False):
         )
     else:
         model = model_runner.model
+    # Reconcile LoRA ``.base_layer.`` names on the FP8/mxfp4 path too, so a
+    # merge=False base sync doesn't orphan the suffix on an unwrappable fused
+    # target (e.g. DSV4 ``compressor.fused_wkv_wgate``). Scoped to LoRA via
+    # ``peft_config``: only a LoRA base sync exports ``.base_layer.`` names.
+    if peft_config is not None:
+        from verl.utils.vllm.utils import resolve_weight_name
+
+        live_names = {n for n, _ in model.named_parameters(remove_duplicate=False)}
+        live_names.update(n for n, _ in model.named_buffers())
+        routed_expert_prefixes = {
+            prefix
+            for prefix in ("mlp.experts.", "ffn.experts.")
+            if any(f"{prefix}base_layer." in n for n in live_names)
+        }
+        weights = [
+            (resolve_weight_name(model, n, live_names, routed_expert_prefixes=routed_expert_prefixes), t)
+            for n, t in weights
+        ]
     weights = list(weights)
 
     # Monkey patch the param class to their subclass, as certain models

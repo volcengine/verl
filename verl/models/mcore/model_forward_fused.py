@@ -25,6 +25,12 @@ from megatron.core import parallel_state
 from megatron.core.config_logger import has_config_logger_enabled, log_config_to_disk
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt.gpt_model import GPTModel
+
+try:
+    # HybridModel supports output_processor without inheriting GPTModel.
+    from megatron.core.models.hybrid.hybrid_model import HybridModel
+except ImportError:
+    HybridModel = None  # older Megatron builds without the hybrid model
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel_region
 from megatron.core.utils import deprecate_inference_params
@@ -76,9 +82,10 @@ def _use_output_processor_hook(model: torch.nn.Module) -> bool:
 
 def get_fused_impl_backend(model: torch.nn.Module) -> str:
     model = unwrap_model(model)
-    if hasattr(model, "language_model"):
-        model = model.language_model
-    return getattr(model, _FUSED_IMPL_BACKEND_ATTR, "triton")
+    backend = getattr(model, _FUSED_IMPL_BACKEND_ATTR, None)
+    if backend is None and hasattr(model, "language_model"):
+        backend = getattr(model.language_model, _FUSED_IMPL_BACKEND_ATTR, None)
+    return backend if backend is not None else "triton"
 
 
 def _gather_fused_hidden_states(hidden_states: Tensor, sequence_parallel: bool, impl_backend: str) -> Tensor:
@@ -156,15 +163,20 @@ def fused_output_processor(
 
 
 def _get_patching_model(model: torch.nn.Module):
+    """Return the supported module exposing the fused output hook, or None for unsupported models."""
     model = unwrap_model(model)
     if isinstance(model, GPTModel):
         return model
 
-    if not (hasattr(model, "language_model") and isinstance(model.language_model, GPTModel)):
-        print(f"Model {model.__class__.__name__} is not a supported for fused forward")
-        return None
+    inner = getattr(model, "language_model", model)
+    if HybridModel is not None and isinstance(inner, HybridModel):
+        # Hybrid VLMs expose the output_processor hook on the wrapper itself.
+        return model
+    if isinstance(inner, GPTModel):
+        return inner
 
-    return model.language_model
+    print(f"Model {model.__class__.__name__} is not a supported for fused forward")
+    return None
 
 
 def _validate_liger_moe_runtime(model: GPTModel) -> None:
