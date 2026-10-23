@@ -556,9 +556,15 @@ rollout_correction:
 
 **Additional requirements for bypass mode:**
 
-- Set `actor_rollout_ref.actor.use_rollout_log_probs: true`
-- Set `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode`
-- Set rollout correction config via `actor_rollout_ref.actor.policy_loss.rollout_correction`
+- With the default `loss_mode` (vanilla), the trainer sets `actor_rollout_ref.actor.policy_loss.loss_mode:
+  bypass_mode` and copies `algorithm.rollout_correction` into
+  `actor_rollout_ref.actor.policy_loss.rollout_correction` before it creates the workers. An existing
+  actor-side mirror must match (score centering still requires it, see the score centering section). Another explicit
+  `loss_mode` (e.g. gspo) is kept and trains against the rollout log-probs; rollout IS / RS, score
+  centering and `loss_type: reinforce` only apply to the bypass loss, so setting them then raises an error
+- `rollout_is_batch_normalize` is not supported with Megatron pipeline or dynamic context parallelism (it raises
+  an error): the bypass loss normalizes over all ranks, but only the last pipeline stage computes the loss, and
+  dynamic context parallelism replicates samples on a varying number of ranks
 
 **Theory:** See [rollout_corr_math.md §3.1.2](rollout_corr_math.md#312-bypass-mode-two-policies)
 
@@ -915,9 +921,15 @@ actor_rollout_ref:
 
 ### Additional Configurations for Bypass Mode
 
-- Set `actor_rollout_ref.actor.use_rollout_log_probs: true`
-- Set `actor_rollout_ref.actor.policy_loss.loss_mode: bypass_mode`
-- Set rollout correction config via `actor_rollout_ref.actor.policy_loss.rollout_correction`
+- With the default `loss_mode` (vanilla), the trainer sets `actor_rollout_ref.actor.policy_loss.loss_mode:
+  bypass_mode` and copies `algorithm.rollout_correction` into
+  `actor_rollout_ref.actor.policy_loss.rollout_correction` before it creates the workers. An existing
+  actor-side mirror must match (score centering still requires it, see the score centering section). Another explicit
+  `loss_mode` (e.g. gspo) is kept and trains against the rollout log-probs; rollout IS / RS, score
+  centering and `loss_type: reinforce` only apply to the bypass loss, so setting them then raises an error
+- `rollout_is_batch_normalize` is not supported with Megatron pipeline or dynamic context parallelism (it raises
+  an error): the bypass loss normalizes over all ranks, but only the last pipeline stage computes the loss, and
+  dynamic context parallelism replicates samples on a varying number of ranks
 
 ### Metrics
 

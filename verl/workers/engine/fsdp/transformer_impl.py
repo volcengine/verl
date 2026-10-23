@@ -1346,6 +1346,7 @@ class FSDPEngineWithLMHead(FSDPEngine):
         pad_mode = tu.get_non_tensor_data(data=micro_batch, key="pad_mode", default=DatasetPadMode.NO_PADDING)
         use_fused_kernels = tu.get_non_tensor_data(data=micro_batch, key="use_fused_kernels", default=False)
         calculate_entropy = tu.get_non_tensor_data(data=micro_batch, key="calculate_entropy", default=False)
+        entropy_requires_grad = tu.get_non_tensor_data(data=micro_batch, key="entropy_requires_grad", default=True)
         calculate_sum_pi_squared = tu.get_non_tensor_data(
             data=micro_batch, key="calculate_sum_pi_squared", default=False
         )
@@ -1413,18 +1414,20 @@ class FSDPEngineWithLMHead(FSDPEngine):
                     sum_pi_squared_rmpad = verl_F.calculate_sum_pi_squared_from_logits(logits_rmpad)
 
                 if calculate_entropy:
-                    if not self.engine_config.entropy_checkpointing:
-                        if self.engine_config.entropy_from_logits_with_chunking:
-                            entropy_rmpad = self.compute_entropy_from_logits(
-                                logits_rmpad,
-                                chunk_size=self.engine_config.entropy_from_logits_chunk_size,
-                            )  # ((total_nnz / sp) + pad)
+                    # Entropy that is only reported needs no autograd graph over the logits.
+                    with torch.set_grad_enabled(torch.is_grad_enabled() and entropy_requires_grad):
+                        if not self.engine_config.entropy_checkpointing or not entropy_requires_grad:
+                            if self.engine_config.entropy_from_logits_with_chunking:
+                                entropy_rmpad = self.compute_entropy_from_logits(
+                                    logits_rmpad,
+                                    chunk_size=self.engine_config.entropy_from_logits_chunk_size,
+                                )  # ((total_nnz / sp) + pad)
+                            else:
+                                entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)
                         else:
-                            entropy_rmpad = self.compute_entropy_from_logits(logits_rmpad)
-                    else:
-                        entropy_rmpad = torch.utils.checkpoint.checkpoint(
-                            self.compute_entropy_from_logits, logits_rmpad
-                        )
+                            entropy_rmpad = torch.utils.checkpoint.checkpoint(
+                                self.compute_entropy_from_logits, logits_rmpad
+                            )
 
                 # logits_processor_func return tensors with shape (1, total_nnz/sp_size)
                 if distillation_use_topk or score_centering:
@@ -1440,8 +1443,10 @@ class FSDPEngineWithLMHead(FSDPEngine):
 
                 if not distillation_only:
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
-                    # entropy and the score centering hook reuse the logits in their backward
-                    inplace_backward = not (calculate_entropy or score_centering)
+                    # entropy, the score centering hook and top-k distillation reuse the logits in their backward
+                    inplace_backward = not (
+                        (calculate_entropy and entropy_requires_grad) or score_centering or distillation_use_topk
+                    )
                     log_probs = logprobs_from_logits(
                         logits=logits_rmpad,
                         labels=input_ids_rmpad_rolled,
@@ -1504,10 +1509,11 @@ class FSDPEngineWithLMHead(FSDPEngine):
                 )
 
                 if calculate_entropy:
-                    if not self.engine_config.entropy_checkpointing:
-                        entropy = verl_F.entropy_from_logits(logits)
-                    else:
-                        entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                    with torch.set_grad_enabled(torch.is_grad_enabled() and entropy_requires_grad):
+                        if not self.engine_config.entropy_checkpointing or not entropy_requires_grad:
+                            entropy = verl_F.entropy_from_logits(logits)
+                        else:
+                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
                 if calculate_sum_pi_squared:
                     sum_pi_squared = verl_F.calculate_sum_pi_squared_from_logits(logits)
@@ -1539,7 +1545,8 @@ class FSDPEngineWithLMHead(FSDPEngine):
                         log_probs = logprobs_from_logits(
                             logits=logits_rmpad,
                             labels=input_ids_rmpad_rolled,
-                            inplace_backward=not score_centering,
+                            # score centering and top-k distillation reuse logits_rmpad in their backward
+                            inplace_backward=not (score_centering or distillation_use_topk),
                         )
 
                     # (bsz, j1), for each sample, length of each sample: [real_prompt_length + real_response_length]

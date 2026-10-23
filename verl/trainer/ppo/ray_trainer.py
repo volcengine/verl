@@ -366,6 +366,10 @@ class RayPPOTrainer:
 
         self.use_prefix_grouper = self.config.actor_rollout_ref.actor.get("use_prefix_grouper", False)
 
+        from verl.trainer.ppo.rollout_corr_helper import configure_bypass_mode
+
+        configure_bypass_mode(self.config)
+
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
         self.checkpoint_manager = None
@@ -1576,11 +1580,7 @@ class RayPPOTrainer:
                     if bypass_recomputing_logprobs:  # Use `rollout_log_probs`
                         from verl.trainer.ppo.rollout_corr_helper import apply_bypass_mode
 
-                        apply_bypass_mode(
-                            batch=batch,
-                            rollout_corr_config=rollout_corr_config,
-                            policy_loss_config=self.config.actor_rollout_ref.actor.policy_loss,
-                        )
+                        apply_bypass_mode(batch)
                     else:  # Recompute old_log_probs
                         with marked_timer("old_log_prob", timing_raw, color="blue"):
                             old_log_prob, old_log_prob_mfu = self._compute_old_log_prob(batch)
