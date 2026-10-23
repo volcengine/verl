@@ -28,6 +28,7 @@ at that captured storage.
 
 import re
 from dataclasses import replace
+from typing import Optional
 
 import torch
 
@@ -56,7 +57,7 @@ def install_nvfp4_per_token_compressed_tensors_patch():
     )
     from vllm.model_executor.utils import replace_parameter
 
-    if getattr(CompressedTensorsMoEMethod, "_verl_nvfp4_per_token_patch", False):
+    if getattr(CompressedTensorsMoEMethod, "_verl_nvfp4_per_token_method", None) is not None:
         return
     base = compressed_tensors_moe_w4a4_nvfp4.CompressedTensorsW4A4Nvfp4MoEMethod
 
@@ -142,20 +143,32 @@ def install_nvfp4_per_token_compressed_tensors_patch():
         return original(quant_config, layer, layer_name)
 
     CompressedTensorsMoEMethod.get_moe_method = staticmethod(get_moe_method)
-    CompressedTensorsMoEMethod._verl_nvfp4_per_token_patch = True
+    # The installed class doubles as the patch marker and the type that is_nvfp4_per_token_method checks.
+    CompressedTensorsMoEMethod._verl_nvfp4_per_token_method = CompressedTensorsW4A4Nvfp4PerTokenMoEMethod
 
 
 def nvfp4_per_token_quantization_config(vllm_config) -> dict | None:
-    """The rollout ``quantization_config`` when any of its config groups is ``NVFP4_PER_TOKEN``."""
-    hf_config = getattr(getattr(vllm_config, "model_config", None), "hf_config", None)
-    config = getattr(hf_config, "quantization_config", None)
+    """The rollout ``quantization_config`` when any of its config groups is ``NVFP4_PER_TOKEN``.
+
+    Reads the config vLLM built its quantization methods from (checkpoint or ``hf_overrides``),
+    falling back to the HF config before vLLM has built one.
+    """
+    config = getattr(getattr(vllm_config, "quant_config", None), "config", None)
+    if config is None:
+        hf_config = getattr(getattr(vllm_config, "model_config", None), "hf_config", None)
+        config = getattr(hf_config, "quantization_config", None)
     if not is_nvfp4_per_token_config(config):
         return None
     return config.to_dict() if hasattr(config, "to_dict") else config
 
 
 def is_nvfp4_per_token_method(quant_method) -> bool:
-    return type(quant_method).__name__ == "CompressedTensorsW4A4Nvfp4PerTokenMoEMethod"
+    from vllm.model_executor.layers.quantization.compressed_tensors.compressed_tensors_moe import (
+        CompressedTensorsMoEMethod,
+    )
+
+    method_cls = getattr(CompressedTensorsMoEMethod, "_verl_nvfp4_per_token_method", None)
+    return method_cls is not None and isinstance(quant_method, method_cls)
 
 
 def routed_expert_layers(model: torch.nn.Module, quantization_config: dict) -> dict[int, tuple[torch.nn.Module, bool]]:
@@ -181,7 +194,7 @@ def routed_expert_layers(model: torch.nn.Module, quantization_config: dict) -> d
 
 
 class NVFP4PerTokenRefitCheck:
-    """Check one refit round: each expert projection arrives once, in the expected precision."""
+    """Check one refit round: each expert projection arrives once, in the expected precision and layout."""
 
     def __init__(self, model: torch.nn.Module, quantization_config: dict):
         projections = ("gate_proj", "up_proj", "down_proj")
@@ -208,9 +221,43 @@ class NVFP4PerTokenRefitCheck:
             return [(layer, expert, p, "weight") for expert in range(tensor.shape[0]) for p in projections]
         return []
 
+    def _layout(self, layer: int, projection: str, suffix: str) -> tuple[tuple[int, ...], Optional[torch.dtype]]:
+        """Checkpoint-layout shape and dtype of one expert tensor; ``None`` dtype means BF16-like."""
+        moe = self.layers[layer][0].moe_config
+        hidden = moe.hidden_dim_unpadded
+        intermediate = moe.intermediate_size_per_partition_unpadded * moe.moe_parallel_config.tp_size
+        rows, cols = (hidden, intermediate) if projection == "down_proj" else (intermediate, hidden)
+        return {
+            "weight": ((rows, cols), None),
+            "weight_packed": ((rows, cols // 2), torch.uint8),
+            "weight_scale": ((rows, cols // 16), torch.float8_e4m3fn),
+            "weight_global_scale": ((1,), torch.float32),
+            "input_global_scale": ((1,), torch.float32),
+        }[suffix]
+
+    def _check_layout(self, name: str, tensor: torch.Tensor, keys: list[tuple[int, int, str, str]]) -> None:
+        layer, _, projection, suffix = keys[0]
+        shape, dtype = self._layout(layer, projection, suffix)
+        packed = _PACKED_EXPERT_TENSOR_RE.search(name)
+        if packed is not None:
+            rows = shape[0] * (2 if packed.group(2) == "gate_up_proj" else 1)
+            shape = (self.layers[layer][0].global_num_experts, rows, shape[1])
+        if dtype is None:
+            ok = tensor.dtype in (torch.bfloat16, torch.float16, torch.float32)
+        else:
+            ok = tensor.dtype == dtype
+        if tuple(tensor.shape) != shape or not ok:
+            raise RuntimeError(
+                f"NVFP4_PER_TOKEN refit got {name} as {tuple(tensor.shape)}/{tensor.dtype}, "
+                f"expected {shape}/{dtype or 'bf16'}"
+            )
+
     def check_bucket(self, weights: list[tuple[str, torch.Tensor]]) -> None:
         for name, tensor in weights:
-            for key in self._keys(name, tensor):
+            keys = self._keys(name, tensor)
+            if keys and keys[0] in self.expected:
+                self._check_layout(name, tensor, keys)
+            for key in keys:
                 layer, expert, projection, suffix = key
                 if key not in self.expected:
                     raise RuntimeError(f"NVFP4_PER_TOKEN refit contains unexpected expert tensor {name}")
@@ -309,6 +356,8 @@ def clear_kv_cache(model: torch.nn.Module) -> None:
 
 def attest_nvfp4_per_token_runtime(model: torch.nn.Module, quantization_config: dict) -> None:
     """Check the routed-expert precision of every layer and the scale state of the NVFP4 ones."""
+    from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import UnquantizedFusedMoEMethod
+
     wrong = []
     for layer, (module, quantized) in sorted(routed_expert_layers(model, quantization_config).items()):
         method = module.quant_method
@@ -316,7 +365,7 @@ def attest_nvfp4_per_token_runtime(model: torch.nn.Module, quantization_config: 
             if not getattr(module, "_already_called_process_weights_after_loading", False):
                 raise RuntimeError(f"NVFP4_PER_TOKEN MoE layer {layer} was not post-processed")
             _attest_scale_references(module)
-        elif quantized or type(method).__name__ != "UnquantizedFusedMoEMethod":
+        elif quantized or not isinstance(method, UnquantizedFusedMoEMethod):
             wrong.append((layer, type(method).__name__, "nvfp4_per_token" if quantized else "bf16"))
     if wrong:
         raise RuntimeError(

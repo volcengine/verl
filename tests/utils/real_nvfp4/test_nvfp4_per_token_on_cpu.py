@@ -15,8 +15,9 @@
 """NVFP4_PER_TOKEN preset, trainer-side export and rollout refit checks, without vLLM."""
 
 import importlib.util
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import torch
@@ -82,6 +83,16 @@ def test_per_token_matcher_follows_the_ignore_list_for_any_expert_naming():
     assert not per_token("model.layers.2.self_attn.q_proj")
 
 
+def _fake_quantize(weight, global_scale):
+    rows, cols = weight.shape
+    packed = torch.full((rows, cols // 2), int(global_scale.item()) % 256, dtype=torch.uint8)
+    return packed, torch.ones((rows, cols // 16), dtype=torch.float8_e4m3fn)
+
+
+def _export_experts(quantizer, layers, prefix="model.layers"):
+    return list(quantizer([(f"{prefix}.{layer}.mlp.experts.gate_up_proj", torch.ones(2, 8, 32)) for layer in layers]))
+
+
 @pytest.mark.parametrize(
     "hf_config",
     [
@@ -91,26 +102,31 @@ def test_per_token_matcher_follows_the_ignore_list_for_any_expert_naming():
         SimpleNamespace(text_config=SimpleNamespace(num_hidden_layers=8, num_experts=4)),
     ],
 )
-def test_dispatch_checks_the_carveout_by_name_on_other_layouts(hf_config):
-    assert isinstance(_dispatch(hf_config=hf_config), NVFP4PerTokenWeightQuantizer)
-    with pytest.raises(ValueError, match="trains layers"):
-        _dispatch(hf_config=hf_config, end=1)
+def test_export_checks_the_carveout_on_other_layouts(monkeypatch, hf_config):
+    monkeypatch.setattr(NVFP4PerTokenWeightQuantizer, "_quantize", staticmethod(_fake_quantize))
+    _export_experts(_dispatch(hf_config=hf_config), range(8))
+    # Training keeps layers 0, 1 and 7 in BF16, the rollout also layer 6.
+    with pytest.raises(ValueError, match=r"layers\.6\.mlp\.experts\.gate_up_proj in BF16"):
+        _export_experts(_dispatch(hf_config=hf_config, end=1), range(8))
 
 
-def test_dispatch_pairs_real_nvfp4_with_the_preset_and_its_carveout():
+def test_export_checks_the_carveout_under_the_exported_names(monkeypatch):
+    monkeypatch.setattr(NVFP4PerTokenWeightQuantizer, "_quantize", staticmethod(_fake_quantize))
+    # An ignore list anchored to a VLM's exported names, not to ``model.layers``.
+    ignore = [r"re:model\.language_model\.layers\.(0|1|6|7)\.mlp\.experts\..*"]
+    _export_experts(_dispatch(ignore=ignore), range(8), prefix="model.language_model.layers")
+    with pytest.raises(ValueError, match=r"layers\.1\.mlp\.experts\.gate_up_proj in BF16"):
+        _export_experts(_dispatch(ignore=ignore, start=1), range(8), prefix="model.language_model.layers")
+    with pytest.raises(ValueError, match="in NVFP4"):
+        _export_experts(_dispatch(ignore=ignore, start=2), range(8), prefix="model.layers")
+
+
+def test_dispatch_pairs_real_nvfp4_with_the_preset():
     assert isinstance(_dispatch(), NVFP4PerTokenWeightQuantizer)
-    with pytest.raises(ValueError, match="trains layers"):
-        _dispatch(start=1)
     with pytest.raises(ValueError, match="NVFP4_PER_TOKEN"):
         _dispatch(moe="NVFP4")
     with pytest.raises(ValueError, match="only with the vLLM rollout"):
         _dispatch(engine="sglang")
-
-
-def _fake_quantize(weight, global_scale):
-    rows, cols = weight.shape
-    packed = torch.full((rows, cols // 2), int(global_scale.item()) % 256, dtype=torch.uint8)
-    return packed, torch.ones((rows, cols // 16), dtype=torch.float8_e4m3fn)
 
 
 def test_exporter_shares_one_global_scale_across_gate_and_up(monkeypatch):
@@ -160,13 +176,28 @@ def test_exporter_rejects_an_unpaired_gate_proj(monkeypatch):
 _LAYER0_BF16 = [r"re:.*layers\.0\.mlp\.experts\..*"]
 
 
+_HIDDEN, _INTERMEDIATE = 32, 16
+
+
+def _expert_tensors(projection):
+    rows, cols = (_HIDDEN, _INTERMEDIATE) if projection == "down_proj" else (_INTERMEDIATE, _HIDDEN)
+    return {
+        "weight": torch.ones(rows, cols, dtype=torch.bfloat16),
+        "weight_packed": torch.ones(rows, cols // 2, dtype=torch.uint8),
+        "weight_scale": torch.ones(rows, cols // 16).to(torch.float8_e4m3fn),
+        "weight_global_scale": torch.ones(1),
+        "input_global_scale": torch.ones(1),
+    }
+
+
 def _stream():
     weights = []
     for expert in range(2):
         for projection in ("gate_proj", "up_proj", "down_proj"):
-            weights.append((f"model.layers.0.mlp.experts.{expert}.{projection}.weight", torch.ones(2, 16)))
-            for suffix in ("weight_packed", "weight_scale", "weight_global_scale", "input_global_scale"):
-                weights.append((f"model.layers.1.mlp.experts.{expert}.{projection}.{suffix}", torch.ones(1)))
+            tensors = _expert_tensors(projection)
+            weights.append((f"model.layers.0.mlp.experts.{expert}.{projection}.weight", tensors.pop("weight")))
+            for suffix, tensor in tensors.items():
+                weights.append((f"model.layers.1.mlp.experts.{expert}.{projection}.{suffix}", tensor))
     return weights
 
 
@@ -194,6 +225,13 @@ def test_refit_check_accepts_a_complete_reordered_round():
             lambda w: [(n, t * 2 if n.endswith("up_proj.weight_global_scale") else t) for n, t in w],
             "global scales differ",
         ),
+        # The checkpoint layout of every expert tensor: shape, then dtype.
+        (
+            lambda w: [(n, t[:, :4] if n.endswith("0.down_proj.weight_packed") else t) for n, t in w],
+            r"expected \(32, 8\)",
+        ),
+        (lambda w: [(n, t.float() if n.endswith("0.gate_proj.weight_scale") else t) for n, t in w], "float8_e4m3fn"),
+        (lambda w: [(n, t.to(torch.uint8) if n.endswith(".0.up_proj.weight") else t) for n, t in w], "bf16"),
     ],
 )
 def test_refit_check_rejects_a_bad_round(corrupt, message):
@@ -204,11 +242,29 @@ def test_refit_check_rejects_a_bad_round(corrupt, message):
 def test_refit_check_accepts_packed_bf16_experts():
     # Packed-expert checkpoints (e.g. Qwen3.5) send their BF16 layers as one tensor per projection.
     weights = [(n, t) for n, t in _stream() if not n.startswith("model.layers.0.")]
-    weights += [
-        ("model.layers.0.mlp.experts.gate_up_proj", torch.ones(2, 32, 16)),
-        ("model.layers.0.mlp.experts.down_proj", torch.ones(2, 16, 16)),
-    ]
-    _check(weights)
+    gate_up = torch.ones(2, 2 * _INTERMEDIATE, _HIDDEN, dtype=torch.bfloat16)
+    down = torch.ones(2, _HIDDEN, _INTERMEDIATE, dtype=torch.bfloat16)
+    prefix = "model.layers.0.mlp.experts"
+    _check(weights + [(f"{prefix}.gate_up_proj", gate_up), (f"{prefix}.down_proj", down)])
+    with pytest.raises(RuntimeError, match="expected"):
+        _check(weights + [(f"{prefix}.gate_up_proj", down), (f"{prefix}.down_proj", down)])
+
+
+def test_worker_reads_the_quantization_config_vllm_built_its_methods_from():
+    per_token = _config()
+    static = build_compressed_tensors_config(linear=None, moe="NVFP4", ignore=[], config_file=None)
+
+    def vllm_config(built, hf):
+        return SimpleNamespace(
+            quant_config=None if built is None else SimpleNamespace(config=built),
+            model_config=SimpleNamespace(hf_config=SimpleNamespace(quantization_config=hf)),
+        )
+
+    find = _ROLLOUT.nvfp4_per_token_quantization_config
+    # vLLM's built config wins over the HF config, which is only the fallback.
+    assert find(vllm_config(per_token, None)) == per_token
+    assert find(vllm_config(static, per_token)) is None
+    assert find(vllm_config(None, per_token)) == per_token
 
 
 def test_refit_check_keeps_only_the_local_experts_of_an_expert_parallel_rank():
@@ -231,11 +287,19 @@ class UnquantizedFusedMoEMethod:
     pass
 
 
+_MOE_CONFIG = SimpleNamespace(
+    hidden_dim_unpadded=_HIDDEN,
+    intermediate_size_per_partition_unpadded=_INTERMEDIATE,
+    moe_parallel_config=SimpleNamespace(tp_size=1),
+)
+
+
 class _FakeNVFP4MoE(torch.nn.Module):
     def __init__(self, per_token_activation: bool = True) -> None:
         super().__init__()
         self.quant_method = CompressedTensorsW4A4Nvfp4PerTokenMoEMethod(per_token_activation)
         self.global_num_experts = 2
+        self.moe_config = _MOE_CONFIG
         self._already_called_process_weights_after_loading = True
         self.w13_weight_scale = torch.ones((2, 2), dtype=torch.float8_e4m3fn)
         self.w2_weight_scale = torch.ones((2, 2), dtype=torch.float8_e4m3fn)
@@ -262,6 +326,7 @@ class _FakeUnquantizedMoE(torch.nn.Module):
         super().__init__()
         self.quant_method = UnquantizedFusedMoEMethod()
         self.global_num_experts = 2
+        self.moe_config = _MOE_CONFIG
 
 
 def _model(quantized_layers, num_layers=4, **kwargs):
@@ -281,6 +346,21 @@ def _model(quantized_layers, num_layers=4, **kwargs):
 _LAYERS_0_3_BF16 = _config([r"re:.*layers\.(0|3)\.mlp\.experts\..*"])
 
 
+@pytest.fixture
+def vllm_method_types(monkeypatch):
+    """Serve the fake method classes from the vLLM modules the attestation imports."""
+    ct_moe = ModuleType("compressed_tensors_moe")
+    ct_moe.CompressedTensorsMoEMethod = SimpleNamespace(
+        _verl_nvfp4_per_token_method=CompressedTensorsW4A4Nvfp4PerTokenMoEMethod
+    )
+    unquantized = ModuleType("unquantized_fused_moe_method")
+    unquantized.UnquantizedFusedMoEMethod = UnquantizedFusedMoEMethod
+    layers = "vllm.model_executor.layers"
+    monkeypatch.setitem(sys.modules, f"{layers}.quantization.compressed_tensors.compressed_tensors_moe", ct_moe)
+    monkeypatch.setitem(sys.modules, f"{layers}.fused_moe.unquantized_fused_moe_method", unquantized)
+
+
+@pytest.mark.usefixtures("vllm_method_types")
 def test_runtime_attestation_checks_layer_precision_and_per_token_kernel():
     _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2]), _LAYERS_0_3_BF16)
     with pytest.raises(RuntimeError, match="wrong routed-expert precision"):
@@ -291,6 +371,7 @@ def test_runtime_attestation_checks_layer_precision_and_per_token_kernel():
         _ROLLOUT.attest_nvfp4_per_token_runtime(_model([1, 2], per_token_activation=False), _LAYERS_0_3_BF16)
 
 
+@pytest.mark.usefixtures("vllm_method_types")
 def test_runtime_attestation_rejects_a_stale_derived_scale():
     model = _model([1, 2])
     model.model.layers[1].mlp.experts.routed_experts.w13_weight_scale_2.mul_(2)
@@ -331,6 +412,9 @@ def test_rollout_server_checks_a_per_token_config_file(tmp_path):
         server._check_nvfp4_per_token_rollout({"cudagraph_mode": "FULL_AND_PIECEWISE"}, {})
     with pytest.raises(ValueError, match="no EPLB"):
         server._check_nvfp4_per_token_rollout({}, {"enable_eplb": True})
+    for context_parallel in ("decode_context_parallel_size", "prefill_context_parallel_size"):
+        with pytest.raises(ValueError, match="context parallelism"):
+            server._check_nvfp4_per_token_rollout({}, {context_parallel: 2})
     # Tensor-parallel experts
     server.config.expert_parallel_size = 1
     server._check_nvfp4_per_token_rollout({}, {})

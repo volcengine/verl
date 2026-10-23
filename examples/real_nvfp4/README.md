@@ -1,4 +1,4 @@
-# Native NVFP4 training and rollout
+# Native NVFP4 training and rollout (experimental)
 
 This example trains Qwen3-30B-A3B-Base with Megatron/Transformer Engine NVFP4
 and runs vLLM rollout in the matching NVFP4 precision. Training parameters stay
@@ -17,7 +17,7 @@ LM head remain BF16 on both sides.
 
 Megatron-Core's `first_last_layers_bf16` with `num_layers_at_start_in_bf16` and
 `num_layers_at_end_in_bf16` keeps whole decoder layers in BF16 during training; `rollout.quantization.ignore` must list the same
-routed-expert layers, which the trainer checks at startup. This example keeps
+routed-expert layers, which the trainer checks when it exports weights. This example keeps
 the first two and last four of 48 layers in BF16.
 
 Routed experts are found by their names (`mlp.experts`, unpacked or packed),

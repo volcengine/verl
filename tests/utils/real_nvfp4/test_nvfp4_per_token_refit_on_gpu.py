@@ -186,6 +186,7 @@ def test_preset_refit_matches_online_quantization(model_dir, request):
     from verl.utils.vllm.vllm_nvfp4_per_token_utils import (
         attest_nvfp4_per_token_runtime,
         clear_kv_cache,
+        nvfp4_per_token_quantization_config,
         routed_expert_layers,
     )
     from verl.utils.vllm.vllm_quant_utils import apply_vllm_quant_patches
@@ -216,6 +217,8 @@ def test_preset_refit_matches_online_quantization(model_dir, request):
         return _logprobs(llm)
 
     preset = _engine(model_dir, eager=True, load_format="dummy", hf_overrides={"quantization_config": config})
+    # The worker finds the per-token config that came in through hf_overrides.
+    assert nvfp4_per_token_quantization_config(_runner(preset).vllm_config) is not None
     # Start-up forwards with the dummy weights can leave NaN in the KV cache; the rollout
     # clears it once the engine is up (monkey_patch_model).
     clear_kv_cache(_runner(preset).get_model())

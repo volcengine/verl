@@ -1426,6 +1426,13 @@ class vLLMHttpServer:
                 "NVFP4_PER_TOKEN rollout requires data_parallel_size=1 and no EPLB: vLLM supports "
                 f"per-token NVFP4 MoE only without all2all expert parallelism, got dp={dp}"
             )
+        # DCP cannot run FULL CUDA graphs, and PCP turns expert parallelism into all2all.
+        context_parallel = {
+            key: engine_kwargs.get(key, 1) or 1
+            for key in ("decode_context_parallel_size", "prefill_context_parallel_size")
+        }
+        if any(size > 1 for size in context_parallel.values()):
+            raise ValueError(f"NVFP4_PER_TOKEN rollout does not support context parallelism, got {context_parallel}")
         if self.config.mtp is not None and self.config.mtp.enable and self.config.mtp.enable_rollout:
             raise ValueError("NVFP4_PER_TOKEN rollout does not support speculative decoding/MTP")
         checkpoint_backend = getattr(self.config.checkpoint_engine, "backend", None)

@@ -176,7 +176,7 @@ actor_rollout_ref:
 QAT requires a quantized rollout: set `rollout.quantization` or use a checkpoint with a native `quantization_config` that verl supports for export and refit. verl checks at startup that the QAT mode matches the effective rollout configuration. Megatron QAT uses [NVIDIA ModelOpt](https://github.com/NVIDIA/Model-Optimizer) for fake quantization. MXFP8 uses ModelOpt's native `MXFP8_DEFAULT_CFG`; FP8_BLOCK uses a verl backend because ModelOpt's `FP8_DEFAULT_CFG` is per-tensor and its 2D-block preset is weight-only. MXFP4 and NVFP4 use compressed-tensors-compatible QDQ backends so fake quantization is bit-exact with the exported checkpoint format. Both FP4 modes apply only to routed experts. Use `mxfp4_mxfp8` for the vLLM combination where dense linear layers also use MXFP8.
 Its `ignore_patterns` use Megatron module names and `fnmatch` syntax. Keep them aligned with the rollout ignore list; for Qwen3.5 MXFP8, add `*linear_attn.in_proj_a` and `*linear_attn.in_proj_b`.
 
-### Native NVFP4 training (Megatron + Transformer Engine)
+### Native NVFP4 training (Megatron + Transformer Engine, experimental)
 
 Instead of fake quantization, Megatron can run the routed-expert GEMMs in real
 NVFP4 through Transformer Engine, with activations scaled per token. Parameters
@@ -201,8 +201,9 @@ actor_rollout_ref:
 ```
 
 verl limits `fp4` to the routed experts, as the rollout preset does. It and
-`qat` are mutually exclusive. The trainer checks at startup
-that the rollout keeps exactly the BF16 layers of the training carve-out.
+`qat` are mutually exclusive. The trainer checks every exported routed-expert
+weight against the training carve-out, so the rollout must keep exactly those
+layers in BF16.
 Transformer Engine reads its NVFP4 recipe from `NVTE_*` environment variables;
 see `examples/real_nvfp4` for those, the supported layouts and a Qwen3-30B-A3B
 DAPO script.
@@ -223,7 +224,7 @@ DAPO script.
   requested expert activation scheme. verl routes MXFP4 experts through the
   DeepGEMM FP4 backend, whose dynamic FP8 activations use group size 128.
 - **vLLM NVFP4**: verl supports only W4A4 routed experts and forces FlashInfer CUTLASS. W4A16, dense NVFP4 and other MoE backends are rejected.
-- **vLLM NVFP4_PER_TOKEN**: per-token activation scaling exists only in FlashInfer TRT-LLM, which verl selects. The trainer quantizes expert weights with vLLM's `scaled_fp4_quant`, bit-identical to vLLM's online `nvfp4_per_token` method; refits use vLLM's layerwise reload. Rollout supports TP with or without EP, but not data-parallel EP or EPLB, for which vLLM has no per-token path. With EP off, each rank computes the FC2 per-token scale over its shard of the expert. Rollout also needs `FULL_DECODE_ONLY` CUDA graphs and the `naive` checkpoint engine.
+- **vLLM NVFP4_PER_TOKEN**: per-token activation scaling exists only in FlashInfer TRT-LLM, which verl selects. The trainer quantizes expert weights with vLLM's `scaled_fp4_quant`, bit-identical to vLLM's online `nvfp4_per_token` method; refits use vLLM's layerwise reload. Rollout supports TP with or without EP, but not data-parallel EP or EPLB, for which vLLM has no per-token path. With EP off, each rank computes the FC2 per-token scale over its shard of the expert. Rollout also needs `FULL_DECODE_ONLY` CUDA graphs and the `naive` checkpoint engine, and does not support context parallelism (DCP/PCP). This path is experimental.
 
 ## Example
 

@@ -82,7 +82,8 @@ def test_record_replay_roundtrip_uses_model_padding(monkeypatch, nested, precisi
     """Use real pack/unpack functions and unequal lengths, not a padding flag mock."""
     config = _config(num_layers=1)
     config.fp8 = "e4m3" if precision == "fp8" else None
-    config.fp4 = "nvfp4" if precision == "fp4" else None
+    config.fp4 = "e2m1" if precision == "fp4" else None
+    config.fp4_recipe = "nvfp4"
     config.pipeline_model_parallel_size = 1
     monkeypatch.setattr(rr_utils.mpu, "get_tensor_model_parallel_world_size", lambda: 1)
     monkeypatch.setattr(rr_utils.mpu, "get_context_parallel_world_size", lambda: 1)

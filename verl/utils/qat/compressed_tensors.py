@@ -497,6 +497,7 @@ class CompressedTensorsWeightQuantizer:
 
 
 _UNPACKED_EXPERT = re.compile(r"(?P<prefix>.*\.experts\.\d+)\.(?P<proj>gate_proj|up_proj|down_proj)\.weight$")
+_EXPERT_LAYER = re.compile(r"(?:^|\.)layers\.(\d+)\.mlp\.experts\.")
 
 
 class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
@@ -508,7 +509,29 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
     ``nvfp4_per_token`` method uses, so the exported values match what that
     method produces from the same BF16 weights. Activations need no scale: the
     static input scale is exported as 1 and the kernel scales each token.
+
+    With ``bf16_expert_layers`` (NVFP4 training), every exported routed-expert
+    weight is checked against the training carve-out under its exported name.
     """
+
+    def __init__(self, ct_config: Mapping[str, Any], *, bf16_expert_layers: Optional[Iterable[int]] = None):
+        super().__init__(ct_config)
+        self.bf16_expert_layers = None if bf16_expert_layers is None else sorted(set(bf16_expert_layers))
+
+    def _check_carveout(self, name: str, per_token: bool) -> None:
+        if self.bf16_expert_layers is None or name.startswith("mtp."):
+            return
+        layer = _EXPERT_LAYER.search(name)
+        if layer is None or not (_UNPACKED_EXPERT.match(name) or _PACKED_EXPERTS.match(name)):
+            return
+        if per_token == (int(layer.group(1)) not in self.bf16_expert_layers):
+            return
+        layers = "|".join(str(index) for index in self.bf16_expert_layers)
+        hint = f'["re:.*layers\\.({layers})\\.mlp\\.experts\\..*"]' if layers else "[]"
+        raise ValueError(
+            f"rollout.quantization exports {name} in {'NVFP4' if per_token else 'BF16'}, but NVFP4 training keeps "
+            f"the routed experts of layers {self.bf16_expert_layers} in BF16; set rollout.quantization.ignore={hint}"
+        )
 
     def refresh_input_global_scales(self, model: torch.nn.Module) -> None:
         """Per-token activations carry no observed scale."""
@@ -551,7 +574,9 @@ class NVFP4PerTokenWeightQuantizer(CompressedTensorsWeightQuantizer):
         # gate_proj waits here for its up_proj, which shares its global scale.
         pending: dict[str, dict[str, torch.Tensor]] = {}
         for name, tensor in weights:
-            if not self._is_per_token_expert(name, tensor):
+            per_token = self._is_per_token_expert(name, tensor)
+            self._check_carveout(name, per_token)
+            if not per_token:
                 yield from super().__call__([(name, tensor)])
                 continue
             experts = _unpack_experts(name, tensor) if tensor.ndim == 3 else [(name, tensor)]
@@ -663,30 +688,6 @@ def _as_quantization_config(config: Any) -> Optional[dict[str, Any]]:
     raise TypeError(f"quantization_config must be a mapping, got {type(config).__name__}")
 
 
-def _check_real_nvfp4_carveout(
-    hf_config: Any, quantization_config: Mapping[str, Any], bf16_layers: tuple[int, int]
-) -> None:
-    """Training and rollout must keep the same layers' routed experts in BF16.
-
-    Matches expert names like the export does, so dense layers need no special casing.
-    """
-    from verl.utils.real_nvfp4 import real_nvfp4_bf16_layer_indices, real_nvfp4_num_layers
-
-    num_layers = real_nvfp4_num_layers(hf_config)
-    expected = real_nvfp4_bf16_layer_indices(num_layers, *bf16_layers)
-    per_token = nvfp4_per_token_module_matcher(quantization_config)
-    high_precision = [
-        layer for layer in range(num_layers) if not per_token(f"model.layers.{layer}.mlp.experts.0.gate_proj")
-    ]
-    if high_precision != expected:
-        layers = "|".join(str(layer) for layer in expected)
-        hint = f'["re:.*layers\\.({layers})\\.mlp\\.experts\\..*"]' if expected else "[]"
-        raise ValueError(
-            f"rollout.quantization keeps the routed experts of layers {high_precision} in BF16, but NVFP4 training "
-            f"trains layers {expected} in BF16; set rollout.quantization.ignore={hint}"
-        )
-
-
 def dispatch_rollout_weight_quantizer(
     *,
     model_config: Any,
@@ -753,12 +754,17 @@ def dispatch_rollout_weight_quantizer(
             "override_transformer_config.fp4 trains routed experts in the precision of the "
             "rollout.quantization.moe=NVFP4_PER_TOKEN preset; set it for the rollout"
         )
-    if real_nvfp4:
-        _check_real_nvfp4_carveout(hf_config, quantization_config, real_nvfp4_bf16_layers)
     if quant_method == "compressed-tensors":
         qat_modes = qat_modes_for_config(quantization_config) if qat_mode is not None else set()
         if per_token:
-            quantizer = NVFP4PerTokenWeightQuantizer(quantization_config)
+            bf16_expert_layers = None
+            if real_nvfp4:
+                from verl.utils.real_nvfp4 import real_nvfp4_bf16_layer_indices, real_nvfp4_num_layers
+
+                bf16_expert_layers = real_nvfp4_bf16_layer_indices(
+                    real_nvfp4_num_layers(hf_config), *real_nvfp4_bf16_layers
+                )
+            quantizer = NVFP4PerTokenWeightQuantizer(quantization_config, bf16_expert_layers=bf16_expert_layers)
         elif getattr(rollout_config, "name", None) == "sglang" and is_all_mxfp8_config(quantization_config):
             from verl.utils.sglang.sglang_quant_utils import SGLangMxfp8WeightQuantizer
 
