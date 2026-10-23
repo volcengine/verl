@@ -170,10 +170,10 @@ class PPOTrainer(ABC):
         # their filtering semantics and can consume algorithm.filter_groups through their own config.
         if not has_custom_sampler:
             filter_groups_metric = self._resolve_filter_groups_metric()
-            replace_empty_failed_groups = sampler_cls is ReplayBuffer and sampler_config.sync_refill_failed_groups
+            sync_refill_failed_groups = bool(sampler_config.get("sync_refill_failed_groups", False))
             replay_buffer_kwargs.update(
                 filter_groups_metric=filter_groups_metric,
-                sync_refill_failed_groups=replace_empty_failed_groups,
+                sync_refill_failed_groups=sync_refill_failed_groups,
             )
             if sampler_cls is ReplayBuffer:
                 filter_groups = self.config.algorithm.get("filter_groups", None)
@@ -181,12 +181,11 @@ class PPOTrainer(ABC):
                 if filter_groups_metric is not None:
                     max_inflight_gen_batches = filter_groups.get("max_inflight_gen_batches", 1)
                 train_batch_size = self.config.data.train_batch_size
-                gen_batch_size = self.config.data.get("gen_batch_size", None) or train_batch_size
-                if filter_groups_metric is not None or replace_empty_failed_groups:
-                    gen_batch_size = 1
                 replay_buffer_kwargs.update(
                     train_batch_size=train_batch_size,
-                    gen_batch_size=gen_batch_size,
+                    gen_batch_size=1
+                    if filter_groups_metric is not None or sync_refill_failed_groups
+                    else (self.config.data.get("gen_batch_size", None) or train_batch_size),
                     max_inflight_gen_batches=max_inflight_gen_batches,
                 )
         return sampler_cls(**replay_buffer_kwargs)
@@ -749,9 +748,8 @@ class PPOTrainer(ABC):
         # Exact refill counts require single-prompt dataloader fetches.
         filter_groups = self.config.algorithm.get("filter_groups", None)
         dapo_enabled = bool(filter_groups is not None and filter_groups.get("enable", False))
-        builtin_sync_sampler = type(self.replay_buffer) is ReplayBuffer
-        sync_failure_refill = builtin_sync_sampler and self.replay_buffer.sync_refill_failed_groups
-        requires_exact_refill = self.trainer_mode != "sync" or dapo_enabled or sync_failure_refill
+        sync_refill_failed_groups = bool(self.config.trainer.v1.sampler.get("sync_refill_failed_groups", False))
+        requires_exact_refill = self.trainer_mode != "sync" or dapo_enabled or sync_refill_failed_groups
         if requires_exact_refill:
             user_gen_batch_size = self.config.data.get("gen_batch_size", None)
             if user_gen_batch_size not in (None, 1):
@@ -1628,8 +1626,8 @@ class PPOTrainer(ABC):
         )
 
     @staticmethod
-    def _get_global_mini_batch_layout(batch: KVBatchMeta, prompt_mini_batch_size: int) -> dict[str, list[int]]:
-        """Coalesce balancing units into full or final partial optimizer mini-batches."""
+    def _get_global_mini_batch_sizes(batch: KVBatchMeta, prompt_mini_batch_size: int) -> list[int]:
+        """Coalesce balancing-unit row counts into full or final partial optimizer mini-batches."""
         layout = batch.extra_info[_MINIBATCH_LAYOUT_KEY]
         unit_prompt_count = layout["unit_prompt_count"]
         if prompt_mini_batch_size % unit_prompt_count != 0:
@@ -1639,17 +1637,10 @@ class PPOTrainer(ABC):
             )
         units_per_mini_batch = prompt_mini_batch_size // unit_prompt_count
         unit_global_sizes = layout["unit_global_sizes"]
-
-        def coalesce(unit_sizes: list[int]) -> list[int]:
-            return [
-                sum(unit_sizes[start : start + units_per_mini_batch])
-                for start in range(0, len(unit_sizes), units_per_mini_batch)
-            ]
-
-        return {
-            "global_mini_batch_sizes": coalesce(unit_global_sizes),
-            "global_mini_batch_padding_counts": coalesce(layout["unit_padding_counts"]),
-        }
+        return [
+            sum(unit_global_sizes[start : start + units_per_mini_batch])
+            for start in range(0, len(unit_global_sizes), units_per_mini_batch)
+        ]
 
     def _balance_batch(self, batch: KVBatchMeta, metrics, logging_prefix="global_seqlen"):
         """Build UID-grouped mini-batches, pad each one, and balance it across DP ranks."""
@@ -1715,7 +1706,6 @@ class PPOTrainer(ABC):
         batch.extra_info[_MINIBATCH_LAYOUT_KEY] = {
             "unit_prompt_count": unit_prompt_count,
             "unit_global_sizes": [len(unit) for unit in units],
-            "unit_padding_counts": pad_sizes,
         }
         batch.reorder([j for partition in global_partition_lst for j in partition])
         global_balance_stats = log_seqlen_unbalance(
@@ -1898,7 +1888,7 @@ class PPOTrainer(ABC):
         """Update the critic network."""
         ppo_mini_batch_size = self.config.critic.ppo_mini_batch_size
         extra_info = {
-            **self._get_global_mini_batch_layout(batch, ppo_mini_batch_size),
+            "global_mini_batch_sizes": self._get_global_mini_batch_sizes(batch, ppo_mini_batch_size),
             "epochs": self.config.critic.ppo_epochs,
             "seed": self.config.critic.data_loader_seed,
             "dataloader_kwargs": {"shuffle": False},
@@ -1942,7 +1932,7 @@ class PPOTrainer(ABC):
             "distillation_use_topk": distillation_use_topk,
             "distillation_only": distillation_only,
             "score_centering": score_centering,
-            **self._get_global_mini_batch_layout(batch, ppo_mini_batch_size),
+            "global_mini_batch_sizes": self._get_global_mini_batch_sizes(batch, ppo_mini_batch_size),
             "epochs": self.config.actor_rollout_ref.actor.ppo_epochs,
             "seed": self.config.actor_rollout_ref.actor.data_loader_seed,
             "dataloader_kwargs": {"shuffle": False},

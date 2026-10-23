@@ -101,17 +101,17 @@ class ReplayBuffer:
     The matrix applies to the training partition, in which ``k`` is the number of prompts to evict.
     Validation treats all terminal groups as sampleable
 
-    |   trainer mode   |   drop   |               DAPO               |                 failure                  |
-    | ---------------- | -------- | -------------------------------- | ---------------------------------------- |
-    |       sync       |   NO-OP  |    Evict ``k``; refill ``2k``    | Keep; optionally refill ``k`` empty      |
-    |      async       |                   All the same: Evict ``k``; refill ``k``.                    |
+    |   trainer mode   |   drop   |               DAPO               |            failure            |
+    | ---------------- | -------- | -------------------------------- | ----------------------------- |
+    |       sync       |   NO-OP  |    Evict ``k``; refill ``2k``    |  NO-OP or opt-in refill ``k`` |
+    |      async       |              All the same: Evict ``k``; refill ``k``.                       |
 
     In sync mode, DAPO is opt-in and trades generation time for training stability. Each ``k`` evictions add
     ``2k`` logical refill credits, but prompts are fetched only as bounded pending/running slots become available.
     Terminal groups are filtered while other requests remain in flight. Once enough groups are sampleable, inflight
-    requests are drained and discarded. The built-in sync trainer always keeps partially failed groups that still
-    have trajectories. Depending on ``sync_refill_failed_groups``, it either keeps empty failed groups as consumed
-    prompt slots or evicts and replaces them.
+    requests are drained and discarded. By default, empty failed groups consume prompt slots without producing
+    training rows. Setting ``sync_refill_failed_groups=True`` replaces them; partially failed groups that produced
+    trajectories remain sampleable in either mode.
     In async mode, ``num_warmup_batches`` absorbs retry cost, so all three paths refill exactly ``k`` prompts.
 
     Args:
@@ -507,7 +507,7 @@ class ReplayBuffer:
         if partition_id != "val" and not any(key.split("_")[0] in selected_uids for key in partition_snapshot):
             message = "Sync replay buffer selected terminal groups with no materializable trajectories."
             if not self.sync_refill_failed_groups:
-                message += " Construct ReplayBuffer with sync_refill_failed_groups=True to replace failed groups."
+                message += " Enable trainer.v1.sampler.sync_refill_failed_groups to replace failed groups."
             raise RuntimeError(message)
         return self._materialize_batch(partition_id, selected_prompt_uids, partition_snapshot), eviction_metrics
 

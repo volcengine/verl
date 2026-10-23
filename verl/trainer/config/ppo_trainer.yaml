@@ -291,10 +291,6 @@ trainer:
     # Replay buffer sampling strategy
     sampler:
 
-      # Whether the built-in sync sampler replaces failed prompt groups that produced no trajectories.
-      # If false, PPO trains on the materialized UID groups and allows a partial final mini-batch.
-      sync_refill_failed_groups: false
-
       # Maximum number of model versions that trajectory can span.
       # null disables off-policy version control entirely: no samples are
       # dropped or awaited for staleness (off-policy degree is then only
@@ -305,6 +301,9 @@ trainer:
       # drop: drop the trajectory
       # wait: dropless, wait all trajectories that reach threshold to finish
       max_off_policy_strategy: drop
+
+      # Whether sync trainers replace failed groups that have no trajectories
+      sync_refill_failed_groups: False
 
       # Custom sampler config
       custom_sampler:

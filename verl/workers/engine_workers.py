@@ -244,10 +244,8 @@ class TrainingWorker(Worker, DistProfilerExtension):
     def train_mini_batch(self, data: TensorDict) -> TensorDict:
         """Split one train batch into optimizer mini-batches and run all PPO epochs.
 
-        ``global_mini_batch_sizes`` carries controller-established padded row
-        counts used for slicing. ``global_mini_batch_padding_counts`` carries the
-        number of synthetic rows excluded from loss normalization.
-        Otherwise the legacy fixed-size ``mini_batch_size`` or
+        ``global_mini_batch_sizes`` carries controller-established variable row
+        counts. Otherwise the legacy fixed-size ``mini_batch_size`` or
         ``num_mini_batch`` contract is used.
         """
         maybe_fix_3d_position_ids(data)
@@ -256,7 +254,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
         mini_batch_size = tu.pop(data, key="mini_batch_size", default=None)
         num_mini_batch = tu.pop(data, key="num_mini_batch", default=None)
         global_mini_batch_sizes = tu.pop(data, key="global_mini_batch_sizes", default=None)
-        global_mini_batch_padding_counts = tu.pop(data, key="global_mini_batch_padding_counts", default=None)
         epochs = tu.pop(data, key="epochs", default=1)
         seed = tu.pop(data, key="seed", default=42)
         dataloader_kwargs = tu.pop(data, key="dataloader_kwargs", default={})
@@ -267,21 +264,6 @@ class TrainingWorker(Worker, DistProfilerExtension):
             if mini_batch_size is not None or num_mini_batch is not None:
                 raise ValueError("global_mini_batch_sizes cannot be combined with mini_batch_size or num_mini_batch")
             dp_size = self.engine.get_data_parallel_size()
-            if global_mini_batch_padding_counts is None:
-                raise ValueError("global_mini_batch_padding_counts is required with global_mini_batch_sizes")
-            if len(global_mini_batch_padding_counts) != len(global_mini_batch_sizes):
-                raise ValueError(
-                    "global_mini_batch_padding_counts must have the same length as global_mini_batch_sizes, "
-                    f"got {global_mini_batch_padding_counts} and {global_mini_batch_sizes}"
-                )
-            if any(
-                padding_count < 0 or padding_count >= size
-                for padding_count, size in zip(global_mini_batch_padding_counts, global_mini_batch_sizes, strict=True)
-            ):
-                raise ValueError(
-                    "Each mini-batch padding count must be non-negative and smaller than its padded size, "
-                    f"got padding={global_mini_batch_padding_counts}, padded={global_mini_batch_sizes}"
-                )
             if any(size % dp_size != 0 for size in global_mini_batch_sizes):
                 raise ValueError(
                     f"Every global mini-batch size must be divisible by dp_size={dp_size}, "
@@ -334,11 +316,10 @@ class TrainingWorker(Worker, DistProfilerExtension):
                     global_token_num = None
 
                 if global_mini_batch_sizes is not None:
-                    layout_index = batch_idx % len(global_mini_batch_sizes)
                     tu.assign_non_tensor_data(
                         mini_batch_td,
                         "global_batch_size",
-                        global_mini_batch_sizes[layout_index] - global_mini_batch_padding_counts[layout_index],
+                        global_mini_batch_sizes[batch_idx % len(global_mini_batch_sizes)],
                     )
                 tu.assign_non_tensor(
                     mini_batch_td,
