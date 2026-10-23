@@ -28,24 +28,49 @@ Set the mode with `trainer.v1.trainer_mode`.
 
 ## The V1 Training Loop
 
-All trainer modes process the same number of PPO mini-batches per global step:
+Each global step consumes `data.train_batch_size` samples. For `sync` and `colocate_async`,
+`parameter_sync_step=1`. In `separate_async`, `parameter_sync_step` is exactly the number of PPO
+mini-batches in one global step (per PPO epoch): each local update processes one PPO mini-batch. For
+example, a train batch of 64 with a PPO mini-batch size of 16 requires `parameter_sync_step=4`.
 
-```text
-mini-batches per PPO epoch
-  = data.train_batch_size / actor_rollout_ref.actor.ppo_mini_batch_size
-```
-
-The modes differ in where this split happens. `sync` and `colocate_async` sample the full training batch in one controller round, then the actor worker divides it into PPO mini-batches. `separate_async` streams one PPO mini-batch through the controller at a time, overlapping rollout with mini-batch training.
-
-The following invariant makes `parameter_sync_step` equal to the number of PPO mini-batches in `separate_async`:
+`separate_async` enforces:
 
 ```text
 data.train_batch_size
   = trainer.v1.separate_async.parameter_sync_step
-  × actor_rollout_ref.actor.ppo_mini_batch_size
+    × actor_rollout_ref.actor.ppo_mini_batch_size
 ```
 
-For example, a train batch of 64 with a PPO mini-batch of 16 requires `parameter_sync_step=4`.
+More generally, the controller divides a global step into `parameter_sync_step` local updates:
+
+```text
+local batch size
+  = data.train_batch_size / parameter_sync_step
+```
+
+Within each local update, the actor worker divides the local batch into PPO mini-batches:
+
+```text
+PPO mini-batches per local update, per PPO epoch
+  = local batch size
+    / actor_rollout_ref.actor.ppo_mini_batch_size
+  = data.train_batch_size
+    / parameter_sync_step
+    / actor_rollout_ref.actor.ppo_mini_batch_size
+```
+
+Therefore, across all local updates in one global step:
+
+```text
+PPO mini-batches per global step, per PPO epoch
+  = data.train_batch_size
+    / actor_rollout_ref.actor.ppo_mini_batch_size
+```
+
+When `ppo_epochs > 1`, each local batch completes all PPO epochs before the next local batch is
+processed. For example, with three epochs, the order is `batch1 × 3, batch2 × 3, ...`, rather than
+iterating over the complete global batch once per epoch. The formulas above assume exact divisibility;
+otherwise, the trainer may pad a local batch to the required multiple.
 
 ## Partial Rollout and Staleness
 
