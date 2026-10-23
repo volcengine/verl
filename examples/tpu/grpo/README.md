@@ -147,3 +147,22 @@ The scripts take their settings from environment variables, e.g. `-- RAY_DATA_HO
    The 4B run takes about 10 minutes to start, then about 18-27 s per step (~22 s average over 100 steps).
 
 To scale further to **2 `v6e-8` slices (16 chips)**, create two multi-host node pools with `--machine-type ct6e-standard-4t --num-nodes 2 --tpu-topology 2x4`, set `numOfHosts: 2` and `cloud.google.com/gke-tpu-topology: 2x4` (with `memory: 400Gi`, `cpu: "48"`, `google.com/tpu: "4"`) in [`ray-tpu-v6e-2slice.yaml`](ray-tpu-v6e-2slice.yaml), and run with `NNODES_TRAINER=2 N_CHIPS_TRAINER=4 NNODES_ROLLOUT=2 N_CHIPS_ROLLOUT=4`.
+
+## 7. TPU 7x numerics: `--xla_tpu_bf16_emission_mode=PROMOTE_F32`
+
+Both scripts export this flag in `LIBTPU_INIT_ARGS`. On TPU 7x, XLA's default emission mode compiles bf16
+transcendental chains (sigmoid, SiLU, tanh-GELU) natively in bf16, rounding at every step; on v6e the same
+chains are promoted to f32 and rounded once at the end. The difference is visible in the compiled HLO and its
+effect on Qwen3 is large: about 1.8x the SiLU error and 5x the logits error against an fp32 reference, greedy
+GSM8K evaluations inflated by about 8 pp, and a trainer/rollout `ppo_kl` of 0.008-0.010 instead of about 0.0015.
+
+With the flag, TPU 7x compiles these chains exactly like v6e. Measured on TPU 7x: rollout throughput -0.4%,
+trainer step time unchanged; a 10-step Qwen3-4B GRPO run with only this flag matched v6e end to end (step-0
+GSM8K 0.5466 vs 0.5504, `ppo_kl` 0.0011-0.0021). On v6e the flag changes nothing.
+
+- The flag only governs XLA-compiled ops. Pallas kernels, such as the attention, cast on their own.
+- It is an internal `xla_tpu_*` flag: keep it pinned together with the image's libtpu version and re-check it
+  on libtpu upgrades.
+- It has to reach the trainer and the rollout processes, which `verl-hardware-plugin` does by forwarding the
+  driver's `LIBTPU_INIT_ARGS` to every Ray worker. To check, look for
+  `argv[...]: '--xla_tpu_bf16_emission_mode=PROMOTE_F32'` in the libtpu start-up dump of a TPU worker.
