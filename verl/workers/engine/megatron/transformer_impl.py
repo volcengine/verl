@@ -99,6 +99,20 @@ def _resolve_fused_temperature(temperature: float | torch.Tensor) -> float:
     return max(float(values[0].item()), 1e-8)
 
 
+def _use_qat_layer_spec(provider, provider_overrides: dict) -> None:
+    """Build the model from ModelOpt's layer spec so QAT can insert its quantizers.
+
+    With ``use_arbitrary_attention_mask`` unset, ``modelopt_transformer_layer_spec`` turns it on whenever
+    CP=1 (the mask is meant for speculative-decoding training), and TE then rejects verl's packed THD
+    sequences ("Attention mask type must be padding or padding_causal for qkv_format=thd"). Default it off,
+    which keeps the causal mask of the non-QAT TE spec; an explicit ``override_transformer_config`` wins.
+    """
+    from megatron.bridge.models.gpt_provider import modelopt_transformer_layer_spec
+
+    provider.transformer_layer_spec = modelopt_transformer_layer_spec
+    provider_overrides.setdefault("use_arbitrary_attention_mask", False)
+
+
 def _validate_dcp_world_size(dpcp_size: int) -> None:
     """Validate the topology accepted by Megatron-Core's dynamic group builder."""
     if dpcp_size < 2 or dpcp_size % 2 != 0:
@@ -367,9 +381,7 @@ class MegatronEngine(BaseEngine):
                 provider_overrides["enable_routing_replay"] = True
 
         if self._qat_enabled:
-            from megatron.bridge.models.gpt_provider import modelopt_transformer_layer_spec
-
-            provider.transformer_layer_spec = modelopt_transformer_layer_spec
+            _use_qat_layer_spec(provider, provider_overrides)
 
         # Megatron-Bridge >= v0.5.0 provides apply_overrides_and_finalize.
         # Megatron-Bridge <  v0.5.0 does not, so we fall back to manual setattr + finalize.
