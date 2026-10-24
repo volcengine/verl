@@ -231,34 +231,44 @@ def run_test(in_outs, test=None, debug=False, timeout=15):
         for index, inputs in enumerate(in_outs["inputs"]):
             raw_inputs = inputs
             raw_outputs = in_outs["outputs"][index]
+            is_json_line_input = False
             if which_type == CODE_TYPE.call_based:
-                inputs = [json.loads(line) for line in inputs.split("\n")]
-                in_outs["outputs"][index] = json.loads(in_outs["outputs"][index])
-
-                truncate_line_size = 300 // (raw_inputs.count("\n") + 1)
-                raw_inputs = "\n".join(
-                    [truncatefn(line, truncate_line_size) for line in raw_inputs.strip().split("\n")]
-                )
-                raw_outputs = truncatefn(raw_outputs, 200)
+                if isinstance(inputs, str):
+                    is_json_line_input = True
+                    inputs = [json.loads(line) for line in inputs.split("\n")]
+                    if isinstance(in_outs["outputs"][index], str):
+                        try:
+                            in_outs["outputs"][index] = json.loads(in_outs["outputs"][index])
+                        except json.JSONDecodeError:
+                            pass
+                    truncate_line_size = 300 // (raw_inputs.count("\n") + 1)
+                    raw_inputs = "\n".join(
+                        [truncatefn(line, truncate_line_size) for line in raw_inputs.strip().split("\n")]
+                    )
+                else:
+                    raw_inputs = truncatefn(str(raw_inputs))
+                raw_outputs = truncatefn(raw_outputs if isinstance(raw_outputs, str) else str(raw_outputs), 200)
             else:
+                is_json_line_input = True
                 raw_inputs = truncatefn(raw_inputs)
                 raw_outputs = truncatefn(raw_outputs, 200)
             # JSON forces dictionaries to have string keys; this undoes this (assuming a singleton list)
-            try:
-                if isinstance(inputs[0], dict):
-                    inputs = [{int(k): v for k, v in inputs[0].items()}]
-            except Exception:
-                pass
-            try:
-                if isinstance(in_outs["outputs"][index], dict):
-                    in_outs["outputs"][index] = [{int(k): v for k, v in in_outs["outputs"][index].items()}]
-            except Exception:
-                pass
-            try:
-                if isinstance(in_outs["outputs"][index][0], dict):
-                    in_outs["outputs"][index] = [{int(k): v for k, v in in_outs["outputs"][index][0].items()}]
-            except Exception:
-                pass
+            if is_json_line_input:
+                try:
+                    if isinstance(inputs[0], dict):
+                        inputs = [{int(k): v for k, v in inputs[0].items()}]
+                except Exception:
+                    pass
+                try:
+                    if isinstance(in_outs["outputs"][index], dict):
+                        in_outs["outputs"][index] = [{int(k): v for k, v in in_outs["outputs"][index].items()}]
+                except Exception:
+                    pass
+                try:
+                    if isinstance(in_outs["outputs"][index][0], dict):
+                        in_outs["outputs"][index] = [{int(k): v for k, v in in_outs["outputs"][index][0].items()}]
+                except Exception:
+                    pass
 
             if debug:
                 print(
