@@ -495,7 +495,7 @@ class AgentLoopBase(ABC):
                 len(prompt_ids),
                 prompt_length,
             )
-            head = (prompt_length + 1) // 2
+            head = prompt_length // 2
             tail_length = prompt_length - head
             return prompt_ids[:head] + prompt_ids[len(prompt_ids) - tail_length:]
 

@@ -85,24 +85,35 @@ def test_right_keeps_head():
     assert loop._cap_text_prompt_length([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) == [0, 1, 2, 3]
 
 
-@pytest.mark.parametrize("prompt_length", [4, 5, 6])
-def test_middle_keeps_head_and_tail(prompt_length: int):
+@pytest.mark.parametrize(
+    ("prompt_length", "expected"),
+    [
+        # extra token of an odd cap goes to the tail, matching
+        # verl.utils.torch_functional.postprocess_data (left_half = cap // 2).
+        (1, [9]),
+        (2, [0, 9]),
+        (3, [0, 8, 9]),
+        (4, [0, 1, 8, 9]),
+        (5, [0, 1, 7, 8, 9]),
+        (6, [0, 1, 2, 7, 8, 9]),
+    ],
+)
+def test_middle_keeps_head_and_tail(prompt_length: int, expected: list[int]):
     """``middle`` truncation keeps head+tail of roughly half each side."""
     loop = _make_loop(prompt_length, "middle")
     out = loop._cap_text_prompt_length(list(range(10)))
-    assert len(out) == prompt_length, f"middle should preserve the cap length: {out}"
-    assert out[0] == 0, f"head must be preserved: {out}"
-    assert out[-1] == 9, f"tail must be preserved: {out}"
-    # head+tail halves partition the original sequence with no duplication.
-    assert out == out[: (prompt_length + 1) // 2] + list(range(10))[-(prompt_length - (prompt_length + 1) // 2) :]
+    assert out == expected, f"middle should match postprocess_data split: {out}"
+    head = prompt_length // 2
+    assert out[:head] == list(range(10))[:head], f"head must be preserved: {out}"
+    assert out[head:] == list(range(10))[10 - (prompt_length - head) :], f"tail must be preserved: {out}"
 
 
 def test_middle_cap1_does_not_extend_prompt():
-    """``middle`` at cap=1 must not select the whole list via ``[-0:]``."""
+    """Regression: at cap=1 the old ``[-(0):]`` tail slice selected the whole list."""
     loop = _make_loop(1, "middle")
     out = loop._cap_text_prompt_length(list(range(10)))
     assert len(out) == 1
-    assert out == [0]
+    assert out == [9]
 
 
 def test_unknown_policy_raises():
