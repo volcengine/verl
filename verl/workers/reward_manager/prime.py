@@ -45,6 +45,7 @@ async def single_compute_score(evaluation_func, completion, reference, task, tas
 async def parallel_compute_score_async(
     evaluation_func, completions, references, tasks, extra_info=None, num_processes=64
 ):
+    """Evaluate a batch of completions in parallel using a ProcessPoolExecutor and return float scores."""
     if extra_info is None:
         extra_info = [None] * len(tasks)
     scores = []
@@ -83,6 +84,8 @@ async def parallel_compute_score_async(
             scores.append(0.0)
         elif isinstance(result, int | float | bool):
             scores.append(float(result))
+        elif isinstance(result, dict):
+            scores.append(float(result["score"]))
         else:
             scores.append(float(result[0]))
     return scores
