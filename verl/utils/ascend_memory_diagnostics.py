@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -49,6 +50,7 @@ def snapshot(destination, detailed=True):
         "buddyinfo",
         "vmstat",
         "self/status",
+        "thread-self/status",
         "self/limits",
         "self/cgroup",
         "self/mountinfo",
@@ -56,6 +58,7 @@ def snapshot(destination, detailed=True):
         (destination / name.replace("/", "_")).write_text(read("/proc/" + name))
     if detailed:
         (destination / "pagetypeinfo").write_text(read("/proc/pagetypeinfo"))
+        (destination / "self_numa_maps").write_text(read("/proc/self/numa_maps"))
     for node in Path("/sys/devices/system/node").glob("node[0-9]*"):
         (destination / (node.name + "_meminfo")).write_text(read(node / "meminfo"))
     memberships = [line.split(":", 2) for line in read("/proc/self/cgroup").splitlines() if line.count(":") == 2]
@@ -104,7 +107,7 @@ def record(folder, **details):
     try:
         snapshot(folder, detailed=folder.name in {"installed", "failed", "initial", "final"})
         (folder / "self_maps").write_text(read("/proc/self/maps"))
-        details.update(time=now(), pid=os.getpid(), ppid=os.getppid())
+        details.update(time=now(), pid=os.getpid(), ppid=os.getppid(), tid=threading.get_native_id())
         (folder / "event.json").write_text(json.dumps(details, indent=2, default=str))
     except Exception as exc:
         print(f"Ascend memory diagnostic failed: {exc!r}", file=sys.stderr, flush=True)
@@ -115,13 +118,13 @@ def install():
     if not root:
         return
     import torch
+    from vllm_ascend.device_allocator import camem
 
-    if getattr(torch.empty, "_ascend_memory_diagnostics", False):
+    if getattr(camem, "_verl_memory_diagnostics", False):
         return
     original = torch.empty
     sequence = itertools.count()
     worker = Path(root) / "workers" / str(os.getpid())
-    record(worker / "installed", torch_version=torch.__version__)
 
     @functools.wraps(original)
     def empty(*args, **kwargs):
@@ -148,13 +151,27 @@ def install():
         record(allocation / "after", elapsed_s=time.monotonic() - started)
         return result
 
-    empty._ascend_memory_diagnostics = True
-    torch.empty = empty
+    class AllocatorTorchProxy:
+        # Keep global torch.empty's identity intact: device contexts and Dynamo
+        # rely on it. Only the allocator module's explicit calls are intercepted.
+        def __getattr__(self, name):
+            return empty if name == "empty" else getattr(torch, name)
+
+    camem.torch = AllocatorTorchProxy()
+    camem._verl_memory_diagnostics = True
+    record(
+        worker / "installed",
+        torch_version=torch.__version__,
+        hook="vllm_ascend.device_allocator.camem.torch.empty",
+        global_torch_empty_unchanged=torch.empty is original,
+        allocator_source=camem.__file__,
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--host-only", action="store_true", help="Sample host state without allocation interception")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command
@@ -164,13 +181,19 @@ def main():
         parser.error("a workload command is required after --")
     root = Path(args.output).resolve()
     root.mkdir(parents=True, exist_ok=False)
-    os.environ["VERL_ASCEND_MEMORY_DIAGNOSTICS"] = str(root)
+    os.environ["VERL_ASCEND_MEMORY_DIAGNOSTICS"] = "" if args.host_only else str(root)
     for name, cmd in {
         "uname.txt": ["uname", "-a"],
         "npu-smi.txt": ["npu-smi", "info"],
         "packages.txt": [sys.executable, "-m", "pip", "list"],
         "kernel-before.txt": ["dmesg", "-T"],
         "revision.txt": ["git", "rev-parse", "HEAD"],
+        "source-hashes.txt": [
+            "sha256sum",
+            __file__,
+            "tests/special_npu/run_qwen3_06b_ppo.sh",
+            "verl/workers/rollout/vllm_rollout/utils.py",
+        ],
     }.items():
         capture(root, name, cmd)
     record(root / "initial", command=command)
@@ -196,16 +219,17 @@ def main():
             sleep_allocations.append(str(event.relative_to(root)))
     summary = {
         "exit_code": child.returncode,
+        "host_only": args.host_only,
         "instrumented_workers": len(installed),
         "pinned_allocation_requests": len(allocations),
         "failed_allocations": len(failures),
         "vllm_ascend_sleep_allocations": sleep_allocations,
     }
     (root / "summary.json").write_text(json.dumps(summary, indent=2))
-    print(json.dumps(summary), flush=True)
+    print(json.dumps({**summary, "vllm_ascend_sleep_allocations": len(sleep_allocations)}), flush=True)
     if child.returncode:
         return child.returncode if child.returncode > 0 else 128 - child.returncode
-    if not sleep_allocations:
+    if not args.host_only and not sleep_allocations:
         print("Diagnostic incomplete: no instrumented vllm_ascend sleep allocation observed", file=sys.stderr)
         return 2
     return 0
