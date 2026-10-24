@@ -320,7 +320,24 @@ class vLLMColocateWorkerExtension:
                 base_sync_done=base_sync_done,
             )
 
-        receiver.receive_weights(on_bucket_received=on_bucket_received)
+        # Finish the receiver handshake before reporting a bucket error, as the delta path does: the sender waits
+        # for every bucket's ack, so an error raised inside the receiver would leave it, and the trainer behind it,
+        # blocked for good. Buckets after the failed one are acked unread; the error is raised once the sender is done.
+        # Interrupts are not caught, so they still stop the worker at once.
+        bucket_error: Exception | None = None
+
+        def load_or_skip(weights: list[tuple[str, torch.Tensor]], is_last: bool) -> None:
+            nonlocal bucket_error
+            if bucket_error is not None:
+                return
+            try:
+                on_bucket_received(weights, is_last)
+            except Exception as exc:
+                bucket_error = exc
+
+        receiver.receive_weights(on_bucket_received=load_or_skip)
+        if bucket_error is not None:
+            raise bucket_error
 
         # =========================== step 3: process weights after loading ===========================
         if peft_config and base_sync_done:
