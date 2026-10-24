@@ -21,16 +21,14 @@ import torch
 
 from verl.utils.quant_layer_audit import (
     FP8_WORKSPACE_SEEN_ATTR,
-    QuantLayerAuditor,
+    TrainExportAudit,
     audit_train_vs_export,
     collect_train_fp8_report,
     exported_weight,
     fp8_recipe_of,
-    merge_worker_methods,
     remember_fp8_workspaces,
     trace,
     unjudged_weights,
-    vllm_quant_methods,
 )
 
 N_LAYERS = 4
@@ -125,8 +123,8 @@ def _export(names, quantizes=_preset_quantizes):
 
 
 def _recorded(names, quantizes=_preset_quantizes):
-    auditor = QuantLayerAuditor("warn")
-    list(auditor.record(iter(_export(names, quantizes))))
+    auditor = TrainExportAudit("warn")
+    list(auditor.wrap_export(iter(_export(names, quantizes))))
     return auditor.exported
 
 
@@ -230,8 +228,8 @@ def test_packed_fp4_weights_count_as_quantized():
         (n + "_packed", torch.zeros(4, 32, dtype=torch.uint8)) if _preset_quantizes(n) else (n, torch.zeros(4))
         for n in _hf_names()
     ]
-    auditor = QuantLayerAuditor("warn")
-    list(auditor.record(iter(stream)))
+    auditor = TrainExportAudit("warn")
+    list(auditor.wrap_export(iter(stream)))
     assert auditor.exported["model.layers.1.mlp.down_proj.weight"] == (True, "packed FP4")
     assert audit_train_vs_export(r, auditor.exported)[0] == []
 
@@ -251,86 +249,88 @@ def test_pipeline_rank_only_judges_its_own_layers():
 
 
 def test_auditor_waits_for_the_first_training_step_then_runs_once(caplog):
-    auditor = QuantLayerAuditor("warn")
+    auditor = TrainExportAudit("warn")
     weights = _export(_hf_names())
 
     # sync 0: no training step yet -> no workspaces -> not run, keeps waiting
-    assert list(auditor.record(iter(weights))) == weights
-    assert auditor.run([_Chunk(quantized_layers=set())]) is None and not auditor.done
+    assert list(auditor.wrap_export(iter(weights))) == weights
+    assert auditor.compare_with_training([_Chunk(quantized_layers=set())]) is None and not auditor.finished
     # sync 1: workspaces present (layers 0 and 3 kept bf16 in training) -> runs, warns, marks done
-    list(auditor.record(iter(weights)))
-    problems = auditor.run([_Chunk(quantized_layers={1, 2})])
-    assert len(problems) == 2 * 7 and auditor.done  # 7 projection weights per bf16 layer
+    list(auditor.wrap_export(iter(weights)))
+    problems = auditor.compare_with_training([_Chunk(quantized_layers={1, 2})])
+    assert len(problems) == 2 * 7 and auditor.finished  # 7 projection weights per bf16 layer
     assert "training and the exported weights disagree on 14 weight(s)" in caplog.text
     # later syncs: pass-through, no re-run
-    assert list(auditor.record(iter(weights))) == weights and auditor.run([]) is None
+    assert list(auditor.wrap_export(iter(weights))) == weights and auditor.compare_with_training([]) is None
 
 
 def test_auditor_raise_mode_and_disabled_mode():
-    auditor = QuantLayerAuditor("raise")
-    list(auditor.record(iter(_export(_hf_names()))))
+    auditor = TrainExportAudit("raise")
+    list(auditor.wrap_export(iter(_export(_hf_names()))))
     with pytest.raises(RuntimeError, match="disagree"):
-        auditor.run([_Chunk(quantized_layers={1, 2})])
-    off = QuantLayerAuditor("0")
-    assert not off.enabled and off.run([_Chunk(quantized_layers={0})]) is None
-    assert not QuantLayerAuditor("warn", enabled=False).enabled
+        auditor.compare_with_training([_Chunk(quantized_layers={1, 2})])
+    off = TrainExportAudit("0")
+    assert not off.enabled and off.compare_with_training([_Chunk(quantized_layers={0})]) is None
+    assert not TrainExportAudit("warn", enabled=False).enabled
 
 
 def test_create_arms_only_for_a_te_fp8_trainer_with_a_quantized_rollout(monkeypatch, caplog):
     monkeypatch.delenv("VERL_QUANT_LAYER_AUDIT", raising=False)
-    armed = QuantLayerAuditor.create(rollout_quantized=True, trainer_fp8_recipe="mxfp8", rollout_name="vllm")
+    armed = TrainExportAudit.create(rollout_quantized=True, trainer_fp8_recipe="mxfp8", rollout_name="vllm")
     assert armed.enabled and armed.engine == "vllm" and armed.mode == "warn"
-    assert "quantized-layer audit: armed" in caplog.text
+    assert "quantized-layer audit, training vs export: armed" in caplog.text
     caplog.clear()
     for quantized, recipe in ((True, None), (False, "mxfp8")):
-        assert not QuantLayerAuditor.create(
+        assert not TrainExportAudit.create(
             rollout_quantized=quantized, trainer_fp8_recipe=recipe, rollout_name="vllm"
         ).enabled
     assert "not armed" in caplog.text and not any(r.levelno >= logging.WARNING for r in caplog.records)
     monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT", "0")
-    assert not QuantLayerAuditor.create(rollout_quantized=True, trainer_fp8_recipe="mxfp8", rollout_name="vllm").enabled
+    assert not TrainExportAudit.create(rollout_quantized=True, trainer_fp8_recipe="mxfp8", rollout_name="vllm").enabled
 
 
 def test_record_runs_the_comparison_when_the_weight_stream_ends():
     # Wrapping the producer's stream is enough: the verdict does not depend on which sync route consumes it.
-    aud = QuantLayerAuditor("warn", engine="sglang")
+    aud = TrainExportAudit("warn", engine="sglang")
     weights = _export(_hf_names())
     chunk = _Chunk(quantized_layers={1, 2})  # layers 0 and 3 stayed bf16 in training
-    stream = aud.record(iter(weights), modules=[chunk])
-    assert not aud.done  # nothing happens until the stream is consumed
-    assert list(stream) == weights and aud.done  # passed through untouched, and the verdict was reached
+    stream = aud.wrap_export(iter(weights), training_modules=[chunk])
+    assert not aud.finished  # nothing happens until the stream is consumed
+    assert list(stream) == weights and aud.finished  # passed through untouched, and the verdict was reached
 
     # raise mode propagates out of the consumer, which is what stops a mismatched run
-    strict = QuantLayerAuditor("raise", engine="sglang")
+    strict = TrainExportAudit("raise", engine="sglang")
     with pytest.raises(RuntimeError, match="disagree"):
-        list(strict.record(iter(weights), modules=[chunk]))
+        list(strict.wrap_export(iter(weights), training_modules=[chunk]))
 
     # disabled auditor: pure pass-through, no comparison
-    off = QuantLayerAuditor("warn", enabled=False)
-    assert list(off.record(iter(weights), modules=[chunk])) == weights and not off.done
+    off = TrainExportAudit("warn", enabled=False)
+    assert list(off.wrap_export(iter(weights), training_modules=[chunk])) == weights and not off.finished
 
 
 def test_init_sync_then_training_sync_produces_a_verdict():
     # The pre-training-step sync has no FP8 workspace yet; it must not mark the audit done, or the first
     # real training-step sync would be skipped.
-    aud = QuantLayerAuditor("warn", engine="sglang")
+    aud = TrainExportAudit("warn", engine="sglang")
     weights = _export(_hf_names())
     empty = [_Chunk(quantized_layers=set())]
-    list(aud.record(iter(weights), modules=empty))
-    assert not aud.done and aud.syncs_seen == 1
-    assert aud.run(empty) is None and not aud.done  # a second run() on the same sync: still waiting
-    list(aud.record(iter(weights), modules=[_Chunk(quantized_layers={1, 2})]))
-    assert aud.done and aud.wants_engine_recheck()
+    list(aud.wrap_export(iter(weights), training_modules=empty))
+    assert not aud.finished and aud.syncs_seen == 1
+    assert (
+        aud.compare_with_training(empty) is None and not aud.finished
+    )  # a second run() on the same sync: still waiting
+    list(aud.wrap_export(iter(weights), training_modules=[_Chunk(quantized_layers={1, 2})]))
+    assert aud.finished
 
 
 def test_two_inactive_syncs_give_up_and_warn(caplog):
-    aud = QuantLayerAuditor("warn", engine="sglang")
+    aud = TrainExportAudit("warn", engine="sglang")
     weights = _export(_hf_names())
     empty = [_Chunk(quantized_layers=set())]
-    list(aud.record(iter(weights), modules=empty))
-    assert not aud.done and "produced no verdict" not in caplog.text
-    list(aud.record(iter(weights), modules=empty))
-    assert aud.done and "produced no verdict" in caplog.text and "0 of 4 decoder layers" in caplog.text
+    list(aud.wrap_export(iter(weights), training_modules=empty))
+    assert not aud.finished and "produced no verdict" not in caplog.text
+    list(aud.wrap_export(iter(weights), training_modules=empty))
+    assert aud.finished and "produced no verdict" in caplog.text and "0 of 4 decoder layers" in caplog.text
 
 
 def test_auditor_names_disable_parameter_transpose_cache_as_the_cause(caplog):
@@ -338,9 +338,9 @@ def test_auditor_names_disable_parameter_transpose_cache_as_the_cause(caplog):
     for m in chunk.modules():
         if isinstance(m, _TELinear):
             m.disable_parameter_transpose_cache = True
-    auditor = QuantLayerAuditor("warn")
-    list(auditor.record(iter(_export(_hf_names()))))
-    assert auditor.run([chunk]) is None and auditor.done
+    auditor = TrainExportAudit("warn")
+    list(auditor.wrap_export(iter(_export(_hf_names()))))
+    assert auditor.compare_with_training([chunk]) is None and auditor.finished
     assert "disable_parameter_transpose_cache=True" in caplog.text and "produced no verdict" in caplog.text
 
 
@@ -363,181 +363,14 @@ def test_audit_survives_param_offload_clearing_the_te_workspaces():
     assert not hasattr(chunk.decoder.layers[0].mlp.linear_fc1, FP8_WORKSPACE_SEEN_ATTR)
 
 
-def _engine_methods(names, unquantized=()):
-    """What a vLLM engine on the MXFP8 preset reports for each exported weight; ``unquantized`` modules skipped."""
-    methods = {}
-    for name in names:
-        if name.startswith(tuple(unquantized)) or not _preset_quantizes(name):
-            methods[name] = "UnquantizedLinearMethod"
-        else:
-            methods[name] = "CompressedTensorsLinearMethod (CompressedTensorsW8A8Mxfp8)"
-    return methods
-
-
-def test_engine_recheck_catches_an_engine_that_matched_a_module_differently(caplog):
-    # Training and the export agree; the engine skipped every gate_up_proj (vLLM 0.24's ModelOpt matcher read
-    # the router exclusion mlp.gate as a prefix of mlp.gate_up_proj), so gate_proj and up_proj land unquantized.
-    names = _hf_names()
-    aud = QuantLayerAuditor("warn", engine="vllm")
-    list(aud.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
-    assert aud.done and aud.wants_engine_recheck()
-    skipped = [f"model.layers.{i}.mlp.{p}" for i in range(N_LAYERS) for p in ("gate_proj", "up_proj")]
-    problems = aud.recheck_against_engine(_engine_methods(names, skipped))
-    assert _problem_names(problems) == {name + ".weight" for name in skipped}
-    assert all(
-        "sends it in float8_e4m3fn, the engine module that receives it runs UnquantizedLinearMethod" in p
-        for p in problems
-    )
-    assert "the exported weights and the vllm engine disagree on 8 weight(s)" in caplog.text
-    assert not aud.wants_engine_recheck()  # asked once
-
-
-def test_engine_recheck_runs_at_the_first_sync_before_any_training_step(caplog):
-    # Export vs engine needs no training-side trace: at the first weight sync, before any step (no FP8 workspace
-    # yet), the engine is asked, so a mismatch is reported before the first rollout. Training vs export still waits.
-    names = _hf_names()
-    skipped = [f"model.layers.{i}.mlp.{p}" for i in range(N_LAYERS) for p in ("gate_proj", "up_proj")]
-    empty = [_Chunk(quantized_layers=set())]
-    aud = QuantLayerAuditor("warn", engine="vllm")
-    assert not aud.wants_engine_recheck()  # nothing exported yet
-    list(aud.record(iter(_export(names)), modules=empty))  # the init sync
-    assert not aud.done and aud.wants_engine_recheck()
-    problems = aud.recheck_against_engine(_engine_methods(names, skipped))
-    assert _problem_names(problems) == {name + ".weight" for name in skipped}
-    assert "the exported weights and the vllm engine disagree on 8 weight(s)" in caplog.text
-    # the first sync after a training step reaches the training-vs-export verdict; the engine is not asked again
-    list(aud.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
-    assert aud.done and not aud.wants_engine_recheck()
-    assert aud.recheck_against_engine(_engine_methods(names, skipped)) is None
-    # raise mode stops the run at the init sync
-    strict = QuantLayerAuditor("raise", engine="vllm")
-    list(strict.record(iter(_export(names)), modules=empty))
-    with pytest.raises(RuntimeError, match="disagree on 8 weight"):
-        strict.recheck_against_engine(_engine_methods(names, skipped))
-
-
-def test_engine_recheck_reports_agreement_once(caplog):
-    names = _hf_names()
-    aud = QuantLayerAuditor("warn", engine="vllm")
-    list(aud.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
-    methods = _engine_methods(names)
-    methods["model.norm.weight"] = None  # not resolved onto an engine module: not judged
-    assert aud.recheck_against_engine(methods) == []
-    assert "match the vllm engine's quant methods" in caplog.text
-    assert aud.recheck_against_engine(methods) is None  # not repeated
-    # a rank whose rollout cannot be asked counts as asked
-    silent = QuantLayerAuditor("warn", engine="vllm")
-    list(silent.record(iter(_export(names)), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
-    assert silent.recheck_against_engine(None) is None and not silent.wants_engine_recheck()
-
-
-class CompressedTensorsLinearMethod:
-    pass
-
-
-class UnquantizedLinearMethod:
-    pass
-
-
-class UnquantizedEmbeddingMethod:
-    pass
-
-
-class CompressedTensorsW8A8Mxfp8:
-    pass
-
-
-class CompressedTensorsW8A8Mxfp8MoEMethod:
-    pass
-
-
-class PPMissingLayer(torch.nn.Module):
-    pass
-
-
-def _vllm_linear(quantized=True):
-    module = torch.nn.Module()
-    if quantized:
-        module.quant_method = CompressedTensorsLinearMethod()
-        module.scheme = CompressedTensorsW8A8Mxfp8()
-    else:
-        module.quant_method = UnquantizedLinearMethod()
-    return module
-
-
-def _vllm_model():
-    """A vLLM-shaped Qwen-MoE-ish model: fused qkv / gate_up, a MoE runner, a LoRA wrapper, a PP stub."""
-    model = torch.nn.Module()
-    model.packed_modules_mapping = {
-        "qkv_proj": ["q_proj", "k_proj", "v_proj"],
-        "gate_up_proj": ["gate_proj", "up_proj"],
-    }
-    model.model = torch.nn.Module()
-    layer = torch.nn.Module()
-    layer.self_attn = torch.nn.Module()
-    layer.self_attn.qkv_proj = _vllm_linear()
-    lora = torch.nn.Module()
-    lora.base_layer = _vllm_linear()
-    layer.self_attn.o_proj = lora
-    layer.mlp = torch.nn.Module()
-    layer.mlp.gate = _vllm_linear(quantized=False)
-    layer.mlp.gate_up_proj = _vllm_linear()
-    runner = torch.nn.Module()
-    runner.routed_experts = torch.nn.Module()
-    runner.routed_experts.w13_weight = torch.nn.Parameter(torch.zeros(1), requires_grad=False)
-    runner.routed_experts.quant_method = CompressedTensorsW8A8Mxfp8MoEMethod()
-    layer.mlp.experts = runner
-    model.model.layers = torch.nn.ModuleList([layer, PPMissingLayer()])
-    model.lm_head = torch.nn.Module()
-    model.lm_head.quant_method = UnquantizedEmbeddingMethod()
-    model.model.norm = torch.nn.Module()  # no quant_method at all
-    return model
-
-
-def test_vllm_quant_methods_resolves_hf_names_onto_the_receiving_modules():
-    mxfp8 = "CompressedTensorsLinearMethod (CompressedTensorsW8A8Mxfp8)"
-    expected = {
-        "model.layers.0.self_attn.k_proj.weight": mxfp8,  # packed into qkv_proj
-        "model.layers.0.self_attn.o_proj.weight": mxfp8,  # through the LoRA wrapper's base_layer
-        "model.layers.0.mlp.gate.weight": "UnquantizedLinearMethod",
-        "model.layers.0.mlp.up_proj.weight": mxfp8,
-        "model.layers.0.mlp.experts.3.down_proj.weight": "CompressedTensorsW8A8Mxfp8MoEMethod",
-        "model.layers.0.mlp.experts.gate_up_proj": "CompressedTensorsW8A8Mxfp8MoEMethod",
-        "lm_head.weight": "UnquantizedEmbeddingMethod",
-        "model.norm.weight": "unquantized (no quant_method)",
-        "model.layers.1.self_attn.q_proj.weight": None,  # another pipeline stage owns this layer
-        "model.visual.blocks.0.attn.qkv.weight": None,  # no such module
-    }
-    assert dict(zip(expected, vllm_quant_methods(_vllm_model(), expected), strict=True)) == expected
-
-
-def test_vllm_quant_methods_applies_the_hf_to_vllm_mapper():
-    model = _vllm_model()
-
-    class _Mapper:
-        def apply_list(self, names):
-            return [n.replace("model.language_model.", "model.") for n in names if not n.startswith("drop.")]
-
-    model.hf_to_vllm_mapper = _Mapper()
-    methods = vllm_quant_methods(model, ["model.language_model.layers.0.mlp.gate.weight", "drop.me.weight"])
-    assert methods == ["UnquantizedLinearMethod", None]
-
-
-def test_merge_worker_methods_takes_the_first_worker_that_resolves_a_name():
-    names = ["a.weight", "b.weight"]
-    assert merge_worker_methods(names, [[None, "X"], ["Y", "Z"]]) == {"a.weight": "Y", "b.weight": "X"}
-    assert merge_worker_methods(names, [["only-one"], ["Y", None]]) == {"a.weight": "Y", "b.weight": None}
-    assert merge_worker_methods(names, None) is None and merge_worker_methods(names, [["x"]]) is None
-
-
 def test_trace_is_silent_unless_enabled(monkeypatch, caplog):
     monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT_TRACE", "0")
     trace("should-not-appear")
     assert "should-not-appear" not in caplog.text
     monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT_TRACE", "1")
-    aud = QuantLayerAuditor("warn", engine="sglang")
-    list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers={1, 2})]))
-    for where in ("trace: record", "record.stream_end", "trace: run"):
+    aud = TrainExportAudit("warn", engine="sglang")
+    list(aud.wrap_export(iter(_export(_hf_names())), training_modules=[_Chunk(quantized_layers={1, 2})]))
+    for where in ("trace: wrap_export", "wrap_export.stream_end", "trace: compare_with_training"):
         assert where in caplog.text, where
 
 
@@ -550,9 +383,9 @@ def test_a_non_gemm_weight_in_an_fp8_layer_is_left_unjudged_not_reported(caplog)
     exported = _recorded(names)
     assert exported[conv] == (False, "bfloat16")
     assert audit_train_vs_export(r, exported)[0] == [] and unjudged_weights(exported) == [conv]
-    auditor = QuantLayerAuditor("warn")
-    list(auditor.record(iter(_export(names))))
-    assert auditor.run([_Chunk(quantized_layers=set(range(N_LAYERS)))]) == []
+    auditor = TrainExportAudit("warn")
+    list(auditor.wrap_export(iter(_export(names))))
+    assert auditor.compare_with_training([_Chunk(quantized_layers=set(range(N_LAYERS)))]) == []
     assert "1 decoder-layer weights of a kind the audit does not judge, e.g. " + conv in caplog.text
 
 
@@ -576,50 +409,3 @@ def test_the_known_gemm_projections_are_judged(leaf):
     problems, _ = audit_train_vs_export(r, {name: (True, "float8_e4m3fn")})  # layer 0 ran in BF16
     assert _problem_names(problems) == {name}
     assert unjudged_weights({name: (True, "float8_e4m3fn")}) == []
-
-
-def test_worker_asks_an_engine_that_cannot_answer_only_once(caplog):
-    # A rollout whose quant methods cannot be read counts as asked: the query is not repeated at every weight sync.
-    import asyncio
-
-    from verl.workers.engine_workers import ActorRolloutRefWorker
-
-    aud = QuantLayerAuditor("warn", engine="vllm")
-    list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers=set(range(N_LAYERS)))]))
-    assert aud.wants_engine_recheck()
-    queries = []
-
-    class _Rollout:
-        async def quant_methods_of(self, names):
-            queries.append(len(names))
-            raise RuntimeError("this worker class has no quant_layer_audit_methods")
-
-    worker = object.__new__(ActorRolloutRefWorker)
-    worker.quant_layer_auditor, worker.rollout = aud, _Rollout()
-    for _ in range(3):  # three weight syncs
-        asyncio.run(worker._recheck_quant_layers_against_engine())
-    assert len(queries) == 1 and not aud.wants_engine_recheck()
-    assert caplog.text.count("could not read the engine's quant methods") == 1
-
-
-def test_worker_asks_the_engine_at_the_init_sync():
-    # The worker calls _recheck_quant_layers_against_engine after every weight sync; the init sync, before any
-    # training step, already asks the engine, once.
-    import asyncio
-
-    from verl.workers.engine_workers import ActorRolloutRefWorker
-
-    aud = QuantLayerAuditor("warn", engine="vllm")
-    list(aud.record(iter(_export(_hf_names())), modules=[_Chunk(quantized_layers=set())]))  # no FP8 trace yet
-    queries = []
-
-    class _Rollout:
-        async def quant_methods_of(self, names):
-            queries.append(len(names))
-            return _engine_methods(names)
-
-    worker = object.__new__(ActorRolloutRefWorker)
-    worker.quant_layer_auditor, worker.rollout = aud, _Rollout()
-    for _ in range(2):  # the init sync, then the next one
-        asyncio.run(worker._recheck_quant_layers_against_engine())
-    assert len(queries) == 1 and not aud.done  # asked once, before any training-vs-export verdict

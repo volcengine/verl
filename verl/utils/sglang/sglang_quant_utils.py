@@ -236,142 +236,27 @@ def finalize_tensors() -> list[tuple[str, torch.Tensor]]:
     return [(FINALIZE_MARKER, torch.zeros(1, dtype=torch.uint8))]
 
 
-# ---------------------------------------------------------------------------
-# Sync-vs-engine dtype check
-# ---------------------------------------------------------------------------
-
-# HF leaf names that can be linear weights: ``.weight`` and the fused expert tensors transformers >= 5 writes.
-_CHECKED_LEAVES = ("weight", "gate_up_proj", "down_proj")
-# HF projections SGLang fuses into one module (the model's stacked_params_mapping, restated).
-_STACKED = {
-    "q_proj": "qkv_proj",
-    "k_proj": "qkv_proj",
-    "v_proj": "qkv_proj",
-    "gate_proj": "gate_up_proj",
-    "up_proj": "gate_up_proj",
-}
-_W2_LEAVES = ("down_proj", "w2")
-_HIGH_PRECISION = (torch.bfloat16, torch.float16, torch.float32)
-_SYNC_CACHE_ATTR = "_verl_sync_engine_quantized"
-# The dtype check runs on the buckets of the first weight sync only: what a sync ships follows rollout.quantization
-# and the engine's parameters keep their formats, so a later sync cannot disagree where the first one agreed.
-# Running totals while that sync is in flight; the flag once it has finished.
-_SYNC_TOTALS_ATTR = "_verl_sync_engine_check_totals"
-_SYNC_CHECKED_ATTR = "_verl_sync_engine_checked"
-
-
-def resolve_engine_param(model: torch.nn.Module, hf_name: str) -> torch.Tensor | None:
-    """Map an HF parameter name onto the engine tensor that will receive it, or None if unknown.
-
-    Walks the module tree by name, trying the fused module name for projections SGLang stacks
-    (``q_proj`` -> ``qkv_proj``, ``gate_proj`` -> ``gate_up_proj``) and stopping at a fused-MoE block
-    (a module holding ``w13_weight``), where the remaining per-expert parts select ``w13`` or ``w2``.
-    """
-    parts = hf_name.split(".")
-    module_path = parts[:-1] if parts[-1] == "weight" else parts
-    cur: object = model
-    for i, part in enumerate(module_path):
-        if hasattr(cur, "w13_weight"):
-            rest = module_path[i:] + ([parts[-1]] if parts[-1] != "weight" else [])
-            return cur.w2_weight if any(r in _W2_LEAVES for r in rest) else cur.w13_weight
-        nxt = getattr(cur, part, None)
-        if nxt is None and part in _STACKED:
-            nxt = getattr(cur, _STACKED[part], None)
-        if nxt is None:
-            return None
-        cur = nxt
-    if hasattr(cur, "w13_weight"):
-        return cur.w2_weight if parts[-1] in _W2_LEAVES else cur.w13_weight
-    if isinstance(cur, torch.nn.Module):
-        w = getattr(cur, "weight", None)
-        return w if isinstance(w, torch.Tensor) else None
-    return cur if isinstance(cur, torch.Tensor) else None
-
-
-def _format(dtype: torch.dtype) -> str:
-    return str(dtype).removeprefix("torch.")
-
-
-def check_sync_matches_engine(model: torch.nn.Module, named_tensors: list[tuple[str, torch.Tensor]]) -> int:
-    """Report a weight the sync ships in a format other than that of the engine parameter receiving it.
-
-    Quantized (FP8) and high-precision are compared, not exact dtypes. Returns the number of weights
-    checked; names that do not map onto an engine parameter are not judged. The refit loader runs it on
-    every bucket of the first weight sync, before the bucket is written. Disabled with
-    ``VERL_MXFP8_REFIT_CHECK=0``.
-    """
-    from verl.utils.mxfp8_refit_check import refit_check_enabled, report_refit_check_failure
-
-    if not refit_check_enabled():
-        return 0
-    cache: dict[str, torch.dtype | None] = model.__dict__.setdefault(_SYNC_CACHE_ATTR, {})
-    problems = []
-    checked = 0
-    unresolved = 0
-    for name, tensor in named_tensors:
-        if name.rsplit(".", 1)[-1] not in _CHECKED_LEAVES:
-            continue
-        if name not in cache:
-            target = resolve_engine_param(model, name)
-            cache[name] = None if target is None else target.dtype
-        engine_dtype = cache[name]
-        if engine_dtype is None:
-            unresolved += 1
-            continue
-        checked += 1
-        if (tensor.dtype in _HIGH_PRECISION) != (engine_dtype in _HIGH_PRECISION):
-            problems.append(
-                f"{name}: the sync ships {_format(tensor.dtype)}, the engine parameter is {_format(engine_dtype)}"
-            )
-    totals = model.__dict__.setdefault(_SYNC_TOTALS_ATTR, [0, 0, 0])  # checked, disagreeing, not mapped
-    totals[0] += checked
-    totals[1] += len(problems)
-    totals[2] += unresolved
-    if problems:
-        report_refit_check_failure(
-            f"The weight sync and the SGLang engine disagree on the format of {len(problems)} weight(s):\n  - "
-            + "\n  - ".join(problems[:40])
-            + ("\n  - ..." if len(problems) > 40 else "")
-            + "\nThe engine built these layers from its quantization_config.ignored_layers and model code; the "
-            "trainer-side exporter quantized from rollout.quantization. load_weights would cast each tensor into a "
-            "buffer of the other format (an FP8 layer would never receive its scale). Check "
-            "rollout.quantization.ignore against docs/low_precision/mxfp8.md (Checks)."
-        )
-    return checked
-
-
-def _close_sync_check(model: torch.nn.Module) -> None:
-    """After the first finished sync: report the dtype check's totals once and stop running it."""
-    totals = model.__dict__.pop(_SYNC_TOTALS_ATTR, None)
-    if totals is None:  # nothing was checked in this sync (check disabled, or no bucket)
-        return
-    model.__dict__[_SYNC_CHECKED_ATTR] = True
-    model.__dict__.pop(_SYNC_CACHE_ATTR, None)
-    logger.info(
-        "sync-vs-engine dtype check on the first weight sync: %d weights checked, %d in a format other than the "
-        "engine parameter's, %d names not mapped onto engine parameters (not judged); later syncs ship the same "
-        "formats and are not checked again",
-        *totals,
-    )
-
-
 def load_and_reprocess(model: torch.nn.Module, named_tensors: Iterable[tuple[str, torch.Tensor]]) -> None:
     """Load one SGLang quantized-refit bucket and finalize kernel layouts once per sync.
 
-    The buckets of the first sync are also checked against the formats of the engine parameters receiving
-    them (``check_sync_matches_engine``) before they are written.
+    Before a bucket is written, the export-vs-engine format check of the first weight sync reads it
+    (``verl.utils.sglang.sglang_sync_format_check``).
     """
     from verl.utils.sglang.sglang_fp4_utils import stage_mxfp4_moe_params, stage_nvfp4_moe_params
     from verl.utils.sglang.sglang_fp8_utils import refuse_relaid_bf16_moe_layers, stage_mxfp8_moe_scales
+    from verl.utils.sglang.sglang_sync_format_check import sglang_sync_format_check
 
     named_tensors = list(named_tensors)
     finalize = any(name == FINALIZE_MARKER for name, _ in named_tensors)
     named_tensors = [(name, tensor) for name, tensor in named_tensors if name != FINALIZE_MARKER]
+    format_check = sglang_sync_format_check(model)
     try:
         if named_tensors:
-            if not model.__dict__.get(_SYNC_CHECKED_ATTR):  # first sync only
-                check_sync_matches_engine(model, named_tensors)  # before anything is written into the engine
-            if _SYNC_FP8_ATTR not in model.__dict__:  # first request of this sync
+            first_request = _SYNC_FP8_ATTR not in model.__dict__  # first request of this sync
+            if first_request:
+                format_check.begin_sync()
+            format_check.check_bucket(model, named_tensors)  # before anything is written into the engine
+            if first_request:
                 refuse_relaid_bf16_moe_layers(model)
                 model.__dict__[_SYNC_FP8_ATTR] = stage_mxfp8_moe_scales(model)
                 model.__dict__[_SYNC_FP4_ATTR] = stage_mxfp4_moe_params(model)
@@ -379,7 +264,7 @@ def load_and_reprocess(model: torch.nn.Module, named_tensors: Iterable[tuple[str
             model.load_weights(named_tensors)
         if finalize:
             _finish_sync(model)
-            _close_sync_check(model)
+            format_check.end_sync()
     except BaseException:
         _abandon_sync(model)
         raise
@@ -393,7 +278,6 @@ def _abandon_sync(model: torch.nn.Module) -> None:
         getattr(module, scale_name).data = live
     restore_mxfp4_live(model.__dict__.pop(_SYNC_FP4_ATTR, ()))
     restore_nvfp4_live(model.__dict__.pop(_SYNC_NVFP4_ATTR, ()))
-    model.__dict__.pop(_SYNC_TOTALS_ATTR, None)  # a sync that did not finish is checked again in full
 
 
 def _finish_sync(model: torch.nn.Module) -> None:

@@ -737,15 +737,17 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
                 qat_config=qat,
             )
             if weight_quantizer is not None:
-                from verl.utils.quant_layer_audit import QuantLayerAuditor, fp8_recipe_of
+                from verl.utils.quant_layer_audit import TrainExportAudit, fp8_recipe_of
 
                 self.actor.engine.set_rollout_weight_quantizer(weight_quantizer)
-                self.quant_layer_auditor = QuantLayerAuditor.create(
-                    rollout_quantized=True,
-                    trainer_fp8_recipe=fp8_recipe_of(getattr(self.actor.engine, "engine_config", None)),
-                    rollout_name=self.config.rollout.name,
+                # Training vs export; export vs engine runs in the rollout engine's weight loader.
+                self.actor.engine.set_train_export_audit(
+                    TrainExportAudit.create(
+                        rollout_quantized=True,
+                        trainer_fp8_recipe=fp8_recipe_of(getattr(self.actor.engine, "engine_config", None)),
+                        rollout_name=self.config.rollout.name,
+                    )
                 )
-                self.actor.engine.set_quant_layer_auditor(self.quant_layer_auditor)
 
         # Free cached GPU memory so colocated vLLM processes can see it via cudaMemGetInfo
         aggressive_empty_cache(force_sync=True)
@@ -783,19 +785,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
     def save_checkpoint(self, local_path, hdfs_path=None, global_step=0, max_ckpt_to_keep=None):
         assert "actor" in self.role, "save_checkpoint only support actor role"
         self.actor.save_checkpoint(local_path, hdfs_path, global_step, max_ckpt_to_keep)
-
-    async def _recheck_quant_layers_against_engine(self):
-        """Compare the audited export with the quant methods of the vLLM modules that received it, once."""
-        auditor = getattr(self, "quant_layer_auditor", None)
-        if auditor is None or not auditor.wants_engine_recheck() or not hasattr(self.rollout, "quant_methods_of"):
-            return
-        try:
-            methods = await self.rollout.quant_methods_of(auditor.weight_names())
-        except Exception as err:  # noqa: BLE001 - the training-vs-export verdict already stands
-            logger.warning("quantized-layer audit: could not read the engine's quant methods: %s", err)
-            auditor.recheck_against_engine(None)  # a rank that cannot be asked counts as asked: no retry per sync
-            return
-        auditor.recheck_against_engine(methods)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self, global_steps: int = None, mode: str = "auto"):
@@ -879,7 +868,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         await self.rollout.update_weights(
             per_tensor_param, peft_config=peft_config, base_sync_done=True, global_steps=global_steps
         )
-        await self._recheck_quant_layers_against_engine()
 
         log_gpu_memory_usage("After update_weights", logger=logger)
 

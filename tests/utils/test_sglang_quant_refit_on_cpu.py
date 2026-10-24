@@ -13,6 +13,7 @@
 # limitations under the License.
 """CPU tests for the SGLang quantized refit loader on MXFP8 layers (sglang stubbed)."""
 
+import contextlib
 import enum
 import logging
 import sys
@@ -27,6 +28,7 @@ from verl.utils.mxfp8_refit_check import mxfp8_dequantize
 from verl.utils.sglang import sglang_fp8_utils as fp8_utils
 from verl.utils.sglang import sglang_mxfp8_refit_check as refit_check
 from verl.utils.sglang import sglang_quant_utils as quant_utils
+from verl.utils.sglang.sglang_sync_format_check import resolve_sglang_param, sglang_sync_format_check
 
 
 class _Backend:
@@ -841,7 +843,7 @@ def test_by_default_unwritten_expert_scales_are_logged_and_the_sync_goes_on(monk
 
 
 # ---------------------------------------------------------------------------
-# Sync-vs-engine dtype check
+# Export vs engine: the format check of the first weight sync
 # ---------------------------------------------------------------------------
 
 
@@ -874,10 +876,10 @@ def _engine_model():
     return model
 
 
-def test_resolve_engine_param_follows_sglang_fusion_and_stops_at_fused_experts():
+def test_resolve_sglang_param_follows_sglang_fusion_and_stops_at_fused_experts():
     m = _engine_model()
     L = m.model.layers[0]
-    resolve = quant_utils.resolve_engine_param
+    resolve = resolve_sglang_param
     assert resolve(m, "model.layers.0.self_attn.q_proj.weight") is L.self_attn.qkv_proj.weight
     assert resolve(m, "model.layers.0.self_attn.k_proj.weight") is L.self_attn.qkv_proj.weight
     assert resolve(m, "model.layers.0.mlp.experts.3.gate_proj.weight") is L.mlp.experts.w13_weight
@@ -890,6 +892,11 @@ def test_resolve_engine_param_follows_sglang_fusion_and_stops_at_fused_experts()
     assert resolve(m, "model.layers.0.mlp.gate.weight") is L.mlp.gate.weight
     assert resolve(m, "lm_head.weight") is m.lm_head.weight
     assert resolve(m, "model.visual.blocks.0.attn.qkv.weight") is None  # unknown: not judged
+    # compressed-tensors' packed FP4 weight lands in weight_packed, or in weight on a layer the engine keeps in BF16
+    L.mlp.packed = torch.nn.Module()
+    L.mlp.packed.weight_packed = torch.nn.Parameter(torch.zeros(8, 32, dtype=torch.uint8), requires_grad=False)
+    assert resolve(m, "model.layers.0.mlp.packed.weight_packed") is L.mlp.packed.weight_packed
+    assert resolve(m, "model.layers.0.mlp.gate.weight_packed") is L.mlp.gate.weight
 
 
 def _fp8(*shape):
@@ -919,26 +926,49 @@ _BROKEN = _CONSISTENT + [
 ]
 
 
-def test_sync_vs_engine_dtype_check_names_every_format_mismatch(monkeypatch):
+@contextlib.contextmanager
+def _audit_log(caplog, level=logging.INFO):
+    """The audit logger writes to stderr on its own (no propagation); let caplog see it."""
+    log = logging.getLogger("verl.utils.quant_layer_audit")
+    old = log.level
+    log.addHandler(caplog.handler)
+    log.setLevel(level)
+    try:
+        yield
+    finally:
+        log.setLevel(old)
+        log.removeHandler(caplog.handler)
+
+
+def test_sync_format_check_names_every_format_mismatch(monkeypatch):
+    monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT", "raise")
     m = _engine_model()
-    assert quant_utils.check_sync_matches_engine(m, _CONSISTENT) == 8
+    check = sglang_sync_format_check(m)
+    check.check_bucket(m, _CONSISTENT)
+    assert (check.checked, check.disagreeing, check.unmapped) == (8, 0, 1)
     with pytest.raises(RuntimeError, match="disagree on the format of 3 weight") as err:
-        quant_utils.check_sync_matches_engine(m, _BROKEN)
+        check.check_bucket(m, _BROKEN)
     msg = str(err.value)
-    assert "block_sparse_moe.experts.0.w1.weight: the sync ships bfloat16, the engine parameter is float8_e4m3fn" in msg
-    assert "mlp.shared_expert_gate.weight: the sync ships float8_e4m3fn, the engine parameter is bfloat16" in msg
-    monkeypatch.setenv("VERL_MXFP8_REFIT_CHECK", "0")
-    assert quant_utils.check_sync_matches_engine(m, _BROKEN) == 0
+    assert "block_sparse_moe.experts.0.w1.weight: the sync sends bfloat16, the engine parameter is float8_e4m3fn" in msg
+    assert "mlp.shared_expert_gate.weight: the sync sends float8_e4m3fn, the engine parameter is bfloat16" in msg
+    assert "stopped before this bucket is written" in msg
+    monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT", "0")
+    fresh = _engine_model()
+    off = sglang_sync_format_check(fresh)
+    off.check_bucket(fresh, _BROKEN)
+    assert off.checked == 0
 
 
 def test_by_default_a_format_mismatch_is_logged_and_the_sync_goes_on(monkeypatch, caplog):
-    monkeypatch.delenv("VERL_MXFP8_REFIT_CHECK")
-    with caplog.at_level(logging.WARNING):
-        assert quant_utils.check_sync_matches_engine(_engine_model(), _BROKEN) == 11
+    monkeypatch.delenv("VERL_QUANT_LAYER_AUDIT", raising=False)
+    m = _engine_model()
+    with _audit_log(caplog, logging.WARNING):
+        sglang_sync_format_check(m).check_bucket(m, _BROKEN)
     assert "disagree on the format of 3 weight" in caplog.text and "The sync goes on" in caplog.text
 
 
-def test_loader_runs_the_dtype_check_before_writing_anything():
+def test_loader_runs_the_format_check_before_writing_anything(monkeypatch):
+    monkeypatch.setenv("VERL_QUANT_LAYER_AUDIT", "raise")
     _install_stub("auto")
     m = _Model(resolved_backend="flashinfer_cutlass")
     m.a.weight_scale_inv.data.fill_(3)
@@ -948,22 +978,9 @@ def test_loader_runs_the_dtype_check_before_writing_anything():
         ("a.weight_scale_inv", torch.full_like(before, 9)),
         ("a.weight", torch.zeros(4, 64, dtype=torch.bfloat16)),
     ]
-    with pytest.raises(RuntimeError, match="a.weight: the sync ships bfloat16, the engine parameter is float8_e4m3fn"):
+    with pytest.raises(RuntimeError, match="a.weight: the sync sends bfloat16, the engine parameter is float8_e4m3fn"):
         quant_utils.load_and_reprocess(m, request)
     assert torch.equal(m.a.weight_scale_inv.data, before) and m.loaded == []  # nothing was written
-
-
-def _count_dtype_checks(monkeypatch) -> list[int]:
-    """Record the bucket size of every ``check_sync_matches_engine`` call the loader makes."""
-    calls: list[int] = []
-    check = quant_utils.check_sync_matches_engine
-
-    def counting(model, named_tensors):
-        calls.append(len(named_tensors))
-        return check(model, named_tensors)
-
-    monkeypatch.setattr(quant_utils, "check_sync_matches_engine", counting)
-    return calls
 
 
 def _bucket(m, layer):
@@ -974,27 +991,28 @@ def _bucket(m, layer):
     ]
 
 
-def test_loader_checks_formats_on_every_bucket_of_the_first_sync_only(monkeypatch, caplog):
-    # What a sync ships follows rollout.quantization and the engine's parameters keep their formats, so a later
-    # sync cannot disagree where the first one agreed: the check runs during the first sync only, as on vLLM.
+def test_loader_checks_formats_on_every_bucket_of_the_first_sync_only(caplog):
+    # What a sync sends follows the quantization config and the engine's parameters keep their formats, so a later
+    # sync cannot disagree where the first one agreed: the loader checks the first sync only.
     _install_stub("flashinfer_cutlass")
     m = _Model()
-    calls = _count_dtype_checks(monkeypatch)
-    with caplog.at_level(logging.INFO, logger=quant_utils.logger.name):
+    check = sglang_sync_format_check(m)
+    with _audit_log(caplog):
         quant_utils.load_and_reprocess(m, _bucket(m, "a"))
+        assert check.checked == 1 and not check.finished  # the first bucket, read before it was written
         quant_utils.load_and_reprocess(m, _bucket(m, "b") + quant_utils.finalize_tensors())
-    assert calls == [2, 2]  # every bucket of the first sync, before it is written
-    assert "first weight sync: 2 weights checked, 0 in a format other than the engine parameter's" in caplog.text
+    assert check.finished and check.checked == 2  # a.weight and b.weight, one from each bucket
+    assert "export vs sglang engine, first weight sync: 2 weights checked, 0 in a format other" in caplog.text
     quant_utils.load_and_reprocess(m, _bucket(m, "a"))
     quant_utils.load_and_reprocess(m, _bucket(m, "b") + quant_utils.finalize_tensors())
-    assert calls == [2, 2]  # the second sync is not checked again
+    assert check.checked == 2  # the second sync is not checked
     assert m.a.quant_method.calls == 2 and m.b.quant_method.calls == 2  # it still re-derives the kernel layouts
 
 
-def test_a_first_sync_that_fails_is_checked_again_in_full(monkeypatch):
+def test_a_first_sync_that_fails_is_checked_again_in_full():
     _install_stub("flashinfer_cutlass")
     m = _Model()
-    calls = _count_dtype_checks(monkeypatch)
+    check = sglang_sync_format_check(m)
 
     def lose_the_bucket(named_tensors):
         raise RuntimeError("bucket lost")
@@ -1002,8 +1020,7 @@ def test_a_first_sync_that_fails_is_checked_again_in_full(monkeypatch):
     m.load_weights = lose_the_bucket
     with pytest.raises(RuntimeError, match="bucket lost"):
         quant_utils.load_and_reprocess(m, _bucket(m, "a"))
+    assert check.checked == 1 and not check.finished
     del m.load_weights  # back to the model's own loader
     quant_utils.load_and_reprocess(m, _bucket(m, "a") + quant_utils.finalize_tensors())
-    assert calls == [2, 2]  # the failed sync did not count: the next one was checked
-    quant_utils.load_and_reprocess(m, _bucket(m, "a") + quant_utils.finalize_tensors())
-    assert calls == [2, 2]
+    assert check.finished and check.checked == 1  # the failed sync's count was dropped, not added to

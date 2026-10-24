@@ -192,14 +192,6 @@ class ServerAdapter(BaseRollout):
         future = self.server_handle.collective_rpc.remote(method, timeout=timeout, args=args, kwargs=kwargs)
         return future if non_block else await future
 
-    async def quant_methods_of(self, names: list[str]) -> dict[str, str | None] | None:
-        """Quant methods of the engine modules receiving these HF weights; ``None`` if the engine cannot be asked."""
-        from verl.utils.quant_layer_audit import merge_worker_methods
-
-        names = list(names)
-        results = await self._execute_method("quant_layer_audit_methods", kwargs={"names": names})
-        return merge_worker_methods(names, results)
-
     async def resume(self, tags: list[str]):
         """Resume rollout weights or kv cache in GPU memory.
 

@@ -11,7 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Audit that the training side and the rollout side quantize the same layers.
+"""Training vs export: did training run each decoder layer in the format the weight sync sends it in?
+
+This is the training half of the quantized-layer audit. The rollout half, export vs engine, runs inside each
+rollout engine's weight loader (``verl.utils.quant_sync_format_check``); ``VERL_QUANT_LAYER_AUDIT`` switches both.
 
 Why. Matched train/rollout quantization presumes both sides quantize the same
 layers, but each side decides on its own: training implicitly (a layer runs FP8
@@ -22,38 +25,30 @@ from ``rollout.quantization``, the engine from the configuration it was started
 with). On B200, vLLM 0.24's ModelOpt MXFP8 config matched the router exclusion
 ``mlp.gate`` as a prefix of the dense ``mlp.gate_up_proj``: 56 of 311 parameters
 of Qwen3-1.7B were served in BF16 while training ran them in FP8, and nothing
-reported it.
+reported it. There training and the export agreed and the engine did not, which
+is the rollout half's to catch; this module covers the training side.
 
-What. Three sources:
+What. Two sources:
 
 - training: which decoder layers hold a TE FP8 weight workspace
   (``module._fp8_workspaces``), per mcore ``TransformerLayer``;
 - export: what the sync actually sends, read from the trainer's weight stream
   after the rollout weight quantizer (``dispatch_rollout_weight_quantizer``): a
   quantized weight arrives in FP8 (or packed FP4, as ``weight_packed``), every
-  other weight in high precision;
-- engine: on vLLM, the quant method of the module that receives each weight, read
-  back from the engine after the sync (``vllm_quant_methods``). SGLang has no
-  return channel; its MXFP8 refit loader compares each incoming weight's dtype
-  with the engine parameter that receives it and refuses a mismatch before
-  anything is written.
+  other weight in high precision.
 
-Training vs export skips the modules the exporter keeps in BF16 by design (its
+The comparison skips the modules the exporter keeps in BF16 by design (its
 ``DEFAULT_IGNORE``: ``lm_head``, embeddings, vision towers, MTP layers, routers,
 the shared-expert gate) and judges the GEMM projections of each decoder layer
 (attention, MLP, experts, linear-attention / SSM in and out projections) against
 that layer's FP8 trace. A decoder-layer weight of any other kind, such as a
 convolution, is not judged, since the layer-level trace says nothing about it;
-the audit reports how many it left out. Export vs engine reports every
-disagreement: both sides read ``rollout.quantization``, so one means the engine
-matched a layer differently from the exporter.
+the audit reports how many it left out.
 
-Each comparison runs once. Training vs export waits for the first weight sync that
-happens after an FP8 forward (the first sync, before any step, has no workspaces
-yet). Export vs engine on vLLM needs only the export and the engine, so it runs at
-the first weight sync, before the first rollout. Controlled by
-``VERL_QUANT_LAYER_AUDIT``: ``warn`` (default) logs the disagreements, ``raise``
-raises ``RuntimeError``, ``0`` disables.
+It runs once, when training runs a TE FP8 recipe and the rollout is quantized, at
+the first weight sync that happens after an FP8 forward (the first sync, before any
+step, has no workspaces yet). ``VERL_QUANT_LAYER_AUDIT``: ``warn`` (default) logs the
+disagreements, ``raise`` raises ``RuntimeError``, ``0`` disables.
 
 Two things can remove the training-side signal, and the audit says so instead of
 staying silent. verl drops the workspaces when it offloads the training model
@@ -113,7 +108,6 @@ _NON_LINEAR_RE = re.compile(r"(norm|embed|rotary|bias$)", re.IGNORECASE)
 _FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
 # compressed-tensors' name for a packed FP4 weight; the module's ``weight`` in every other format.
 _PACKED_SUFFIX = ".weight_packed"
-_NO_QUANT_METHOD = "unquantized (no quant_method)"
 _MAX_LISTED = 40
 
 
@@ -317,102 +311,6 @@ def audit_train_vs_export(report: TrainFp8Report, exported: Mapping[str, tuple[b
     return problems, by_design
 
 
-# ---------------------------------------------------------------------------
-# Engine side (vLLM): the quant method of the module that receives each weight
-# ---------------------------------------------------------------------------
-
-
-def engine_method_quantizes(method: str) -> bool:
-    return not method.lower().startswith("unquantized")
-
-
-def _vllm_receiving_module(model: torch.nn.Module, name: str) -> Optional[torch.nn.Module]:
-    """The vLLM module that receives HF weight ``name``, or ``None`` when the name does not resolve.
-
-    Applies the model's ``hf_to_vllm_mapper``, then its ``packed_modules_mapping`` for the last
-    module name (``q_proj`` -> ``qkv_proj``), and stops at a fused-MoE block, whose remaining
-    per-expert parts (``experts.3.gate_proj``) its own weight loader resolves.
-    """
-    mapper = getattr(model, "hf_to_vllm_mapper", None)
-    if mapper is not None:
-        mapped = mapper.apply_list([name])
-        if not mapped:
-            return None
-        name = mapped[0]
-    parts = name.split(".")
-    path = parts[:-1] if parts[-1] in ("weight", "weight_packed") else parts
-    packed = getattr(model, "packed_modules_mapping", None) or {}
-    owner = {sub: fused for fused, subs in packed.items() for sub in subs}
-    module = model
-    for i, part in enumerate(path):
-        if hasattr(module, "routed_experts") or hasattr(module, "w13_weight"):
-            break
-        child = getattr(module, part, None)
-        if child is None and i == len(path) - 1 and part in owner:
-            child = getattr(module, owner[part], None)
-        if not isinstance(child, torch.nn.Module):
-            return None
-        module = child
-    for holder in ("routed_experts", "base_layer"):  # the MoE weight holder; the layer under a LoRA wrapper
-        inner = getattr(module, holder, None)
-        if isinstance(inner, torch.nn.Module):
-            module = inner
-    return module
-
-
-def vllm_quant_methods(model: torch.nn.Module, names: Iterable[str]) -> list[Optional[str]]:
-    """For each HF weight name, the quant method of the vLLM module that receives it (``None``: unresolved).
-
-    Runs inside the vLLM worker. A compressed-tensors linear layer reports its scheme as well, e.g.
-    ``CompressedTensorsLinearMethod (CompressedTensorsW8A8Mxfp8)``; a layer the config skips reports
-    ``UnquantizedLinearMethod``. Layers another pipeline stage owns are unresolved on this rank.
-    """
-    methods: list[Optional[str]] = []
-    for name in names:
-        module = _vllm_receiving_module(model, name)
-        if module is None or type(module).__name__ == "PPMissingLayer":
-            methods.append(None)
-            continue
-        quant_method = getattr(module, "quant_method", None)
-        if quant_method is None:
-            methods.append(_NO_QUANT_METHOD)
-            continue
-        method = type(quant_method).__name__
-        scheme = getattr(module, "scheme", None)
-        methods.append(f"{method} ({type(scheme).__name__})" if scheme is not None else method)
-    return methods
-
-
-def merge_worker_methods(names: list[str], per_worker: Iterable) -> Optional[dict[str, Optional[str]]]:
-    """Combine ``vllm_quant_methods`` answers of several workers: the first worker that resolves a name wins."""
-    merged: dict[str, Optional[str]] = dict.fromkeys(names)
-    answered = False
-    for methods in per_worker or ():
-        if not isinstance(methods, list) or len(methods) != len(names):
-            continue
-        answered = True
-        for name, method in zip(names, methods, strict=True):
-            if merged[name] is None:
-                merged[name] = method
-    return merged if answered else None
-
-
-def audit_export_vs_engine(
-    exported: Mapping[str, tuple[bool, str]], methods: Mapping[str, Optional[str]]
-) -> tuple[list[str], int]:
-    """One line per exported weight whose format disagrees with the engine module that receives it."""
-    problems = []
-    checked = 0
-    for name, (quantized, fmt) in exported.items():
-        method = methods.get(name)
-        if method is None:
-            continue
-        checked += 1
-        if engine_method_quantizes(method) != quantized:
-            problems.append(f"{name}: the export sends it in {fmt}, the engine module that receives it runs {method}")
-    return problems, checked
-
-
 def _listing(problems: list[str]) -> str:
     return (
         "\n  - "
@@ -422,61 +320,62 @@ def _listing(problems: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Worker integration
+# Training vs export, once per run
 # ---------------------------------------------------------------------------
 
 
-class QuantLayerAuditor:
-    """Records one weight sync's exported weights and compares them with training and, on vLLM, the engine.
+class TrainExportAudit:
+    """Training vs export: did training run each decoder layer in the format the weight sync sends it in?
 
-    ``record`` wraps the training engine's weight export after the rollout weight quantizer, the one
-    point every sync route passes through (the colocated worker, the checkpoint engine, server
-    replicas), and runs the training-vs-export comparison when the stream ends. On vLLM the worker
-    then asks the engine for the quant methods of the receiving modules and calls
-    ``recheck_against_engine``.
+    ``wrap_export`` wraps the training engine's weight export after the rollout weight quantizer, the one
+    point every sync route passes through (the colocated worker, the checkpoint engine, server replicas):
+    it records the format of every exported weight and, when the stream ends, calls
+    ``compare_with_training``. The comparison needs TE's FP8 weight workspaces, which exist only after a
+    training step, so the sync before any step waits and the first sync after one decides; from then on
+    the export passes through untouched.
     """
 
     def __init__(self, mode: str, engine: str = "", enabled: bool = True):
         self.mode = mode
         self.engine = engine
         self.enabled = enabled and mode not in ("0", "off", "false")
-        self.done = False
+        self.finished = False  # compared, or gave up for lack of a training-side FP8 trace
         # HF weight name -> (sent quantized, format), from the last recorded sync
         self.exported: dict[str, tuple[bool, str]] = {}
-        self.syncs_seen = 0  # distinct weight syncs the auditor wrapped; the give-up threshold counts these
+        self.syncs_seen = 0  # distinct weight syncs wrapped; the give-up threshold counts these
         self._explained = False  # one-shot "why this guard produced nothing" warning
-        self._verdict: Optional[TrainFp8Report] = None  # set by a training-vs-export verdict
-        self._rechecked = False
 
     @classmethod
     def create(cls, *, rollout_quantized: bool, trainer_fp8_recipe: Optional[str], rollout_name: str):
-        """Arm the audit for a TE FP8 trainer whose rollout is quantized; otherwise return a disabled auditor."""
+        """Arm the comparison for a TE FP8 trainer whose rollout is quantized; otherwise return a disabled audit."""
         mode = audit_mode()
         if not rollout_quantized or trainer_fp8_recipe is None:
             logger.info(
-                "quantized-layer audit: not armed (rollout quantized=%s, training FP8 recipe=%s): no matched "
-                "quantization to compare",
+                "quantized-layer audit, training vs export: not armed (rollout quantized=%s, training FP8 recipe=%s): "
+                "no FP8 training to compare",
                 rollout_quantized,
                 trainer_fp8_recipe,
             )
             return cls(mode, rollout_name, enabled=False)
         logger.info(
-            "quantized-layer audit: armed (engine=%s, training FP8 recipe=%s, mode=%s); training vs export runs at "
-            "the first weight sync after a training step, export vs engine (vLLM) at the first weight sync",
+            "quantized-layer audit, training vs export: armed (engine=%s, training FP8 recipe=%s, mode=%s); runs at "
+            "the first weight sync after a training step",
             rollout_name,
             trainer_fp8_recipe,
             mode,
         )
         return cls(mode, rollout_name)
 
-    def record(self, weights: Iterable[tuple[str, torch.Tensor]], modules=None) -> Iterator[tuple[str, torch.Tensor]]:
-        """Pass the exported stream through, remembering each weight's format; compare when it ends.
+    def wrap_export(
+        self, weights: Iterable[tuple[str, torch.Tensor]], training_modules=None
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        """Pass the exported stream through, recording each weight's format; compare with training when it ends.
 
-        ``modules`` (the training model chunks) makes the comparison run as soon as the stream is
+        ``training_modules`` (the Megatron model chunks) makes the comparison run as soon as the stream is
         exhausted, wherever the stream is consumed.
         """
-        trace("record", enabled=self.enabled, done=self.done, with_modules=modules is not None)
-        if not self.enabled or self.done:
+        trace("wrap_export", enabled=self.enabled, finished=self.finished, with_modules=training_modules is not None)
+        if not self.enabled or self.finished:
             yield from weights
             return
         self.exported = {}
@@ -486,19 +385,19 @@ class QuantLayerAuditor:
             if entry is not None:
                 self.exported[entry[0]] = entry[1:]
             yield name, tensor
-        trace("record.stream_end", weights=len(self.exported), will_run=modules is not None)
-        if modules is not None:
-            self.run(modules)
+        trace("wrap_export.stream_end", weights=len(self.exported), will_compare=training_modules is not None)
+        if training_modules is not None:
+            self.compare_with_training(training_modules)
 
     def _explain_silence(self, reason: str) -> None:
-        """Warn once that the audit produced no verdict: a guard that silently does nothing is the failure
+        """Warn once that the comparison produced no verdict: a guard that silently does nothing is the failure
         this module exists to prevent, so the reason is reported at WARNING."""
         if self._explained:
             return
         self._explained = True
         logger.warning(
-            "quantized-layer audit produced no verdict (%s). engine=%s weights=%d. The train/rollout layer sets "
-            "are unverified for this run; VERL_QUANT_LAYER_AUDIT=0 silences the audit entirely.",
+            "quantized-layer audit, training vs export, produced no verdict (%s). engine=%s weights=%d. Training "
+            "vs export is unverified for this run; VERL_QUANT_LAYER_AUDIT=0 silences the audit entirely.",
             reason,
             self.engine or "?",
             len(self.exported),
@@ -509,20 +408,20 @@ class QuantLayerAuditor:
             raise RuntimeError(msg)
         logger.warning(msg)
 
-    def run(self, modules) -> Optional[list[str]]:
-        """After a sync: compare the training trace with the recorded export. ``None`` if not run."""
-        trace("run", enabled=self.enabled, done=self.done, weights=len(self.exported))
-        if self.done or not self.enabled:
+    def compare_with_training(self, training_modules) -> Optional[list[str]]:
+        """Compare the training-side FP8 trace with the recorded export. ``None`` if it did not run."""
+        trace("compare_with_training", enabled=self.enabled, finished=self.finished, weights=len(self.exported))
+        if self.finished or not self.enabled:
             return None
         if not self.exported:
-            self._explain_silence("the weight sync streamed no weights through the auditor")
+            self._explain_silence("the weight sync streamed no weights through the audit")
             return None
-        report = collect_train_fp8_report(modules)
+        report = collect_train_fp8_report(training_modules)
         if not report.active:
-            # Give up only after two distinct syncs left no FP8 trace, counted by record(), so a second
-            # run() on the same sync cannot trip this before the first training step.
+            # Give up only after two distinct syncs left no FP8 trace, counted by wrap_export(), so a second
+            # comparison on the same sync cannot trip this before the first training step.
             if report.transpose_cache_disabled or self.syncs_seen >= 2:
-                self.done = True
+                self.finished = True
                 cause = (
                     "disable_parameter_transpose_cache=True: TE caches the FP8 weight only when mcore passes "
                     "is_first_microbatch, which that flag turns off"
@@ -537,16 +436,15 @@ class QuantLayerAuditor:
                 )
                 return None
             logger.info(
-                "quantized-layer audit: no FP8 trace yet on this rank (%d decoder layers seen, %d weights recorded); "
-                "expected before the first training step, will retry at the next sync",
+                "quantized-layer audit, training vs export: no FP8 trace yet on this rank (%d decoder layers seen, "
+                "%d weights recorded); expected before the first training step, will retry at the next sync",
                 len(report.seen_layers),
                 len(self.exported),
             )
             return None
         problems, by_design = audit_train_vs_export(report, self.exported)
         unjudged = unjudged_weights(self.exported)
-        self.done = True
-        self._verdict = report
+        self.finished = True
         n_q, n_seen = len(report.quantized_layers), len(report.seen_layers)
         if not problems:
             logger.info(
@@ -559,59 +457,12 @@ class QuantLayerAuditor:
                 _unjudged_note(unjudged),
             )
             return []
-        if self.engine == "sglang":
-            engine_note = (
-                " On SGLang the MXFP8 refit loader compares the export with the engine's parameters when it loads."
-            )
-        elif self.engine == "vllm":
-            engine_note = " On vLLM the export is compared with the engine's quant methods at the first weight sync."
-        else:
-            engine_note = ""
         self._report(
             f"quantized-layer audit: training and the exported weights disagree on {len(problems)} weight(s) "
             f"({n_q} of {n_seen} decoder layers on this rank ran FP8 GEMMs{_unjudged_note(unjudged)}):"
             + _listing(problems)
             + "\nThe trainer ran these layers in one precision and the rollout is served them in another. Fix with "
             "rollout.quantization.ignore (rollout) or first_last_layers_bf16 / model wiring (training)."
-            + engine_note
             + " VERL_QUANT_LAYER_AUDIT=raise turns this into an error, =0 silences it."
-        )
-        return problems
-
-    def wants_engine_recheck(self) -> bool:
-        """True once a sync has recorded the export and the engine has not been asked yet.
-
-        Export vs engine needs no training-side trace, so it runs at the first weight sync, before the first
-        rollout, instead of waiting for the training-vs-export verdict.
-        """
-        return self.enabled and bool(self.exported) and not self._rechecked
-
-    def weight_names(self) -> list[str]:
-        return list(self.exported)
-
-    def recheck_against_engine(self, methods: Optional[Mapping[str, Optional[str]]]) -> Optional[list[str]]:
-        """Compare the recorded export with the quant methods of the engine modules that receive it."""
-        if self._rechecked:
-            return None
-        self._rechecked = True  # asked once; a rank whose rollout cannot be asked has no answer to wait for
-        if not methods:
-            return None
-        problems, checked = audit_export_vs_engine(self.exported, methods)
-        if not problems:
-            logger.info(
-                "quantized-layer audit: the exported weights match the %s engine's quant methods (%d weights "
-                "checked, %d not resolved onto an engine module)",
-                self.engine or "rollout",
-                checked,
-                len(self.exported) - checked,
-            )
-            return []
-        self._report(
-            f"quantized-layer audit: the exported weights and the {self.engine or 'rollout'} engine disagree on "
-            f"{len(problems)} weight(s):"
-            + _listing(problems)
-            + "\nThe exporter and the engine both read rollout.quantization, so the engine matched these modules "
-            "differently from the exporter; each such weight is loaded into a parameter of the other format. Check "
-            "rollout.quantization.ignore and the engine version against docs/low_precision/mxfp8.md."
         )
         return problems

@@ -58,10 +58,11 @@ verl defaults the MXFP8 dense and MoE kernels of vLLM and SGLang to DeepGEMM; fo
 |---|---|---|---|
 | Quantized-rollout sentinel | every training step | NaN log-probs, KL above 1.0, every response at the length cap | `VERL_QUANT_SENTINEL` |
 | Post-sync self-check | after every weight sync | kernel scale layouts that did not follow the sync | `VERL_MXFP8_REFIT_CHECK` |
-| Quantized-layer audit | first weight sync after a training step | layers that training and the rollout quantize differently | `VERL_QUANT_LAYER_AUDIT` |
+| Quantized-layer audit | training vs export: first weight sync after a training step; export vs engine: first weight sync, before each bucket is written | layers that training, the exported weights and the engine quantize differently | `VERL_QUANT_LAYER_AUDIT` |
 
 Each switch takes `warn` (the default: log the finding and keep going), `raise` (stop the run or the sync)
-or `0` (off). The sentinel and the audit also apply to FP8 rollouts.
+or `0` (off). The sentinel applies to every quantized rollout, FP8 and FP4 included, and so does the audit's
+export-vs-engine comparison (on SGLang, to the formats of its refit loader: MXFP8, MXFP4, NVFP4).
 
 ### Quantized-rollout sentinel
 
@@ -104,21 +105,25 @@ What it does not show:
 
 ### Quantized-layer audit
 
-Training decides implicitly which layers run FP8 (TE linear modules inside `fp8_autocast`); the rollout
-decides by name (`rollout.quantization`, read by both the trainer-side exporter and the engine). When
-training runs a TE FP8 recipe and the rollout is quantized, verl compares them, each comparison once:
+Three parties decide which layers are quantized, each on its own: training implicitly (TE linear modules
+inside `fp8_autocast`), and by name the trainer-side exporter and the engine, both from the same quantization
+config (`rollout.quantization`, or the checkpoint's own `quantization_config`). The audit compares them in two
+steps, each once:
 
-- **Training vs export**, at the first weight sync after a training step (the sync before it has no FP8
-  trace yet): each decoder layer's FP8 trace (TE's FP8 weight workspaces) against the format the sync sends
-  for that layer's GEMM projections (attention, MLP, experts, linear-attention and SSM in / out
-  projections). Weights the exporter keeps in BF16 by design are skipped. Other decoder-layer weights, such
-  as a convolution, are not judged, and the audit reports how many it left out.
-- **Export vs engine**, at the first weight sync, before the first rollout: on vLLM, the format of every
-  synced weight against the quant method of the module that receives it. On SGLang, the refit loader
-  compares each incoming weight's dtype with the parameter that receives it before writing it; later syncs
-  ship the same formats and skip it (switched by `VERL_MXFP8_REFIT_CHECK`).
+- **Training vs export**, when training runs a TE FP8 recipe, at the first weight sync after a training step
+  (the sync before it has no FP8 trace yet): each decoder layer's FP8 trace (TE's FP8 weight workspaces)
+  against the format the sync sends for that layer's GEMM projections (attention, MLP, experts,
+  linear-attention and SSM in / out projections). Weights the exporter keeps in BF16 by design are skipped.
+  Other decoder-layer weights, such as a convolution, are not judged, and the audit reports how many it left
+  out.
+- **Export vs engine**, whenever the rollout is quantized, during the first weight sync: inside the engine's
+  weight loader, before each bucket is written, every incoming weight's format (quantized or high
+  precision) against the engine parameter that receives it. vLLM checks every quantized format; SGLang
+  checks the formats of its refit loader (MXFP8, MXFP4, NVFP4). Later syncs send the same formats and are
+  not checked again.
 
-`VERL_QUANT_LAYER_AUDIT_TRACE=1` logs each step of the audit itself. The training-side trace is per layer,
+`VERL_QUANT_LAYER_AUDIT` switches both. `VERL_QUANT_LAYER_AUDIT_TRACE=1` logs each step of the training-side
+comparison. The training-side trace is per layer,
 so a TE module kept in BF16 inside an FP8 layer would go unnoticed (Megatron has no such per-module option
 today). With `disable_parameter_transpose_cache=True` TE keeps no FP8 workspace, and the audit warns once
 that it cannot run.
