@@ -468,7 +468,11 @@ class AgentLoopBase(ABC):
         """Cap a text prompt to ``rollout.prompt_length`` using ``data.truncation``.
 
         Prompts within the cap are returned unchanged. ``left``, ``right``, and
-        ``middle`` truncate and log a warning; otherwise raise error.
+        ``middle`` truncate and log a warning; otherwise raise error. ``middle``
+        keeps head and tail halves matching
+        ``verl.utils.torch_functional.postprocess_data`` (the odd-cap remainder
+        goes to the tail); at cap 1 the head half would be empty, so the first
+        token is kept to preserve the prompt's leading identity.
         """
         prompt_length = self.rollout_config.prompt_length
         if len(prompt_ids) <= prompt_length:
@@ -495,7 +499,7 @@ class AgentLoopBase(ABC):
                 len(prompt_ids),
                 prompt_length,
             )
-            head = prompt_length // 2
+            head = max(1, prompt_length // 2)
             tail_length = prompt_length - head
             return prompt_ids[:head] + prompt_ids[len(prompt_ids) - tail_length:]
 

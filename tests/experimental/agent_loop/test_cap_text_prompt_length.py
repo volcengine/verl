@@ -86,11 +86,9 @@ def test_right_keeps_head():
 
 
 @pytest.mark.parametrize(
-    ("prompt_length", "expected"),
+    "prompt_length,expected",
     [
-        # extra token of an odd cap goes to the tail, matching
-        # verl.utils.torch_functional.postprocess_data (left_half = cap // 2).
-        (1, [9]),
+        (1, [0]),
         (2, [0, 9]),
         (3, [0, 8, 9]),
         (4, [0, 1, 8, 9]),
@@ -99,21 +97,25 @@ def test_right_keeps_head():
     ],
 )
 def test_middle_keeps_head_and_tail(prompt_length: int, expected: list[int]):
-    """``middle`` truncation keeps head+tail of roughly half each side."""
+    """``middle`` truncation keeps head+tail halves with explicit expected output.
+
+    The head half matches ``torch_functional.postprocess_data`` (floor split, so
+    the odd-cap remainder goes to the tail). At cap 1 the head half would be
+    empty, so the first token is kept instead. Explicit expectations for every
+    cap 1..6 prevent an incorrect interior slice from passing by re-deriving the
+    expectation from the output itself.
+    """
     loop = _make_loop(prompt_length, "middle")
     out = loop._cap_text_prompt_length(list(range(10)))
-    assert out == expected, f"middle should match postprocess_data split: {out}"
-    head = prompt_length // 2
-    assert out[:head] == list(range(10))[:head], f"head must be preserved: {out}"
-    assert out[head:] == list(range(10))[10 - (prompt_length - head) :], f"tail must be preserved: {out}"
+    assert out == expected
 
 
 def test_middle_cap1_does_not_extend_prompt():
-    """Regression: at cap=1 the old ``[-(0):]`` tail slice selected the whole list."""
+    """``middle`` at cap=1 must not select the whole list via ``[-0:]``."""
     loop = _make_loop(1, "middle")
     out = loop._cap_text_prompt_length(list(range(10)))
     assert len(out) == 1
-    assert out == [9]
+    assert out == [0]
 
 
 def test_unknown_policy_raises():
