@@ -294,7 +294,12 @@ class RLInsightLogger:
                 scalar = float(value)
             except (TypeError, ValueError):
                 continue
-            metric_gauge(str(key).replace("/", "_"), scalar)
+            metric_gauge(
+                str(key).replace("/", "_"),
+                scalar,
+                rl_insight_step=int(step),
+                rl_insight_metric_name=str(key),
+            )
 
     @classmethod
     def finish(cls):
